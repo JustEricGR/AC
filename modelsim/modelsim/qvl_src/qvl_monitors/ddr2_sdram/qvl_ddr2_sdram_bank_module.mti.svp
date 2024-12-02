@@ -1,0 +1,1446 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+ *
+ * PURPOSE      This file is part of 0-In CheckerWare.
+ *              It describes the DDR2 SDRAM monitor bank module.
+ *
+ * REFERENCE    JESD79-2 DDR2 SDRAM Specification,
+ *              JEDEC Solid State Technology Association, September 2003
+ *
+ * DESCRIPTION  This module is instantiated by the DDR2 SDRAM monitor to 
+ *              check if the DDR2 SDRAM memory interface functions properly.
+ *
+ * INPUTS       areset                  - Asynchronous reset, active high.
+ *              reset                   - Synchronous reset, active high.
+ *              clock                   - Input differential clock CLK.
+ *              clock_n                 - Input differential clock CLK#.
+ *              command                 - Command Word from main module.
+ *              data_mask               - Data Mask DM.
+ *              bank_addr               - Bank Address lines BA.
+ *              bank_num                - Bank number of the instantiation.
+ *              address                 - Address lines A.
+ *              data                    - Data bus DQ
+ *              dqs                     - Data Strobe DQS.
+ *              cas_latency             - CAS Latency value
+ *              additive_latency        - Additive Latency value
+ *              burst_type              - Interleaved/Sequential burst.
+ *              read_before_write_chk   - Read before write check enable.
+ *              bad_data_chk            - Data check enable.
+ *              burst_length_programmed - Burst length programmed in mode reg.
+ *              tWR_programmed          - tWR programmed in mode register.
+ *              slow_exit               - Power down exit time.
+ *              ldq                     - Lower byte data in case of x16 mode.
+ *              ldqs                    - Data strobe for ldq.
+ *              ldm                     - Data mask for ldq.
+ *              udq                     - Upper byte data in case of x16 mode.
+ *              udqs                    - Data strobe for udq.
+ *              udm                     - Data mask for udq.
+ *              rdqs_enable             - RDQS strobe enable.
+ *              diff_strobe_enable      - Differential strobe enable.
+ *              rdqs                    - Read data strobe (RDQS) signal.
+ *
+ *              
+ * 
+ * OUTPUTS      posted_read             - Current read type.
+ *              posted_write            - Current write type.
+ *              bank_status             - Bank currently active/idle.
+ *              write_burst_in_progress - Burst write window signal.
+ *
+ * 
+ * LAST MODIFIED : 06 April 2006.
+ *
+ **************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifndef QVL_DQS_DELAY
+`define QVL_DQS_DELAY 2
+`endif
+
+`qvlmodule qvl_ddr2_sdram_bank_module (areset,
+                                     reset,
+				     clock,
+				     clock_n,
+				     command,
+				     data_mask,
+				     bank_addr,
+				     bank_num,
+				     address,
+				     data,
+				     dqs,
+				     cas_latency,
+				     additive_latency,
+				     burst_type,
+				     posted_read,
+				     posted_write,
+				     bank_status,
+				     write_burst_in_progress,
+				     read_before_write_chk,
+				     bad_data_chk,
+                                     burst_length_programmed,
+                                     tWR_programmed,
+				     slow_exit,
+				     ldq,
+				     ldqs,
+				     ldm,
+				     udq,
+				     udqs,
+				     udm,
+				     rdqs_enable,
+				     diff_strobe_enable,
+				     rdqs,
+                                     clock_change_during_non_ppd_mode_enable,
+                                     clock_change_during_illegal_cke_enable,
+                                     violates_tCLK_enable,
+                                     clock_frequency_out_of_range_enable,
+                                     cke_change_during_clock_change_enable,
+                                     ppd_exit_during_unstable_clock_enable,
+                                     dll_not_reset_after_ppd_exit_after_clock_change_enable,
+                                     no_set_cas_latency_after_ppd_enable
+                                    );
+
+  parameter Constraints_Mode = 1;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  parameter CONTROLLER_SIDE = 1;
+  wire [31:0] pw_CONTROLLER_SIDE = CONTROLLER_SIDE;
+
+  parameter ROW_ADDR_WIDTH = 16;
+  wire [31:0] pw_ROW_ADDR_WIDTH = ROW_ADDR_WIDTH;
+
+  parameter DATA_BUS_WIDTH = 8;
+  wire [31:0] pw_DATA_BUS_WIDTH = DATA_BUS_WIDTH;
+
+  parameter DM_WIDTH = 1;
+  wire [31:0] pw_DM_WIDTH = DM_WIDTH;
+
+  parameter DLL_TRACKING_ENABLE = 1;
+  wire [31:0] pw_DLL_TRACKING_ENABLE = DLL_TRACKING_ENABLE;
+
+  parameter TRAS = 9; // Active to precharge command
+  wire [31:0] pw_TRAS = TRAS;
+
+  parameter TRCD = 3; // Active to read/write delay
+  wire [31:0] pw_TRCD = TRCD;
+
+  parameter TRP = 3; // Precharge command period
+  wire [31:0] pw_TRP = TRP;
+
+  parameter TRRD = 2; // Bank A activate to bank B activate
+  wire [31:0] pw_TRRD = TRRD;
+
+  parameter TCCD = 2; // CAS A to CAS B delay
+  wire [31:0] pw_TCCD = TCCD;
+
+  parameter TRTW = 4; // Read to write turnaround time
+  wire [31:0] pw_TRTW = TRTW;
+
+  parameter TWTR = 2; // Write to read turnaround time
+  wire [31:0] pw_TWTR = TWTR;
+
+  parameter TWR = 3; // Write recovery time
+  wire [31:0] pw_TWR = TWR;
+
+  parameter TRFC = 15; // Auto-refresh to auto-refresh or activation spacing
+  wire [31:0] pw_TRFC = TRFC;
+
+  parameter TXSNR = 25; // Exit self-refresh to a non-read command delay
+  wire [31:0] pw_TXSNR = TXSNR;
+
+  parameter TXSRD = 200; // Exit self-refresh to a read command delay
+  wire [31:0] pw_TXSRD = TXSRD;
+
+  parameter TMRD = 2; // Mode register set command cycle time
+  wire [31:0] pw_TMRD = TMRD;
+
+  parameter  AUTOPRECHARGE_ENABLE_ADDRESS_BIT = 10;
+  wire [31:0] pw_AUTOPRECHARGE_ENABLE_ADDRESS_BIT =
+              AUTOPRECHARGE_ENABLE_ADDRESS_BIT;
+ 
+  //The following parameter is used to enable/disable the
+  //read before write checker.
+
+  parameter  READ_BEFORE_WRITE_CHECK_ENABLE = 1;
+  wire [31:0] pw_READ_BEFORE_WRITE_CHECK_ENABLE =
+              READ_BEFORE_WRITE_CHECK_ENABLE;
+
+  // These parameters added to verify the power down exit
+  // latencies for non read and read commands
+
+  parameter TXP = 2; // Precharge power down to non read command time
+  wire [31:0] pw_TXP = TXP;
+
+  parameter TXARD = 2; // Active power down to read command, fast exit
+  wire [31:0] pw_TXARD = TXARD;
+
+  // The following parameter defines the width of the bank address
+  parameter BANK_ADDR_WIDTH = 3;
+  wire [31:0] pw_BANK_ADDR_WIDTH = BANK_ADDR_WIDTH;
+
+  parameter ENABLE_PRECHARGE_TO_IDLE_BANK = 0;
+  wire [31:0] pw_ENABLE_PRECHARGE_TO_IDLE_BANK = ENABLE_PRECHARGE_TO_IDLE_BANK;
+
+  parameter BYPASS_INIT = 0;
+  wire [31:0] pw_BYPASS_INIT = BYPASS_INIT;
+ 
+  // Use the following parameter to configure the monitor to support the new 
+  // DDR2 SDRAM specification (1.0) of September 2003 
+  parameter ZI_DDR2_SDRAM_2_0 = 1;
+  wire [31:0] pw_DDR2_SDRAM_2_0 = ZI_DDR2_SDRAM_2_0;
+
+  //The following parameter is used to enable/disable the
+  //data checker.
+  parameter  ZI_DATA_CHECK_ENABLE = 1;
+  wire [31:0] pw_DATA_CHECK_ENABLE = ZI_DATA_CHECK_ENABLE;
+
+  parameter ZI_DM_RDQS_WIDTH = 1;
+  wire [31:0] pw_DM_RDQS_WIDTH = ZI_DM_RDQS_WIDTH;
+
+  parameter CLOCK_PERIOD_MAX = 10;
+  wire [31:0] pw_CLOCK_PERIOD_MAX = CLOCK_PERIOD_MAX;
+  // Default minimum supported clock is 100 Mhz which allows 100 million transfers
+  // per data pin per second. This is the lowest speed grade for DDR SDRAM spec
+  // JESD79-2C May2006.  This defaults to maximum clock period of 10 ns.
+
+  parameter CLOCK_PERIOD_MIN = 5;
+  wire [31:0] pw_CLOCK_PERIOD_MIN = CLOCK_PERIOD_MIN;
+  // Deafult maximum supported clock is 800 Mhz which allows 800 million transfers
+  // per data pin per second. This is the highest speed grade for DDR SDRAM spec
+  // JESD79-2C May2006. This defaults to minimum clock period of 5 ns.
+
+  parameter DATA_PORT_SIZE = 8;
+  wire [31:0] pw_DATA_PORT_SIZE = DATA_PORT_SIZE;
+
+  input areset;
+  input reset;
+  input clock; 
+  input clock_n; 
+  input [5:0] command; // {r_cke,cke,cs_n,ras_n,cas_n,we_n}
+  input [ZI_DM_RDQS_WIDTH-1:0] data_mask; 
+  input [BANK_ADDR_WIDTH-1:0] bank_addr;
+  input [BANK_ADDR_WIDTH-1:0] bank_num; // instance number in the main module
+  input [ROW_ADDR_WIDTH-1:0] address;
+  input [DATA_BUS_WIDTH-1:0] data;
+  input dqs;
+  input [2:0] cas_latency;
+  input [2:0] additive_latency;
+  input burst_type;
+  input read_before_write_chk;
+  input bad_data_chk;
+  input [2:0] burst_length_programmed;  
+  input [2:0] tWR_programmed; 
+  input slow_exit; 
+  input [DATA_PORT_SIZE-1:0] ldq;
+  input ldqs;
+  input ldm;
+  input [DATA_PORT_SIZE-1:0] udq;
+  input udqs;
+  input udm;
+  input rdqs_enable;
+  input diff_strobe_enable;
+  input rdqs;
+
+input clock_change_during_non_ppd_mode_enable,
+      clock_change_during_illegal_cke_enable,
+      violates_tCLK_enable,
+      clock_frequency_out_of_range_enable,
+      cke_change_during_clock_change_enable,
+      ppd_exit_during_unstable_clock_enable,
+      dll_not_reset_after_ppd_exit_after_clock_change_enable,
+      no_set_cas_latency_after_ppd_enable;
+  
+  output bank_status;
+  output posted_read;
+  output posted_write;
+  output write_burst_in_progress;
+
+  // RDQS pin using the DM pin in case of x8 configuration
+
+
+  // The following parameter defines the width of the mode register
+  parameter ZI_MODE_REG_WIDTH = 19;
+  wire [31:0] pw_MODE_REG_WIDTH = ZI_MODE_REG_WIDTH;
+ 
+  parameter ZI_CONSTRAINTS_MEMORY_SIDE = (Constraints_Mode === 1 &&
+                                          CONTROLLER_SIDE === 0);
+  wire [31:0] pw_ZI_CONSTRAINTS_MEMORY_SIDE = ZI_CONSTRAINTS_MEMORY_SIDE;
+ 
+
+  // Parameters for internal use and state machine variables
+
+  parameter ZI_TRTR = 2; // this is the minimum read to read delay
+  wire [31:0] pw_ZI_TRTR = ZI_TRTR;
+
+  parameter ZI_TWTW = 2; // minimum allowed write to write delay
+  wire [31:0] pw_ZI_TWTW = ZI_TWTW;
+
+  parameter ZI_IDLE = 1;
+  parameter ZI_PRECHARGE_ALL = 2;
+  parameter ZI_PRECHARGE = 3;
+  parameter ZI_MODE_REG_SET= 4;
+  parameter ZI_EX_MODE_REG_SET = 5;
+  parameter ZI_ACTIVATE_BANK = 6;
+  parameter ZI_WRITE = 7;
+  parameter ZI_WRITE_AUTO_PRECHARGE = 8;
+  parameter ZI_READ = 9;
+  parameter ZI_READ_AUTO_PRECHARGE = 10;
+  parameter ZI_CBR_REFRESH = 11;
+  parameter ZI_SELF_REFRESH = 12;
+  parameter ZI_IDLE_PWR_DOWN = 13;
+  parameter ZI_ACT_PWR_DOWN = 14;
+  parameter ZI_UNKNOWN = 15;
+  parameter ZI_NOP = 16;
+
+
+  // Parameter used for data checker module.
+
+  parameter ZI_READ_LATENCY_MAX = 7;
+  wire [31:0] pw_ZI_READ_LATENCY_MAX = ZI_READ_LATENCY_MAX;
+
+  parameter ZI_WRITE_LATENCY_MAX = ZI_READ_LATENCY_MAX -1;
+  wire [31:0] pw_ZI_WRITE_LATENCY_MAX = ZI_WRITE_LATENCY_MAX;
+
+`ifdef ZI_FOR_SEARCH
+parameter       ZI_CACHE_ADDR_WIDTH = 5;
+                  //Cache memory depth. Each cache memory segment will contain
+                  //one page address of the memory. Every page will have
+                  //( (1'b1 << ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH) - 1)
+                  //no. of data.
+`else
+parameter       ZI_CACHE_ADDR_WIDTH = 10;
+                  //Cache memory depth. Each cache memory segment will contain
+                  //one page address of the memory. Every page will have
+                  //( (1'b1 << ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH) - 1)
+                  //no. of data.
+`endif
+
+  wire [31:0] pw_ZI_CACHE_ADDR_WIDTH = ZI_CACHE_ADDR_WIDTH;
+
+  parameter ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH = 2;
+              //It is 3 to cater max burst length of 8.
+              //ZI_CACHE_ADDR_WIDTH & ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH
+              //together declares 1024 data locations. 
+  wire [31:0] pw_ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH =
+                                            ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH;
+  parameter       EVEN_ADDR = 0;
+  parameter       ODD_ADDR = 1;
+
+  // Register declarations for outputs
+
+  reg bank_status;  // 1 implies bank active and 0 implies idle
+  reg posted_read;  // current command is a posted read
+  reg posted_write; // indicates posetd writes
+
+  reg [4:0] present_state;
+  reg [4:0] next_state;
+  reg [4:0] last_state;
+  reg [4:0] from_state;
+  reg [4:0] r_from_state;
+  
+  reg [4:0] track_tMRD_counter;   // In this section individual counters are
+  reg [11:0] track_tRAS_counter;   // declared to keep track of various timing
+  reg [4:0] track_tRCD_counter;   // parameters which specify the limiting 
+  reg [4:0] track_tRP_counter;    // spacings between different commands 
+  reg [4:0] track_tRTR_counter;   // issued to the DDR2 SDRAM. These are 
+  reg [4:0] track_tCCD_counter;   // initialized to their corresponding 
+  reg [4:0] track_tRTW_counter;   // parameter values during the relevant 
+  reg [4:0] track_tWTR_counter;   // command and stopped at the other command.
+  reg [4:0] track_tWR_counter;    // Any non zero at that instant indicates 
+  reg [7:0] track_tRFC_counter;   // insufficient spacing between the two 
+  reg [7:0] track_tXSNR_counter;  // commands issued.
+  reg [7:0] track_tXSRD_counter;
+  reg [4:0] track_tRTP_counter;
+  reg [4:0] track_tWTW_counter;
+  reg [4:0] track_tWTP_counter;
+  reg [3:0] track_tXP_counter;    //  Three new counters added to
+  reg [3:0] track_tXARD_counter;  // track the power down exit latencies
+  reg [3:0] track_tXARDS_counter;
+  reg [11:0] track_tRC_counter; //Added on 15DEC06 for MetaRAM fixes. This differs from ZIN monitor 
+                              //since ZIN uses AWIN checker, but QVL should use assert_never ONLY. 
+
+  // Following are used as firing enables for various violations
+
+  reg write_cmd_without_activation;
+  reg read_cmd_without_activation;
+  reg data_checker_violation_posedge;
+  reg data_checker_violation_negedge;
+  reg precharge_issued_to_idle_bank;
+  reg illegal_command;
+
+  // This block declares the internal registers used in the monitor code.
+   
+  reg r_dequeue_negedge_rd;
+  reg r_dequeue_negedge_wr;
+  reg [7:0] free_run_counter;
+  reg [3:0] burst_counter_posedge; // Burst counters used for search.
+  reg [3:0] burst_counter_negedge;
+  reg init_sequence_done; // goes high with first activation and stays high 
+  reg r_cas_for_other_bank;
+  integer i;
+
+  // New counters added
+
+  reg [3:0] read_burst_counter;
+  reg [3:0] write_burst_counter;
+  reg [3:0] write_data_period;
+  wire read_burst;
+  wire write_burst;
+
+  // Time stamp memory declarations. At every read/write command, the time
+  // stamp memory is updated with the clock (with reference to free running
+  // counter) at which the read/write burst should start. The time stamp 
+  // memory value is continuously compared with free run counter.
+ 
+  reg [7:0] rd_time_stamp_memory[0:15]; 
+  reg [3:0] rd_time_stamp_mem_wrt_ptr; // Used to update time stamp memory
+  reg [3:0] rd_time_stamp_mem_rd_ptr;  // Used to pop out scheduled read/write
+
+  reg [7:0] wr_time_stamp_memory[0:15];
+  reg [3:0] wr_time_stamp_mem_wrt_ptr; // Used to update time stamp memory
+  reg [3:0] wr_time_stamp_mem_rd_ptr;  // Used to pop out scheduled read/write
+
+  reg latched_read_command, latched_write_command;
+
+  // Command Pipe. This is an 8 stage pipe that holds the last 8
+  // commands issued. Though 4 are sufficient, a depth of 8 is provided for
+  // future use. This pipe is used to fire for illegal burst interruption.
+  
+  reg [55:0] command_pipe; 
+
+  // Declared wires for BL and BL/2
+
+  wire [2:0] burst_length;
+  wire [3:0] burst_length_by_2;
+
+  // z_burst_pending provides the window between a read/write command and 
+  // start of burst. z_dequeue goes high for one clock whenever the free
+  // running counter reaches the clock to which the read/write was scheduled.
+  // burst_in_progress gives the window beteen a read/write command and the
+  // completion of read/write burst.
+
+  wire z_rd_burst_pending = (rd_time_stamp_mem_wrt_ptr !== 
+                             rd_time_stamp_mem_rd_ptr);
+  wire z_rd_dequeue = (z_rd_burst_pending === 1'b1 && 
+		   rd_time_stamp_memory[rd_time_stamp_mem_rd_ptr] === 
+		   free_run_counter && command[4] === 1'b1);
+  wire z_rd_burst_in_progress = (latched_read_command === 1'b1 && 
+                                (z_rd_burst_pending === 1'b1 ||
+                                 burst_counter_posedge > 0 || 
+				 burst_counter_negedge > 0 ));
+  wire z_wr_burst_pending = (wr_time_stamp_mem_wrt_ptr !== 
+                             wr_time_stamp_mem_rd_ptr);
+  wire z_wr_dequeue = (z_wr_burst_pending === 1'b1 &&
+                   wr_time_stamp_memory[wr_time_stamp_mem_rd_ptr] ===
+                   free_run_counter && command[4] === 1'b1);
+  wire z_wr_burst_in_progress = (latched_write_command === 1'b1 && 
+                                 (z_wr_burst_pending === 1'b1 ||
+                                  burst_counter_posedge > 0 || 
+				  burst_counter_negedge > 0 ));
+
+  //wire write_burst_in_progress = z_wr_burst_in_progress;
+  wire write_burst_in_progress = write_burst;
+
+
+  wire [3:0] read_latency = additive_latency + cas_latency;
+  wire [3:0] write_latency = read_latency - 1'b1;
+  wire [7:0] read_schedule = free_run_counter + read_latency - 0;
+  wire [7:0] write_schedule = free_run_counter + write_latency;
+
+  // This section contains declarations or wires used as commands for the 
+  // DDR2 SDRAM bank module. The input to the module 'command' holds the 
+  // values of CKE, CKE_last, CS#, RAS#, CAS# and WE#. Further 'bank_addr'
+  // and 'address' inputs contain the states of bank address and memory 
+  // address lines respectively. Each bank is modeled as an instantiation 
+  // of the bank module and the bank no of the particular instantiation is 
+  // passed through 'bank_num'. This helps to identify as to which bank 
+  // the current command should go to. With these, the bank specific command 
+  // is computed as a wire. This is as per the command truth table given
+  // in JEDEC spec JC 42.3 page no 35 of 43.
+
+  wire z_mode_reg_set_cmd = (bank_addr[0] === 1'b0 && command === 6'b110000);
+  wire z_ex_mode_reg_set_cmd = (bank_addr[0] === 1'b1 && 
+         command === 6'b110000); 
+  wire z_precharge_all_cmd = (address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 
+                              1'b1 && command === 6'b110010); 
+  wire z_precharge_cmd = (address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0 &&
+                          bank_addr === bank_num && command === 6'b110010);
+  wire z_activate_cmd = (bank_addr === bank_num && command === 6'b110011);
+  wire z_write_cmd = (bank_addr === bank_num && command === 6'b110100 &&
+                      address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0);
+  wire z_write_auto_precharge_cmd = (bank_addr === bank_num && 
+	              address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b1 && 
+                      command === 6'b110100);
+  wire z_read_cmd = (bank_addr === bank_num && command === 6'b110101 &&
+                     address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0); 
+  wire z_read_auto_precharge_cmd = (bank_addr === bank_num && 
+	             address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b1 && 
+                     command === 6'b110101);
+  wire z_cbr_auto_refresh_cmd = (command === 6'b110001);
+  wire z_enter_self_refresh_cmd = (command === 6'b100001);
+  wire z_exit_self_refresh_cmd = (command === 6'b010111 || 
+         command[5:3] === 3'b011); 
+  wire z_enter_power_down_cmd = (command[4:0] === 5'b00111 || 
+	 command[4:3] === 2'b01 || command[5:4] === 2'b00);
+  wire z_nop_cmd = (command === 6'b110111);
+  wire z_deselect_cmd = (command[3] === 1'b1);
+  wire z_exit_power_down_cmd =  (command === 6'b010111 || 
+         command[5:3] === 3'b011);
+  wire z_ras_for_other_bank = (bank_addr !== bank_num && command[5] === 1'b1 &&
+	 command[3:0] === 4'b0011);
+  wire z_cas_for_other_bank = (bank_addr !== bank_num && command[5] === 1'b1 &&
+	 (command[3:0] === 4'b0100 || command[3:0] === 4'b0101));
+  wire z_pre_for_other_bank = (bank_addr !== bank_num && command[5] === 1'b1 &&
+	 command[3:0] === 4'b0010 && address[10] === 1'b0);
+  wire z_other_bank_cmd = (z_ras_for_other_bank || z_cas_for_other_bank || 
+	 z_pre_for_other_bank);
+
+  wire z_other_bank_write_cmd = (bank_addr !== bank_num &&
+                                 command === 6'b110100 &&
+                           address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0);
+  wire z_other_bank_writea_cmd = (bank_addr !== bank_num && 
+                                  command === 6'b110100 &&
+                           address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b1);
+  wire z_other_bank_read_cmd = (bank_addr !== bank_num &&
+                                command === 6'b110101 &&
+                           address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0);
+  wire z_other_bank_reada_cmd = (bank_addr !== bank_num && 
+                                 command === 6'b110101 && 
+			   address[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b1);
+  wire z_non_cas_for_other_bank = (bank_addr !== bank_num && 
+                          !(command === 6'b110100 || command === 6'b110101));
+
+  // These signals indicating write/read/writea/reada added to be used 
+  // for the command pipe implementation
+
+  wire [6:0] read_command_issued = 7'b011_0101;
+  wire [6:0] reada_command_issued = 7'b111_0101;
+  wire [6:0] write_command_issued = 7'b011_0100;
+  wire [6:0] writea_command_issued = 7'b111_0100;
+  wire [6:0] nop_command_issued = 7'b011_0111;
+
+  //  read/write interruption fire signals
+ 
+  wire bl_8_rd_burst_interrupted_at_6b_boundary;
+  wire bl_8_wr_burst_interrupted_at_6b_boundary;
+  wire bl_8_rda_interruption;
+  wire bl_8_wra_interruption;
+  wire illegal_8b_rd_burst_interruption;
+  wire illegal_8b_wr_burst_interruption;
+
+  // Tracking the clock enable signal
+
+  wire CKE = command[4];
+  wire CKE_delayed = command[5];
+
+`protected
+
+    MTI!#B#O}WRJG2o*ro+=m]pGkB*o]e<';}>>W7@[^"}~{TEb9kUE;Gmr7E+B>)7+BmZsZ]2rROxO
+    2=)#$1@ol,k8}~]x'WKC5<1YV8IY\D'Q_[j?oZt3$+#a]JKzWsO?+s#&U*yF\A{lCRB+WTAa5G2[
+    ,xnzcE*=#/KCo*aI?nx~+AZn<59'DBBmG7k'CXBNr^A]Kw[-AYu^9AD+=pXpZ^@[$z-]=}YBY?<J
+    @=,Ukre\a4OxQ;Xe!a6}]xl'mm$@HQx2'@w9Y?e@|}m*[CI;UsoC-z*jJp3zTRY^O*p_7'x7*}Iz
+    'z[Y}/?ww3T*-{BIi]l'UwHw>a_>^a<'unRK_7$=m#,VoGdz3Z*#A[K#HCT6%KGT'e*-;eJYDnDO
+    w'#\WC#l=H^(a}jBkCZH}Cn1W-T7^2mxNGI,3]kJ==@XAGW'@D]m#IJvn{_KmUpj#>owYR?>I|9}
+    ilBOxzzBno}U]TXTvC~1,!R<[Hj\{^'~'l\Oe'O-UAQl7TeQ_T[cZ]*?VZ_<7W'$3{\>-O;aQ$WU
+    >z'CYE7U]sZBR2J]|BCZ,BArE1$o'WDWGX5pCZevwa_'uCEpGHU@},8+pe3UXz_CVm<.+l?=gnOi
+    xlovmQeY[HapVUA;wU5I,;&p-*3$Jao?<*zl]32e*Q}lK<].C,?$a5;?owaeuG+a]7?TF~{2pCpU
+    oRjnZmBox/v#sCei3jj7xu{'p1!QpAuT\JNARjG#a~ETCJ3#w{nR,C}*CwQxU]a?za,<l?^7,ROU
+    wM^~wT=R;7Oj[zkD~A_Rr$-Y*a9Gjs5$aH[.I./3n7X[Mz'I<Z$7OI,=+,kD*TnzY]aWn=J77-wD
+    Tp^]$dfWvpzA>Die1Yo-UBJ*$#*Rr<~?}no]B{'5o@?/.}m*JLeoQsu$;$}{v[\2wZ@-VrV<
+`endprotected
+
+  // Strings to print State Variables
+
+  reg [64:1] present_state_string, next_state_string, r_from_state_string;
+
+`protected
+
+    MTI!#v5RO1Uo\3DV3+$GiwsIWpa1'^[$37as\|(K'k[pZrG7@Ypn|Gna<[HlKp5?aX'kp7@_5Zxr
+    BoQA3_kGiO*XY!D$D(wT=DQ9P[nAB[vri7#1*'"D*@<E+-?)-aJ1rr;,aTG\=>Aj]1}{aaUU*=$[
+    =GDl<pCr?+2u^%M7@p[ylUUAc?<]w=pnr,=An-Qx'1*5e~<p_\3~vH=kuw$_3E*vB$3zl!11Tx=[
+    KuYVs\N@ABKI-<?D#K#x1v$Ywp1X1O+Bw]!,<<v'aH3oD[*5U}XV@Kxz{v,B#WjQVjnH-KkD^mDZ
+    ^X!X'a='#ArmDHejxjo_U@'#p}*lQ~U\jeZnTa{Q{~}7e\3,{5w'o+}vB!UzxoT.isI'xOZ_EDXD
+    Ik3?3hnXnukp@\JQG}xmD{#]vKkH*o#,=}jpn>RQRm>OI@pZuzNv{E<=2;?I-K+\+2OW131jCisP
+    =?>VQu=vM}AnTjp^pv]5kkBIJgAsxsxGHB-BCGEZzO8VH@>^YBRn[Q=*X-@ZXUsrGEo3C,G?[\W$
+    mC5apx=lwr5lQ1i[2lo]Q\pB>VY;5O?xpJJHQv!jKH,>z$z@C[-{V]s"B!X-7Cx^-Q[^G+{AI2zw
+    }F,ZU<1{VYUw+3sw<?z;nw1Rv_#]^@xH]m,+r{lH}@QEE#<T+>G{]OLLJ]TZ^Rh^?'Tt^n_n(Y3[
+    Ja$;Gu=?elk[[HX]7eZ5~<{QnB1=i:vZ'5'Jm{XRVj=e^\>\A,|'M,Tww5@I5Osp-?vuvj7-<E<a
+    R$]-!^<8s]-E]=?zQs_^^Xv;j7nT1wvkCVi@,wjlvWnj>*VZrGpZQT@?W7A!j<OR1EW>eUV,1UXX
+    RY1[zpk5,<TYCEAjCQxx5eoj~Hu\*n1TX<Z[1z,JN9:e23U*xmphz^[;Y~*n1Bmae|V33>N8|T7/
+    G'C##lrQ,>ujpHzEGG$_9mE=TU7>#Im;?J*!3(!w<H!r1~P<*>_-1aD1{-;5rZBIGaO@$J$7xQVs
+    *KOO3lWk-+a^+2pTE{AL^a*H6Co@uo_;7R\1>kA,]&'A<p?5@QnD?^Hp~VBoT1-wmEb=?~Gijm!z
+    REVJTK'uI$i&HE+v~rWKt,V*p[\=a*3^zQG<Rn'\uo?Rw.A5@J*-,#BU\-/115$#'JVs~ERm$owT
+    1C]\?HGo1Z*]*vmw]G,'?v{BJ_\[z;J0G?vH*mr7{pau0NZr2jOe$]<CzWPwtw>AohBU<3Ep+YC<
+    ;-x:ek-+--$*gHUI_jrmO7J\3rLC[2ID$[]Qk!wp#xY!RCU11@jkTlxVJ[U<}H-1>5leQr!iVBv_
+    7[XjJ]O#^+VBnZE}[YwwHX*!x-~X$}GoUCp3onr}1s<^-2e*@\vE=@uzW^[p>;V#<srkX\i?'!DD
+    _iJe1G;HxxW}\Qu7C#BG'}**DU'a7T{'2*GQUZvXH'1R!@$R3IVXsaC^GYQoxGIrWj~7?BGsHnG@
+    ^$+ym*@#Ce[-^?TKV/Y+]55+<rCmE!7pz^2,lm=}-+JDk#5VCif_pjm~s~kr>=}B?<?Wj~kZnZmY
+    3{]V${x<w]pBAA=uBpp>p?E<*\@oz{vExl<J7^nn.Q$n1Wr{E_\m3O_l,II'Y$E2G2$5KRAUBW$1
+    C$]T3Ja^[jiG*B|Q'\p^jmYiEYQ$R-GsOpQ@Dk$5zinek}r,ID@<[>k$rV,g<5wX~EpWvMe^DeG[
+    pxuR71d$@A@#^Z5iaX}Rk-IQT\UIWXZAa7mhy}B>E$YA5Gm-mf}i<lY$'CoF+xvBYl<Ex?7--*QE
+    Y#+#R173[3A{_}pu4eS[(7#v_|Uo?px^5VmlmTe\vzae!UURkw5XCxyIj<j>Al{PEY=-sB~G\>+E
+    UA$E5v]oo*AnWUnx@1<*Ns}22$$u#2{5[m,~HoO7OWpv1Vsa%1_]llv$[OOV1'p>@mOIR~=+$xqB
+    i=ksY<{HC<1^11,IzspB='=5/Gk{z>nXp-=Qa*z~HF,mC@oaHxrOa#[D}J,~IkKxj3A]3\BiDXI-
+    u*\HTXY*oa9@Co*KsUE!$TkCKOZCha*>@uBmQ2*iloz7=i1~1yNQZCQ-G>,Dnp=Y_{eiC!l->_OG
+    CnvAQD-3owC]GkT8>xO;k5;uX,RB0jKE-'D,[p<J=Osk#L(<<>zr;x~,'EY=1j^5>]7Twu3K]DoI
+    v$2q.k']Tv=iE}AXlO5o<~[11srapAR,x@Gk7+I^p]=22;l_3xJ{21!+s$WQOeC]3HQOV$1~[}Z!
+    WM]5<\DvW$]j+wjQRi\CGeIpJkv[[17#!r9'[}1*p++HBl^*IO*kB-UV[GWbsi<+Y*b7zZz~va[n
+    j!5s{}=Zs^sv$HxszvslnHX>E1D]!RA!RvTFmG=2v!}~ev+XR=nkCTm+$^n{YYijrUeaw}OT\zjm
+    ,+n<pYpW7C]HEk!wv!}~1Ha[@<$1Q@W{1}>'=xx72wzW[TRWD,]$RWE+TElT,><3QZeV]\!3CHl;
+    1#*ep[z2^^<5<$Ov9ekDXaD$B_7+[0v!}e@1R*ID+2Ez?sAaBU*i{e5RRw?jY!o+BOw_{,v*YBvr
+    W\p;_pDl~uKY2Cu+733T'KR~saI]jH!E,1RvluE-~?39Uev5(T*lDEBlEza^^G<zw(@,VjI>V-,T
+    OYTBi=&^-JsKpvraEEsmQmmp$+oO]C},Yz}eH+n!R'pe#!2bs^Yo._,lRa-*C<{*'a,2C[,oH^cl
+    @}oHj}#mHTu_]VC$HERvY'n,X$K5CZWPr*_$E*K<vJXuH[#@zI2oxTG$<1D@ID,!@DOGDw*Z2-K?
+    ~nIwDI-B11Va^\jle>72lsaWWY_X_;3[Hn}Ys-R{zW-$S+OmBU'rKl1jj#nx5xRuJo}{>COn$Bxs
+    7dg+\Hj#w-ak$1nI\A[?[R-SF,l>rG7JVegM1\XDvpI_JRvuC\A~=-XU=i!VXp[kDo@o]U!Ry$_m
+    nV~>^[vGD,zT5+AQK';vGv#}uQO@YCu*Z_nrlO=nmPeK1!U<O~GY#U{E!?9c#TO$ZOTC.D+QAB5Z
+    s[5o7lWew\TjVl1p@\JV{_vDDR,[3iU~GQsXsC2^xC?}A=YD'$_o=C7BBnIRv8EEskMIUAD6'Oa~
+    27TvOI!xr!JuLO-CV[2Go$IpT#1wZj>J^u(+p{pxmXT!B^;Di**EVn<Wvw;AwO+zu\~j+S\2zYCr
+    \xElTpiQ!*vO}{IAHJmA8sm=nDz*Z9zCI'-C2>ZTaOKD~j'fC?Hnv!3'?Iw+Ce]i|-E2J>DQTeI<
+    !ZAVO.;,T*_pKYj\ArGZ-vA-D3}#u$"EsB2:n*CX#R,H4T_TD#UV#ijo7}E#jAAuTQ,=>7iGEwEI
+    It_+CECj~;Uo~3WR_\Bv13PG\psXp@CA5rG3zTn!I$U]wxejanHb|Bp{'ps^5L}>vY=QWOl5TlJ{
+    \^?j,[Q1X~',lxwIEK8eDukWQ^WsX,[~H+*rIz,#TnK^k+TOlYTp_{3I@+mT\<eED+r!'~OY,3W*
+    xvG-<===UZ?3_J[\wTvmsR#1{A}v_nmxE<n/'W7[?rp\=>^n%e_xUaTTw>wYDiQYjq1]W[(Ci+Gx
+    Go[;*DuQW{+^Z\UO>aKwsjs=*zu.n]!n(--^]_X1J[~71lvr]9D='D7=r^Z<2['[uY#Il[}[nj<^
+    ?YoauX'B<nkne=QO~BI~lec6?p\U,UY<fDwlwj!oE@{rKv!lVA$,I:x,o3^lI7>eTTZ[eCv;H[l$
+    pr'\Q1,$owz?<TKCK;mSns;^=!K7+j*5WQ$k-5Qpje^evn=@ro<}oze_$'xV*rYkC5Wl.IvXrs<$
+    v[@Hs_s\;p5z1[aE^;E$?*HY3lCouI}IBl#+?!w=$sJT<<n7Z1@E?x\vl-,rj1njTrRpnC,=?Br@
+    HWa3mX'z#7i$xSm}+U^ae+_>HK?s<!w[=o{_Q'\XzBarjv,GDnxG<7oZa3V>+CwCkVHEn]^GIsO1
+    jOvveA'V}!Z5WBrxlZZrJ3JOI\*oU'Yx3YdIjjQrT[sqn<+vJsV'G-s>5vJ^TTp$o7UJs}rBB3_G
+    RlDrFYJakXz}^WC\xwv<?wa@m,rVu_3vRk{H3v7[-riQ1>,7QZ]v1e{~UEoOV]r#mV^>k\u7BseQ
+    YTp;KqBnOmG<_K,W+^qiHW-@7VR;DK5@5R}*'v,#+Kups3~Hem3iQe+4n\[WwEGeas+'w<-REB^T
+    3a=j3_w3eVOjS?E'r15K]!*T5;GuT;*7IxnQuV7[7e2Ba!IneWHXYx7eGJ-Jz+DwsxR?B|gk7I-I
+    C1G31}5Cjj]P+QZ\[jITlxHAC$sW\-Jz5I+mBF*33*k=]oJI\\w-wDpYn;\Ij5<$krO]'vi1G_>'
+    k?}27uN~DnDUUw2^\5<pDX'NC'GZ?TBXBHs!'^J=\GzTDoZo%KV\!Y,np'p*OZ_{Dj#H?}5_VvzT
+    BZYe,Zpm'-ATwC$<U@AnYHQ7jW$]!p}T>},aaFMI*}wTeZsSnH\JC1\7U=E@OI-]^~}1]nWJW5Tr
+    RmwjWs[WCe!wZ=EBVj{XAGsvj>!G0BHA;xG;{lx^_XzjH7>[R%8+j\o[HT$xBei*u~,HXZ;hT-CQ
+    #*pr4rppuHa';LRs\\s!A>QkXrmx~mi]TWk'Z\URd>DToC><mm7!XyE7v@GDZoWOa[^<=xc@$-$j
+    wa'7,TY*\Vp#-*[z#O!^p_eQ=pee}H]#xmEk>R@@^@Tvs~12}sTI~X~\<UJr5*Csvkl<ERY$?\u~
+    -,kaY$VIC^Bg<*I;r#=^D21vQvEAj]lo[>$p^;77V+=EN'O1;u=VX<TUC+UX*n}5lY-+G7jxW)Re
+    'j]+GC1Rzu#CH2ejIDV>jw[#r?Jx!Hm+m@,nAR~wj'#{']}}B@^Oe,B2_-rsXkD5Ev7Yj~!ze{[A
+    =eIs-RH$lp]B[OA]-*Z>\JHs>2vHGZxj{j&oBnoOG$na$224^D15R@e}1nj*I3K{qus!rrxw]ueV
+    oxjWlwV,RF$iup$sjXCA@EaX>u2<Qv|)_u{{;>uZ~Ez2)o[ivmIrHX+}1BElTJ}W7|DI+UsQeR1W
+    Am[_^JQf7T7![Z3kQOEAxHB_v;<Kol[^lGz!lv;voTX,}WjW0L6(G?_[_uxv2Q~asT7<xk;HC{[^
+    kop~wta]#Ukw;Qu="2-TuWr]E9DHn2^]+j+[CG}oeQ#T[Y/s]-DFNB#+}U$KawTun=!rTe7u!{Vr
+    \=}3ml*$ro>BH'3z_QJV2k$T#8<B,^TxT$lm+=I[U!)~nB@+AnBuE,KZpa{npY=s'Y'zkp'{vKl\
+    uT'1#;a)oT5sl#Uo7?[pA5jsxoGD/c_,x-=*ViDo1-zR{Jwe~'.;-(v3]-?lx_vWGY#VV%6vKX?H
+    YCJn>]\wGm2Yn~@]oH~[]+?'<vWmji;rTHHrmEB)Y#TzPa'CZDRIl*=VU;$CYm^op~Cw]YR<+}eH
+    R]]xJx=+VGiYEO+lrw_vE#D7,nC<HY~Bm5}x$z3\o5WmoKx-DqT8{>!<$OUT@$r*~p,vp<m-,>R+
+    T>DGmnJ[D~s5GoQG1Q+KSw+Ua:'5YK[avvsYsR5YsWR[{;VF\lpZ'zx>gQ@ZrmU}w'QmW2w;IVQ^
+    l^lInyP;Tu<lwJ28'1e[^~>5j^\zs^aHZ-&v$zzL]X=HO2\3'\nxuVmx/7*5uGE[K+T3z}v,G3lG
+    o8OQC,xKI~JO7xMwlUz~5ei8az\'+A{p=Or2~on,HRn^GOn^C-,znepHm<\=@xV33Dj'93CB>-5I
+    }lD{3$j,3~BEBeYom3]nCA>;G$p<l9=eav@5VU{E<1cOrvI$iTnUBzROXp'eeO#JGRuVmuIU7,Z5
+    Xp-wQ\,'I#-!(pTD]H'nUx{~I!{w]2R[lh;,sJrJuG"~=?[uC3@e<ne9n}7-GkZ29lD'Ov]CCB5u
+    ??p,p#OX?oHaw*^Gm~=*?]T5_oOX,]ko7[r\*>^x1!'BnfVOrW-pnoNK\1DO_?mXp3R3DO3o%7aE
+    5^RU[liDwlTe{e<\so5HR^Ua52[>Dv]xe[RpW>sepH_IIk'YK<n\Tm}~s\k\T-UIZ<CiO>BA3^0v
+    Ckz~CKJJEDU,k{ORuV-,Q,!EEp'E*\u?Qnr~,s3o>{ZoX-7X-lo,}V_gEXmC#*<1O?n2zVK[s5!l
+    \-pA^U-<oWQu~$zD[l@#/HIE{r];5C-$B,pXVyTA-'>nA;5Z]}K\!w-5au3eT'2R4U=77sBA~3e_
+    2+}\@VGi\*EQkwTG<<vJpve,-]XT\j2Bj{1wWL?Ie*1UpHdI@$Kv!3u5YVlC'u^BU3zGR'ur,U#?
+    YJwKG{1Al;>lumG*?_$zk+CHU$kKEs3TIW5JoZ[dE~nHp*Qx=$vEjo@kOi+{--rwD3\$AGjD*Wru
+    x;<\*V5^u7[J;rDzO<3U*;;ujBOExiH[~<T>inO{~o!Wc,s5U,r>u4<_okGspikpe!p[5vVX*p,I
+    Vi>Ts2mG'z9Ww,7jfWnVn1_;#[e__sOVn>{nw\'{7S-B,3_]@H{YVs'w5j=Wr~$_n;D?^nNO@Vex
+    =_Q}1XAu-{TMrXw3C$7WKD>{o*,lm*a?^X5W!n!IwvJ'{$=5.iem>7Zx_3AmvwDGp}]5[>6\AY*:
+    ?Smp]QCO*a*0a7Ruc31n<\G,\"yr[Y*sTo_3*QKE--!'X]r<ov\XU2kVA<lBDHOkUZnOZJoV?@EH
+    _CD9^1Qp\\1\CAU,i5f^GY}<jBQv~HaQlpv^nI#YjxwrV${r'zG7s@E/B1>#cCD]EM$\o5W-A\C{
+    _Kr_[vXX@K]3<GI~vE^;=avsjl&]@;C.@OB}VXnr[Vx15+5!8e+Txv>rEBjn-He~od4;}C>U1?;g
+    }[-UdJeKXIJoY~_s[1x[^#vo{N_\>OL'}H[HUAR"$kx1G5D{2[
+`endprotected
+
+  //Data checker module instantiation code.
+
+  wire [DATA_BUS_WIDTH-1:0] write_data_rise;
+  wire [DATA_BUS_WIDTH-1:0] write_data_fall;
+  wire [DATA_BUS_WIDTH-1:0] read_data_rise;
+  wire [DATA_BUS_WIDTH-1:0] read_data_fall;
+  wire [DM_WIDTH-1:0] write_data_mask_rise;
+  wire [DM_WIDTH-1:0] write_data_mask_fall;
+
+  reg [DATA_BUS_WIDTH-1:0] write_data_rise_tmp_dq;
+  reg [DATA_BUS_WIDTH-1:0] write_data_rise_dq;
+  reg [DATA_BUS_WIDTH-1:0] write_data_fall_dq;
+
+  reg [ZI_DM_RDQS_WIDTH-1:0] write_data_mask_rise_tmp_dm;
+  reg [ZI_DM_RDQS_WIDTH-1:0] write_data_mask_rise_dm;  
+  reg [ZI_DM_RDQS_WIDTH-1:0] write_data_mask_fall_dm;
+
+  reg [DATA_BUS_WIDTH-1:0] read_data_rise_tmp_dq;
+  reg [DATA_BUS_WIDTH-1:0] read_data_rise_dq;
+  reg [DATA_BUS_WIDTH-1:0] read_data_fall_dq;
+
+
+  reg [DATA_PORT_SIZE-1:0] write_data_rise_tmp_ldq;
+  reg [DATA_PORT_SIZE-1:0] write_data_rise_ldq;
+  reg [DATA_PORT_SIZE-1:0] write_data_fall_ldq;
+
+  reg write_data_mask_rise_tmp_ldm;
+  reg write_data_mask_rise_ldm;
+  reg write_data_mask_fall_ldm;
+
+  reg [DATA_PORT_SIZE-1:0] read_data_rise_tmp_ldq;
+  reg [DATA_PORT_SIZE-1:0] read_data_rise_ldq;
+  reg [DATA_PORT_SIZE-1:0] read_data_fall_ldq;
+
+
+  reg [DATA_PORT_SIZE-1:0] write_data_rise_tmp_udq;
+  reg [DATA_PORT_SIZE-1:0] write_data_rise_udq;
+  reg [DATA_PORT_SIZE-1:0] write_data_fall_udq;
+
+  reg write_data_mask_rise_tmp_udm;
+  reg write_data_mask_rise_udm;
+  reg write_data_mask_fall_udm;
+
+  reg [DATA_PORT_SIZE-1:0] read_data_rise_tmp_udq;
+  reg [DATA_PORT_SIZE-1:0] read_data_rise_udq;
+  reg [DATA_PORT_SIZE-1:0] read_data_fall_udq;
+
+  wire read_dqs;
+  wire read_ldqs;
+  wire read_udqs;
+
+`protected
+
+    MTI!#}mu7~]@eO?737UBmyZXCWa=B,[}~7,lX[x#lD|%fs|Jr!'}#\[D@A2uU12OCV1!\[!or\w6
+    ajk=p_+7aRR$vz{r2B<~'^Z#};}5O=,XI!T?;1p3v!OR2T*75&Zj*]x3T3g@w*D1H5-\o'}pzvJl
+    ,1mo^VH>aHp\}r$!Al@Yw+l'RWB{o72}<~^iE@EQH5>uURrqa+Vu!QO#S'<eZ=2@7AVv+~^@5*WA
+    5/$A2$n7,-$n72+I[?ml,xkO2CzDzpj$*~H_'CZA3Hs#}G]mO~E*C?>Lu1TZ\HKZJo-*MVw+C.jj
+    IvJezlt{rnrJ$5D^on_2^<GxI22RU,3,#jUTle-E7>ev*^~HwG3}pe~Y\>1r*p[,Ea2t$w{\,7^a
+    2.OsU+PWpX3{t~UHlE*{KC&GuE}pZ]ij3*n2D%Ed$In37*[
+`endprotected
+
+`protected
+
+    MTI!#^?D,k-<7MU<EGz3~xVDaVD!B!{T]~gg[fbH$i!.vFJ]KGI\<ZoEk7*Z2_eG~B;IRHvYu5kr
+    b:1Q[OGZ<Ku1Qk<hr5x7/.5}-2B#nGGur\pJ*phQE>+J$KOQz,omExHZ=\H6}ji=*;EKt{R]YYxr
+    Cez^>-G@sivA^]@lHrVvY$D;}6BuE}Rs$^J]jPvBu;^WC>BE@r~YH*X+GV[Jn[xZ~BE@vs=;BQ+X
+    7airK]]#pZVe=C%o,7,N&)innV^A7[c<RJoB~uE7To5G|2\*sA<Ja9FlG*'FDoxkcoL!T~K}kA2a
+    $WuRX3Y&F/CW':]-xp73x>|rV[!N=$3JlaYQC,!xR?-T-[Z\IzjTzs[I,Zgva3T&6[*X]35*T9}Q
+    upH]uD,}#$}$lBOjIK|zV<xyIUZ~^@Y1D-QH_Kr1-XnOxzAQ'?TO*_p@Y#$j$-QU]FuA=rzzH*vH
+    xac7T-$%U7Z5QuvxQlYZK}jrs+2m9[[~Hao2Yz>!zTx#\A5oU-r*Qx_~,YT7z_RHTRTr*-$[~=_I
+    o!^rrzB{xj=Q*Two+t=MKvm[SB=}o;QzGIWaViI'KRk{#TB{qRkQic!5QI\{m'lsvG_Cw@q-}{QG
+    }wK|^e$3TwnUpHU#NZD_^?n$aBUDsrGoD1-'3>5C#-Y[3iBKp\Gu^-\aHAOi@uYrntE-tzlw[CXK
+    s'<+XTaJusIm-=uRJ<5k#OH=@U<=7E_zD]-~*p&QIr?kVX^\HA>]sIY@Y<'2XR?IqV#u-C=sx_Xx
+    UXne}]UmEITeT_B?EQT,QUY>e\zjeVia-]_'Bw-IUx]Gs{EZ]ZYnA_5;n^s2ueO}<~''Q$ApQk+Q
+    Bl_k{d2Y#TeNe{j5YZO_Ei@UuH\o'#^s}aoI*w7!\1=;-so[a9~+r[{8i{$iIk~^3rv,1\<;1D;X
+    q'}KXEeVzx>}QOxY2i=>G?w'xv5'Gw\1IBJxuOAY51<Z?ZeIlC3FvM^]ACE>aO;aj$,n;pmO=Jx>
+    T>l{!Xi<^#+<xRU\n$r{HR?sIpLp2GW67!Vr,3\$F?A]Oy[kR;cQ~Am2liUJw~!@<j1u-[reGKJ?
+    v1$$MHoQs>BkX5(v1RU]wl_rQ+v^Ci7BJEugWTV[7BX!+}<G+j^Cm1+Kaj?[u[!#o3[mY<\^=KIr
+    *7],DAr{!EvsU{_V=~7VA{'m7Oxo'+wH{$-amIj5O[X^1"U-CH5A{~z>wuV3HjEoj$h~}zo*HrBt
+    Has}*ionl_7uzQE]|GOJO.\<nTw+oO!vD1R$vzr{TG1-H5EX7Y\,'>IwR=Buas~s@?vW7<QCjiOk
+    }pQ+1RZ\p;GK}pE<VZ]O[},YOs:Y?_z=>,*VU_@+Rou+}]C3p^TDm<os*J5D;XY_v=#$OlJVQv$!
+    EW{}jH]>o_E8HYW,I+3O#$<G5>=K6z7[p2G~pc^*QQlDTxR1{]*sDXa$a<,\lJ'?@BB1=3I~^H!>
+    oDvHKEE1V,i]R1]l?~Us#OR{$l'wAmWw3DpnCCGTzjZ=75[+J<B^[{VwEE{,J{RluYOzn-Gr?Q3X
+    ~XHaaz__>Z'=~OSzB,~<x>]'$3o]'VI_>$5\{]5K${vJA'?3XIZRuW\5-vpE]o1Q{}rB]^A*{7j\
+    s5j^DTCSI#-_x*]\HsxQK7rTV<Jwt_GukP\A=az^-O;$__~pluljkV-7*,%dn'[rhnn+HBGvk,l5
+    jP=j5i~x5?O1VVB3e[b[j-$a-W*;saV]Oi7pIk{C-Vj;j@oYX>Giv}-,s!B'_Qi5-WACw[x9wOB2
+    D{*;ZlxnUAp-[Zl+oDCxvo=w*$r{{E[K7zvp};$r'umxDX\xZ]#AJ+'~K+v}Kz;K#Ceq@R@nnQZ5
+    %i_=\fV5p<?C^V4YY?{CH>p?rGwTYr'Lf$<_J)CU!sQHm'2EsYUp6+*B+}~U+e2,YYe]nU_A'#j-
+    e<'332Hv?RUEQa5wKc^G2V5sX\oAm?B@DlH5p#>${@W5X<[-W>{a>-Q\O!{E>e\TW_IHxG;xY*}3
+    NpI2+QBUXI7Ea1s#[ie,;G?\>VrO3wYj~}UOl)i52["IuY<KR=1}^,~kVW~X75WM}x3[]w,Q=K2>
+    W*;Q'>W28srHCxAI1D2]\5kj+3D^5*,en$OvKn51U#ve,5~@V%Y\52f4qX'<\lB1,InOYJjUlpAR
+    7jisU>\^rz{OKnX=#EJv3^WW,jrJ2]+@kx~Qj~Ux[Q\Xz1C'B_3V^57Z$D2n+xejlUwQT]p[uH$x
+    en>vr/ZU;CrDRQjZxA[:{]Cu-p<@ImwT~VAv~[Auw_Z^cx>X7@rZ?z55U\2}e$OECL7IG~1?--EK
+    aU;'T~XO+'Gn3]O,DEh=wpA>GAa+e$je5{a[jZB&Yw_AxjOU?*o<-YVWio_lDkTIgppjUDo;pT]<
+    5ROjxE2Kl]nWv~-<Gr^'D$k_V%<lVz}''D;Ojit)5zmR**\H}AY~OQ_Qp,iXnA>maTD*U5;KoHeY
+    ~r?-+T<sK*Xj27Ajo>;GOD+rBX*}R'=73]}jzz}#U,R\D}jr!G5^T]ZW2Xl!:kl_OIa!5}@Q!jsT
+    Bjnr@[D=e'}Q-\wXXk7E?Cw@V~Vl~#*k;}12!xwD,#z+lR5}TCgZC#V}>Q}TpExnO~>#\$v-s{^'
+    TmKJ11Ux!<7!p2+YjV]v*pCXO[mbDIoB]<^VDT>KbZO[mD~+DqYW-z!CGB3=?}YrRZnUC+'pZIrp
+    {*dGXH\'H^aD{n!V#Q38VMR~W5'2<7Y,?VU*D#DCnTUAe=$3Z!=#~<z^}DJHv!<-C#JYnW<x?nY>
+    3KiAV*rDX*bmw>71C$w#T<J#^j37@J;oT3~s];j,G[<YZoUH{+J[?^n6aAHE;-2Y7~OX3*lrBo#!
+    ~l$TeEon^xur-BmkspT25k<TnsJ$5-sEIi~a;G-[E3_QR+YoJ\Y]i^nr=5ZTwU{{Gnek,_l*.+$<
+    Es>=mO\@xcw}3_io'o;XT_D]-XU>RUEm~m=xr}p$\sW>Tz_5*a;-{!u$H@>j2]rm-E1}$=oXTlxY
+    K*ICQ+aB]D+sxXGEGGQ*mJ4n{!YGu=XHn,zDD\1T1asWjjwpi7XQ=[-YlBV5O+r$?3}3C5w*$Yiz
+    OB1ATCuvW>xyTxu--a*i;[?<PjU^DsCU
+`endprotected
+
+  assign write_data_rise = (ZI_DDR2_SDRAM_2_0 === 0) ? write_data_rise_dq :
+			   (DATA_BUS_WIDTH <= 8) ? write_data_rise_dq :
+                           {write_data_rise_udq,write_data_rise_ldq};
+  assign write_data_fall = (ZI_DDR2_SDRAM_2_0 === 0) ? write_data_fall_dq :
+			   (DATA_BUS_WIDTH <= 8) ? write_data_fall_dq : 
+                           {write_data_fall_udq,write_data_fall_ldq}; 
+
+  assign write_data_mask_rise = (ZI_DDR2_SDRAM_2_0 === 0) ? 
+				write_data_mask_rise_dm : 
+				(DATA_BUS_WIDTH <= 8) ? 
+                                write_data_mask_rise_dm :
+                                {write_data_mask_rise_udm,
+                                write_data_mask_rise_ldm};
+  assign write_data_mask_fall = (ZI_DDR2_SDRAM_2_0 === 0) ?
+				write_data_mask_fall_dm : 
+				(DATA_BUS_WIDTH <= 8) ? 
+                                write_data_mask_fall_dm :
+                                {write_data_mask_fall_udm,
+                                write_data_mask_fall_ldm};
+
+  assign read_data_rise = (ZI_DDR2_SDRAM_2_0 === 0) ? read_data_rise_dq :
+			  (DATA_BUS_WIDTH <= 8) ? read_data_rise_dq : 
+                           {read_data_rise_udq,read_data_rise_ldq}; 
+  assign read_data_fall = (ZI_DDR2_SDRAM_2_0 === 0) ? read_data_fall_dq :
+			  (DATA_BUS_WIDTH <= 8) ? read_data_fall_dq :  
+                           {read_data_fall_udq,read_data_fall_ldq};
+
+
+  reg [ROW_ADDR_WIDTH-1:0] ras_addr,cas_addr;
+  reg [ROW_ADDR_WIDTH-1:0] cas_addr_0_saved;
+  reg [4:0] data_checker_burst_counter;
+  reg [2*ROW_ADDR_WIDTH-3:0] addr_even,addr_odd;
+  wire cas_addr_0_write,cas_addr_0_read;
+  wire [4:0] burst_addr_counter;
+  wire [1:0] burst_addr_mask,burst_addr, burst_addr_plus_one;
+  wire [AUTOPRECHARGE_ENABLE_ADDRESS_BIT-3:0] eff_burst_addr;
+  wire [AUTOPRECHARGE_ENABLE_ADDRESS_BIT-3:0] eff_burst_addr_plus_one;
+  wire [DATA_BUS_WIDTH-1:0] write_data_even,
+                            write_data_odd,
+                            read_data_even,
+                            read_data_odd;
+  wire [DM_WIDTH-1:0] write_data_mask_even,
+                      write_data_mask_odd;
+  reg write,read;
+  reg [3:0] burst_counter;
+
+  assign burst_length = (ZI_DDR2_SDRAM_2_0) ? burst_length_programmed :
+						  3'b010; // 3'b010;
+ 
+  assign burst_length_by_2 = {4'b001 << (burst_length-1)};
+
+  wire load_burst_counter = ( (z_write_cmd || z_write_auto_precharge_cmd ||
+       z_read_cmd || z_read_auto_precharge_cmd) &&
+       next_state !== ZI_UNKNOWN);
+
+`protected 
+    MTI!#rQaD<e?2p_5RzQ-mcm>j?eXZpVxR,]zpioZrE=?o!gZs3.w}ln7C-Xr!@pb.7:~]Q7z'ZA^
+    mRR5$k;TwY?C$;*Bu~DAq<C>-]KWze$pr<<jipZz]|F<Yh[mXO_XB=*]KrL<jkEe?>[5J]]-jvW[
+    !r<aEBo<>UZa<<riCK$?*O[5@]iwT3V:HX~ni=?TnoEBa-m]r~~H&^vn!7!mZ]O'rJo*m_ZHDH=n
+    eun}iVzJly!H''v3-mXr3IH[wVX[Z<$JnQu7<xkOs?_^*o}x5YD>O'IR3zuQ1iKRX$ZeouOzHsQ#
+    Ywp3W}AeK=5}i!,<2^oD5pxIjY\z1u3Ua$FAQe_=[w_~GxoyO15*Rz^iArrxQB@j@+R[77m!UY\2
+    =uaEUx+R+<7;e;>1]vH2BlXEs+AW*un2aCAvuB'eaU-?,,n}N3RRuTe52|[vQ7I[==e!<E+epGAa
+    +aXUB7G*>Wl~I#&?RZ!I_=vo*q#HE[}ZsVes~<+v5Y$X3~YA>Rx+Ye;LlkI{NrKTE=@V[_K~vE@o
+    3xkr5kYYp}{;=dA[R]HwHr0TT=[#H+K|jCTnNIG;V=tQEV?X1O}N@>*<A};oQl^a/k'jUilAj{5n
+    p2a1[2NOnG~B25D>$<o=1C*'!Ue$]_<Q1CD-j3YGA5u?^D-I?-ZIlDTL7K!E|a}$EOQ{GUr[3=R<
+    uiE7u%Ie\CL3pRAQ~JV1O{G?jXJt7?n<_=ACV]~wKH2K7=}K:q}ZYD+[#Iv9[@Q#{+_jzTK@w<E}
+    f~}Xl"Z=]rCKG*-,#WIe_!]{Y}cRnIY_$K!u*Vj2'n@\sl{G3B<II-s[el3G~U-=;s{x;$2\xA3$
+    u7?N*JJn@*1JEo#<D-JA*@Z={=Y@+Y7}-jO?>-W+71D<lXVuGo}=e]H>>TjoX{~O}H1DC?VZo,o\
+    ?^UrznX2s,s=Qj$;*/Hv>'ri>U8^Vuz-'_RirZ^RnWm^~*z}PD-;?*'GV(!w^D$I,mspO['2WRCR
+    IsVE]nAj7iCJOVH-KoQB2QW}|YQ?@3'H=D<pI*vj;T>>W*em_dYQl<y?>J+Ks+l=;Os*1^v]Go5_
+    zB>E,Z]B][7rz[VG!Zne!o_oZxE5>uu>z'=no?+7p^2mjzA8=AjZ3aeW@]W7V*YT*3~C3]>]0O,3
+    AD[DrllA[iTBocz3O3K]n$z>WO|.QZax}aQeRr$<w7{]eDR5&D_mxvm7B\pe5CK>'@=j,Bj25%Y^
+    a*}}e56H{YWl<VWB3_^3a*uHR~[H*HDUCkQOX@Q!8mR$1C1$3&=?[x_ZvY9?YpJN4'-Ju@T*K9xz
+    em$=[,A=rTTlDYCxC?J_a5uj2j^z5C<1l~_;}Z[rAUVBvpEZx[dp:^<5uTjK[V*<_lJw}iQH7=ER
+    iFR?IT!Tsnv;ZjDP&=$WK?\HW
+`endprotected
+
+  assign read_burst = (read_burst_counter <= burst_length_by_2 &&
+				   read_burst_counter > 0);
+  assign write_burst = (write_burst_counter <= burst_length_by_2 &&
+				    write_burst_counter > 0);
+ 
+  assign  burst_addr_mask = (5'b00001 << (burst_length-1)) - 1;
+  assign  burst_addr = (burst_type)?
+        (cas_addr[2:1] ^ (data_checker_burst_counter[1:0] & burst_addr_mask)) :
+        ((cas_addr[2:1] + (data_checker_burst_counter[1:0] ^ burst_addr_mask))
+                                                   & burst_addr_mask);
+  /* burst_addr is used to compute the burst address for any of the
+     following options:
+ 
+   1. Sequential/Interleaved burst, burst_length = 2/4/8 and cas_addr[0] = 0,
+   2. Sequential burst, burst_length = 2 and cas_addr[0] = 1,
+   3. Interleaved burst, burst_length = 2/4/8 and cas_addr[0] = 1.
+  */
+
+  assign  burst_addr_plus_one = (cas_addr[2:1] + (
+           ((data_checker_burst_counter[1:0] - 1'b1) & burst_addr_mask)
+          ^ burst_addr_mask) & burst_addr_mask);
+ 
+  /* burst_addr_plus_one is used to compute the burst_address for the
+     following option:
+   
+     1. Sequential burst, burst_length = 4/8 and cas_addr[0] = 1.
+  */
+
+  assign eff_burst_addr = (burst_length_programmed === 3'b011) ? 
+		          {cas_addr[AUTOPRECHARGE_ENABLE_ADDRESS_BIT-2:3], 
+		           burst_addr[1:0]} :
+                          {cas_addr[AUTOPRECHARGE_ENABLE_ADDRESS_BIT-2:2],
+		           burst_addr[0]};
+  assign eff_burst_addr_plus_one = (burst_length_programmed === 3'b011) ?
+			  {cas_addr[AUTOPRECHARGE_ENABLE_ADDRESS_BIT-2:3],
+			   burst_addr_plus_one[1:0]} :
+                          {cas_addr[AUTOPRECHARGE_ENABLE_ADDRESS_BIT-2:2],
+			   burst_addr_plus_one[0]};
+ 
+  // This parameter is used to extract the burst address from the address bus
+  // if there are address lines beyond the AUTOPRECHARGE enable bit  
+
+  parameter ZI_ADDRESS_LSB = (ROW_ADDR_WIDTH > AUTOPRECHARGE_ENABLE_ADDRESS_BIT
+	      + 2) ? AUTOPRECHARGE_ENABLE_ADDRESS_BIT+1 : 31'b0;
+
+`protected
+
+    MTI!#UE?Yia7RKOl>*J+~1#ZRzn;Y\n^wEVUY7?Yp2|tBBT[I3*R*irsr@2]lZo[jW,'uo\~VT5#
+    _u[27zaoKjBDU7i#b|a_~n3wnrYO1k';^_Y-E;VwZ+xAz#<>ml|CTx;]~$jFXa[l<YmGnYRsu{U;
+    [uBDI"U^xCC}+oTvQ2B;5i#[Ksvz#jo1m3r#=p:Q;+HHaepDv@ke2z<u],J]m[Aee71#>GI>I3p}
+    m]_-\}wGEXQo\Rm,$e5=nv=,RR*i{^[1ZJ$\''11^{=\I^Ro#o5yaR+r$eXC]ouREpVpKRr>=-HD
+    [KuX<=\AaQpW[Zp{FKokoj<Ew'CZUU<T3[nHQU\3$+o#$RS#jkspl>uRAW[>Ri$BbQ=Jj=u+{OH2
+    vlp]<nTX2OZ{pR+2zeC@TxmCGz+o'~_!7u=H3D$-G]>u*Q'JRZ\]#[\[ZsQ,m1[T-vw,}-^X7~ps
+    7QK[Ru[TBd@QT{*[~#yJ==pV+oE'vfl]JjBACA+AV32zx+A-JY'z}CnaAmg*,m5KOCssa>;in2s3
+    ={@kviVv3_w@XZ}T7pll!1o*=BCRz?J'YK[+}QQW,V#ppXAWEkBz!}k>x*xEkzEVPv31wwB+Jr{>
+    \R,^RTlYj^x[CK]X,FevB;g'lUss#1Z,DxUG)*ZXjc#VIm[[Gnoox-_XmE2pin;I<_*l-H$^CD9+
+    -sD&$E2uto='JeT5mf'#vx(v={;'+so+Yi~_?u?,1-Iwe=<jxix}T,k]3CDemO;5RQ~gUv\wk\\}
+    +nnBeDQ+Ws\^xw\x{,OJUrw2*GGr<C*is*RAQDXp2z=uzC*jo<a@!=I["xE!Z?^vEf,GlZR{lI*E
+    ?7pnj$\+r^=!Qu#lTCM^<
+`endprotected
+
+  assign  cas_addr_0_write = cas_addr_0_saved[write_latency - 1'b1];
+            // Even or Odd data sequencing flag for write.
+ 
+  assign  cas_addr_0_read = cas_addr_0_saved[read_latency - 1'b1];
+            // Even or Odd data sequencing flag for read.
+ 
+  assign  write_data_even = (cas_addr_0_write)?
+                             write_data_fall : write_data_rise;
+  assign  write_data_odd  = (cas_addr_0_write)?
+                             write_data_rise : write_data_fall;
+  assign  write_data_mask_even = (cas_addr_0_write)?
+                    write_data_mask_fall : write_data_mask_rise;
+  assign  write_data_mask_odd  = (cas_addr_0_write)?
+                  write_data_mask_rise : write_data_mask_fall;
+  assign  read_data_even  = (cas_addr_0_read)?
+                  read_data_fall : read_data_rise;
+  assign  read_data_odd   = (cas_addr_0_read)?
+                  read_data_rise : read_data_fall;
+
+`protected
+
+    MTI!#$vZ-{*I'BZ5>2,Z}4IT_]BYseOmlVeKW[61ZY[C!XIspVi_uE^vVT>Q;2<^eo}"!n}[7_in
+    ~5*wW='U&>}#,'y#C?=\^KH%1^<nle[r7;Q{#rQ_Tj;*\+>Cawr@]>37uDD}uzGiE@Jr^nRWZsI$
+    #{bUz!<wAAGu-QIs;3[@Ei1n1?HCHnU.~T+}THzls;_sRVIm_'nn'Y<[#}AuIA=W,=,-;}KQV+X<
+    7*+CE>$eTQluQ'JRl2xQeS7I\oe7RDC$C@/c#E-o@r#m*BOs]n!$7~$exg|['R!eGI,ci7$B7--X
+    I9Uo^Ga$rul+K[OHT]\H@eBC!,em<RD,wGj@OlwTBrXs+T3BwVr5x>kwKC(5sQ>Ca@CxzEOKU=X?
+    R71T7+OiCa^z*A^Q2<vm,-CoA_IX+mZE',s*a=Ioj~HHEuB-RZ5',~a5RpuB!5m}I?_*I<Te}$[=
+    #pW=o#;*5_=$\1Bk=zHQx{E1Dke}A!p.,po^BrXX8tQ:!-*';^aC-}\#x^IW^n[i71ZQn5p[os?B
+    Ny(_n,u1j+AV@]{]sxZ~}#R>j@\mYic~7Hvu-@l(]537rlAA}EIij$v3\<D>x3}H3_}[I^RW#T[-
+    Uw>e!*@2lAZu;$j$EFOoJ_r\D]c7A*'TsnZL'pR5>n_B5*$xVkJ2=VZQU1>Bvl;=\~A^zs+Bo\>Y
+    V=^!aCnmOOz,3$rQ12ETm,EDt1KX_$AzsPfKoBj'~D,1xss9AX5R1v+^YJjGQ:}@QTv#l#i7aIDr
+    2I'sZo'Dj7e{7Kiz<RvBXRi57IT}]HElvAV<>O5[DoG}5G-z++RKj#1_1xuHu[?o};$Yula9P7'u
+    21,oiCH=;QV>K?j!I,zs[lKjKG{p1Q<
+`endprotected
+
+  // bad_data_chk and read_before_write_chk are now also qualified
+  // with z_data_mask to ensure that the data check does not fire when the 
+  // CAS latency of 5 is programmed as 3'b111 as per the existing specification
+  // because this encoding has been changed to 3'b101 in the new spec
+
+  wire z_data_check_mask = (ZI_DDR2_SDRAM_2_0 === 1 && cas_latency === 3'b111);
+  wire bad_data_chk_enable = (bad_data_chk === 1'b1 && !z_data_check_mask);
+  wire read_before_write_chk_enable = (read_before_write_chk && 
+							  !z_data_check_mask);
+  wire bad_data_chk_even_fire;
+  wire read_before_write_chk_even_fire;
+  wire bad_data_chk_odd_fire;
+  wire read_before_write_chk_odd_fire;
+
+generate
+
+ if( ZI_DATA_CHECK_ENABLE == 1) begin:DATA_CHKR_INST
+
+  qvl_ddr2_sdram_data_checker
+    #(ZI_CONSTRAINTS_MEMORY_SIDE, (2*ROW_ADDR_WIDTH-2), DATA_BUS_WIDTH,
+      ZI_READ_LATENCY_MAX, ZI_WRITE_LATENCY_MAX,
+      ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH, ZI_CACHE_ADDR_WIDTH, EVEN_ADDR,
+      AUTOPRECHARGE_ENABLE_ADDRESS_BIT, ROW_ADDR_WIDTH, BANK_ADDR_WIDTH,
+      DM_WIDTH)
+          data_checker_even(
+          .clk (clock),
+          .cke (1'b1), 
+          .reset (reset),
+          .areset (areset),
+          .read (read),
+          .read_addr (addr_even),
+          .read_data (read_data_even),
+          .write (write),
+          .write_addr (addr_even),
+          .byte_enables (~write_data_mask_even),
+          .write_data (write_data_even),
+          .read_latency (read_latency - read_latency_subtrahend),
+          .write_latency (write_latency - 1'b1),
+          .bad_data_chk (bad_data_chk),
+          .read_before_write_chk (read_before_write_chk),
+          .bad_data_chk_fire (bad_data_chk_even_fire),
+          .read_before_write_chk_fire (read_before_write_chk_even_fire),
+	  .bank (bank_num) );
+
+
+   qvl_ddr2_sdram_data_checker
+     #(ZI_CONSTRAINTS_MEMORY_SIDE, (2*ROW_ADDR_WIDTH-2), DATA_BUS_WIDTH,
+       ZI_READ_LATENCY_MAX, ZI_WRITE_LATENCY_MAX,
+       ZI_CACHE_ENTRY_DATA_LINE_ADDR_WIDTH, ZI_CACHE_ADDR_WIDTH, ODD_ADDR,
+       AUTOPRECHARGE_ENABLE_ADDRESS_BIT, ROW_ADDR_WIDTH, BANK_ADDR_WIDTH,
+       DM_WIDTH)
+          data_checker_odd(     
+          .clk (clock),
+          .cke (1'b1), 
+          .reset (reset),
+          .areset (areset),
+          .read (read),
+          .read_addr (addr_odd),
+          .read_data (read_data_odd),
+          .write (write),
+          .write_addr (addr_odd),
+          .byte_enables (~write_data_mask_odd),
+          .write_data (write_data_odd),
+          .read_latency (read_latency - read_latency_subtrahend),
+          .write_latency (write_latency - 1'b1),
+          .bad_data_chk (bad_data_chk),
+          .read_before_write_chk (read_before_write_chk),
+          .bad_data_chk_fire (bad_data_chk_odd_fire),
+          .read_before_write_chk_fire (read_before_write_chk_odd_fire),
+	  .bank (bank_num) );
+  end 
+endgenerate
+
+  //End of Data checker module instantiation code.
+
+  // Counters block for tracking all timing violations
+
+  // These signals are used as load enables for the counters. The relevant 
+  // counters are loaded with their initiali values when these are high. Else, 
+  // all non zero counters are decremented at every clock egde.
+
+  // Various timing counters are loaded by looking at respective load enables.
+  // These are independent of the state of the system as long as the system
+  // is to make a transition to a known state. These timing parameters are
+  // specified as the spacing between various combinations of commands.
+
+  wire load_tMRD_counter = ((z_mode_reg_set_cmd || z_ex_mode_reg_set_cmd) &&
+                           next_state !== ZI_UNKNOWN);
+
+  wire load_tRAS_counter = (z_activate_cmd && next_state !== ZI_UNKNOWN);
+
+  wire load_tRCD_counter = (z_activate_cmd && next_state !== ZI_UNKNOWN);
+
+  wire load_tRP_counter = ((z_precharge_cmd || z_precharge_all_cmd || 
+                            next_state == ZI_PRECHARGE ) &&
+                          next_state !== ZI_UNKNOWN);
+
+  wire load_tCCD_counter = ((z_write_cmd || z_write_auto_precharge_cmd ||
+                           z_read_cmd || z_read_auto_precharge_cmd) &&
+                           next_state !== ZI_UNKNOWN);
+
+  wire load_tRTW_counter = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+                           next_state !== ZI_UNKNOWN);
+
+  wire load_tWTR_counter = ((z_write_cmd || z_write_auto_precharge_cmd) &&
+                           next_state !== ZI_UNKNOWN);
+
+  wire load_tRFC_counter = (z_cbr_auto_refresh_cmd &&
+                           next_state !== ZI_UNKNOWN);
+
+  wire load_tXSNR_counter = (z_exit_self_refresh_cmd &&
+                            present_state === ZI_SELF_REFRESH &&
+                            next_state !== ZI_UNKNOWN);
+
+  wire load_tXSRD_counter = (DLL_TRACKING_ENABLE === 1 &&
+                            present_state === ZI_SELF_REFRESH &&
+                            ((z_ex_mode_reg_set_cmd && address[0] === 1'b0) ||
+                            z_exit_self_refresh_cmd) &&
+                            next_state !== ZI_UNKNOWN);
+
+  wire load_tWTP_counter = (z_write_auto_precharge_cmd &&
+              //((z_write_cmd || z_write_auto_precharge_cmd) &&
+              //1DEC2006. track_tWTP_counter is ONLY loaded for 
+              //Write_auto_precharge command, and it is NO more loaded i
+              //during Write commandz_write_cmd is removed. 
+                           next_state !== ZI_UNKNOWN);
+
+  wire load_tRTP_counter = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+                           next_state !== ZI_UNKNOWN);
+
+  wire load_tWTW_counter = (z_write_cmd && next_state !== ZI_UNKNOWN);
+ 
+  wire load_tRTR_counter = (z_read_cmd && next_state !== ZI_UNKNOWN);
+
+  // power down exit latencies tXP, tXARD, tXARDS
+
+  wire load_tXP_counter = (present_state === ZI_IDLE_PWR_DOWN &&
+			   next_state !== ZI_UNKNOWN &&
+			   z_exit_power_down_cmd);
+
+  wire load_tXARD_counter = (present_state === ZI_ACT_PWR_DOWN &&
+			     next_state !== ZI_UNKNOWN &&
+			     z_exit_power_down_cmd && slow_exit === 1'b0);
+
+  wire load_tXARDS_counter = (present_state === ZI_ACT_PWR_DOWN &&
+			      next_state !== ZI_UNKNOWN &&
+			      z_exit_power_down_cmd && slow_exit === 1'b1);
+  
+`protected
+
+    MTI!#qXoo,}[-}}^0#1mXkQl}j23{,5vC(O&^3azN9b_Yk]b15'=mo;BP7eVs3$}rQp#Dqx5?X3,
+    -H^z+?s=z-p~DGDl32lIPqenT[]V$1uoQBGKB<W}HA7L5wna?R~2wo3*FAz>{F-+*2$Gup!Y+UMa
+    Do}]HwYO>oo?D,]Z|6ll0zm\2=ZQK[~VT>'liQrTVo\J2]/Q+Bec+]-\1v#CG@~#r7Wuiw1v\JpE
+    K+^3^#_VcA1_nU1H'IHlzXpJr]5UuUj$x[m<jfl{$imQAVba5Bm-wTs!=#_>X>Ii\n-xYZ*$+Z'G
+    1Y3+G^lw,kG%2*AAz*W=l'k[e?+vGDs$'HTE3R]A1mYH*1Uai^lRj$]'&x<aIa1=wIR{D^H-rBAT
+    C+AEAlku~5n~ra11Y]z<;'@H^aok'$[RXN]3$^];Xa\E3Z<*/\*e~*?Q#757mzDpkH,RX]x7eo#G
+    +BH~ek]k5"G3J72B?}v]H\>oGYe1D>~',VZ6^ia+\*v@'+Irt{R2<*e_z$vJzzGAIQ{eOc{jro{]
+    m$w1pRqBizXCYi<9=I-$HH>VhG_*K=n;jR[vvI,]C11j]~RQ!xm[]}W=+PRx*YCQuTWpv\xB5ZB2
+    T3@n$v[,kYKC'5[QW;Q?U^5HBIrV$_vpr!sia;15~H1G]At^1{^XjsnE9#H35{]\W\{1?:jZ~]I;
+    uen=K,BVzj\mD+CEsEmY*;xRe$2*!7$?]V2po#OUvK7x}@Y#vm@'n#Ask!V;~e5Tpe'?wJr&PD^*
+    ?\~zx]Eo}@}o7^XQ]?*UsQv]]YCZ!DojQ?a=nDY?p!T>udV'?RuYked^=?pIBGG^-a{]$EjvoQ3]
+    iT<E1naroNY$ZJzCk-^T<+Y]Vi6&7~1+Q!]Z*QvoI!I}rIB~!YVA]{{_9K,ll[sjv\3pAU\+{R'C
+    p_upK0!w!^u{@~K5OT*i<,57o,eI+A'T-2e>><<H@<5Ea>VO$#SoBRWz>\ma7^'RXwj!>G}{H<ek
+    'W5rC\A<=rzuY5E*i52l_Y#5#BKz2H]8z<^3TO}3erD$Mz;er_-Z]=[msx!o-@DQ^B!wrB]Jk|Qa
+    *;hkj*DjwUm][7U/3r*GzD]$!Ap#o;v}gSIBnWL04p;U]/g5'1W2-BUE{o2o?,$1XXw@}ZWT[?rm
+    xWaZDz2@ekejRAUT7rQE~l<*{W?xxnT0XpA,R;Usm'k-<*+Gsj?w*!p^$s^Coo2U[+<]Y3JCs5s+
+    YDvpH7ws[;Ij$CwIG_*[p'#Vo7R>x_7IC,E]*;=;+$Y2HaUJxM[w+XWj}pWQ{@YH{!zXUJ|_wVVp
+    DKO=C-{,YDaB+s_c>*T7aU=+RCk}pJ{xY@*GCEwV}47,~rX1717svGCWDQkIjs_W'\j*s_vszZkH
+    -{QKeBAY2lz2pCoex;-o+YrCvp-{IH!7]_#<Vp:%vR$p}>s,EeW-\5><%EKX75]K{4%eXEiU}!2O
+    UAa]sa<OR[RTxml_pEZeiODiXXn/[X-H@7eTwO;]gv~pBC#YC$[}rx!ajJGxm0X5Iz(~'kV46\oY
+    1CQjeuB{j7#,wK7;Q9~1<n1O-_p5<+GQE[_vC[82YQ{]02o7xQZXY!AEB[?m=ZYk^D?E;0Qe+{-n
+    }DTV&Ej-@Ev[JiUBv}?G2IC#v]3VG!eGm]{*[~rl75VjzEpUJPw,J-C2{#m5^Z4m]_U]vV#?le\k
+    z2$YO"g?XADk]O;T_-?YO~UTTBkO{eo$G$IH=RHUY2G>Q+1=;U@e=jmEvvT[!rnx=A3r%H\IV<\$
+    ;:==@V!UK{v<\Dael=wp}XUGOm;'<GGRW?u++7[#;ufxx#HD<XvlJ$\*EHkH1GvjX3vKjXpznrs8
+    _?]a(I[v]"=2lG>na@;7+AeTC*p}Q1B;>2Bo75eOm\BZs2r*Oj,I-[XH*Apu'uBlr[ZwTpEjj_C@
+    -3y:1=G^[@lzxrJ=I!z\$<CBk-5>?,[uka]pXBmvvua[#ao<V=}a;=DZsr7Txi~m*]wEjDATXjO+
+    9a*V<}'+=+s5z_UYrv93X+~UU$OuEIUvKYxJ'CnC,^lE#7^"I_5X~w,=Hs<17W3zpx*W!+=dkY^U
+    T}#?E-@77uROY_ZD7e2BEw-[p'7o[Q<}=U;$*=EprGW$}!E3YT[x<[G*DwzxN~E8Ks1}U[Vr9}n-
+    $,?B$tUoTaoBisjqo!riT7AE}<n+ej]{kwV[>zT~WG?#R@m2@Gp@v*v@N[I+a!Asw6l,I7B\n]iT
+    }#I\I,^wwRVWTzkB=aMuHQBzTH\{OkQ^z7>H_HR1ssmDG\YBX;j#7H~*~opyDsXls$~1Q>!]!^^J
+    VOZm[[Qe7Q!smxjuxx,=YC#Y-*D2$B]X.e#B]YTr'ADzx#Vm2V!]W>v{$f$Ej~luZl(kVHR@-!z5
+    2;2'RZ!ekY1L,r*D},}{O=j[PoouXpW,UcE>DacYHpv|zJ^oGUDXU[
+`endprotected
+       
+  // Checks Block
+ 
+  // These are the violation signals. These are determined with every command
+  // to find if the spacing between previous relevant command thd itself is
+  // violated. If corresponding counter has not expired, it is a violation.
+ 
+  wire tRCD_violation = ((z_write_cmd || z_write_auto_precharge_cmd ||
+                        z_read_cmd || z_read_auto_precharge_cmd) &&
+                        (track_tRCD_counter > additive_latency));
+
+  wire tRAS_violation = ((z_precharge_all_cmd || z_precharge_cmd) &&
+                        (track_tRAS_counter > 1));
+
+  wire tRP_violation = ((z_activate_cmd || z_cbr_auto_refresh_cmd ||
+                       z_enter_self_refresh_cmd || 
+                       //z_precharge_cmd || z_precharge_all_cmd) &&
+                       z_mode_reg_set_cmd || z_ex_mode_reg_set_cmd) &&
+                       (track_tRP_counter > 1));
+
+  wire tCCD_violation = ((z_write_cmd || z_write_auto_precharge_cmd ||
+                        z_read_cmd || z_read_auto_precharge_cmd ||
+                        z_cas_for_other_bank) && (track_tCCD_counter > 1));
+
+  //wire tRTW_violation = ((z_write_cmd || z_write_auto_precharge_cmd) &&
+  //                      (track_tRTW_counter > 1));
+  // Included other bank write commands
+
+
+  wire tRTW_violation = ((z_write_cmd || z_write_auto_precharge_cmd ||
+                          z_other_bank_write_cmd || z_other_bank_writea_cmd) &&
+                        (track_tRTW_counter > 1));
+
+  //wire tWTR_violation = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+  //                      (track_tWTR_counter > 1));
+  // Included the other bank read commands into the violation
+
+
+  wire tWTR_violation = ((z_read_cmd || z_read_auto_precharge_cmd ||
+                          z_other_bank_read_cmd || z_other_bank_reada_cmd) &&
+                        (track_tWTR_counter > 1));
+
+  wire tRTP_violation = ((z_precharge_all_cmd || z_precharge_cmd) &&
+                        (track_tRTP_counter > 1));
+
+  //wire tWTP_violation = ((z_precharge_all_cmd || z_precharge_cmd) &&
+  //                      (track_tWTP_counter > 1));
+
+  wire tWTP_violation = ((z_precharge_all_cmd || z_precharge_cmd) &&
+                        (track_tWTR_counter > 1));
+                       //(track_tWTP_counter > 1));
+          //1DEC2006.
+          //track_tWTP_counter is changed with track_tWTR_counter, since, 
+          //track_tWTP_counter is ONLY loaded for Write_auto_precharge command, 
+          //and it is NO more loaded during Write command.
+
+  //wire tRTR_violation = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+  //                      (track_tRTR_counter > 1));
+
+  //wire tRTR_violation = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+  //                      (track_tRTR_counter > 1));
+  // Included the other bank read commands into the violation
+
+  wire tRTR_violation = ((z_read_cmd || z_read_auto_precharge_cmd ||
+                          z_other_bank_read_cmd || z_other_bank_reada_cmd) &&
+                        (track_tRTR_counter > 1));
+
+  //wire tWTW_violation = ((z_write_cmd || z_write_auto_precharge_cmd) &&
+  //                      (track_tWTW_counter > 1));
+
+  //wire tWTW_violation = ((z_write_cmd || z_write_auto_precharge_cmd) &&
+  //                      (track_tWTW_counter > 1));
+  // Included the other bank write commands into the violation
+
+  wire tWTW_violation = ((z_write_cmd || z_write_auto_precharge_cmd ||
+                          z_other_bank_write_cmd || z_other_bank_writea_cmd) &&
+                        (track_tWTW_counter > 1));
+
+
+  wire tRFC_violation = ((z_mode_reg_set_cmd || z_ex_mode_reg_set_cmd ||
+                      z_precharge_cmd || z_precharge_all_cmd ||
+                      z_cbr_auto_refresh_cmd || z_activate_cmd ||
+                      z_enter_self_refresh_cmd) &&
+                        (track_tRFC_counter > 1));
+
+  wire tXSNR_violation = ((z_enter_self_refresh_cmd ||
+                           z_precharge_cmd || z_precharge_all_cmd ||
+                           z_mode_reg_set_cmd || z_ex_mode_reg_set_cmd ||
+                           z_activate_cmd || z_write_cmd ||
+                         z_write_auto_precharge_cmd || z_cbr_auto_refresh_cmd)
+                         && (track_tXSNR_counter > 1));
+
+  wire tXSRD_violation = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+                          (track_tXSRD_counter > 1));
+
+  wire tMRD_violation = ((z_mode_reg_set_cmd || z_ex_mode_reg_set_cmd ||
+                        z_precharge_all_cmd || z_precharge_cmd || z_activate_cmd ||
+                        z_cbr_auto_refresh_cmd || z_enter_self_refresh_cmd) && (track_tMRD_counter > 1));
+
+
+//  wire tRFC_violation = ((z_cbr_auto_refresh_cmd || z_activate_cmd) &&
+//                        (track_tRFC_counter > 1));
+
+//  wire tXSNR_violation = ((z_precharge_cmd || z_activate_cmd || z_write_cmd ||
+//                        z_write_auto_precharge_cmd || z_cbr_auto_refresh_cmd)
+ //                       && (track_tXSNR_counter > 1));
+ 
+//  wire tXSRD_violation = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+//                         (track_tXSRD_counter > 1));
+ 
+// wire tMRD_violation = ((z_mode_reg_set_cmd || z_ex_mode_reg_set_cmd ||
+//                      z_precharge_all_cmd || z_activate_cmd ||
+//                     z_cbr_auto_refresh_cmd) && (track_tMRD_counter > 1));
+
+//4DEC2006: Commented the above code, and cut-and pasted the similar one from CheckerWare version
+//that has MetaRAM fixes.
+
+ // tXP, tXARD and tXARDS violations added
+
+  wire tXP_violation = ((z_precharge_cmd || z_activate_cmd || z_write_cmd ||
+			z_write_auto_precharge_cmd || z_cbr_auto_refresh_cmd ||
+			z_precharge_all_cmd) && track_tXP_counter > 1);
+
+  wire tXARD_violation = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+			   track_tXARD_counter > 1);
+
+  wire tXARDS_violation = ((z_read_cmd || z_read_auto_precharge_cmd) &&
+			    track_tXARDS_counter > 1);
+
+  wire act_without_precharge = (command === 6'b110011 && bank_status === 1'b1
+                                && bank_addr === bank_num);
+
+//14DEC2006: MetaRAM fixes. Following two violation expressions differ from ZIN version. 
+//ZIN version uses AWIN checkers. But QVL cannot use it. Hence, this differs with ZIN.
+
+
+wire timing_for_active_after_read_ap_violation = (z_activate_cmd && 
+              ( track_tRTP_counter > 0 || track_tRP_counter > 1) );
+
+wire tRC_violation = (z_activate_cmd && track_tRC_counter > 1); 
+
+  // Power Down entry restrictions firing enable signal
+
+  wire cke_driven_low_illegal = ((track_tMRD_counter > 1 ||
+                                 z_rd_burst_in_progress ||
+                                 z_wr_burst_in_progress ||
+                                 track_tWTP_counter > 0 ||
+                                 track_tWTR_counter > 1) &&
+                                 (command[5] === 1'b1 && command[4] === 1'b0));
+           //4DEC06: Added the track_tWTP_counter, and track_tWTR_counter.
+
+//  wire cke_driven_low_illegal = ((track_tMRD_counter > 1 || 
+//				 z_rd_burst_in_progress || 
+//				 z_wr_burst_in_progress) && 
+//				 (command[5] === 1'b1 && command[4] === 1'b0));
+
+  wire [87:0] cke_low_state_string = (cke_driven_low_illegal && 
+				      track_tMRD_counter > 1 ) ? "MRS/EMRS" :
+                                     (cke_driven_low_illegal &&
+				      z_rd_burst_in_progress ) ? "read burst" :
+				                                 "write burst";
+
+  wire [6:0] cp_0 = command_pipe[6:0];
+  wire [6:0] cp_1 = command_pipe[13:7];
+  wire [6:0] cp_2 = command_pipe[20:14];
+  wire [6:0] cp_3 = command_pipe[20:14];
+  wire [6:0] cp_4 = !(z_nop_cmd || z_deselect_cmd || z_non_cas_for_other_bank);
+
+  // Burst interruption fire signals defined
+
+  assign bl_8_rd_burst_interrupted_at_6b_boundary =
+           ((burst_length === 3'd3) && // 8-bit burst  
+            (command_pipe[20:14] === read_command_issued ||
+             command_pipe[20:14] === reada_command_issued) &&
+            (command_pipe[13:7] === nop_command_issued &&
+             command_pipe[6:0] === nop_command_issued) && 
+            !(z_nop_cmd || z_deselect_cmd || z_non_cas_for_other_bank)); 
+
+  assign bl_8_wr_burst_interrupted_at_6b_boundary =
+           ((burst_length === 3'd3) && // 8-bit burst   
+            (command_pipe[20:14] === write_command_issued || 
+             command_pipe[20:14] === writea_command_issued) && 
+            (command_pipe[13:7] === nop_command_issued &&
+             command_pipe[6:0] === nop_command_issued) &&  
+            !(z_nop_cmd || z_deselect_cmd || z_non_cas_for_other_bank));
+
+  assign bl_8_rda_interruption =
+           ((burst_length === 3'd3) && // 8-bit burst
+            (command_pipe[13:7] === reada_command_issued &&
+             command_pipe[6:0] === nop_command_issued) && 
+            !(z_nop_cmd || z_deselect_cmd || z_non_cas_for_other_bank));
+
+  assign bl_8_wra_interruption =
+           ((burst_length === 3'd3) && // 8-bit burst 
+            (command_pipe[13:7] === writea_command_issued && 
+             command_pipe[6:0] === nop_command_issued) &&
+            !(z_nop_cmd || z_deselect_cmd || z_non_cas_for_other_bank));
+
+  assign illegal_8b_rd_burst_interruption =
+           ((burst_length === 3'd3) && // 8-bit burst
+           (command_pipe[13:7] === read_command_issued &&
+           command_pipe[6:0] === nop_command_issued) && !(z_read_cmd || 
+           z_read_auto_precharge_cmd || z_nop_cmd || z_deselect_cmd || 
+           z_other_bank_read_cmd || z_other_bank_reada_cmd));
+      
+  assign illegal_8b_wr_burst_interruption =
+           ((burst_length === 3'd3) && // 8-bit burst
+           (command_pipe[13:7] === write_command_issued &&
+           command_pipe[6:0] === nop_command_issued) && !(z_write_cmd || 
+           z_write_auto_precharge_cmd || z_nop_cmd || z_deselect_cmd || 
+           z_other_bank_write_cmd || z_other_bank_writea_cmd));
+  
+
+  wire tRCD_violation_fire;
+  wire tRAS_violation_fire;
+  wire tRP_violation_fire;
+  wire tCCD_violation_fire;
+  wire tRTW_violation_fire;
+  wire tWTR_violation_fire;
+  wire tRTP_violation_fire;
+  wire tWTP_violation_fire;
+  wire tRTR_violation_fire;
+  wire tWTW_violation_fire;
+  wire tRFC_violation_fire;
+  wire tXSNR_violation_fire;
+  wire tXSRD_violation_fire;
+  wire tMRD_violation_fire;
+  wire wrt_cmd_to_idle_bank_fire;
+  wire read_cmd_to_idle_bank_fire;
+  wire precharge_to_idle_bank_fire;
+  wire CKE_low_fire;
+  wire burst_aborted_fire;
+  wire activation_wthout_precharge_fire;
+  wire illegal_command_fire_idle;
+  wire illegal_command_fire_preall;
+  wire illegal_command_fire_pre;
+  wire illegal_command_fire_mrs;
+  wire illegal_command_fire_emrs;
+  wire illegal_command_fire_act;
+  wire illegal_command_fire_wrt;
+  wire illegal_command_fire_wrtap;
+  wire illegal_command_fire_rd;
+  wire illegal_command_fire_rdap;
+  wire illegal_command_fire_apdn;
+  wire illegal_command_fire_ipdn;
+  wire illegal_command_fire_cbr;
+  wire illegal_command_fire_sfr;
+  wire illegal_command_fire_nop;
+  wire unknown_state_fire;
+  wire rd_burst_8b_interrupted_at_6b_fire;
+  wire wr_burst_8b_interrupted_at_6b_fire;
+  wire reada_burst_8b_interrupted_fire;
+  wire writea_burst_8b_interrupted_fire;
+  wire illegal_rd_burst_8b_interruption_fire;
+  wire illegal_wr_burst_8b_interruption_fire;
+  wire cke_driven_low_fire;
+  wire tXP_violation_fire;
+  wire tXARD_violation_fire;
+  wire tXARDS_violation_fire;
+
+
+
+  // Statistics Block
+
+  reg [63:0] reads_count;
+  reg [63:0] writes_count;
+  reg [63:0] data_accesses_count;
+  reg [63:0] seamless_reads_count;
+  reg [63:0] seamless_writes_count;
+  reg [63:0] reads_with_autoprecharge_count;
+  reg [63:0] writes_with_autoprecharge_count;
+  reg [63:0] single_bank_precharges_count;
+  reg [63:0] posted_reads_count;
+  reg [63:0] posted_writes_count;
+  reg [63:0] read_reads_to_open_page_count;
+  reg [63:0] write_writes_to_open_page_count;
+  reg [63:0] read_writes_to_open_page_count;
+  reg [63:0] write_reads_to_open_page_count;
+
+  reg [5:0] r_command;
+  reg [5:0] rr_command;
+  reg writes_to_current_bank;
+  reg reads_to_current_bank;
+
+  wire collect_stats;
+
+`protected
+
+    MTI!#+^OUpJxE\R7\1X~W*>-Y*]Yo\EROv+D>=?opr|tj^[[q%HUp1{V?^d=I7K7;!_[sl1qk5KA
+    jj#a{<1<*l!m2[B]!X-QzI_O^_}-p3okxxH}QZzk'E<[]*+__'n-r-+u3_=7_onm#[*l7a+@ROeU
+    BCj1G]#Vl>KDvG!!=QIrx[2YBQ1^*Z_'i_DpvtDKx5i=A'7<_jMmCnluwli5oYJH'7-'5?w3E<eC
+    R3pp_nEa'i*5Gn@=@a@vYluE$VE$pBi4=YI;G3vI/izs<~[Y7[W<o1;W;_U5i^3prn>Ha!+Ke$wO
+    n!QU__x~-}eI${G^3]Y=_U^J{@YDo]i-XeA+E+$Anxvp$!^OHsJ}m[,m<=^A<{+1?%51?#U'iUkj
+    KuZwrp.BGDi$?vZ?'zRrYx2WR]pyB{,p=3V<v;V!B+{5KjQJyKDu?DIk+z5+,'D@wV\xRCj>'YI3
+    -zOQ@VlR1p_oVpIYRW-Tmw&}ZB?\>J7q1wKEvO1i,AeG$sBl\asYK7<A[7J{^a@5DEVCS5o$E7!Z
+    1JrQXH<7z*mKu_-OK/kVAEoBl_E?[?&rw$p21;Kz0pCvEKOa3!vrKB]3sU7DQMR\Y-,(?>^=6q9M
+    UYiz}e{zoHKHn[ij!+2[eioBv2xz'zR_eXJwi=ZWD]Y?S3Y=1CH{p"Ls>jR6<BTkrri=wQvm1=-<
+    ?[aGl=\<:<1eazvvGW}BErR-pwxa=\2;sO{BHgHN!r-K}Ks+}GJHr?Tr:o;w[FpX^T#_BY"pao}u
+    5K!=+AI=vV\QJsHCmQVZ+}B5mHkQ\3m'GwKkUDGrj*$jJvK'a1_urOHRv~BF;\77s1E>Y?l[]Y{*
+    K>CzQUeOX*I\K{jVsRW{ovCoa1!Ug-ju@&#<Xn$+}HN$K,D2BHuZ'sD[G^+rjTsr@$uF1~TXGkPL
+    n1#swA75kB'3FggMHCj<]6#Ik@T^~7DHUY8O2-<_mo'KUnHQA[p.evUT_XWn6}^wRn,=;is*3B^i
+    ]Uwon1*w?~+TAOTTk^VX7]Y<<{p{7^_axVk]TQu5i[KYvI2'24vVk\o+u53*?1Cmejr}jm7+Dvj}
+    _AxXowFu<-{/XIa=QHRmyTx7K7Wl<IWGC]&7Dx_h2>sIAUO_?nrVomC^nE*{mU1a^v+=uV,Xds7I
+    7xQreHp\TkI~v(av=7[D,;jnxCsj*HT^aH9>GH^*;}mY}_OReKAOWeR7GJ7Qu@XUeeUQXW21'si-
+    =epDm!{D515Zw}^JnQ]-[#l!DR^M^$RUZrG5lw~Gl*vxWas<,T;Q{\{XTEBaB{-o_*K1G-^D>5!G
+    _~u1l*lW}mK@*1Y,IaXa{<\[%6pnnn=@7
+`endprotected
+
+`include "qvl_ddr2_sdram_bank_module_assertions.svh"
+`include "qvl_ddr2_sdram_bank_module_cover.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_ddr2_sdram_bank_module.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_ddr2_sdram_bank_module.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_ddr2_sdram_bank_module
+`include "zi_cw_ddr2_sdram_bank_module.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_ddr2_sdram_bank_module

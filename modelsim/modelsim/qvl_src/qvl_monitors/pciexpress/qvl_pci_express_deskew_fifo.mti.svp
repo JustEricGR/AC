@@ -1,0 +1,237 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+* PURPOSE     This file is part of the Questa Verification Library (QVL) 
+*
+* DESCRIPTION This module describes the deskew FIFO functionality. 
+*
+* REFERENCE PCI Express Base Specification, Revision 1.0, July 22 2002.
+*           PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*           PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+***********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+
+`qvlmodule qvl_pci_express_deskew_fifo(
+                                     reset,
+                                     areset,
+                                     clock,
+                                     level_select,
+				     write,
+				     write_data,
+				     read,
+				     read_data,
+                                     deskew_fifo_flush,
+				     fifo_almost_full,
+				     com_read_from_fifo,
+				     fifo_empty
+				     );
+
+  // Parameter for fifo depth.
+
+  parameter FIFO_PTR_WIDTH = 1;
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+  parameter PIPE_MONITOR = 0;
+  parameter ZI_MAX_SKEW_LIMIT = 5; 
+  parameter FIFO_DEPTH = 1 << FIFO_PTR_WIDTH;  
+
+  // Deskew is done on 10 bit symbols if the interface is not PIPE.
+  // Deskew is done on 8 bits symbols if the interface is PIPE.
+
+  parameter DATA_WIDTH = (PIPE_MONITOR) ? 9 : 10;
+
+  // Input declarations
+
+  input reset;
+  input areset;
+  input clock;
+  input level_select;
+  input write;
+  input [DATA_WIDTH - 1:0] write_data;
+  input read;
+  input deskew_fifo_flush;
+
+  // Output declarations
+
+  output [DATA_WIDTH - 1:0] read_data;
+  output fifo_almost_full;
+  output com_read_from_fifo;
+  output fifo_empty;
+
+  // Internal parameters
+
+`protected
+
+    MTI!#e#rCxaK7U7?WzuoR>Gnjv=oE;^Xn$OE<=Zo;?Y#uEP}@=K|B,e{kw>IE=TW[AQ26V*+#~DG
+    2-a{Up*;kX>~D}Cn1JY@oIszH?w}<I"jS@5X~[yRz3{6_\!BZYA_1eo1xYC}<Ts2V>EV.)1XZ?dq
+    1W@GI]5wO_Cnepe+*~5Vj'_RQZpjE*lQ=?Y\D~o*7zT_1BQEZ${$opB[EZ,[cwwT{[djU-vunv~
+`endprotected
+     
+  // FIFO memory
+
+  reg [DATA_WIDTH - 1:0] fifo_memory[0:FIFO_DEPTH - 1];
+
+  reg [FIFO_PTR_WIDTH :0] write_pointer;
+  reg write_on_negedge;
+  reg [DATA_WIDTH - 1:0] write_data_on_negedge;
+
+  reg [FIFO_PTR_WIDTH :0] read_pointer_posedge;
+  reg [FIFO_PTR_WIDTH :0] read_pointer_negedge;
+  reg com_detected_posedge;
+  reg com_detected_negedge;
+
+  reg deskew_fifo_flush_negedge;
+
+  wire [FIFO_PTR_WIDTH :0] read_pointer;
+  wire compare_flag;
+  wire com_detected;
+  wire write_enable;
+  wire [FIFO_PTR_WIDTH - 1 :0] fifo_entries;
+  wire fifo_full; 
+  wire fifo_empty;
+
+  wire com_read_from_fifo_ddr;
+  wire com_read_from_fifo_sdr;
+
+  integer i;
+
+
+  // assign statements
+
+  assign compare_flag = (read_pointer[FIFO_PTR_WIDTH - 1:0] ===
+			 write_pointer[FIFO_PTR_WIDTH - 1:0]);
+
+  assign fifo_full = (compare_flag && write_pointer[FIFO_PTR_WIDTH]
+		      !== read_pointer[FIFO_PTR_WIDTH]);
+
+  // write_on_negedge is used to take care of writings on negedge
+
+  assign fifo_empty = (compare_flag && write_pointer[FIFO_PTR_WIDTH]
+		       === read_pointer[FIFO_PTR_WIDTH] &&
+                       write_on_negedge === 1'b0); 
+
+  assign read_pointer = (level_select) ?
+                    read_pointer_posedge : read_pointer_negedge;
+
+  assign com_detected = (level_select) ?
+                    com_detected_posedge : com_detected_negedge;
+
+  assign read_data = (DOUBLE_DATA_RATE && write_on_negedge === 1'b1 &&
+                      fifo_entries === 0) ?
+                      write_data_on_negedge :
+                      fifo_memory[read_pointer[FIFO_PTR_WIDTH - 1:0]];
+
+  // com_read_from_fifo is asserted when the read data from the FIFO
+  // is COM. Reading is valid only when fifo is not empty.
+
+  assign com_read_from_fifo_sdr = 
+	  ((((read_data === ZI_COM_PLUS || read_data === ZI_COM_MINUS) &&
+	   PIPE_MONITOR == 0) ||
+	  (read_data[7:0] === ZI_COM && PIPE_MONITOR == 1)) && fifo_empty !== 1'b1)
+	  ? 1'b1 : 1'b0;
+
+  assign com_read_from_fifo_ddr = 
+	    ((((read_data === ZI_COM_PLUS || read_data === ZI_COM_MINUS) &&
+	      PIPE_MONITOR == 0) || (read_data[7:0] == ZI_COM && PIPE_MONITOR == 1))
+	      && fifo_empty !== 1'b1 && fifo_entries >= 2)
+          ? 1'b1 : 1'b0;
+
+  assign com_read_from_fifo =
+	    (DOUBLE_DATA_RATE) ? com_read_from_fifo_ddr :
+	     com_read_from_fifo_sdr;
+
+  assign write_enable = (com_detected === 1'b1 || ((write_data === ZI_COM_PLUS
+                         || write_data === ZI_COM_MINUS) && PIPE_MONITOR == 0)
+			 || (write_data[7:0] == ZI_COM && PIPE_MONITOR == 1));
+
+  assign fifo_entries = (write_pointer[FIFO_PTR_WIDTH - 1:0] >
+			 read_pointer[FIFO_PTR_WIDTH - 1:0]) ?
+                        (write_pointer[FIFO_PTR_WIDTH - 1:0] -
+			 read_pointer[FIFO_PTR_WIDTH - 1:0]) :
+                        (FIFO_DEPTH -
+			(read_pointer[FIFO_PTR_WIDTH - 1:0] -
+			 write_pointer[FIFO_PTR_WIDTH - 1:0]));
+
+  // Assign FIFO almost full when the number of entries in the FIFO
+  // reaches the ZI_MAX_SKEW_LIMIT number of entries. This indicates 
+  // the MAX skew limit is exceeded.
+
+  assign fifo_almost_full = (DOUBLE_DATA_RATE === 0) ? 
+			    (fifo_entries > ZI_MAX_SKEW_LIMIT):
+			    (fifo_entries > (ZI_MAX_SKEW_LIMIT + 2));
+
+`protected
+
+    MTI!#J$n-V2w{YjC[pR5rFHH!R}p'>u-@Yw{1[ylEh=JpB'~1VQV3e"A]$]b1_Z5z,}x1z]E>roC
+    o_C<YDipI-BYB+O\k5~QIRka6oOi?=x+Vi[_3v@uIaRIO9~NH'T7IQTKd[m7*-{KWmQw]RU5+lOO
+    OARAaQ+5@OCx!]?3Y?1*7vw(+lB~IQ-C%lGpTmtvRuk][C'.I~-JKDk*]T_^}l}JOXZRx+,p_H+\
+    ;[m55O^sxK-k^EmT6IZ~?EvT=B3QX<EX,>'HB;TWz15\W,Ou=h,27r5<*pruX3^5'roK\5v1T_A}
+    p^'lY?Q{EYpIR{6~p<<\IA_o;B\Ej}\iw$!'gvr#VUr"*jn?{EJV3'kvVOE;m*!o{>>^V,^+O>Y]
+    J}ETanOBx3v*.z,kxHGXT0?jD[+OWxaYn}_=#>|FHXI$'Zm^@_V<JD5wC/8{a}i^~VQ'![w]I\mC
+    'k}xm3<ar}PEz!<#U=a>s3^]^@!1B@>%^c7@aoI'j#U=Qe-<]G=/{e_=U7u#1Fb~Vrk@BnAF}@J!
+    ^m*BO}?aC'!<zm<1ar*^ziU^o_CopexmIkws}1X2rZaVk_{k|Im*_o!7<_Zo'vZEOWR#-A=?KvR+
+    2D\$+S@GV$"olV^p*|5]<B7Aj>1AV*8OV3[o~,o=nWRHwZ}-jRiH]1]7RUXQomC2],iAX\B5AZ[7
+    lV7YDne;*QTxmQE({BT7xEi#K]*]%?Cj<*kRWNeP-<U'!^k[,W1=|V'7mx#r{EpX@v]O]X\~?J^K
+    1Cspw1lAA~$'+r@w[#YvmtB/1B@re@j\ajpi,Qx#gYmeW0w*&<',-,Ok,w$kOUDeIp\!*q2_+kbH
+    pYk?rGn_wn~'s~p$T'O';]vY$=n.x+HYCz+7K}-m/_-O$uw{=5WHamGE7['Kk9[2HAwnjpp.=|UD
+    KQZXrz8QU+{u$J>fs;TAYAH1ve!x7B$uf%H|lZGXBT_W;okW'XWO*BEDlmlaQz7'OCQ>-zAfv,Ak
+    7;R[Djun&vXYn+w_[np>'E*+uO>Zx1{=3>}=ma1jx3^=HVpT>9Ur-zg+}}3~H;K;lOr!_{^IX@m[
+    rv?GO?l>UrYiDKrP:6Z_eBCmr}m[V^?oBv]Oi[jJ;XK'"C=p}1cR\n+KQivY}\[.7ekr*EGCk]Xm
+    yr#CY'9$>m3O?5?I[B~5QECrYV[KTs7\Zo]}k*T=KA^L^j;5CG!{;Ia]^r{Vu'n#Cj}HFi*m'o-R
+    Q+s*#YDms5ZO<xnr*$>5ZD]\p^lkj'!WaTE?OVwx1[n{;srBiR~_,BpA1ax~^#H>?CVeZTwGYCU[
+    k^m=+,V$CKQ|1CX!-nK=ERH5@QJoNKAB7h;_s!rnX-[![$1>H_3VX=T{_1?O!-y}TRnBA{e<vxTp
+    'q2eZHYUKJBEs*BV[3%EsH\,iJEh_W^QIk7Dq+]J15eI'V^J{lBZ,F@x]=u\nAD'T1D=Y;=Ue!,O
+    ,C[<6RlX79>-Ao]exKWVXZrk2Hz<BuN#xJ*?RIH,o@2mX+>x#w#%orIo#-orwHVUGpKv<lQvZsx{
+    H[]QQln#D_pK,<C2*Q@erI?[pU*VvDnHmG!JszQ*-}}1~OkkrOA\zx;mZ5]]5kYID*DrX}ARz2sA
+    RXHvv;Y$[Jl^j#~*V[n\TTH@7xGxEQuZj#BxnUG#n]ok@>BXsnx7[AoH+]vKWX>*.1'sXY-YX]UB
+    vv?m~x0f='kx[Om_yGml$rD,AKT>3ETmGpC*',x_J$%1jR^47~,<;sxRj,=34J><lu-WrIu,wX+e
+    }pD-r\jrmBjsiKzmkSh}_7UTE@[kYIH@wz<I3zx~n}#G1aU,njEpUKDz5X@\2WJ+^J;}w!m;A>zA
+    eO@#\}w1;$Z2*?z,]EV_oIwOji_V[sK7*12OJ{Jq^$kC,{{7QuBAI$wE3Ew[B@}AsKX?Ru>H>'\n
+    z@7K_aR_gD}:\<lv2ADp
+`endprotected
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_deskew_fifo.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_deskew_fifo.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_deskew_fifo
+`include "zi_cw_pci_express_deskew_fifo.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule//qvl_pci_express_deskew_fifo   

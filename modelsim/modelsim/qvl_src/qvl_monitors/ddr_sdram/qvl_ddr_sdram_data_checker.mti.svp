@@ -1,0 +1,428 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+ *
+ * PURPOSE      This file is part of 0-In CheckerWare.
+ *              This file describes the Data checker module of DDR SDRAM
+ *              Monitor.
+ *
+ * DESCRIPTION  This module is used in the zi_cw_ddr_sdram_bank_monitor to 
+ *              verify if the written and read data of the specified address 
+ *		are correct
+ *
+ * INPUTS       clk           - Clock signal
+ *              cke           - DDR SDRAM clock enable signal
+ *              reset         - Synchronous reset signal
+ *		areset        - Asynchronous reset signal
+ *              read          - Read burst flag
+ *              read_addr     - Read burst starting address
+ *              read_data     - Read burst data from DDR SDRAM
+ *              write         - Write burst flag
+ *              write_addr    - Write burst starting address
+ *              byte_enables  - Data byte mask signal(s)
+ *              write_data    - Write data to the DDR SDRAM
+ *              read_latency  - Read burst/CAS latency
+ *              write_latency - Write burst latency
+ *              bad_data_chk  - Data check enable
+ *              read_before_write_chk - Read before write check enable
+ *
+ * PARAMETERS   BUS_ADDR_WIDTH      - Width of the main memory address bus.
+ *                                    This is the width of the bus addresses 
+ *                                    to be saved in the data checker.
+ *   
+ *	        BUS_DATA_WIDTH      - Width of the main memory data bus. This 
+ *                                    is the width of the bus data values to 
+ *                                    be saved against each main memory address
+ *                                    in the data checker.
+ *
+ *              READ_LATENCY_MAX    - Maximum value of Read latency. This is
+ *                                    used to fix the depth of the various 
+ *                                    read specific pipe implementations in 
+ *                                    case of read latencies greater than 1.
+ *             
+ *              WRITE_LATENCY_MAX   - Maximum value of write burst latency.
+ *                                    This is used to fix the depth of the
+ *                                    various write specific pipes.
+ *
+ *              CACHE_ADDR_WIDTH    - Width of the address bus required to
+ *                                    address all the locations of the address
+ *                                    cache memory within the data checker. 
+ *                                    This along with the burst address width 
+ *                                    will be the address width required to 
+ *                                    access all the locations of the data 
+ *                                    cache memory.
+ *
+ *              BYTE_ENABLES_WIDTH  - Width of data mask signal(s). Here it is
+ *                                    referred to as byte_enables because it 
+ *                                    an inverted data mask.
+ *
+ *              ADDRESS_TYPE       - Indicates the address stream in case of
+ *                                   a split memory implementation. A 0 on this
+ *                                   indicates that all even addresses of the
+ *                                   main memory are passed to this data check
+ *                                   module and a 1 indicates that this module
+ *                                   caters to odd addresses of the main mem.
+ *
+ *              AUTOPRECHARGE_BIT  - Indicates the address line used as control
+ *                                   line to indicate an autoprecharge enable
+ *                                   on a read or write operation. The default
+ *                                   line is A10.
+ *
+ *              ROW_ADDR_WIDTH     - The width of the main memory (DDR SDRAM)
+ *                                   address bus. Here it is used for row and
+ *                                   column address decoding.
+ *
+ *
+ * 
+ * Last modiifed date: 06 April 2006
+ * 
+ *****************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`qvlmodule qvl_ddr_sdram_data_checker(
+	                    clk,
+			    cke,
+			    reset,
+			    areset,
+			    read,
+			    read_addr,
+			    read_data,
+			    write,
+			    write_addr,
+	                    byte_enables,
+			    write_data,
+			    read_latency,
+			    write_latency,
+			    bad_data_chk,
+			    read_before_write_chk,
+			    bad_data_chk_fire,
+			    read_before_write_chk_fire,
+			    bank);
+
+parameter ZI_CONSTRAINTS_MODE_MEMORY_SIDE = 0;
+wire [31:0] pw_ZI_CONSTRAINTS_MODE_MEMORY_SIDE = 
+	    ZI_CONSTRAINTS_MODE_MEMORY_SIDE;
+
+parameter BUS_ADDR_WIDTH = 24;
+wire [31:0] pw_BUS_ADDR_WIDTH = BUS_ADDR_WIDTH;
+parameter BUS_DATA_WIDTH = 64;
+wire [31:0] pw_BUS_DATA_WIDTH = BUS_DATA_WIDTH;
+
+// default no latency
+parameter READ_LATENCY_MAX =  0;
+wire [31:0] pw_READ_LATENCY_MAX = READ_LATENCY_MAX;
+parameter WRITE_LATENCY_MAX =  0;
+wire [31:0] pw_WRITE_LATENCY_MAX = WRITE_LATENCY_MAX;
+
+// The following parameter is the burst address width, which is the width
+// reqiured to address each data within a burst. For example, for a burst 
+// length of 4, this will be 2 and for burst length of 8, this will be 3.
+
+parameter CACHE_ADDR_WIDTH = 4;
+wire [31:0] pw_CACHE_ADDR_WIDTH = CACHE_ADDR_WIDTH;
+
+parameter BYTE_ENABLES_WIDTH = (~|(BUS_DATA_WIDTH & 3'b111))?
+                                   BUS_DATA_WIDTH/8 : BUS_DATA_WIDTH/8 + 1'b1;
+wire [31:0] pw_BYTE_ENABLES_WIDTH = BYTE_ENABLES_WIDTH;
+
+parameter ADDRESS_TYPE = 0;
+wire [31:0] pw_ADDRESS_TYPE = ADDRESS_TYPE;
+ 
+parameter AUTOPRECHARGE_BIT = 10;
+wire [31:0] pw_AUTOPRECHARGE_BIT = AUTOPRECHARGE_BIT;
+ 
+parameter ROW_ADDR_WIDTH = 12;
+wire [31:0] pw_ROW_ADDR_WIDTH = ROW_ADDR_WIDTH;
+
+parameter ZI_BANK_ADDR_WIDTH = 2;
+wire [31:0] pw_ZI_BANK_ADDR_WIDTH = ZI_BANK_ADDR_WIDTH;
+
+parameter CACHE_DEPTH = 32'b1 << CACHE_ADDR_WIDTH;
+wire [31:0] pw_CACHE_DEPTH = CACHE_DEPTH;
+
+// The depth of the data cache memory is same as the address cache
+// memory. This is done to simplify the implementation so that for
+// each burst, one address cache entry is done for each individual
+// data transfer of that burst.
+
+parameter LATENCY_WIDTH = 3;
+wire [31:0] pw_LATENCY_WIDTH = LATENCY_WIDTH;
+
+input			            clk;
+input                               cke;
+input                               reset;
+input                               areset;
+input			            read;
+input	[BUS_ADDR_WIDTH-1:0]	    read_addr;
+input	[BUS_DATA_WIDTH-1:0]	    read_data;
+input				    write;
+input	[BUS_ADDR_WIDTH-1:0]	    write_addr;
+input	[BYTE_ENABLES_WIDTH-1:0]    byte_enables;
+input	[BUS_DATA_WIDTH-1:0]	    write_data;
+input	[LATENCY_WIDTH:0]	    read_latency;
+input	[LATENCY_WIDTH:0]	    write_latency;
+
+//Check enable signals.
+input                               bad_data_chk;
+input                               read_before_write_chk;
+
+// address input used to print full address in case of a data check firing
+input   [ZI_BANK_ADDR_WIDTH-1:0]    bank; 
+
+//Checker fire signals.
+output                              read_before_write_chk_fire;
+output                              bad_data_chk_fire;
+
+// The Address and Data cache memories. The address cache memory saves the 
+// bus address of the main memory and therefore the width of each location 
+// here is equal to the bus address width. Depth is configured through the
+// parameter CACHE_DEPTH. The data cache holds the data on the main memory
+// data bus, corresponding to each address on the address bus. Therefore 
+// width of each location of this memory is equal to the data bus width. 
+// Cache entry valid is essentially concatenation of all 1-bit flags, one 
+// each for every location of the cache. This flag indicates whether the
+// corresponding locations in the address/data cache have been written atleast
+// once. This is not reset after reads, to have the data available for more 
+// than one reads to every location.
+
+reg [BUS_ADDR_WIDTH-1:0]          address_cache [CACHE_DEPTH-1:0];
+reg [BUS_DATA_WIDTH-1:0]          data_cache [CACHE_DEPTH-1:0];
+reg [BYTE_ENABLES_WIDTH-1:0]	  cache_entry_valid [CACHE_DEPTH-1:0];
+reg                               write_command_cache [CACHE_DEPTH-1:0];
+
+// Various latency pipe stages implemented as registers. These are continuously
+// shifted and the new data/addr pushed into the first location. The number of
+// stages is limited by the configuration parameters WRITE_LATENCY_MAX and
+// READ_LATENCY_MAX. 
+
+reg [WRITE_LATENCY_MAX:0]                    write_cmd_pipe;
+reg [WRITE_LATENCY_MAX*BUS_ADDR_WIDTH:0]     write_addr_pipe;
+reg [WRITE_LATENCY_MAX*BUS_DATA_WIDTH:0]     write_data_pipe;
+reg [WRITE_LATENCY_MAX*BYTE_ENABLES_WIDTH:0] byte_enables_pipe;
+reg [WRITE_LATENCY_MAX*CACHE_ADDR_WIDTH:0]   write_cache_addr_pipe;
+reg [READ_LATENCY_MAX:0]	             read_cmd_pipe;
+reg [READ_LATENCY_MAX*BUS_ADDR_WIDTH:0]	     read_addr_pipe;
+reg [READ_LATENCY_MAX:0]	             reusing_cache_entrys_flag_pipe;
+
+// These are used in determining a read/write cache hit. A write hit is said
+// to have occured when the current main memory address was already written 
+// into earlier. This is determined by searching through the address cache
+// memory for any location having this address value stored. If yes, the 
+// new data is re-written into the same corresponding location in the data 
+// cache memory. If the current main memory address is being written for the
+// first time, the address and data are written into next consecutive cache 
+// loaction pointed by the next_entry_ptr, which is a free running counter.
+
+// A read hit is supposed to have happenned when the location currently being
+// read was previously written into. In such a case, the data from the 
+// corresponding location in the data cache memory is picked up and compared
+// with the data on the main data bus for data checking.
+
+reg	                                     write_cache_hit_reg;
+reg [CACHE_ADDR_WIDTH-1:0]                   write_cache_hit_addr_reg;
+reg                                          read_cache_hit_reg;
+reg [CACHE_ADDR_WIDTH-1:0]                   read_cache_hit_addr_reg;
+reg [BUS_DATA_WIDTH-1:0]                     tmp_data_cache_data;
+reg                                          location_written_hit_reg;
+reg [CACHE_ADDR_WIDTH-1:0]                   location_written_hit_addr_reg;
+
+reg [CACHE_ADDR_WIDTH-1:0]                   next_entry_ptr;
+reg	                                     reusing_cache_entrys_flag;
+reg [BUS_DATA_WIDTH-1:0]                     temp_read_data;
+reg [BUS_DATA_WIDTH-1:0]                     temp_cached_read_data;
+reg [BYTE_ENABLES_WIDTH-1:0]                 temp_data_valid;
+reg [BYTE_ENABLES_WIDTH-1:0]                 temp_data_fire;
+
+integer	j,k,idx,idxl;
+
+// These are the effective main memory address bus values. The term "muxed"
+// is used to indicate that these are the "effective" address, which may be
+// the same as current main address/data bus values if latencies are 0 or 
+// shifted (delayed) versions in case of latencies > 0. All the muxed_read..
+// and muxed_write... are main addr/data bus values, to be saved in the cache
+// memories.
+
+// All the wires with the "cache" term included are the internal cache pointers
+// or locations. Note that the widths of these signals are CACHE_ADDR_WIDTH
+// which means these can take values from 0 to CACHE_DEPTH. The ...hit_addr 
+// wires hold the index of the location within the cache memories for reads
+// and writes which have a hit. The write_cache_addr picks between the hit_addr
+// in case of a write hit and free running pointer in case of a new write.
+
+wire			      muxed_write_cmd;
+wire [BUS_ADDR_WIDTH-1:0]     muxed_write_addr;
+wire [BUS_DATA_WIDTH-1:0]     muxed_write_data;
+wire [BYTE_ENABLES_WIDTH-1:0] muxed_byte_enables;
+wire [WRITE_LATENCY_MAX:0]    write_shift_amount;
+
+wire		              muxed_read_cmd;
+wire [BUS_ADDR_WIDTH-1:0]     muxed_read_addr;
+wire [READ_LATENCY_MAX:0]     read_shift_amount;
+
+
+wire	                      write_cache_hit;
+wire [CACHE_ADDR_WIDTH-1:0]   write_cache_hit_addr;
+wire [CACHE_ADDR_WIDTH-1:0]   write_cache_addr;
+wire [CACHE_ADDR_WIDTH-1:0]   muxed_write_cache_addr;
+wire [BUS_DATA_WIDTH-1:0]     current_cached_data;
+
+wire                          read_cache_hit;
+wire [CACHE_ADDR_WIDTH-1:0]   read_cache_hit_addr;
+wire [BUS_DATA_WIDTH-1:0]     cached_read_data;
+wire [BYTE_ENABLES_WIDTH-1:0] cached_data_valid_flag;
+wire                          location_written_hit;
+wire [CACHE_ADDR_WIDTH-1:0]   location_written_hit_addr;
+
+wire        	              cache_full;
+wire		              muxed_reusing_cache_entrys_flag;
+
+wire [ROW_ADDR_WIDTH-1:0]     row;
+wire [ROW_ADDR_WIDTH-1:0]     col;
+
+
+`protected
+
+    MTI!#l-37@vV]13^w%_x2E\Xrk3Us~1Rrx~agb=V&h#H{=s2x'\x@~pVoe#G],EA-#Ypg$JeliXR
+    EYo?[OQ1?c{}+3'C!Vml^TIU@V[-QpiVvB<XeupFr,XjbJHD=$v?WE9wsjIr#XEzn~]TEU}:As!J
+    I{z37ZDu]uTzmU\]ypuC+KTYn9;Oi2VC#x<*3A}n*OOVJjb3jGuYpp!l2]7WUAkI{+EIIlwZ'J-@
+    p?k2=m7kT\!s1?Ee>I7"Y@,Tx@ulywT>kEpmB"1~]RQeKCjVp[welO=?U!:f[CJR~Txvw_!<,I#5
+    ![[r-$vK,EkT3zQir@R;VHQQE\Gs8Y~2v7{p^I^-v!D{Ke[\]\Tl[,~p-*1=Qw]ilr{G^_i3uF7;
+    TDpf"mGv$opRlv#7\7mlw}WB]9DFvAY52GJE9NJ5Waq\lJoIHDzv'#aa,kuwjAe[kOj,m$3-DjAG
+    BTolYDYn\Ok2_>\53E1's[i$[n!i7D[>QzrY-vKE75*jh($TjE:+1C[Y~Q=aRC$XBRK]K[1{UDx<
+    E7a!H+xTn~U&QxmY*'7Qe=;Trp]e[+W-#lI7r5Dk7H@T?[l2r{Xa_2J5^s3uYRGGY<*E'is^r{v1
+    ,E$\iEQ]i{Xrrmz[_~pa7L<{u{Aw]ZIax3IrzjImG-5Yr5P=oZ7x!nzrn_?Dn+EbpDE\PTrk^PO!
+    rV^$3r'eJ!@I1w]zi]_Hjs>]s1[Qa7]U]7isQG5.x{e<xaK^-CT2Xju,xH_iQ!T~w>=u-l?le@\w
+    les]avei_5wEv~wnds$G;]?lm$JD@v[#7liUKZp<E
+`endprotected
+
+assign muxed_write_cmd	= (write_latency == 0) ? write : 
+			                   write_cmd_pipe[write_shift_amount];
+
+assign muxed_write_addr = (write_latency == 0) ? write_addr : 
+		     (write_addr_pipe >> (write_shift_amount*BUS_ADDR_WIDTH));
+
+assign muxed_write_data	= write_data;
+
+assign muxed_byte_enables = byte_enables;
+
+assign write_shift_amount = (write_latency == 0) ? 0 : (write_latency-1);
+
+assign {write_cache_hit,write_cache_hit_addr} = {write_cache_hit_reg,
+						 write_cache_hit_addr_reg};
+
+assign write_cache_addr = write_cache_hit ? write_cache_hit_addr : 
+                                            next_entry_ptr;
+
+assign muxed_write_cache_addr = write_cache_addr;
+
+assign muxed_read_cmd = (read_latency == 0)? read :
+				      read_cmd_pipe[read_shift_amount];
+
+assign muxed_read_addr = (read_latency == 0)? read_addr : 
+		       (read_addr_pipe >> (read_shift_amount*BUS_ADDR_WIDTH));
+
+assign read_shift_amount = (read_latency == 0)?  0 : (read_latency-1);
+
+assign {read_cache_hit,read_cache_hit_addr} = {read_cache_hit_reg,
+					       read_cache_hit_addr_reg};
+
+assign {location_written_hit, location_written_hit_addr} = 
+           {location_written_hit_reg, location_written_hit_addr_reg};
+   
+assign cached_read_data = data_cache[read_cache_hit_addr];
+
+assign cached_data_valid_flag = cache_entry_valid[read_cache_hit_addr];
+
+assign current_cached_data = data_cache[muxed_write_cache_addr];
+
+assign cache_full = (next_entry_ptr == (CACHE_DEPTH-1));
+
+assign muxed_reusing_cache_entrys_flag  = (read_latency == 0)? 
+                       reusing_cache_entrys_flag : 
+                       reusing_cache_entrys_flag_pipe[read_shift_amount];
+
+assign row = {muxed_read_addr[ROW_ADDR_WIDTH+AUTOPRECHARGE_BIT-2:
+                                   AUTOPRECHARGE_BIT-1]};
+
+assign col = {muxed_read_addr[BUS_ADDR_WIDTH-1:BUS_ADDR_WIDTH -
+                                      ROW_ADDR_WIDTH+AUTOPRECHARGE_BIT+1],
+                   muxed_read_addr[AUTOPRECHARGE_BIT-2:0],ADDRESS_TYPE[0]};
+
+reg reset_happened;
+
+`protected
+
+    MTI!#xZlT-RX{I[GoKH;$EU5>1wK10((k5B7[4*z][qoaj[@U~Y7{VIuSl?Bm?_p~a1-ZixCo1wA
+    zZ7]^YT-Xl3;o$@Eaa$R}_kpi%17k]]Os\uwJaFa'7xjV5YTT2p{'V@oQ^EKC7E8^CR,6Tx1}O1Z
+    2WB)[H5n1CY\v]R;K+GY>{v<:7We75JB+w$Dx}E,,D3,Om]kB2[eD$;2{1(,]>*pQ}{I3HKalruK
+    {DJaG;Zh--UY>B*v10_OVB5,>5pA<u*r4z*5O@EXRvm@!+X1X\<r~Nn][E]<7Q%JQ?~e_Xo6fGx<
+    au$#?lgKj\Q[>^_1d=-x\t(,e@rNs\~<I~j\=z=IwT++TAK_h<G{[=m_T~aQn=o*Cs^@Dv\JCEE\
+    Djx,-RRl$UpkzGa*+j+!1-wDuEE?<-UIxOan~pZ+s@v421<@iOAkQIwQ#7vB7n2?][ZspXw$~7IQ
+    MD$[Q]Boscrom]6[~V1(b~+\]ONlHe_6<+n{}$,*=,s-lxYA+Q=W?T'~l5UV~xI'7]?$2U,]"]~u
+    OOV1$_K2mJRnDe{[I.G2vzAn<1saoz7^3]1o^!}?7$&!j7I)YqoB[~k$oBCC5;\[u'eJm[}vU\yl
+    u}+If_G$A7w<>U'7_lY<}Rv1@h8LQZjA;7i,1DQ$]TnDmYQ<rio3E\ER1*n7BeBKn}]\@CKXpEOV
+    Q}zwr?RY\rIaJ'TUIOJj,T[p?>XCMn^5[rcG[2}BZG!^T;Z~n7@8&!B<C"D=#~UwuQ,5l2CXTRIi
+    IvOvIHvzOTr]m=6sB_+ATZ3eH[#.y1*E<z73Qsdr<eH-X~x}}'T@O*+Q;+JKla!>Ux{}}A+s{zw!
+    Rsz@'#Uxz]KBs{CY(s'[[\VVUkCYx5nm==Bs#zKuuxWXCXe{}sIYAsHz=BnorVTo;Q5;pU\j2[^e
+    VG1p7o>X!n$5^i{QI^&<+p[">a;KG#,+cFjiJZ[2w1Rt\IDRiBDK5U+T'B!Hz-p?BCSmG'We;RZH
+    $D!^2<]]Z<,DO'_7_J}gsK;w)Jo[^K{ZXE]u;l2_<iR_TmAex\Bup5<z*j?m71^lkQ${+aRD~z@^
+    zazvw1\<YCR@xipn,853ueor@pGr<e(8UIT=vmAOlX~r-+\5Ia2AwB#YrOmXYzC1l2Vapw+3Yx[i
+    qx[$!M^]EwSY=5iW]CWL^m_a{_ZXs?nk-j7u<5-z[B;,D|sARDg<lCn}zDl$OCksnv\l$QGIED$j
+    ~G,O^?-OvX+a5~U^*a~R~@uYX7~B5!GfluEBr?zr#=]ZO~=jJr5a\mQO*>O5YnZpuv]3>o#T.BWZ
+    uz_J^Z5rgQmC2zQ7?oR,'K1WsV+u[[e*=jw,auX2@*iV~rjlkP=<xOE[is*WQBvr~QrpQa-ATzu]
+    $@4+S1L;rXQO-OIc{wujFHa<?Z._mIv[Ej\3[lv+E*!*T,~v2BB7Z*=+Us+cprQ~s@^$'sBH^ewj
+    _@Jm=Y^>j~[Il3W@\}>RzWO;kAT2jYaHoIR{1lim]\]<6j#\k{e*R2V?}JnQ-QOWne?$KZ=mQ'E{
+    lDGsj.SHCY1H+r3oIC[3Xlr"xKwjrB2Gk6Zp5!mvR*D5C@*z;<mAVjh5]{}v2He'k_D^-aek&VO\
+    BQ5-'oBWsDViGYmXYmouZfe+X\GDXjV{U#VZI;{_+pp$5#V<{s!TxvYW2wwR^sIlWu13Un?,#A=j
+    *+XY?[4T$[}}IZ<|~[^_lC\DQi\7BV5IjV_?[H-XQ9W>l;'vQWc$OTjxI?I$kK^_@viRT-=O7?p]
+    JjeS^li5nO#^$*B*k77pOklO>]U#B@v-*'2TU[*~8~5Du[@,W*G5?XxZm8@jY!v;wDO^!'Y-p#Be
+    mG]I;?%KsrT-aDvROm_.^oIn^1==[_+<Je'G[n+r{T!C.%^m2KOA2UnsS.X7no!xUa{o\x!<JJE~
+    2;}\T>E>1s{]rwjGj7zB2mQp]Z{D,*O?=v*?lr7}7I#*7>-UH*!XU![TQe!\5ij_Y?A-*=@}E]$p
+    -W\DpQYk~#t1,K}1+\oE!_YarjmCw_swVK=ATH\ME$um;hFV!*mx?@5'{U$o7{1O!!ziI\3x[1az
+    B?}j;npRQ~s:-ao$3{[^e{Q~{r^wqPO,x2_+v@*D1C\]n}!{prHDvBOm-j4lH<;E'#Ad=X+<nA~B
+    >H7ox<G5m=H?qQrX2p#+v8no#C}uTB<a_7x+7jl5D{U+;u?pJOXE;,.~{<m^}k]Irsu{sn$IV;#o
+    <w@;{mCOv@K]'TC<RVU<\Coy'\?uY^lv^J^'-l7>.3OaKLXno-C^}2AI*]GujDZsxJT7r-E+]B_=
+    uVRWVE@n5<!}'e9Y'G$DOY*sJUe>x_Zs@!2\DslCaxQ0m1}E0{j5^S~\7[p+~CYnw!s{)uE}^x5m
+    v<5x#7o+V3xE{]HIDQWDvnC<u73Ym7dj+eR[CW{7,52'XBj2lT7@aWAlG>G\'{#Q_5ukOD<3GnHF
+    @nnY?Ol=kIJ#2j@Gk}p~^Z]i<z]i-{]5B;u}r^mITw4C7w-prjuERV++,D=2a7Ke_,<[r?>OW\YD
+    "Grs_Touze{v1S[+AxKQO^1VVz!HQr7H-k=rwX1YH_$QpXin}\QQG3aBOraG'sr2j,]*-<$^Bv$,
+    Gx,{[2m6>CT=]^ZKbQ#]XG1*k~HQO}x,3*3Dp!$l_ZX3\X1i7t?U=JO+mw=5Q7=+p?l8^iZHpDTs
+    l5-~Q8!jiDA'#xq7W+j$O}-;E@Y=wC37on5@>C;,\-<7e*eM>'?{z=R}ulza3r5xDU~s^7#VY<I@
+    2Y]rGIA}^]YpY*w7ozXl2[Z;Z\7K/;]m~\?Bnd?a{x?nX^$T5r'xp]AHB~p-EC*2u5!aOH~[o~]=
+    ,m3oY*ve,UCRlwlTX^DU{5p=^+}Iv!?jp@]aer+=ECe!G^J*@oOX9RGlDs@<YWUm*B~D=MTj^{XX
+    <Y>*=u>O_VCIRvZ$TkNQ~X$|Q+T'sGA#7uWBZ,ir}\>sZArYm[[=CJEC,,-1ouu+{$}naC{_J_@_
+    UlW}bie*]-}i+$+VAkH~Wj_RH6!z*wM;=X^B;sE[[CD{V#_jx?_BAAp@B$u/jozTze~xs2>RT<7;
+    KDV>z<-+z,s;#emHHevz*ojB7ouTrOBp3ow7Uz*WljaE5[Uo^+KRu$ns}G<Vw{m*,&;'75,lsA3+
+    KBl{{OBn[eE?B{M]jXG[Wr}QuD7GO~B<wEVB}YEDw7G{V';sBlQ[B[@:'EYU==2$jC*i&<,UKV[<
+    B
+`endprotected
+
+    `include "qvl_ddr_sdram_data_checker_assertions.svh"
+
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_ddr_sdram_data_checker.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_ddr_sdram_data_checker.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_ddr_sdram_data_checker
+`include "zi_cw_ddr_sdram_data_checker.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_ddr_sdram_data_checker

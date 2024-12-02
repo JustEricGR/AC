@@ -1,0 +1,108 @@
+<HTML><HEAD><TITLE>{[incr Tcl]} - body manual page</TITLE></HEAD><BODY>
+<H3><A NAME="M2">NAME</A></H3>
+body - change the body for a class method/proc
+<H3><A NAME="M3">SYNOPSIS</A></H3>
+<B>body </B><I>className</I><B>::</B><I>function args body</I><BR>
+<H3><A NAME="M4">DESCRIPTION</A></H3>
+The <B>body</B> command is used outside of an <B>[incr&nbsp;Tcl]</B>
+class definition to define or redefine the body of a class
+method or proc.  This facility allows a class definition
+to have separate &quot;interface&quot; and &quot;implementation&quot; parts.
+The &quot;interface&quot; part is a <B><A HREF="../IncrTclCmd/class.htm">class</A></B> command with declarations
+for methods, procs, instance variables and common variables.
+The &quot;implementation&quot; part is a series of <B>body</B> and
+<B><A HREF="../IncrTclCmd/configbody.htm">configbody</A></B> commands.  If the &quot;implementation&quot; part
+is kept in a separate file, it can be sourced again and
+again as bugs are fixed, to support interactive development.
+When using the &quot;tcl&quot; mode in the <B>emacs</B> editor, the
+&quot;interface&quot; and &quot;implementation&quot; parts can be kept in the
+same file; as bugs are fixed, individual bodies can be
+highlighted and sent to the test application.
+<P>
+The name &quot;<I>className</I><B>::</B><I>function</I>&quot;
+identifies the method/proc being changed.
+<P>
+If an <I>args</I> list was specified when the <I>function</I> was
+defined in the class definition, the <I>args</I> list for the
+<B>body</B> command must match in meaning.  Variable names
+can change, but the argument lists must have the same required
+arguments and the same default values for optional arguments.
+The special <B>args</B> argument acts as a wildcard when included
+in the <I>args</I> list in the class definition; it will match
+zero or more arguments of any type when the body is redefined.
+<P>
+If the <I>body</I> string starts with &quot;<B>@</B>&quot;, it is treated
+as the symbolic name for a C procedure.  The <I>args</I> list
+has little meaning for the C procedure, except to document
+the expected usage.  (The C procedure is not guaranteed to
+use arguments in this manner.)  If <I>body</I> does not start
+with &quot;<B>@</B>&quot;, it is treated as a Tcl command script.  When
+the function is invoked, command line arguments are matched
+against the <I>args</I> list, and local variables are created
+to represent each argument.  This is the usual behavior for
+a Tcl-style proc.
+<P>
+Symbolic names for C procedures are established by registering
+procedures via <B>Itcl_RegisterC()</B>.  This is usually done
+in the <B>Tcl_AppInit()</B> procedure, which is automatically called
+when the interpreter starts up.  In the following example,
+the procedure <TT>My_FooCmd()</TT> is registered with the
+symbolic name &quot;foo&quot;.  This procedure can be referenced in
+the <B>body</B> command as &quot;<TT>@foo</TT>&quot;.
+<PRE>int
+<A HREF="../TclLib/AppInit.htm">Tcl_AppInit</A>(interp)
+    <A HREF="../TclLib/Interp.htm">Tcl_Interp</A> *interp;     /* Interpreter for application. */
+{
+    if (Itcl_Init(interp) == TCL_ERROR) {
+        return TCL_ERROR;
+    }
+
+    if (Itcl_RegisterC(interp, &quot;foo&quot;, My_FooCmd) != TCL_OK) {
+        return TCL_ERROR;
+    }
+}</PRE>
+<H3><A NAME="M5">EXAMPLE</A></H3>
+In the following example, a &quot;File&quot; class is defined to represent
+open files.  The method bodies are included below the class
+definition via the <B>body</B> command.  Note that the bodies
+of the constructor/destructor must be included in the class
+definition, but they can be redefined via the <B>body</B> command
+as well.
+<PRE>class File {
+    private variable fid &quot;&quot;
+    constructor {name access} {
+        set fid [open $name $access]
+    }
+    destructor {
+        close $fid
+    }
+
+    method get {}
+    method put {line}
+    method eof {}
+}
+
+body File::get {} {
+    return [gets $fid]
+}
+body File::put {line} {
+    puts $fid $line
+}
+body File::eof {} {
+    return [::eof $fid]
+}
+
+#
+# See the File class in action:
+#
+File x /etc/passwd &quot;r&quot;
+while {![x eof]} {
+    puts &quot;=&gt; [x get]&quot;
+}
+delete object x</PRE>
+<H3><A NAME="M6">KEYWORDS</A></H3>
+<A href="../Keywords/C.htm#class">class</A>, <A href="../Keywords/O.htm#object">object</A>, <A href="../Keywords/P.htm#procedure">procedure</A>
+<HR><PRE>
+<A HREF="../copyright.htm">Copyright</A> &#169; 1993-1998 Lucent Technologies, Inc.
+<A HREF="../copyright.htm">Copyright</A> &#169; 1995-1997 Roger E. Critchlow Jr.</PRE>
+</BODY></HTML>

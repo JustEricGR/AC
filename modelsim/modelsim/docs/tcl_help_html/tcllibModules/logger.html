@@ -1,0 +1,218 @@
+<! -- -*- tcl -*- doctools manpage
+   -->
+<! -- $Id: logger.man,v 1.5 2003/12/17 23:17:29 davidw Exp $
+   -->
+<html><head>
+<title>logger - Object Oriented logging facility </title>
+</head>
+<! -- Generated from file './modules/log/logger.man' by tcllib/doctools with format 'html'
+   -->
+<! -- CVS: $Id$ logger.n
+   -->
+
+<body>
+<h1> logger(n) 0.1.0 log &quot;Object Oriented logging facility&quot;</h1>
+<h2><a name="name">NAME</a></h2>
+<p>
+<p> logger - System to control logging of events.
+
+
+
+
+<h2><a name="synopsis">SYNOPSIS</a></h2>
+<p>
+package require <b>Tcl 8</b><br>
+package require <b>logger ?0.1.0?</b><br>
+<br><table border=1 width=100% cellspacing=0 cellpadding=0><tr            bgcolor=lightyellow><td bgcolor=lightyellow><table 0 width=100% cellspacing=0 cellpadding=0><tr valign=top ><td ><a href="#1"><b class='cmd'>logger::init</b> <i class='arg'>service</i></a></td></tr>
+<tr valign=top ><td ><a href="#2"><b class='cmd'>logger::services</b> </a></td></tr>
+<tr valign=top ><td ><a href="#3"><b class='cmd'>logger::enable</b> <i class='arg'>level</i></a></td></tr>
+<tr valign=top ><td ><a href="#4"><b class='cmd'>logger::disable</b> <i class='arg'>level</i></a></td></tr>
+<tr valign=top ><td ><a href="#5"><b class='cmd'>${log}::debug</b> <i class='arg'>message</i></a></td></tr>
+<tr valign=top ><td ><a href="#6"><b class='cmd'>${log}::info</b> <i class='arg'>message</i></a></td></tr>
+<tr valign=top ><td ><a href="#7"><b class='cmd'>${log}::notice</b> <i class='arg'>message</i></a></td></tr>
+<tr valign=top ><td ><a href="#8"><b class='cmd'>${log}::warn</b> <i class='arg'>message</i></a></td></tr>
+<tr valign=top ><td ><a href="#9"><b class='cmd'>${log}::error</b> <i class='arg'>message</i></a></td></tr>
+<tr valign=top ><td ><a href="#10"><b class='cmd'>${log}::critical</b> <i class='arg'>message</i></a></td></tr>
+<tr valign=top ><td ><a href="#11"><b class='cmd'>${log}::setlevel</b> <i class='arg'>level</i></a></td></tr>
+<tr valign=top ><td ><a href="#12"><b class='cmd'>${log}::enable</b> <i class='arg'>level</i></a></td></tr>
+<tr valign=top ><td ><a href="#13"><b class='cmd'>${log}::disable</b> <i class='arg'>level</i></a></td></tr>
+<tr valign=top ><td ><a href="#14"><b class='cmd'>${log}::logproc</b> <i class='arg'>level</i> <i class='arg'>argname</i> <i class='arg'>body</i></a></td></tr>
+<tr valign=top ><td ><a href="#15"><b class='cmd'>${log}::services</b> </a></td></tr>
+<tr valign=top ><td ><a href="#16"><b class='cmd'>${log}::delproc</b> </a></td></tr>
+<tr valign=top ><td ><a href="#17"><b class='cmd'>${log}::delete</b> </a></td></tr>
+</table></td></tr></table>
+<h2><a name="description">DESCRIPTION</a></h2>
+<p>
+
+<p>
+
+The <strong>logger</strong> package provides a flexible system for logging messages
+from different services, at priority levels, with different commands.
+
+<p>
+
+To begin using the logger package, we do the following:
+
+<p>
+
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+    package require logger
+    set log [logger::init myservice]
+    ${log}::notice &quot;Initialized myservice logging&quot;
+
+    ... code ...
+
+    ${log}::notice &quot;Ending myservice logging&quot;
+    ${log}::delete
+</pre></td></tr></table></p>
+
+<p>
+
+In the above code, after the package is loaded, the following things
+happen:
+
+<dl>
+
+<dt><a name="1"><b class='cmd'>logger::init</b> <i class='arg'>service</i></a><dd>
+
+
+Initializes the service <i class='arg'>service</i> for logging.  The service names
+are actually Tcl namespace names, so they are seperated with '::'.
+
+When a logger service is initalized, it &quot;inherits&quot; properties from its
+parents.  For instance, if there were a service <em>foo</em>, and
+we did a <b class='cmd'>logger::init</b> <i class='arg'>foo::bar</i> (to create a <em>bar</em>
+service underneath <em>foo</em>), <em>bar</em> would copy the current
+configuration of the <em>foo</em> service, although it would of
+course, also be possible to then seperately configure <em>bar</em>.
+
+<br><br>
+<dt><a name="2"><b class='cmd'>logger::services</b> </a><dd>
+
+
+Returns a list of all the available services.
+
+<br><br>
+<dt><a name="3"><b class='cmd'>logger::enable</b> <i class='arg'>level</i></a><dd>
+
+
+Globally enables logging at or &quot;above&quot; the given level.  Levels are
+<strong>debug</strong>, <strong>info</strong>, <strong>notice</strong>, <strong>warn</strong>, <strong>error</strong>,
+<strong>critical</strong>.
+
+<br><br>
+<dt><a name="4"><b class='cmd'>logger::disable</b> <i class='arg'>level</i></a><dd>
+
+
+Globally disables logging at or &quot;below&quot; the given level.  Levels are
+those listed above.
+
+<br><br>
+<dt><a name="5"><b class='cmd'>${log}::debug</b> <i class='arg'>message</i></a><dd>
+
+<dt><a name="6"><b class='cmd'>${log}::info</b> <i class='arg'>message</i></a><dd>
+
+<dt><a name="7"><b class='cmd'>${log}::notice</b> <i class='arg'>message</i></a><dd>
+
+<dt><a name="8"><b class='cmd'>${log}::warn</b> <i class='arg'>message</i></a><dd>
+
+<dt><a name="9"><b class='cmd'>${log}::error</b> <i class='arg'>message</i></a><dd>
+
+<dt><a name="10"><b class='cmd'>${log}::critical</b> <i class='arg'>message</i></a><dd>
+
+
+These are the commands called to actually log a message about an
+event.  <strong>${log}</strong> is the variable obtained from <b class='cmd'>logger::init</b>.
+
+<br><br>
+<dt><a name="11"><b class='cmd'>${log}::setlevel</b> <i class='arg'>level</i></a><dd>
+
+
+Enable logging, in the service referenced by <strong>${log}</strong>, and its
+children, at or above the level specified, and disable logging below
+it.
+
+<br><br>
+<dt><a name="12"><b class='cmd'>${log}::enable</b> <i class='arg'>level</i></a><dd>
+
+
+Enable logging, in the service referenced by <strong>${log}</strong>, and its
+children, at or above the level specified.  Note that this does <em>not</em> disable logging below this level, so you should probably use
+<b class='cmd'>setlevel</b> instead.
+
+<br><br>
+<dt><a name="13"><b class='cmd'>${log}::disable</b> <i class='arg'>level</i></a><dd>
+
+
+Disable logging, in the service referenced by <strong>${log}</strong>, and its
+children, at or below the level specified. Note that this does <em>not</em> enable logging above this level, so you should probably use <b class='cmd'>setlevel</b> instead.
+
+<br><br>
+<dt><a name="14"><b class='cmd'>${log}::logproc</b> <i class='arg'>level</i> <i class='arg'>argname</i> <i class='arg'>body</i></a><dd>
+
+
+This is a command to define a command that will perform the actual
+logging for a given level.  The logger package ships with default
+commands for all log levels, but with <b class='cmd'>logproc</b> it is possible to
+replace them with custom code.  This would let you send your logs over
+the network, to a database, or anything else.  For example:
+
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+    ${log}::logproc notice txt {
+	puts $netlog &quot;Notice: $txt&quot;
+    }
+</pre></td></tr></table></p>
+
+<br><br>
+<dt><a name="15"><b class='cmd'>${log}::services</b> </a><dd>
+
+
+Returns a list of all the registered logging services.
+
+<br><br>
+<dt><a name="16"><b class='cmd'>${log}::delproc</b> </a><dd>
+
+
+Set the script to call when the log instance in question is deleted.  For example:
+
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+    ${log}::delproc [list closesock $logsock]
+</pre></td></tr></table></p>
+
+<br><br>
+<dt><a name="17"><b class='cmd'>${log}::delete</b> </a><dd>
+
+
+This command deletes a particular logging service, and its children.
+You must call this to clean up the resources used by a service.
+
+</dl>
+
+<h2><a name="implementation">IMPLEMENTATION</a></h2>
+<p>
+
+The logger package is implemented in such a way as to optimize (for
+Tcl 8.4 and newer) log procedures which are disabled.  They are
+aliased to a proc which has no body, which is compiled to a no op in
+bytecode.  This should make the peformance hit minimal.  If you really
+want to pull out all the stops, you can replace the ${log} token in
+your code with the actual namespace and command (${log}::warn becomes
+::logger::tree::myservice::warn), so that no variable lookup is done.
+This puts the performance of disabled logger commands very close to no
+logging at all.
+
+<p>
+
+The &quot;object orientation&quot; is done through a hierarchy of namespaces.
+Using an actual object oriented system would probably be a better way
+of doing things, or at least provide for a cleaner implementation.
+
+<p>
+
+The service &quot;object orientation&quot; is done with namespaces.
+
+
+<h2><a name="keywords">KEYWORDS</a></h2>
+<p>
+log, log level, logger, service
+</body></html>

@@ -1,0 +1,1244 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//                   Questa Verification Library (QVL)
+//            
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Gigabit Ethernet XAUI link monitor,
+ *
+ * DESCRIPTION   This monitor checks the 10 Gigabit Etherent frames on
+ *               the XAUI serial/10-bit symbol interface for violations
+ *               with respect to encapsulation, alignment etc and also
+ *               instantiates the MAC monitor to check for field errors.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *               802.3ae Amendment: Media Access Control (MAC) Parameters,
+ *               Physical Layers, and Management Parameters for 10 Gb/s
+ *               Operation, 2002.
+ *
+ * INPUTS        areset       - asynchronous reset (active high)
+ *               reset        - synchronous reset (active high)
+ *               clk          - interface clock
+ *               lane0_p      - lane 0 data (serial/symbol)
+ *               lane1_p      - lane 1 data (serial/symbol)
+ *               lane2_p      - lane 2 data (serial/symbol)
+ *               lane3_p      - lane 3 data (serial/symbol)
+ *
+ * LAST MODIFIED 16 March 2005
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+ `ifdef QVL_SV_COVERGROUP_OFF
+  //DO nothing
+ `else
+  `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+   // Do nothing
+  `else
+  `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_gigabit_ethernet_xaui_link_monitor (areset,
+                                                 reset,
+                                                 clk,
+                                                 lane0_p,
+                                                 lane1_p,
+                                                 lane2_p,
+                                                 lane3_p
+                                                );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis.
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate that the monitor is instantiated
+  // on the XGMII interface either at the RS or on the second XGXS (if the
+  // XAUI is implemented) after converting from XAUI to XGMII. A value of
+  // 0 on this parameter will indicate that the monitor is instantiated on
+  // an XGMII interface on that side of the link that is closer to the PHY.
+  // This parameter is used in constraining the correct side in case of the
+  // formal analysis.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  // The Jumbo frames do not carry length information with them and therefore
+  // the length is fixed for a given simulation.
+
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved
+  // values in fields. By default, these checks will be performed.
+
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;                       
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+
+  // This parameter holds the information whether this instance of them monitor
+  // is on the Transmit interface or the receive interface.
+
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+ 
+  // Parameter SYMBOL_MODE = 1 indicates a parallel (symbol) 10-bit interface.
+  // The default of 0 implies a serial interface.
+
+  parameter SYMBOL_MODE = 0;
+  wire [31:0] pw_SYMBOL_MODE = SYMBOL_MODE;
+
+  // Parameter BYPASS_DESKEW = 1 indicates bypass of deskew logic. The default
+  // of 1 attempts to deskew the lanes before proceeding.
+
+  parameter BYPASS_DESKEW = 0;
+  wire [31:0] pw_BYPASS_DESKEW = BYPASS_DESKEW;
+
+  parameter DIC_SUPPORTED = 0;
+  wire [31:0] pw_DIC_SUPPORTED = DIC_SUPPORTED;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  // This internal parameter defines the width of the input data as 1 bit in 
+  // case of serial mode and 10 bit parallel data in case of symbol mode of 
+  // operation.
+
+  parameter ZI_DATA_WIDTH = (SYMBOL_MODE == 0) ? 1 : 10;
+
+  parameter ZI_RECEIVE_CONSTRAINT = (Constraints_Mode == 1 &&
+                                    (MAC_SIDE == 1 && TX_INTERFACE == 0) ||
+                                    (MAC_SIDE == 0 && TX_INTERFACE == 1));
+
+  // These parameters are for internal use only. These are used for matching
+  // the aligned 10b symbols with special codes. Note that the bit order here
+  // is "j-h-g-f i-e-d-c-b-a" where LSB is "a" and MSB is "j". The abcdei fghj
+  // notation is provided in the comments next to each special symbol.
+
+  parameter ZI_SYNC_PLUS = 10'b10_1000_0011; 
+  parameter ZI_SYNC_MINUS = 10'b01_0111_1100;
+  parameter ZI_ALIGN_PLUS = 10'b00_1100_0011;
+  parameter ZI_ALIGN_MINUS = 10'b11_0011_1100; 
+  parameter ZI_SKIP_PLUS = 10'b11_0100_0011; 
+  parameter ZI_SKIP_MINUS = 10'b00_1011_1100;
+  parameter ZI_TERM_PLUS = 10'b11_1010_0010;
+  parameter ZI_TERM_MINUS = 10'b00_0101_1101;
+
+  
+  input areset;
+  input reset;
+  input clk;
+  input [ZI_DATA_WIDTH-1:0] lane0_p;
+  input [ZI_DATA_WIDTH-1:0] lane1_p;
+  input [ZI_DATA_WIDTH-1:0] lane2_p;
+  input [ZI_DATA_WIDTH-1:0] lane3_p;
+
+  reg posedge_toggle;
+  reg negedge_toggle;
+
+  // Lane specific reg declaarations
+  // These are the posedge and negedge components of the respective registered
+  // disparity outputs and align status flags. These are muxed to obtain the
+  // registered disparity outs that feed back into the respective 8b/10b 
+  // decoders as disparity input to decode the next symbol. The align status 
+  // flag of each lane is used to qualify disparity error firings to ensure
+  // checking is done only after alignment. 
+  reg r_lane0_dispout_posedge;
+  reg r_lane0_dispout_negedge;
+  reg r_lane0_align_status_posedge;
+  reg r_lane0_align_status_negedge;
+  reg r_lane1_dispout_posedge;
+  reg r_lane1_dispout_negedge;
+  reg r_lane1_align_status_posedge;
+  reg r_lane1_align_status_negedge;
+  reg r_lane2_dispout_posedge;
+  reg r_lane2_dispout_negedge;
+  reg r_lane2_align_status_posedge;
+  reg r_lane2_align_status_negedge;
+  reg r_lane3_dispout_posedge;
+  reg r_lane3_dispout_negedge;
+  reg r_lane3_align_status_posedge;
+  reg r_lane3_align_status_negedge;
+
+  // General registers
+  reg [3:0] new_disparity;
+  reg [3:0] current_disparity_posedge;
+  reg [3:0] current_disparity_negedge;
+  reg r_frame_in_progress_posedge;
+  reg r_frame_in_progress_negedge;
+  reg r_idle_window_posedge;
+  reg r_idle_window_negedge;
+
+  reg [7:0] alignment_boundary_count_pos;
+  reg [7:0] alignment_boundary_count_neg;
+  reg [39:0] r_link_aligned_data_posedge;
+  reg [39:0] r_link_aligned_data_negedge;
+  reg [5:0] align_spacing_count_posedge; 
+  reg [5:0] align_spacing_count_negedge; 
+  reg [5:0] max_align_spacing_count_posedge; 
+  reg [5:0] max_align_spacing_count_negedge; 
+
+  // Register declarations for use in checks
+
+  reg r_terminate_detected_posedge;
+  reg r_terminate_detected_negedge;
+  reg rr_terminate_detected_posedge;
+  reg rr_terminate_detected_negedge;
+  reg [1:0] prev_idle_os_posedge;
+  reg [1:0] prev_idle_os_negedge;
+  reg [1:0] next_idle_os;
+  reg [3:0] disparity_neutral_000111_error;
+  reg [3:0] disparity_neutral_111000_error;
+  reg [3:0] disparity_neutral_0011_error;
+  reg [3:0] disparity_neutral_1100_error;
+  reg r_lane_sync_status_posedge;
+  reg r_lane_sync_status_negedge;
+  integer i, j, k, l, m, n, o;
+
+  // Common Wires
+
+  wire r_lane_sync_status;
+  wire link_aligned; 
+  wire r_lane0_align_status;
+  wire r_lane1_align_status;
+  wire r_lane2_align_status;
+  wire r_lane3_align_status;
+  wire align_error;
+  wire align_loss;
+  wire [3:0] align_det;
+  wire [3:0] code_err;
+  wire [3:0] disp_err;
+
+  wire alignment_boundary;
+  wire [7:0] alignment_boundary_count;
+  wire [39:0] link_aligned_data;
+  wire [39:0] r_link_aligned_data;
+
+  wire [9:0] lane0_aligned_data;
+  wire [9:0] lane1_aligned_data;
+  wire [9:0] lane2_aligned_data;
+  wire [9:0] lane3_aligned_data;
+
+  wire level_select;
+  wire r_lane0_dispout;
+  wire r_lane1_dispout;
+  wire r_lane2_dispout;
+  wire r_lane3_dispout;
+
+  wire l0_align_det;
+  wire l1_align_det;
+  wire l2_align_det;
+  wire l3_align_det;
+
+  wire [31:0] decoded_link_data;
+  wire [3:0] decoded_link_ctrl;
+ 
+  wire frame_in_progress;
+  wire idle_window;
+  wire r_frame_in_progress;
+  wire r_idle_window;
+  wire [3:0] current_disparity;
+
+  // Lane specific wires
+  // The following four sets of wires are used to hook up the respective lane
+  // deskew modules. Also, in case of serial data, this also converts it to a
+  // parallel symbol form (lane0_deskewed_data) and provides a valid signal 
+  // which indicates when the 10b data is valid.
+ 
+  wire lane0_sync_status;
+  wire lanes_sync_status;
+  wire lane0_align_status;
+  wire [5:0] lane0_count;
+  wire [9:0] lane0_deskewed_data;
+  wire lane0_deskewed_data_valid;
+
+  wire lane1_sync_status;
+  wire lane1_align_status;
+  wire [5:0] lane1_count;
+  wire [9:0] lane1_deskewed_data;
+  wire lane1_deskewed_data_valid;
+
+  wire lane2_sync_status;
+  wire lane2_align_status;
+  wire [5:0] lane2_count;
+  wire [9:0] lane2_deskewed_data;
+  wire lane2_deskewed_data_valid;
+
+  wire lane3_sync_status;
+  wire lane3_align_status;
+  wire [5:0] lane3_count;
+  wire [9:0] lane3_deskewed_data;
+  wire lane3_deskewed_data_valid;
+
+  // The following four sets of wires are used to hookup the 8b/10b decoder.
+  // Input to these modules is the aligned 10bit symbol data and the output 
+  // from these modules is decoded 8bit data and 1 bit control, together it 
+  // is put out as 9-bits, with the MSB bit indicating control/data.
+
+  wire [9:0] lane0_datain;
+  wire lane0_dispin;
+  wire [8:0] lane0_dataout;
+  wire lane0_dispout;
+  wire lane0_code_err;
+  wire lane0_disp_err;
+
+  wire [9:0] lane1_datain;
+  wire lane1_dispin;
+  wire [8:0] lane1_dataout;
+  wire lane1_dispout;
+  wire lane1_code_err;
+  wire lane1_disp_err;
+
+  wire [9:0] lane2_datain;
+  wire lane2_dispin;
+  wire [8:0] lane2_dataout;
+  wire lane2_dispout;
+  wire lane2_code_err;
+  wire lane2_disp_err;
+ 
+  wire [9:0] lane3_datain;
+  wire lane3_dispin;
+  wire [8:0] lane3_dataout;
+  wire lane3_dispout;
+  wire lane3_code_err;
+  wire lane3_disp_err;
+
+  // For internal use 
+  wire collect_stats;
+
+  // These are used to collect various events from the MAC monitor and feed
+  // the statistics computation module.
+
+  wire [04:0] w_present_state;
+  wire [04:0] w_next_state;
+  wire [04:0] w_last_state;
+  wire [31:0] w_r_data;
+  wire [03:0] w_r_ctrl;
+  wire [11:0] w_vid;
+  wire [15:0] w_frame_type;
+  wire [15:0] w_frame_size;
+  wire [15:0] w_req_length;
+  wire [63:0] w_inter_frame_gap;
+
+  // Wires for use in checks
+
+  wire idle_detected;
+  wire start_detected;
+  wire error_detected;
+  wire sequence_detected;
+  wire terminate_detected;
+  wire r_terminate_detected;
+  wire rr_terminate_detected;
+  wire new_idle_os;
+  wire align_idle_os;
+  wire sync_idle_os;
+  wire skip_idle_os;
+  wire r_align_idle_os;
+  wire [1:0] prev_idle_os;
+  wire [5:0] align_spacing_count;
+  wire [5:0] max_align_spacing_count;
+  wire idle_on_atleast_one_lane_detected;
+  wire sync_on_atleast_one_lane_detected;
+  wire skip_on_atleast_one_lane_detected;
+  wire align_on_atleast_one_lane_detected;
+
+  // Wires for check enables
+
+  wire invalid_10b_code_violation;
+  wire disparity_error_violation;
+  wire symbol_following_terminate_not_sync_violation;
+  wire illegal_sync_col_violation;
+  wire illegal_skip_col_violation;
+  wire illegal_align_col_violation;
+  wire align_following_align_violation;
+  wire sync_following_sync_violation;
+  wire second_idle_following_term_not_skip_or_seq_violation;
+  wire non_align_or_sync_following_terminate_violation;
+  wire invalid_control_char_during_frame;
+  wire error_control_char_during_frame;
+  wire invalid_control_during_idle_violation;
+  wire error_control_during_idle_violation;
+  wire data_during_idle_violation;
+  wire start_control_char_alignment_violation;
+  wire sequence_control_char_alignment_violation;
+  wire align_spacing_violation;
+  wire max_align_spacing_violation;
+  wire sequence_not_following_align_violation;
+  wire skew_limit_violation;
+  wire lanes_loss_of_sync;
+  wire lanes_loss_of_alignment;
+
+  // Wires used in stats
+
+  wire [7:0] xaui_statistics;
+  wire [3:0] lane_wise_terminate_detected;
+  wire local_fault_detected;
+  wire remote_fault_detected;
+  wire [2:0] idle_column_detected;
+
+  // Wires for fire signals from checks
+
+  wire FIRE_GIGABIT_ETHERNET_XAUI_10B_CODE_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_10B_CODE_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_ERROR_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_ERROR_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_TERMINATE_OS_ERROR_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_TERMINATE_OS_ERROR_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SYNC_COL_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SYNC_COL_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SKIP_COL_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SKIP_COL_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_ALIGN_COL_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_ALIGN_COL_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_ALIGNS_AFTER_SUCCESSIVE_TERM_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_ALIGNS_AFTER_SUCCESSIVE_TERM_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SYNCS_AFTER_SUCCESSIVE_TERM_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SYNCS_AFTER_SUCCESSIVE_TERM_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SECOND_COL_FROM_TERM_NOT_SKP_OR_SEQ_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SECOND_COL_FROM_TERM_NOT_SKP_OR_SEQ_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_NON_ALIGN_OR_SYNC_AFTER_TERM_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_NON_ALIGN_OR_SYNC_AFTER_TERM_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_INVALID_CTRL_CHAR_DURING_FRAME_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_INVALID_CTRL_CHAR_DURING_FRAME_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_INVALID_CTRL_CHAR_DURING_IDLE_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_INVALID_CTRL_CHAR_DURING_IDLE_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DATA_CHAR_DURING_IDLE_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DATA_CHAR_DURING_IDLE_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_START_ALIGNMENT_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_START_ALIGNMENT_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SEQUENCE_ALIGNMENT_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SEQUENCE_ALIGNMENT_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_000111_ERROR_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_000111_ERROR_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_111000_ERROR_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_111000_ERROR_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_0011_ERROR_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_0011_ERROR_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_1100_ERROR_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_DISPARITY_NEUTRAL_1100_ERROR_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_MIN_ALIGN_SPACING_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_MIN_ALIGN_SPACING_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_MAX_ALIGN_SPACING_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_MAX_ALIGN_SPACING_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SEQUENCE_NOT_FOLLOWING_ALIGN_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SEQUENCE_NOT_FOLLOWING_ALIGN_N;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SKEW_LIMIT_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XAUI_SKEW_LIMIT_VIOLATION_N;
+ 
+
+  assign level_select = (~(posedge_toggle ^ negedge_toggle));
+
+  assign r_lane_sync_status  = (level_select) ?
+         r_lane_sync_status_posedge : r_lane_sync_status_negedge;    
+ 
+  //Lanes sync status for all four lanes.  
+  assign lanes_sync_status = (lane0_sync_status && lane1_sync_status 
+     && lane2_sync_status && lane3_sync_status);
+  
+  // This signal is an important signal that indicates whether the interface
+  // is aligned. This is asserted along with the alignment of the last lane
+  // of the link. This is primarily used whenever there is a relative skew 
+  // between lanes. 
+  assign link_aligned = (lane0_align_status && lane1_align_status && 
+    lane2_align_status && lane3_align_status);
+  
+  // Registered align status flags for each lane
+  assign r_lane0_align_status = (level_select) ? 
+    r_lane0_align_status_posedge : r_lane0_align_status_negedge ;
+  assign r_lane1_align_status = (level_select) ? 
+    r_lane1_align_status_posedge : r_lane1_align_status_negedge ;
+  assign r_lane2_align_status = (level_select) ? 
+    r_lane2_align_status_posedge : r_lane2_align_status_negedge ;
+  assign r_lane3_align_status = (level_select) ? 
+    r_lane3_align_status_posedge : r_lane3_align_status_negedge ;
+
+  // The standard defines a maximum legally allowed skew between the lanes. In
+  // this case it is 41 bit times. In case the skew between lanes is greater
+  // than 41 bit times, it is considered as an alignment error. 
+  assign align_error = (link_aligned === 1'b0 && 
+    (lane0_count === 6'd49 || lane1_count === 6'd49 || 
+     lane2_count === 6'd49 || lane3_count === 6'd49));
+
+  assign align_det = {l3_align_det, l2_align_det, l1_align_det, l0_align_det};
+
+  // Once the link is aligned and up, there can be new skew introduced by the
+  // transmission. For the link to continue with appropriate behavior, which
+  // means re-alignment has to be done. This signal asserts whenever an align 
+  // character is found in some lane and as a column, not all lanes have the
+  // align character. the alignment has to be redone.
+  assign align_loss = (link_aligned) ? 
+    ((|align_det === 1'b1) && (&align_det === 1'b0)) : 1'b0;
+
+  // This indicates disparity error in atleast one lane in the link.
+  assign disp_err = {(lane3_disp_err && r_lane3_align_status), 
+    (lane2_disp_err && r_lane2_align_status), 
+    (lane1_disp_err && r_lane1_align_status), 
+    (lane0_disp_err && r_lane0_align_status)};
+
+  // This asserts when the given 10b symbol does not find any corresponding
+  // entry in the 8b/0b table.
+  assign code_err = {lane3_code_err, lane2_code_err, 
+    lane1_code_err, lane0_code_err};
+
+  assign r_lane0_dispout = (level_select) ?
+    r_lane0_dispout_posedge : r_lane0_dispout_negedge ;
+  assign r_lane1_dispout = (level_select) ?
+    r_lane1_dispout_posedge : r_lane1_dispout_negedge ;
+  assign r_lane2_dispout = (level_select) ?
+    r_lane2_dispout_posedge : r_lane2_dispout_negedge ;
+  assign r_lane3_dispout = (level_select) ? 
+   r_lane3_dispout_posedge : r_lane3_dispout_negedge ;
+
+  // This counter is used as a timer to create a pulse every 10 clocks once
+  // the link is aligned. This is  inturn used in enabling various. This is 
+  // high for 1 clock period every 10 clocks in case of serial mode and high
+  // throughout in case of parallel symbol) mode).
+  assign alignment_boundary_count = (level_select) ? 
+    alignment_boundary_count_pos : alignment_boundary_count_neg;
+
+  // This indicates that a valid aligned 10-bit symbol is available for decode.
+  assign alignment_boundary = (link_aligned === 1'b1 && 
+    (SYMBOL_MODE == 1 || alignment_boundary_count === 8'd9));
+
+  // This is the aligned version of data from all the four lanes. The link is
+  // said to be aligned once the last lane is aligned (detects the K28.3 code)
+  // This data is further passed to the decoder.
+  assign link_aligned_data = (link_aligned && alignment_boundary) ?
+    {lane3_deskewed_data, lane2_deskewed_data, lane1_deskewed_data, 
+    lane0_deskewed_data} : r_link_aligned_data;
+
+  assign r_link_aligned_data = (level_select) ? 
+    r_link_aligned_data_posedge : r_link_aligned_data_negedge;
+
+  // Align detected signals (pulses) that are used for statistics updation.
+  assign l0_align_det = (link_aligned_data[9:0] === ZI_ALIGN_MINUS || 
+    link_aligned_data[9:0] === ZI_ALIGN_PLUS);
+  assign l1_align_det = (link_aligned_data[19:10] === ZI_ALIGN_MINUS || 
+    link_aligned_data[19:10] === ZI_ALIGN_PLUS);
+  assign l2_align_det = (link_aligned_data[29:20] === ZI_ALIGN_MINUS || 
+    link_aligned_data[29:20] === ZI_ALIGN_PLUS);
+  assign l3_align_det = (link_aligned_data[39:30] === ZI_ALIGN_MINUS || 
+    link_aligned_data[39:30] === ZI_ALIGN_PLUS);
+
+  // The aligned link data is again split into separate lanes for decoding.
+  assign lane0_aligned_data = link_aligned_data[9:0];
+  assign lane1_aligned_data = link_aligned_data[19:10];
+  assign lane2_aligned_data = link_aligned_data[29:20];
+  assign lane3_aligned_data = link_aligned_data[39:30];
+
+  // These sets of wires are the inputs to the respective 10b-8b decoders. 
+  // Note that the disp_in is the registered disp_out of the previous symbol
+  // decoded. However, this is sync-ed up on detection of an Align.
+  assign lane0_datain = lane0_aligned_data;
+  assign lane0_dispin = (lane0_align_status == 1'b1 && 
+    r_lane0_align_status == 1'b0) ? 1'b0 : r_lane0_dispout;
+
+  assign lane1_datain = lane1_aligned_data;
+  assign lane1_dispin = (lane1_align_status == 1'b1 && 
+    r_lane1_align_status == 1'b0) ? 1'b0 : r_lane1_dispout;
+
+  assign lane2_datain = lane2_aligned_data;
+  assign lane2_dispin = (lane2_align_status == 1'b1 &&
+    r_lane2_align_status == 1'b0) ? 1'b0 : r_lane2_dispout;
+
+  assign lane3_datain = lane3_aligned_data;
+  assign lane3_dispin = (lane3_align_status == 1'b1 && 
+    r_lane3_align_status == 1'b0) ? 1'b0 : r_lane3_dispout;
+ 
+  // Concatenated 32-bit MAC level data from each lane decoder. This is fed to
+  // the MAC and this is nothing but the XGMII data.
+  assign decoded_link_data = {
+   (((lane3_dataout[7:0] == 8'h1C || lane3_dataout[7:0] == 8'h7C || lane3_dataout[7:0] == 8'hBC) 
+      && lane3_dataout[8] == 1'b1)?8'h07:lane3_dataout[7:0]), 
+   (((lane2_dataout[7:0] == 8'h1C || lane2_dataout[7:0] == 8'h7C || lane2_dataout[7:0] == 8'hBC) 
+      && lane2_dataout[8] == 1'b1)?8'h07:lane2_dataout[7:0]), 
+   (((lane1_dataout[7:0] == 8'h1C || lane1_dataout[7:0] == 8'h7C || lane1_dataout[7:0] == 8'hBC) 
+      && lane1_dataout[8] == 1'b1)?8'h07:lane1_dataout[7:0]), 
+   (((lane0_dataout[7:0] == 8'h1C || lane0_dataout[7:0] == 8'h7C || lane0_dataout[7:0] == 8'hBC) 
+      && lane0_dataout[8] == 1'b1)?8'h07:lane0_dataout[7:0])};
+ 
+  // Corresponding control lines of the above data.
+  assign decoded_link_ctrl = {lane3_dataout[8], lane2_dataout[8],
+    lane1_dataout[8], lane0_dataout[8]};
+ 
+  // This saves an encoding that indicates the type of the previous Idle column
+  // whether it was an algn or a sync. This is used to check the rule that an
+  // align and sync should alternate on first column after termination. 
+  assign prev_idle_os = (level_select) ? 
+    prev_idle_os_posedge : prev_idle_os_negedge; 
+
+  // Marks the next symbol period of the terminate column.
+  assign r_terminate_detected = (level_select) ? 
+    r_terminate_detected_posedge : r_terminate_detected_negedge;
+
+  assign rr_terminate_detected = (level_select) ?
+    rr_terminate_detected_posedge : rr_terminate_detected_negedge;
+
+  // Counter to calculate the interval beteen two aligns.
+  assign align_spacing_count = (level_select) ?
+    align_spacing_count_posedge : align_spacing_count_negedge ;
+
+  assign max_align_spacing_count = (level_select) ?
+    max_align_spacing_count_posedge : max_align_spacing_count_negedge ;
+
+  assign idle_on_atleast_one_lane_detected =
+    ((lane3_aligned_data === ZI_ALIGN_PLUS || 
+      lane3_aligned_data === ZI_ALIGN_MINUS ||
+      lane3_aligned_data === ZI_SYNC_PLUS ||
+      lane3_aligned_data === ZI_SYNC_MINUS ||
+      lane3_aligned_data === ZI_SKIP_PLUS ||
+      lane3_aligned_data === ZI_SKIP_MINUS ) ||
+     (lane2_aligned_data === ZI_ALIGN_PLUS || 
+      lane2_aligned_data === ZI_ALIGN_MINUS ||
+      lane2_aligned_data === ZI_SYNC_PLUS ||
+      lane2_aligned_data === ZI_SYNC_MINUS ||
+      lane2_aligned_data === ZI_SKIP_PLUS ||
+      lane2_aligned_data === ZI_SKIP_MINUS ) ||
+     (lane1_aligned_data === ZI_ALIGN_PLUS || 
+      lane1_aligned_data === ZI_ALIGN_MINUS ||
+      lane1_aligned_data === ZI_SYNC_PLUS ||
+      lane1_aligned_data === ZI_SYNC_MINUS ||
+      lane1_aligned_data === ZI_SKIP_PLUS ||
+      lane1_aligned_data === ZI_SKIP_MINUS ) ||
+     (lane0_aligned_data === ZI_ALIGN_PLUS || 
+      lane0_aligned_data === ZI_ALIGN_MINUS ||
+      lane0_aligned_data === ZI_SYNC_PLUS ||
+      lane0_aligned_data === ZI_SYNC_MINUS ||
+      lane0_aligned_data === ZI_SKIP_PLUS ||
+      lane0_aligned_data === ZI_SKIP_MINUS ));
+
+  assign sync_on_atleast_one_lane_detected =
+    ((lane3_aligned_data === ZI_SYNC_PLUS ||
+      lane3_aligned_data === ZI_SYNC_MINUS ) ||
+     (lane2_aligned_data === ZI_SYNC_PLUS ||
+      lane2_aligned_data === ZI_SYNC_MINUS ) ||
+     (lane1_aligned_data === ZI_SYNC_PLUS ||
+      lane1_aligned_data === ZI_SYNC_MINUS ) ||
+     (lane0_aligned_data === ZI_SYNC_PLUS ||
+      lane0_aligned_data === ZI_SYNC_MINUS ));
+
+  assign skip_on_atleast_one_lane_detected =
+    ((lane3_aligned_data === ZI_SKIP_PLUS ||
+      lane3_aligned_data === ZI_SKIP_MINUS ) ||
+     (lane2_aligned_data === ZI_SKIP_PLUS ||
+      lane2_aligned_data === ZI_SKIP_MINUS ) ||
+     (lane1_aligned_data === ZI_SKIP_PLUS ||
+      lane1_aligned_data === ZI_SKIP_MINUS ) ||
+     (lane0_aligned_data === ZI_SKIP_PLUS ||
+      lane0_aligned_data === ZI_SKIP_MINUS ));
+
+  assign align_on_atleast_one_lane_detected =
+    ((lane3_aligned_data === ZI_ALIGN_PLUS ||
+      lane3_aligned_data === ZI_ALIGN_MINUS ) ||
+     (lane2_aligned_data === ZI_ALIGN_PLUS ||
+      lane2_aligned_data === ZI_ALIGN_MINUS ) ||
+     (lane1_aligned_data === ZI_ALIGN_PLUS ||
+      lane1_aligned_data === ZI_ALIGN_MINUS ) ||
+     (lane0_aligned_data === ZI_ALIGN_PLUS ||
+      lane0_aligned_data === ZI_ALIGN_MINUS ));
+
+  assign align_idle_os = 
+    ((lane3_aligned_data === ZI_ALIGN_PLUS || 
+     lane3_aligned_data === ZI_ALIGN_MINUS) &&
+    (lane2_aligned_data === ZI_ALIGN_PLUS ||
+     lane2_aligned_data === ZI_ALIGN_MINUS) &&
+    (lane1_aligned_data === ZI_ALIGN_PLUS ||
+     lane1_aligned_data === ZI_ALIGN_MINUS) &&
+    (lane0_aligned_data === ZI_ALIGN_PLUS ||
+     lane0_aligned_data === ZI_ALIGN_MINUS));
+
+  assign sync_idle_os = 
+    ((lane3_aligned_data === ZI_SYNC_PLUS ||
+     lane3_aligned_data === ZI_SYNC_MINUS) && 
+    (lane2_aligned_data === ZI_SYNC_PLUS ||
+     lane2_aligned_data === ZI_SYNC_MINUS) &&
+    (lane1_aligned_data === ZI_SYNC_PLUS ||
+     lane1_aligned_data === ZI_SYNC_MINUS) &&
+    (lane0_aligned_data === ZI_SYNC_PLUS ||
+     lane0_aligned_data === ZI_SYNC_MINUS));
+
+  assign skip_idle_os = 
+    ((lane3_aligned_data === ZI_SKIP_PLUS ||
+     lane3_aligned_data === ZI_SKIP_MINUS) && 
+    (lane2_aligned_data === ZI_SKIP_PLUS ||
+     lane2_aligned_data === ZI_SKIP_MINUS) &&
+    (lane1_aligned_data === ZI_SKIP_PLUS ||
+     lane1_aligned_data === ZI_SKIP_MINUS) &&
+    (lane0_aligned_data === ZI_SKIP_PLUS ||
+     lane0_aligned_data === ZI_SKIP_MINUS));
+
+  assign terminate_detected = 
+    ((lane3_aligned_data === ZI_TERM_PLUS ||
+     lane3_aligned_data === ZI_TERM_MINUS) ||
+    (lane2_aligned_data === ZI_TERM_PLUS ||
+     lane2_aligned_data === ZI_TERM_MINUS) ||
+    (lane1_aligned_data === ZI_TERM_PLUS ||
+     lane1_aligned_data === ZI_TERM_MINUS) ||
+    (lane0_aligned_data === ZI_TERM_PLUS ||
+     lane0_aligned_data === ZI_TERM_MINUS));
+
+  assign r_align_idle_os =
+    ((r_link_aligned_data[9:0] === ZI_ALIGN_PLUS ||
+     r_link_aligned_data[9:0] === ZI_ALIGN_MINUS) &&
+    (r_link_aligned_data[19:10] === ZI_ALIGN_PLUS ||
+     r_link_aligned_data[19:10] === ZI_ALIGN_MINUS) &&
+    (r_link_aligned_data[29:20] === ZI_ALIGN_PLUS ||
+     r_link_aligned_data[29:20] === ZI_ALIGN_MINUS) &&
+    (r_link_aligned_data[39:30] === ZI_ALIGN_PLUS ||
+     r_link_aligned_data[39:30] === ZI_ALIGN_MINUS));
+
+  assign start_detected = (lane0_dataout === 9'h1FB);
+
+  assign sequence_detected = (lane0_dataout  === 9'h19C);
+
+  assign error_detected = 
+    (lane3_dataout === 9'h1FE || lane2_dataout === 9'h1FE || 
+     lane1_dataout === 9'h1FE || lane0_dataout === 9'h1FE);
+
+  assign idle_detected = 
+    (lane3_dataout === 9'h11C || lane2_dataout === 9'h11C || 
+     lane1_dataout === 9'h11C || lane0_dataout === 9'h11C ||
+     lane3_dataout === 9'h17C || lane2_dataout === 9'h17C ||
+     lane1_dataout === 9'h17C || lane0_dataout === 9'h17C ||
+     lane3_dataout === 9'h1BC || lane2_dataout === 9'h1BC ||
+     lane1_dataout === 9'h1BC || lane0_dataout === 9'h1BC);
+
+  assign new_idle_os = (align_idle_os || sync_idle_os || skip_idle_os);
+
+  assign current_disparity = (level_select) ?
+    current_disparity_posedge : current_disparity_negedge;
+
+  assign r_frame_in_progress = (level_select) ? 
+    r_frame_in_progress_posedge : r_frame_in_progress_negedge ; 
+
+  assign r_idle_window = (level_select) ? 
+    r_idle_window_posedge : r_idle_window_negedge ; 
+
+  assign frame_in_progress = (start_detected) ? 1'b1 : 
+    (terminate_detected || error_detected || sequence_detected) ? 1'b0 : 
+     r_frame_in_progress;
+
+  assign idle_window = (terminate_detected) ? 1'b1 : 
+    (start_detected) ? 1'b0 : r_idle_window;
+
+  assign lane_wise_terminate_detected = 
+    {(lane3_dataout === 9'h1FD), (lane2_dataout === 9'h1FD), 
+     (lane1_dataout === 9'h1FD), (lane0_dataout === 9'h1FD)};
+
+  assign local_fault_detected = 
+    (lane0_dataout === 9'h19C && lane1_dataout === 9'h0 && 
+     lane2_dataout === 9'h000 && lane3_dataout === 9'h1);
+
+  assign remote_fault_detected =
+    (lane0_dataout === 9'h19C && lane1_dataout === 9'h0 && 
+     lane2_dataout === 9'h000 && lane3_dataout === 9'h2);
+
+  assign idle_column_detected = {align_idle_os, sync_idle_os, skip_idle_os};
+
+  assign xaui_statistics = 
+    {3'b0, level_select, alignment_boundary, idle_column_detected};
+
+  // Checks assigns
+
+  assign invalid_10b_code_violation = 
+    (alignment_boundary == 1'b1 && |code_err == 1'b1);
+
+  assign disparity_error_violation = 
+    (alignment_boundary == 1'b1 && |disp_err == 1'b1);
+
+  assign symbol_following_terminate_not_sync_violation = 
+    (alignment_boundary === 1'b1 &&
+     terminate_detected === 1'b1 &&
+    (((lane2_aligned_data === ZI_TERM_PLUS ||
+     lane2_aligned_data === ZI_TERM_MINUS) && 
+     !(lane3_aligned_data === ZI_SYNC_PLUS ||
+     lane3_aligned_data === ZI_SYNC_MINUS)) ||
+    ((lane1_aligned_data === ZI_TERM_PLUS ||
+     lane1_aligned_data === ZI_TERM_MINUS) && 
+     !((lane2_aligned_data === ZI_SYNC_PLUS ||
+     lane2_aligned_data === ZI_SYNC_MINUS) &&
+     (lane3_aligned_data === ZI_SYNC_PLUS ||
+     lane3_aligned_data === ZI_SYNC_MINUS))) || 
+    ((lane0_aligned_data === ZI_TERM_PLUS ||
+     lane0_aligned_data === ZI_TERM_MINUS) && 
+     !((lane1_aligned_data === ZI_SYNC_PLUS ||
+     lane1_aligned_data === ZI_SYNC_MINUS) &&
+     (lane2_aligned_data === ZI_SYNC_PLUS ||
+     lane2_aligned_data === ZI_SYNC_MINUS) &&
+     (lane3_aligned_data === ZI_SYNC_PLUS ||
+     lane3_aligned_data === ZI_SYNC_MINUS)))));
+
+
+  assign illegal_sync_col_violation = 
+    (alignment_boundary == 1'b1 && terminate_detected == 1'b0 &&
+     sync_on_atleast_one_lane_detected == 1'b1 && sync_idle_os == 1'b0);
+
+  assign illegal_skip_col_violation = 
+    (alignment_boundary == 1'b1 && skip_idle_os == 1'b0 &&
+     skip_on_atleast_one_lane_detected == 1'b1); 
+
+  assign illegal_align_col_violation = 
+    (alignment_boundary == 1'b1 && align_idle_os == 1'b0 &&
+     align_on_atleast_one_lane_detected == 1'b1); 
+
+  assign align_following_align_violation =
+    (alignment_boundary == 1'b1 && terminate_detected == 1'b0 && 
+     r_terminate_detected == 1'b1 && new_idle_os == 1'b1 && 
+     prev_idle_os == 2'b01 && next_idle_os == 2'b01);
+
+  assign sync_following_sync_violation = 
+    (alignment_boundary == 1'b1 && terminate_detected == 1'b0 && 
+     r_terminate_detected == 1'b1 && new_idle_os == 1'b1 && 
+     prev_idle_os == 2'b10 && next_idle_os == 2'b10 && 
+     align_spacing_count > 6'd31);
+
+  assign second_idle_following_term_not_skip_or_seq_violation =
+    (alignment_boundary == 1'b1 && idle_window == 1'b1 &&
+     terminate_detected == 1'b0 && r_terminate_detected == 1'b0 &&
+     rr_terminate_detected == 1'b1 && skip_idle_os == 1'b0 &&
+     sequence_detected == 1'b0);
+
+  assign non_align_or_sync_following_terminate_violation = 
+    (alignment_boundary == 1'b1 && idle_window == 1'b1 &&
+     terminate_detected == 1'b0 && r_terminate_detected == 1'b1 &&
+     !(align_idle_os == 1'b1 || sync_idle_os == 1'b1));
+
+  assign invalid_control_char_during_frame = 
+    (alignment_boundary == 1'b1 && start_detected == 1'b0 &&
+     frame_in_progress == 1'b1 && (lane0_dataout[8] === 1'b1 ||
+     lane1_dataout[8] === 1'b1 || lane2_dataout[8] === 1'b1 ||
+     lane3_dataout[8] === 1'b1));
+
+ assign error_control_char_during_frame = 
+    (alignment_boundary == 1'b1 && start_detected == 1'b0 &&
+     r_frame_in_progress == 1'b1 && error_detected == 1'b1);
+
+  assign error_control_during_idle_violation = 
+    (alignment_boundary == 1'b1 && decoded_link_ctrl !== 4'b0000 &&
+     idle_window == 1'b1 && error_detected === 1'b1);
+
+  assign invalid_control_during_idle_violation = 
+    (alignment_boundary == 1'b1 && decoded_link_ctrl !== 4'b0000 &&
+     idle_window == 1'b1 && !(start_detected === 1'b1 ||
+     sequence_detected === 1'b1 || terminate_detected === 1'b1 ||
+     error_detected === 1'b1 || idle_detected === 1'b1));
+
+  assign data_during_idle_violation = 
+    (alignment_boundary == 1'b1 && sequence_detected == 1'b0 && 
+     idle_window == 1'b1 && (lane0_dataout[8] === 1'b0 ||
+     lane1_dataout[8] === 1'b0 || lane2_dataout[8] === 1'b0 ||
+     lane3_dataout[8] === 1'b0) && terminate_detected == 1'b0);
+
+  assign start_control_char_alignment_violation = 
+    (alignment_boundary == 1'b1 && (lane3_dataout === 9'h1FB || 
+     lane2_dataout === 9'h1FB || lane1_dataout === 9'h1FB));
+ 
+  assign sequence_control_char_alignment_violation =
+    (alignment_boundary == 1'b1 && (lane3_dataout === 9'h19C || 
+     lane2_dataout === 9'h19C || lane1_dataout === 9'h19C));
+
+  assign align_spacing_violation = 
+    (alignment_boundary == 1'b1 && align_idle_os == 1'b1 && 
+     align_spacing_count < 6'd17 && idle_window == 1'b1 && 
+     prev_idle_os == 2'b10);
+
+  assign max_align_spacing_violation = 
+    (alignment_boundary == 1'b1 && max_align_spacing_count > 6'd32 && 
+     idle_window == 1'b1);
+
+  assign sequence_not_following_align_violation = 
+    (alignment_boundary == 1'b1 && sequence_detected === 1'b1 && 
+     r_align_idle_os === 1'b0);
+
+  assign skew_limit_violation =
+    (BYPASS_DESKEW == 0 && align_error === 1'b1);
+
+  assign lanes_loss_of_sync      = (r_lane_sync_status === 1'b1 && lanes_sync_status === 1'b0);
+
+`protected
+
+    MTI!#z[3A$J$[Jp***ViZGlI@I!DTB$@#1:M|%!rDi]iJH&kTSzno;G;Z,z1loQxP#\o}lv$!A}]
+    <GG{*=2@>1-!ONv'OjRQ2=gon~3]uX[Q>,\Lw=O>s7{#,Ei-KYI@5x?>Iv[xB7Xr1{zuL?-x@},Q
+    esG}G>I*!1?R]yADVzR=uRR2E>HswRzknpnDZ1^;HT9>{Q3'awn/h*Klj,kT=7o3Ox?pCf,:Ipam
+    :3_TT^$<oq,T[Aa<U[)xm~sYxx@s+B-Xa,jE$$UHA!KsnEijVCJnGB,YnlreVxVp@V$B{{7>*#v,
+    3xvqYjIE<^$_uHp}v<{u]R^;5\$OwjKJTe,=2TA?Q\1D\,@1C,a1paZlpDJ^pr?Ab;r>{$eu^H*_
+    orOxe+TZas*aH^2,U[B;Vz-G?I;xz\_,_<]wo1pa}Gi!pQH^=_^xG^2_BI,V'M=Rij=xT1$Y;s'@
+    O{pW1opBzazTz<Qa,DOQ]H~Cm>q+D}'HTRZO@Okw<*W5wo*\eJ1GCj?+XpJ8Y!TJxrwUwB[oa^<2
+    KaJ7GK'G#U\#ffrlxmI>{Yo-^eWl<#2=]7WU+sreV^=ajH=!{TO]'#=K$HtoQ3J.OzAT7aow?ajn
+    $>5#EmIu:k_pTBK_rUQOHCiZ]C[~!8B3BK^i!p@<s+\W2eS!<V#L+{1W5o73rHxX1r]R,>u^CWC'
+    mjH}q[C\+,GjsZ[vVA}@xOTAQ;G>Tva~HEBs~3_IEEDx<>Y$\oqT]<OuXnsLYY?E}-B;@RV}[SY@
+    pGomJ<~wlQYrw[8VBkVY#H_|1WGz[oz;]TTDOHI][L\*k@A]R5sHA]R>X'JRXC?=_rb*m$@.mr}>
+    %3^j[g5=su^WvDN5!{ey[3zQXEpHYwGw.w>RwGss[|-7glkeEqA<RZ=52[o'Yv1VB]7nlB|Awv,'
+    kWks$al[~n2szI,}k$;LQZB\i7$B^ia[=3D,l;Q*^GREo$IB}zTk1m,,UjXO5Toi]#u{'C$~b6/.
+    Q&4WX^I=e#wl0\D}Dr*'TVnVY!p8uzpl*K^-u1p_Z-C'f?+Uo@{{B@e+$}@lGV2<-/%vCBY}O^T\
+    pzjejI$]>Okm[x7Bn[lNf1sTkr^Esj\5XT\VRrA7jt?zDuH>znO?!GCAI-(q\5;ookOUd[>,{v2+
+    !7Np{[?dUe52Y5K,Dv2@*VH?&YR#p,2AO{++5Y3aE<7CX]uI>^QXG,=C='r-;1rn1}[}vnvW$p]^
+    a-}\'5YjO$UIDQCrT~$Yr'rv-me+-zXZYi[Br2UnOZ1uup@~QvX,[p\_,VIz-a<r^V*'_[s{!tCn
+    \>O*C^+}DW)leIG!,ZQYa'o5w@uK'*{<]vnNe3a1,WzKjYTw?E*jft1I}k?'l>\XYsUoH#G7,Y8B
+    Lwvv3Wl!!a}$G9uruKC}K^B+Q>D\'^3}OYYnE3TYaBX=l{K[r*n1~=]\;-ziu#*p-]B!>zinR+<$
+    *2F@DuQaSGEuWBk\D<HW$dTV+I[YUz|=Evj'X*~H}kCDw^<qT7eoO=\__nj@iC-'Qe>QMNo>ATw{
+    eBIei!5rl>AsR;GTY~o'unwl>]:'\Xps@G{Q-$[kB][zvO!'WT*1@R!iURI5CpUG<!rXwD*U,QE=
+    \-ZWwmr?tRK[+FDiVa'BR'y5j<?,#<Xknlv!nGr!1jQm7G7_Y_>GX,=grn{;Z1CV~8o^~vez$;l,
+    v{1E57B5[3eVuT^Wp~u+-!2l{J;aV#A'Kxvou;p7A]>_o{nT!r]H}Ci]sDDXu'e~-,Ru=W!Ho!b=
+    p3TYJO@_DIv;NEw-JvvUeLEV<]3j-QB-!X,O#n53OBH<3X|(1WJr]}Zjz>'5!Xa\xvAAGE@1_iaG
+    $,K$oG*m(1$k2UB\$_+\~uA_'!7>\2Bj#Y7?v43v*~p{GxoBEoan^YGCu@U1BkX'AjE@2Jk_7{!p
+    m-]AjCh<DGKi*eu2=?sj_^ojQYG7TWBNu5H!~*JH]*B2Hz5!}aDBe;B3E=an1E+a:aXs;7lK>=#\
+    u5;K[VZ,zR<RT[i>}JXUav}_ut$5~EIk]ITw7iko7>~I$k'zD~sXzRd!5]sPONkTZn#>Hv$2{*\a
+    ne5Gn[*2aI^urO\nQ3_*zuQv7A]EBR+U,wJXWBgzCG!Nopj@a(xDW#UrV<y#+!UAT+H'-lz)v}!D
+    1E~rnwR[W_C+zo]r\eusz}]p5Q^iFD';?vJ>H./2V[j*-C,2skD]aY}}+$=Q*Aa77GkoRkv,!7ub
+    3TpXhv[ACs-AXiIA?ska$lDOZ57l<+wpY@\azpRW'vilX52AokT;vA<)CeKU$;{no3;>O]kU,2vv
+    \k+GCR#\<'?!$OCA?sX!m$2~m,jVw5Tn~GvQ[D^u$EpW,1>Z3|5o}eb8+B]{92+Yp$w'Z&q"r\1l
+    ]ZjoB3<{Xn{o5]*^r-1pQ~I$}5{'I\Drxu_[XXw@F-n2Il?}GUnlk#'E^;D^~HA<^eur<U>,DH*A
+    =V8xk;z\e*3_73$K5{~JOnJKnHHqz_;lOHR-d^5oRHI<EB_mZ_HrXQ@Xu1[EU;x{r;x3oCV,A,sl
+    lxUKrsa15$Bn<1JA1p5lAYYnX\w],eD^Uk-3vUrW1#erH_j^[%znXmIzK_wHQEreD!!7,{@+{Yoz
+    Y$w|[CRv@alAoaDT'"^!'>k>pYHD\aV$ukV^T{lJlkA1vAATj^;a[m;XO]5>UHJa2T+w*Qp[Y5[T
+    U@-'3'[-[*X_XJiR=_QDK3e}$lG!K?+Hn@$Vw,>aXTUGjX@}7v[zso,Z~B&<_+-T1k2uC,^Em,vR
+    ]eDr[wC41=XC@7H#rm*o+=l$1p-[WBK3boEI]V,vwr>V!n<]_I;K;n7*Zk\zlF1>YU+XZ=v]CXje
+    T{&.js5R$#}Q*5QJ#tG,*O1s71MIDOrepUVxjV]{}JW}~UA?GD3+*>$A}[*3=vknHX\JXQ[%8*$v
+    vel$wv_l!**^G<I=TZ'Bm!'oi|O5ipO~l*}vCzP$wZo}kQ[+*;;XDkBw_IRm]ksxH^uE5;r,-E7+
+    H>j=CR'j>7+2jJe1{B*%3>ZXva]i?w^o,KOAMf,OonkV+~~[nKRzAow5'$jG,]Q~YiFPIO<})i*2
+    ~BYGG(*+=lz>_]!OOC[@DR5uvHWUv?M~$OE?nTO!w1-!HX'OxC*+_7!G,Z2-_Ar>XIKC7\}m>C>j
+    OooAw=$Oiuo;zp<{RCr<GRvC=#C_vv\G1-5aG5wH5H$i}Dv5@V$r?~j7kl]]{J!=3'Qa^iC!}JU3
+    Y>oB*i5^EYAHp!~]ZWm_E^xeQXwxm'u's_>rC_3~C,$G1j<H$'@sG@Inv}Kw_pY}_=x$HAXH^Jxm
+    OR5^xoOGW>;Eo?]_WV'oE#O#<@Y@DOC?'y$j}mA1ET^Q;p>'s,+^d$*!C~zm#_RGe%z1z-A-ov!'
+    T1[>~2!zBx>{JVor?sImB!s!qknOGl-xu)G}oj>>-$7AmAv;ppm^UvT+pJoUQ7\lr7Tz5iquGY*;
+    EHuy_wl7)Y?CAOrIs_OkJ_DBGG@nj3AGz!5<lNGE;Vtkzi?OeC>Jj@J%Arzw>R;l^},Uuz5zD#Y=
+    2vm\Z[{*ue?G1u^o"j<p3l+v3e77KIw}]UOkQ{loK*mBwZ',]Yom@i5TAzW1l3*-1C[I-^[ViQWw
+    7Uo2!'H3x@Cwjxv?Z?ss<vn=x$<op'i=C-D+?1$3\x{$K1[;!#=+uix,sJDVa0/zJ~Gve'o_K>=E
+    an,3VBx}!ru\3@HBBirj!HQ=UAGAGTEy(5\$kJ_J],aDe7#Yw-xZ-Y'Y>veV>RwB,oGsY3\]s'mQ
+    >lwG1a\we\3ET}U\~e>]EGW;2m<p+*QTVRZu@'Rs3#GVK{>_xjsRr5upJ{G+vQZ>!Yj3p9YkV5C{
+    B=,JRzpK2YyZQ'1KaUjK]R~1<K1}-{Y[G{v[!^5xkeQI=5DJ,VZk>''B*uA_DG^!VaZK},$nnTQR
+    @^D[3]IvV?DBn[!Be=Q+G>JBsE1<QTn^XTA#RmYQA<r_G5'JsV_Tl~V7lX<\+si~U$xzWw^{l3ww
+    AD[*rZYa,=E~-lY,G5CDB^oD~w[5DkYtJ{lV>Gam3TVRyY'I<3_{ZmAox]=VHJY*!}a;sJ}-p>UW
+    !W^=KY0A$_!5[Ezvm{5{$?H]Y=1v7X=D<]UVTB{sYe1Cl5K.-xAKju+O1aYQQlp,I3$VZpD1NlGJ
+    E3$ozmqsve\epWE**?uC<~\,{sQi-I*l'7}']<O]$-1ZaaOYI!eDB=Gj{U5vj!COD}On13j5@z]]
+    TUo=Ju>ev![s!1+'wV?z[BG%{D]FOO2BQWvW}?B?-xxumH23sv_]iw~vawYjEs=5*7sVx=QpEHY_
+    e7w=Q<OjzXu5;Ca!?RO*XRE@$Q#](\J5,?TTvJ]sK[KABD,Ts;-TK2}_KR[UQc!H_T#pJz?srIj{
+    [lKlnX^lw=lOJk1H,u~TA3>suVm}Y=D2vD$C1>KxGua<[Du},i-e@^mEU\?ARk;wziDR!#j<rU}v
+    +>Us-VzCSXU=K_sJXwVv{]V,Be=7WQA3j,ZEEsJUO?xanG\w_B!W{k<Y7Ov2rkDQm\#!A,a^,mBX
+    n[m=+G7s,Z1~5WRAx=AOC:Q5j=7UC+aEr]xG!+ejRpjK'oA]na*],+UTDr2v7Zk&5ua+NKAR=Je$
+    R#[i7$'nn@UpI
+`endprotected
+
+  // MAC monitor instantiation
+
+  qvl_gigabit_ethernet_mac_monitor
+    #(.Constraints_Mode(Constraints_Mode),
+      .MAC_SIDE(MAC_SIDE),
+      .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),
+      .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE),
+      .TX_INTERFACE(TX_INTERFACE),
+      .GMII(0), // GMII == 0 for XGMII interface
+      .HALF_DUPLEX(0), // HALF_DUPLEX == 0 for XGMII
+      .DIC_SUPPORTED(DIC_SUPPORTED),//DIC Support 
+      .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),
+      .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED)
+  )
+ 
+      MAC_MONITOR
+      (.areset(areset),
+       .reset(reset),
+       .clk(clk),
+       .data(decoded_link_data),
+       .ctrl(decoded_link_ctrl),
+       .crs(1'b0),
+       .col(1'b0),
+       .data_valid(alignment_boundary),
+       .dec_err(1'b0),
+       .level_select(level_select),
+       .w_present_state(w_present_state),
+       .w_next_state(w_next_state),
+       .w_last_state(w_last_state),
+       .w_r_data(w_r_data),
+       .w_r_ctrl(w_r_ctrl),
+       .w_vid(w_vid),
+       .w_frame_type(w_frame_type),
+       .w_frame_size_count(w_frame_size),
+       .w_requested_data_length(w_req_length),
+       .w_inter_frame_gap(w_inter_frame_gap)
+      ); 
+
+
+  qvl_gigabit_ethernet_lane_deskew #(SYMBOL_MODE)
+    LANE0_DESKEW (.areset (areset),
+                  .reset (reset),
+                  .clk (clk),
+                  .lane_data (lane0_p),
+                  .link_aligned (link_aligned),
+                  .align_error (align_error),
+                  .align_loss (align_loss),
+                  .level_select (level_select),
+                  .lane_sync_status (lane0_sync_status),
+                  .lane_align_status (lane0_align_status),
+                  .aligned_data (lane0_deskewed_data),
+                  .aligned_data_valid (lane0_deskewed_data_valid),
+                  .count (lane0_count)
+                  );
+
+  qvl_gigabit_ethernet_lane_deskew #(SYMBOL_MODE)
+    LANE1_DESKEW (.areset (areset),
+                  .reset (reset),
+                  .clk (clk),
+                  .lane_data (lane1_p),
+                  .link_aligned (link_aligned),
+                  .align_error (align_error),
+                  .align_loss (align_loss),
+                  .level_select (level_select),
+                  .lane_sync_status (lane1_sync_status),
+                  .lane_align_status (lane1_align_status),
+                  .aligned_data (lane1_deskewed_data),
+                  .aligned_data_valid (lane1_deskewed_data_valid),
+                  .count (lane1_count)
+                  );
+
+  qvl_gigabit_ethernet_lane_deskew #(SYMBOL_MODE)
+    LANE2_DESKEW (.areset (areset),
+                  .reset (reset),
+                  .clk (clk),
+                  .lane_data (lane2_p),
+                  .link_aligned (link_aligned),
+                  .align_error (align_error),
+                  .align_loss (align_loss),
+                  .level_select (level_select),
+                  .lane_sync_status (lane2_sync_status),
+                  .lane_align_status (lane2_align_status),
+                  .aligned_data (lane2_deskewed_data),
+                  .aligned_data_valid (lane2_deskewed_data_valid),
+                  .count (lane2_count)
+                  );
+ 
+  qvl_gigabit_ethernet_lane_deskew #(SYMBOL_MODE)
+    LANE3_DESKEW (.areset (areset),
+                  .reset (reset),
+                  .clk (clk),
+                  .lane_data (lane3_p),
+                  .link_aligned (link_aligned),
+                  .align_error (align_error),
+                  .align_loss (align_loss),
+                  .level_select (level_select),
+                  .lane_sync_status (lane3_sync_status),
+                  .lane_align_status (lane3_align_status),
+                  .aligned_data (lane3_deskewed_data),
+                  .aligned_data_valid (lane3_deskewed_data_valid),
+                  .count (lane3_count)
+                  );
+ 
+
+  qvl_gigabit_ethernet_8b_10b_decode DECODE_8B_10B_LANE0
+                 (.datain (lane0_datain),
+                  .dispin (lane0_dispin),
+                  .dataout (lane0_dataout),
+                  .dispout (lane0_dispout),
+                  .code_err (lane0_code_err),
+                  .disp_err (lane0_disp_err)
+                 );
+ 
+  qvl_gigabit_ethernet_8b_10b_decode DECODE_8B_10B_LANE1
+                 (.datain (lane1_datain),
+                  .dispin (lane1_dispin),
+                  .dataout (lane1_dataout),
+                  .dispout (lane1_dispout),
+                  .code_err (lane1_code_err),
+                  .disp_err (lane1_disp_err)
+                 );
+ 
+  qvl_gigabit_ethernet_8b_10b_decode DECODE_8B_10B_LANE2
+                 (.datain (lane2_datain),
+                  .dispin (lane2_dispin),
+                  .dataout (lane2_dataout),
+                  .dispout (lane2_dispout),
+                  .code_err (lane2_code_err),
+                  .disp_err (lane2_disp_err)
+                 );
+ 
+  qvl_gigabit_ethernet_8b_10b_decode DECODE_8B_10B_LANE3
+                 (.datain (lane3_datain),
+                  .dispin (lane3_dispin),
+                  .dataout (lane3_dataout),
+                  .dispout (lane3_dispout),
+                  .code_err (lane3_code_err),
+                  .disp_err (lane3_disp_err)
+                 );
+ 
+
+  // Statistics block
+
+  wire [63:0] total_frames_count;
+  wire [63:0] data_frames_count;
+  wire [63:0] ctrl_frames_count;
+  wire [63:0] jumbo_frames_count;
+  wire [63:0] untagged_data_frames_count;
+  wire [63:0] vlan_tagged_data_frames_count;
+  wire [63:0] priority_tagged_data_frames_count;
+  wire [63:0] untagged_pause_frames_count;
+  wire [63:0] vlan_tagged_pause_frames_count;
+  wire [63:0] priority_tagged_pause_frames_count;
+  wire [63:0] untagged_jumbo_frames_count;
+  wire [63:0] vlan_tagged_jumbo_frames_count;
+  wire [63:0] priority_tagged_jumbo_frames_count;
+  wire [63:0] frames_with_global_address_count;
+  wire [63:0] frames_with_local_address_count;
+  wire [63:0] frames_with_group_address_count;
+  wire [63:0] frames_with_individual_address_count;
+  wire [63:0] min_size_untag_data_pkt_count;
+  wire [63:0] max_size_untag_data_pkt_count;
+  wire [63:0] packets_with_pad_count;
+  wire [63:0] remote_faults_count;
+  wire [63:0] local_faults_count;
+  wire [63:0] lane0_termnates_count;
+  wire [63:0] lane1_termnates_count;
+  wire [63:0] lane2_termnates_count;
+  wire [63:0] lane3_termnates_count;
+  wire [63:0] align_column_count;
+  wire [63:0] sync_column_count;
+  wire [63:0] skip_column_count;
+  wire [63:0] valid_block_count;
+  wire [63:0] data_block_count;
+  wire [63:0] control_block_count;
+  wire [63:0] idle_block_count;
+  wire [63:0] error_block_count;
+  wire [63:0] s0_block_count;
+  wire [63:0] s4_block_with_idle_count;
+  wire [63:0] s4_block_with_os_count;
+  wire [63:0] t0_block_count;
+  wire [63:0] t1_block_count;
+  wire [63:0] t2_block_count;
+  wire [63:0] t3_block_count;
+  wire [63:0] t4_block_count;
+  wire [63:0] t5_block_count;
+  wire [63:0] t6_block_count;
+  wire [63:0] t7_block_count;
+  wire [63:0] longest_ipg; 
+  wire [63:0] shortest_ipg; 
+  wire [63:0] invalid_frame_length_count; 
+  wire [63:0] max_align_interval; 
+  wire [63:0] min_align_interval;
+  wire [63:0] collisions_statistics_count;
+  wire [63:0] false_carrier_statistics_count;
+  wire [63:0] carrier_extn_statistics_count;
+  wire [63:0] back_to_back_frames_statistics_count;
+
+  // Statistics computation module
+
+  qvl_gigabit_ethernet_statistics 
+    #(0, // GMII = 0 for 10G XAUI
+      TX_INTERFACE,
+      1) // DDR
+
+    GIGABIT_STATS
+    (.areset (areset),
+     .reset (reset),
+     .clk (clk),
+     .level_select(level_select),
+     .collect_stats (collect_stats),
+     .present_state (w_present_state),
+     .next_state (w_next_state),
+     .last_state (w_last_state),
+     .data (decoded_link_data),
+     .r_data (w_r_data),
+     .vid (w_vid),
+     .frame_type (w_frame_type),
+     .frame_size_count (w_frame_size),
+     .requested_length (w_req_length),
+     .inter_frame_gap (w_inter_frame_gap),
+     .mii_statistics (8'b0),
+     .gmii_statistics (8'b0),
+     .xgmii_statistics (8'b0),
+     .xaui_statistics (xaui_statistics),
+     .xsbi_statistics (16'b0),
+     .total_frames_count (total_frames_count),
+     .data_frames_count (data_frames_count),
+     .ctrl_frames_count (ctrl_frames_count),
+     .jumbo_frames_count (jumbo_frames_count),
+     .untagged_data_frames_count (untagged_data_frames_count),
+     .vlan_tagged_data_frames_count (vlan_tagged_data_frames_count),
+     .priority_tagged_data_frames_count (priority_tagged_data_frames_count),
+     .untagged_pause_frames_count (untagged_pause_frames_count),
+     .vlan_tagged_pause_frames_count (vlan_tagged_pause_frames_count),
+     .priority_tagged_pause_frames_count (priority_tagged_pause_frames_count),
+     .untagged_jumbo_frames_count (untagged_jumbo_frames_count),
+     .vlan_tagged_jumbo_frames_count (vlan_tagged_jumbo_frames_count),
+     .priority_tagged_jumbo_frames_count (priority_tagged_jumbo_frames_count),
+     .frames_with_global_address_count (frames_with_global_address_count),
+     .frames_with_local_address_count (frames_with_local_address_count),
+     .frames_with_group_address_count (frames_with_group_address_count),
+     .frames_with_individual_address_count
+       (frames_with_individual_address_count),
+     .min_size_untag_data_pkt_count (min_size_untag_data_pkt_count),
+     .max_size_untag_data_pkt_count (max_size_untag_data_pkt_count),
+     .packets_with_pad_count (packets_with_pad_count),
+     .remote_faults_count (remote_faults_count),
+     .local_faults_count (local_faults_count),
+     .lane0_termnates_count (lane0_termnates_count),
+     .lane1_termnates_count (lane1_termnates_count),
+     .lane2_termnates_count (lane2_termnates_count),
+     .lane3_termnates_count (lane3_termnates_count),
+     .align_column_count (align_column_count),
+     .sync_column_count (sync_column_count),
+     .skip_column_count (skip_column_count),
+     .valid_block_count (valid_block_count),
+     .data_block_count (data_block_count),
+     .control_block_count (control_block_count),
+     .idle_block_count (idle_block_count),
+     .error_block_count (error_block_count),
+     .s0_block_count (s0_block_count),
+     .s4_block_with_idle_count (s4_block_with_idle_count),
+     .s4_block_with_os_count (s4_block_with_os_count),
+     .t0_block_count (t0_block_count),
+     .t1_block_count (t1_block_count),
+     .t2_block_count (t2_block_count),
+     .t3_block_count (t3_block_count),
+     .t4_block_count (t4_block_count),
+     .t5_block_count (t5_block_count),
+     .t6_block_count (t6_block_count),
+     .t7_block_count (t7_block_count),
+     .longest_ipg (longest_ipg),
+     .shortest_ipg (shortest_ipg), 
+     .invalid_frame_length_count (invalid_frame_length_count), 
+     .max_align_interval (max_align_interval), 
+     .min_align_interval (min_align_interval),
+     .collisions_statistics_count(collisions_statistics_count),
+     .false_carrier_statistics_count(false_carrier_statistics_count),
+     .carrier_extn_statistics_count(carrier_extn_statistics_count),
+     .back_to_back_frames_statistics_count(back_to_back_frames_statistics_count)
+    );
+
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_gigabit_ethernet_xaui_link_monitor_assertions.svh"
+`include "qvl_gigabit_ethernet_xaui_link_monitor_cover.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_xaui_link_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_xaui_link_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_xaui_link_monitor
+`include "zi_cw_gigabit_ethernet_xaui_link_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_gigabit_ethernet_xaui_link_monitor

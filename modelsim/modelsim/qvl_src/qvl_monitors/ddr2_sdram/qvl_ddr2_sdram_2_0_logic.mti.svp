@@ -1,0 +1,1671 @@
+//             Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+ *
+ * PURPOSE      This file is part of 0-In CheckerWare.
+ *              It describes the DDR2 SDRAM monitor.
+ *
+ * REFERENCE    JESD79-2 DDR2 SDRAM Specification,
+ *              JEDEC Solid State Technology Association, September 2003
+ *
+ * DESCRIPTION  This monitor checks if the DDR2 SDRAM memory interface 
+ *              functions properly.
+ *
+ * INPUTS       areset       - Asynchronous reset.
+ *              reset        - Synchronous reset.
+ *              ck           - Input differential clock.
+ *              ck_n         - Input differential clock.
+ *              cke          - Clock Enable. 
+ *              cs_n         - Chip Select. 
+ *              ras_n        - Row Address Strobe.   
+ *              cas_n        - Column Address Strobe. 
+ *              we_n         - Write Enable. 
+ *              dm_rdqs      - Data Mask / Read data strobe (only in x8 mode).
+ *              ba           - Bank Address.
+ *              a            - Address bus. 
+ *              dq           - Data bus - {D7:D0} - used for x4 and x8 modes.
+ *              dqs          - Data Strobe for port "dq".
+ *              ldqs         - Data Strobe for port "ldq".
+ *              ldm          - Data Mask for port "ldq".
+ *              udqs         - Data Strobe for port "udq".
+ *              udm          - Data Mask for port "udq".
+ *              mode_register_in - Mode register input.
+ *              ex_mode_register_in - Extended mode register input.
+ *              odt          - on die termination signal input.
+ * 
+ * Following input  ports are added for dynamic timing configuration.
+ * These additional ports are not shown in the symbolic block diagram
+ * as these ports are attributed to the configuration space and these
+ * do not exist in a pin diagram of a DDR2 part.
+ *
+ *              tras
+ *              trcd
+ *              trp
+ *              trrd
+ *              tccd
+ *              trtw
+ *              twtr
+ *              twr
+ *              trfc
+ *              txsnr
+ *              txsrd
+ *              tmrd
+ *              txp
+ *              txard
+ * 
+ * USAGE        The monitor should be instantiated as shown below:
+ *
+ *
+ *            +---------------+                          +---------------+
+ *            |               |---        ck          -->|               | 
+ *            | +-----------+ |---        ck_n        -->|               | 
+ *            | |DDR2 SDRAM | |---        cke         -->|  DDR2 SDRAM   | 
+ *            | |Monitor    | |---        cs_n        -->|               | 
+ *            | +-----------+ |---        ras_n       -->|               | 
+ *            |               |---        cas_n       -->|               | 
+ *            |               |---        we_n        -->|               | 
+ *            | DDR2 SDRAM    |---        dm_rdqs     -->|               | 
+ *            | Controller    |---        ba          -->|               | 
+ *            |               |---        a           -->|               | 
+ *            |               |<--        dq          -->|               | 
+ *            |               |<--        dqs         -->|               | 
+ *            |               |<--        ldq         -->|               | 
+ *            |               |<--        ldqs        -->|               |
+ *            |               |<--        ldm         -->|               |
+ *            |               |<--        udq         -->|               |
+ *            |               |<--        udqs        -->|               |
+ *            |               |<--        udm         -->|               |
+ *            |               |<-- mode_register_in   -->|               |
+ *            |               |<- ex_mode_register_in -->|               |
+ *            |               |<--        odt         -->|               |
+ *            +---------------+                          +---------------+
+ *
+ *                                        (OR)
+ *
+ *            +---------------+                          +---------------+
+ *            |               |---        ck          -->|               | 
+ *            |               |---        ck_n        -->|               | 
+ *            |               |---        cke         -->|  DDR2 SDRAM   | 
+ *            |               |---        cs_n        -->|               | 
+ *            | DDR2 SDRAM    |---        ras_n       -->|               | 
+ *            | Controller    |---        cas_n       -->|               | 
+ *            |               |---        we_n        -->|               | 
+ *            |               |---        dm_rdqs     -->| +-----------+ |
+ *            |               |---        ba          -->| |DDR2 SDRAM | | 
+ *            |               |---        a           -->| |Monitor    | |
+ *            |               |<--        dq          -->| +-----------+ |
+ *            |               |<--        dqs         -->|               | 
+ *            |               |<--        ldq         -->|               | 
+ *            |               |<--        ldqs        -->|               | 
+ *            |               |<--        ldm         -->|               | 
+ *            |               |<--        udq         -->|               | 
+ *            |               |<--        udqs        -->|               | 
+ *            |               |<--        udm         -->|               | 
+ *            |               |<-- mode_register_in   -->|               |
+ *            |               |<- ex_mode_register_in -->|               |
+ *            |               |<-         odt         -->|               |
+ *            +---------------+                          +---------------+
+ *
+ * LAST MODIFIED : 06 April 2006.
+ *
+ **************************************************************************/
+
+`ifdef ZiCwDebug
+ `define ZiCwDebugDelay1 #1
+`else
+ `define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_ddr2_sdram_2_0_logic (ck,
+				 ck_n,
+				 areset,
+				 reset,
+				 cke,
+				 cs_n,
+				 ras_n, 
+				 cas_n,
+				 we_n,
+				 dm_rdqs,
+				 ba,
+				 a,
+				 dq,
+				 dqs,
+				 ldqs,
+				 ldm,
+				 udqs,
+				 udm,
+				 mode_register_in,
+				 ex_mode_register_in,
+                                 odt,
+// Ports for dynamic timing configuration:
+                                 tras,
+                                 trcd,
+                                 trp,
+                                 trrd,
+                                 tccd,
+                                 trtw,
+                                 twtr,
+                                 twr,
+                                 trfc,
+                                 txsnr,
+                                 txsrd,
+                                 tmrd, 
+                                 txp,
+                                 txard
+                                );
+
+  parameter Constraints_Mode = 0; // 0in constraint
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  parameter CONTROLLER_SIDE = 1; // 1 implies monitor is instantiated on the
+                                 // controller side. else memory side  
+  wire [31:0] pw_CONTROLLER_SIDE = CONTROLLER_SIDE;
+
+  parameter ROW_ADDR_WIDTH = 16; // Size of address bus equals row_addr_width
+  wire [31:0] pw_ROW_ADDR_WIDTH = ROW_ADDR_WIDTH;
+
+  parameter DATA_BUS_WIDTH = 8; // Width of the Data Bus configuration
+  wire [31:0] pw_DATA_BUS_WIDTH = DATA_BUS_WIDTH;
+
+  parameter DLL_TRACKING_ENABLE = 1;
+  wire [31:0] pw_DLL_TRACKING_ENABLE = DLL_TRACKING_ENABLE;
+
+  parameter TRAS = 6; // Active to precharge command
+  wire [31:0] pw_TRAS = TRAS;
+
+  parameter TRCD = 2; // Active to read/write delay
+  wire [31:0] pw_TRCD = TRCD;
+
+  parameter TRP = 2; // Precharge command period
+  wire [31:0] pw_TRP = TRP;
+
+  parameter TRRD = 1; // Bank A activate to bank B activate
+  wire [31:0] pw_TRRD = TRRD;
+
+  parameter TCCD = 2; // CAS A to CAS B delay
+  wire [31:0] pw_TCCD = TCCD;
+
+  parameter TRTW = 4; // Read to write turnaround time
+  wire [31:0] pw_TRTW = TRTW;
+
+  parameter TWTR = 1; // Write to read turnaround time
+  wire [31:0] pw_TWTR = TWTR;
+
+  parameter TWR = 2; // Write recovery time
+  wire [31:0] pw_TWR = TWR;
+
+  parameter TRFC = 9; // Auto-refresh to auto-refresh or activation period
+  wire [31:0] pw_TRFC = TRFC;
+
+  parameter TXSNR = 10; // Exit self-refresh to a non-read command delay
+  wire [31:0] pw_TXSNR = TXSNR;
+
+  parameter TXSRD = 200; // Exit self-refresh to a read command delay
+  wire [31:0] pw_TXSRD = TXSRD;
+
+  parameter TMRD = 2; // Mode register set command cycle time
+  wire [31:0] pw_TMRD = TMRD;
+
+  parameter  AUTOPRECHARGE_ENABLE_ADDRESS_BIT = 10;
+  wire [31:0] pw_AUTOPRECHARGE_ENABLE_ADDRESS_BIT =
+              AUTOPRECHARGE_ENABLE_ADDRESS_BIT;
+
+  //The following parameter is used to enable/disable the
+  //read before write checker.
+
+  parameter  READ_BEFORE_WRITE_CHECK_ENABLE = 1;
+  wire [31:0] pw_READ_BEFORE_WRITE_CHECK_ENABLE =
+              READ_BEFORE_WRITE_CHECK_ENABLE;
+
+  // The following parameters added to verify the power down exit 
+  // latencies for non read and read commands
+  
+  parameter TXP = 2; // Precharge power down to non read command time 
+  wire [31:0] pw_TXP = TXP;
+  
+  parameter TXARD = 2; // Active power down to read command, fast exit 
+  wire [31:0] pw_TXARD = TXARD;
+ 
+  // The following parameter defines the width of the bank address
+  parameter BANK_ADDR_WIDTH = 3;
+  wire [31:0] pw_BANK_ADDR_WIDTH = BANK_ADDR_WIDTH;
+
+  parameter ENABLE_PRECHARGE_TO_IDLE_BANK = 0;
+  wire [31:0] pw_ENABLE_PRECHARGE_TO_IDLE_BANK = ENABLE_PRECHARGE_TO_IDLE_BANK;
+
+  parameter BYPASS_INIT = 0;
+  wire [31:0] pw_BYPASS_INIT = BYPASS_INIT;
+
+  // Use the following parameter to configure the monitor to support the new 
+  // DDR2 SDRAM specification (1.0) of September 2003
+  parameter ZI_DDR2_SDRAM_2_0 = 1;
+  wire [31:0] pw_DDR2_SDRAM_2_0 = ZI_DDR2_SDRAM_2_0;
+
+  //The following parameter is used to enable/disable the
+  //data checker.
+  parameter  ZI_DATA_CHECK_ENABLE = 1;
+  wire [31:0] pw_DATA_CHECK_ENABLE = ZI_DATA_CHECK_ENABLE;
+
+  // The following parameter is used to define the width of the DM bus. This 
+  // is used only if the monitor is operated in place of the old version, which
+  // allows fully configurable data bus width and thereby the data mask bus.
+  parameter ZI_DM_WIDTH = 1;
+  wire [31:0] pw_DM_WIDTH = ZI_DM_WIDTH;
+
+  // Following parameters are added for support of JEDEC 79-2C May 2006
+
+  // This parameter is used to enable or disable the optional additive latency
+  // of 5 as per JEDEC 79-2C May 2006    
+  parameter OPTIONAL_ADDITIVE_LATENCY_ENABLE = 0;
+  wire [31:0] pw_OPTIONAL_ADDITIVE_LATENCY_ENABLE = OPTIONAL_ADDITIVE_LATENCY_ENABLE;
+
+  parameter IMPEDANCE_CALIBRATION_CHECKS_ENABLE = 0;
+  wire [31:0] pw_IMPEDANCE_CALIBRATION_CHECKS_ENABLE = IMPEDANCE_CALIBRATION_CHECKS_ENABLE;
+
+  parameter PARTIAL_SELF_REFRESH_ENABLE = 0;
+  wire [31:0] pw_PARTIAL_SELF_REFRESH_ENABLE = PARTIAL_SELF_REFRESH_ENABLE;
+
+  parameter DUTY_CYCLE_CONTROL_ENABLE = 0;
+  wire [31:0] pw_DUTY_CYCLE_CONTROL_ENABLE = DUTY_CYCLE_CONTROL_ENABLE;
+
+  // This parameter is used to enable any speed grade specific checks
+  // e.g. ODT value of 50 ohms for speed grade 800 setting while emrs1 programming
+  parameter DDR2_SPEED_GRADE = 400;
+  wire [31:0] pw_DDR2_SPEED_GRADE = DDR2_SPEED_GRADE;
+
+  parameter HIGH_TEMP_SELF_REFRESH_RATE_ENABLE = 0;
+  wire [31:0] pw_HIGH_TEMP_SELF_REFRESH_RATE_ENABLE = HIGH_TEMP_SELF_REFRESH_RATE_ENABLE;
+
+  parameter CLOCK_CHANGE_TRACKING_ENABLE = 0;
+  wire [31:0] pw_CLOCK_CHANGE_TRACKING_ENABLE = CLOCK_CHANGE_TRACKING_ENABLE;
+
+  parameter TCLK_CHECK_ENABLE = 0;
+  wire [31:0] pw_TCLK_CHECK_ENABLE = TCLK_CHECK_ENABLE;
+
+  parameter TCLK = 0;
+  wire pw_TCLK = TCLK;
+
+  parameter CLOCK_FREQUENCY_RANGE_CHECK_ENABLE = 0;
+  wire [31:0] pw_CLOCK_FREQUENCY_RANGE_CHECK_ENABLE = CLOCK_FREQUENCY_RANGE_CHECK_ENABLE;
+
+  parameter CLOCK_PERIOD_MAX = 10;
+  wire [31:0] pw_CLOCK_PERIOD_MAX = CLOCK_PERIOD_MAX;
+  // Default minimum supported clock is 100 Mhz which allows 100 million transfers
+  // per data pin per second. This is the lowest speed grade for DDR SDRAM spec
+  // JESD79E-May2005.
+
+  parameter CLOCK_PERIOD_MIN = 5;
+  wire [31:0] pw_CLOCK_PERIOD_MIN = CLOCK_PERIOD_MIN;
+  // Deafult maximum supported clock is 200 Mhz which allows 200 million transfers
+  // per data pin per second. This is the highest speed grade for DDR SDRAM spec
+  // JESD79E-May2005.
+
+  // The following parameter is used to enable the monitor to infer the timing
+  // parameters from the input ports.
+  parameter USE_PORTS_TO_CONFIGURE = 0;
+  wire[31:0] pw_USE_PORTS_TO_CONFIGURE = USE_PORTS_TO_CONFIGURE;
+
+  parameter ZI_DATA_PORT_SIZE = 8;
+  wire [31:0] pw_DATA_PORT_SIZE = ZI_DATA_PORT_SIZE;
+
+  // The following parameter defines the width of the mode register
+  parameter ZI_MODE_REG_WIDTH = ROW_ADDR_WIDTH + BANK_ADDR_WIDTH;
+  wire [31:0] pw_MODE_REG_WIDTH = ZI_MODE_REG_WIDTH;
+
+  // The following parameter defines the width of the dm port, which is used 
+  // only if the DM is used as a bus, in case of old version of the monitor.
+  parameter ZI_DM_RDQS_WIDTH = (ZI_DDR2_SDRAM_2_0 === 1) ? 1 : ZI_DM_WIDTH;
+
+  parameter QVL_TCKE = 3;
+ 
+  input ck;
+  input ck_n;
+  input areset; 
+  input reset;
+  input cke;
+  input cs_n;
+  input ras_n; 
+  input cas_n; 
+  input we_n;
+  input [ZI_DM_RDQS_WIDTH-1:0] dm_rdqs;
+  input [BANK_ADDR_WIDTH-1:0] ba;
+  input [ROW_ADDR_WIDTH-1:0] a;
+  input [DATA_BUS_WIDTH-1:0] dq; 
+  input dqs;
+  input ldqs;
+  input ldm;
+  input udqs;
+  input udm;
+  input [ZI_MODE_REG_WIDTH-1:0] mode_register_in;
+  input [ZI_MODE_REG_WIDTH-1:0] ex_mode_register_in;
+  input odt;
+  input [31:0] tras;
+  input [31:0] trcd;
+  input [31:0] trp;
+  input [31:0] trrd;
+  input [31:0] tccd;
+  input [31:0] trtw;
+  input [31:0] twtr;
+  input [31:0] twr;
+  input [31:0] trfc;
+  input [31:0] txsnr;
+  input [31:0] txsrd;
+  input [31:0] tmrd;
+  input [31:0] txp;
+  input [31:0] txard;
+
+  parameter ZI_INT_DM_WIDTH = (ZI_DDR2_SDRAM_2_0 === 0) ? ZI_DM_WIDTH :
+			     (DATA_BUS_WIDTH <= 8) ? 1 : (DATA_BUS_WIDTH >> 3);
+  wire [31:0] pw_INT_DM_WIDTH = ZI_INT_DM_WIDTH;
+
+  parameter ZI_CONSTRAINTS_MEMORY_SIDE = (Constraints_Mode === 1 &&
+                                          CONTROLLER_SIDE === 0);
+  wire [31:0] pw_ZI_CONSTRAINTS_MEMORY_SIDE = ZI_CONSTRAINTS_MEMORY_SIDE;
+
+  // The following parameter indicates the minimum interval required between 
+  // a DLL reset and the first read command
+  parameter ZI_TDLL_RST_RD = 200;
+  wire [31:0] pw_ZI_TDLL_RST_RD = ZI_TDLL_RST_RD;
+
+// Parameters used for state names for OCD state machine
+
+  parameter QVL_OCD_EXIT = 0;
+  parameter QVL_OCD_DRIVE0 = 1;
+  parameter QVL_OCD_DRIVE1 = 2;
+  parameter QVL_OCD_ADJUST = 3;
+  parameter QVL_OCD_DEFAULT = 4;
+
+// Variables to store states
+  reg [2:0] ocd_present_state;
+  reg [2:0] ocd_next_state;
+
+  // Wires included as replacement for the ports ldq and udq
+
+  wire [ZI_DATA_PORT_SIZE-1:0] ldq; 
+  wire [ZI_DATA_PORT_SIZE-1:0] udq;
+
+  // Mode register width declared using parameter 
+  // This holds burst_type, cas_latency, mode info
+
+  reg [ZI_MODE_REG_WIDTH-1:0] mode_register; 
+  reg [ZI_MODE_REG_WIDTH-1:0] mode_register_input;
+  reg mode_reg_set; // To be programmed at initialization time
+
+  // Mode register width declared using parameter
+  // This holds additve latency etc that is to be programmed at initialization
+
+  reg [ZI_MODE_REG_WIDTH-1:0] ex_mode_register;
+  reg [ZI_MODE_REG_WIDTH-1:0] ex_mode_2_register;
+  reg [ZI_MODE_REG_WIDTH-1:0] ex_mode_3_register; 
+  reg [ZI_MODE_REG_WIDTH-1:0] ex_mode_register_input;
+  reg ex_mode_reg_set; // programmed during initialization sequence
+  reg r_cke; // Registered CKE
+  reg r_odt;
+
+  wire [2:0] cas_latency = (BYPASS_INIT === 0) ? mode_register[6:4] : 
+						 mode_register_input[6:4];
+  wire burst_type = (BYPASS_INIT === 0) ? mode_register[3] :
+					  mode_register_input[3];
+  wire [2:0] additive_latency = (BYPASS_INIT === 0) ? ex_mode_register[5:3] :
+						ex_mode_register_input[5:3];
+
+  // tWR, burst length, operating mode tappings from mode register
+  wire [2:0] tWR_programmed = (ZI_DDR2_SDRAM_2_0 === 0) ? 0 : 
+			      (BYPASS_INIT === 0) ? mode_register[11:9] + 1'b1 :
+						    mode_register_input[11:9] +1'b1;
+  wire [2:0] burst_length_programmed = (BYPASS_INIT === 0) ? mode_register[2:0]
+						  : mode_register_input[2:0];
+  wire operating_mode = (ZI_DDR2_SDRAM_2_0 === 0) ?  0 : (BYPASS_INIT === 0) ? 
+			 mode_register[7] : mode_register_input[7];
+  wire slow_exit = (ZI_DDR2_SDRAM_2_0 === 0) ? 0 : (BYPASS_INIT === 0) ? 
+		    mode_register[12] : mode_register_input[12];
+  wire rdqs_enable = (ZI_DDR2_SDRAM_2_0 === 0) ? 0 : (BYPASS_INIT === 0) ? 
+		                       (ex_mode_register[11] === 1'b1) :
+				       (ex_mode_register_input[11] === 1'b1);
+  wire diff_strobe_enable = (ZI_DDR2_SDRAM_2_0 === 0) ? 0 : 
+			    (BYPASS_INIT === 0) ? 
+       (ex_mode_register[10] === 1'b0) : (ex_mode_register_input[10] === 1'b0);
+
+  wire rdqs = (DATA_BUS_WIDTH === 8 && rdqs_enable === 1'b1) ? dm_rdqs : 1'b0;
+
+  // This section contains declarations or wires used as commands for the
+  // DDR2 SDRAM bankm module. The input to the module 'command' holds the
+  // values of CKE, CKE_last, CS#, RAS#, CAS# and WE#. These control lines 
+  // decide the command issued by the controller. This encoding is compliant
+  // with the truth table 3.1 in page 35 of the reference mentioned.
+  
+  wire [5:0] command = {r_cke,cke,cs_n,ras_n,cas_n,we_n};
+
+  //MRS
+  wire z_mode_reg_set_cmd = (command === 6'b110000 && ba[1:0] === 2'b00);
+  //EMRS1
+  wire z_ex_mode_reg_set_cmd = (command === 6'b110000 && ba[1:0] === 2'b01);
+  //EMRS2
+  wire z_ex_mode_reg_2_set_cmd = (command === 6'b110000 && ba[1:0] === 2'b10);
+  //EMRS3
+  wire z_ex_mode_reg_3_set_cmd = (command === 6'b110000 && ba[1:0] === 2'b11);
+
+  wire z_precharge_all_cmd = (command === 6'b110010 && 
+                              a[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b1);
+  wire z_precharge_cmd = (command === 6'b110010 && 
+                              a[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0);
+  wire z_activate_cmd = (command === 6'b110011);
+  wire z_write_cmd = (command === 6'b110100 && 
+                              a[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0);
+  wire z_write_auto_precharge_cmd = (command === 6'b110100 && 
+                              a[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b1);
+  wire z_read_cmd = (command === 6'b110101 && 
+                              a[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b0);
+  wire z_read_auto_precharge_cmd = (command === 6'b110101 && 
+                              a[AUTOPRECHARGE_ENABLE_ADDRESS_BIT] === 1'b1);
+  wire z_cbr_auto_refresh_cmd = (command === 6'b110001);
+  wire z_enter_self_refresh_cmd = (command === 6'b100001);
+  wire z_exit_self_refresh_cmd = (command[5:3] === 3'b011 || 
+                                  command === 6'b010111);
+  wire z_enter_power_down_cmd = (command === 6'b100111 || 
+				   command[5:3] === 3'b101);
+  wire z_exit_power_down_cmd = (command[5:3] === 3'b011 ||
+                               command === 6'b010111);
+  wire z_nop_cmd = (command === 6'b110111);
+  wire z_deselect_cmd = (command[3] === 1'b1);
+
+  wire z_ocd_mode_exit = (z_ex_mode_reg_set_cmd && a[9:7] === 3'd0);
+  wire z_ocd_mode_drive1 = (z_ex_mode_reg_set_cmd && a[9:7] === 3'd1);
+  wire z_ocd_mode_drive0 = (z_ex_mode_reg_set_cmd && a[9:7] === 3'd2);
+  wire z_ocd_mode_adjust = (z_ex_mode_reg_set_cmd && a[9:7] === 3'd4);
+  wire z_ocd_mode_default = (z_ex_mode_reg_set_cmd && a[9:7] === 3'd7);
+  // wire declarations for individual bank status
+
+  wire bank_0_status;  // these are inputs from each of the bank modules
+  wire bank_1_status;  // each bank module passes its current state to the
+  wire bank_2_status;  // main mudlue through these.
+  wire bank_3_status;
+
+  // status inputs from four new banks.
+
+  wire bank_4_status;
+  wire bank_5_status;
+  wire bank_6_status;
+  wire bank_7_status;
+ 
+  // redefined num_banks_active
+
+  wire [3:0] num_banks_active;
+
+  // Checks block
+
+  reg [7:0] auto_refresh_cmd_ctr;
+  reg all_banks_in_precharge;
+  reg dll_enabled;
+  reg dll_reset;
+  reg [2:0] cas_latency_value;
+  reg tRRD_violation;
+  reg [2:0] prev_bank_addr; 
+  reg [7:0] track_tRRD_counter;
+  reg parameter_checks_active;
+  reg z_valid_clock_detected;
+  reg [7:0] dll_reset_to_first_read_counter;
+  reg r_dll_reset;
+  reg first_read_command;
+  reg r_first_read_command;
+  reg ex_mode_reg_2_set;
+  reg ex_mode_reg_3_set;
+  reg first_pre_all_cmd_recd;
+  reg first_activation_command;
+  reg [7:0] odt_dll_reset_enable_counter;
+  reg r_dll_enabled;
+  reg first_mrs_command,
+      second_mrs_command,
+      first_emrs_command,
+      first_precharge_all;
+
+  integer i;
+
+  // Sequential activation window - this effectively holds 
+  // info abt all commands during the last (4*tRRD + 2tCK) clocks, on whether
+  // each command was an activation command or not. This is used to check 
+  // whether there were more than 4 ACT commands issued in any (4*tRRD + 2tCK)
+  // window over the entire simulation.
+
+  reg [(((4*TRRD)+2)-1):0] sliding_activation_window;
+  reg [7:0] sum_of_acts_over_last_window;
+
+  reg [7:0] bank_ck_enable;
+  reg [7:0] bank_ck_n_enable;
+  reg [QVL_TCKE-1:0] cke_pipe;
+
+  // Wires used for check enables
+
+  wire mrs_during_non_precharge;
+  wire emrs_during_non_precharge;
+  wire auto_during_non_precharge;
+  wire selfref_during_non_precharge;
+  wire insufficient_autorefs_before_active;
+  wire modereg_not_set_before_active;
+  wire dll_not_reset_before_active;
+  wire emrs_not_issued_before_emrs_2;
+  wire emrs_2_not_issued_before_emrs_3;
+  wire emrs_3_not_issued_before_emrs;
+  wire sequential_activation_violation;
+  wire cas_latency_invalid;
+  wire additive_latency_invalid;
+  wire illegal_cmd_before_mrs;
+  wire mrs_programmed_correctly;
+  wire cas_latency_invalid_bypass;
+  wire additive_latency_invalid_bypass;
+  wire mrs_programmed_correctly_bypass; 
+  wire tdll_reset_violation;
+  
+  wire illegal_reserved_states_in_emrs1_programming;
+  wire illegal_ocd_value_for_ddr2_800_emrs1_programming;
+  wire illegal_reserved_states_in_emrs2_programming;
+  wire illegal_htsrr_bit_states_in_emrs2_programming;
+  wire illegal_pasr_bit_states_in_emrs2_programming;
+  wire illegal_dcc_bit_states_in_emrs2_programming;
+  wire illegal_reserved_states_in_emrs3_programming;
+
+  wire odt_violation_during_dll_stabilization;
+  wire emrs2_is_not_issued_after_first_precharge_all;
+  wire first_emrs_not_issued_with_ocd_exit;
+  wire ocd_default_calibration_not_set_after_second_mrs;
+  wire tWR_not_met_before_entering_ocd_adjust_mode;
+  wire invalid_dqs_for_ocd_adjust_mode;
+  wire invalid_bl_before_entering_ocd_impedance_adjustment;
+  wire ocd_default_calibration_must_be_followed_by_ocp_calibration_exit;
+  wire invalid_states_of_dq_dqs_after_ocp_calibration_mode_entry_drive0;
+  wire invalid_states_of_dq_dqs_after_ocp_calibration_mode_entry_drive1;
+  wire invalid_states_of_dq_dqs_after_ocp_calibration_mode_exit_drive0;
+  wire invalid_states_of_dq_dqs_after_ocp_calibration_mode_exit_drive1;
+  wire ocd_calibration_must_not_start_during_read_write;
+
+`protected
+
+    MTI!#l5XC{^n]sHnwEYO>ol~z$j!<H+IReIUwNo#O_|%-U'"^%|K5=n-UA5C,}nxZ;OBB^'2'\<7
+    iP<7i[2=-{mjR!X''1>7'BY(iY+]7\;?A[e@bn>H7V,u5P2'\*[^'+~wREG;X!~a'D>xW3*awCRK
+    pR9dOK}[UwZTFp?WIc%-'*<P*In?7\Q3@UmnsA<#[*0ZhGCA$3x'~'Q]?Noxkar,$]Q!Y'2s]e"e
+    @H7p-lVN_zXYw{=;>|$p;ZGW$BQ'?VslrG*HA2=a~_zVm=5xOD{V,~7Zx}]rnk=I\{t*Drp7?51y
+    lZ*m#U!l7R?Wx-nOo#Oal!,7,pr35e?@}D3ZKYK]4**pR&<5B<=Y~G#s+sWw^!F<v7@\*BB!];+Q
+    zxuBl$~5[[v{&,]'-~_71$r?xiCJGn12Cg=#1C*O'u<1mH3,upKr$U[;7XPkXuBemW[Tp3oB~TuR
+    WEOJD[WFx1K}uE'OH[Ba,'!XYDmrGaBoG=,+Bi,W6YjXeC=-wAVp?=w,?7k\rV;~]xO!]\R}3xl#
+    EXejpeC*$=A}5C2>>\]=#Q|2AAROvA$R]e,R!<Ho]_*}<A[WC]7l3+,Wt>$l3\^-X[QC5{U{$_!V
+    uz3ZrXC[<+VU=2'R[I@VXEV$3.*pI1'W1oxOz[5WxC-}V{z^2$7D*CzVRk*[=+BZU}U>H#C2uD]\
+    2=.xo2T-rH#R-H{r[zwC[#C$&=Z17k>T#kG[X@wpeJX2@$A<25aA7<]pi,Zw#y,-nuN0'rZn#CzH
+`endprotected
+
+`protected
+
+    MTI!:p'I7j#GWY*v#0OV=IRlJ@>\DmYQZEI=?7\kx[Q!nYI3H,u[\KxU'VwY\zt6>_Hvr^#_m{_G
+    -+rEI7#TDQIO%7~e+p#'mOxIWXUuZiR3B.K_Cpjc=Q<EIv<K7;nX=@jQ3IB7K1@vYX\$!U7xLGTr
+    um[{=*vziG;Cj#oVpA]-J5{uYx'z>msZ>-jA<lJ]IrB@Y7Q3!^23?v7@VT^j![@<5as\[{<uOzwZ
+    =G?$IE?Du6{Y\JVJK^W5_q~E$5{aEzsr#'YWX>taj{E]*='EXrkFP}kvYUAuv=R!+_*;!7x;Y7T3
+    ;U7Z#Q3V},51Z^5sW1Axe(O^WQ@$ziB}n-*lxwkeRR3X<_YpZQlJors~oJepI[\VT'iRZn1w;Umv
+    p[&m{T}k*Js"=>7jZV*;6QeR<(b(J1*?8Bj,\@TG;KDi[}FC{l^a]QBG~nuUwVRb+*HJPl<~_}x3
+    l^pz~g*,[v7s>}in[ugXpH^,VQ?y=T+pmY=a_/TDn*wvRkr}p20Wn,Ub7ZK2[q<H}3kwu'Q,-,zW
+    p+}ZlWf$$rYusT<(lz\;^;rrZw{aeD#Ak6-nap,+To$PA7JuIC;R+viHQKJ=%1-7}l5r#DOj]j7p
+    u$\Z;H<1Kq:mj31CiVJ[px}V5>HfTDr!vlZB$i=s',}@C{-oOl+<5Q[!PkI-[-TvA[2Vn."QG_@K
+    CV_J_-[hEOl^?EsD!Yp=^>+*}?;<#r]wvxoi{z$5tT5V;@]$DY><BZo_Bi'XDrpV=;5]BoLxY#Y}
+    2-w5KrC[n+5$$W\EeZIjp#;:}=xWV@Rl<Em-Yn;amwwjEX<GT>U*-=]HDY]a1k{{CC\ORm;RB~*+
+    e8eBjonTYuDQ~<oWjXtH$j,@s3JWVk1;e~$R@w@l{_YL*]oEt#'+vmOCJm$sZ,CjirkD;l#l{i[T
+    JDTa]bvsA_=?r1TTAO=iOiiDVO/5oe@R?;k\n2nVUjJ?w'ukU3[Uok^D]RKDbIno[DDiRm5lBAUm
+    $xmsr!-TJKE[vYmZ$x{swHvU7fr^5aG,=s*WV-N7vK1x)upeWg2C0H7;n'IiXkD"G-CQBnB\ZBli
+    ,1#zPgu{T~<-}EWT3T-j*Jg['iK|{8]^$B+n[["KBY']2z5}KKXMp,[z}}~^B#*p4AoVH^>mu,{$
+    @^C;-nD1JD,wUlIjRC=Km{U{,\5+r,mp+7zOa_vx^~T\D^HoJK',[3CZwPR-J[[As2uT3[;o_o]C
+    *1C5x_1nV;{-w#c~wZ{rvj_JT'pUGO\I}DU>1zO_>^v=2Dz1T!m}?o{tB>V;Y_[{!R7G2v#Ar92T
+    pR~j}Ocv?XUrDQ@sZGO7ERv?U{=tIKT@=GQ]@X=_<HZ<[R5w^T5;,EH=eB1Qk}An^{>\;H3J!{{j
+    }OJmpkKI@7}~xYK3PQkIZydaavCK$GCO%kO$5>o?JoeVXKTK1i^!-$l>KY^VX?_=jIs,5DsQxBd3
+    \U1kHlovHo'Ta{7@a;j\~-Cv;~^CT]Z@a+33nlmV*k[Q#Q^A>,geT{O}#AO]?AKYu3K.^;}{>U+O
+    Y+nsXHvC?AX^5{@2#<Txun*+=>pDne=$z^zpnnmBe+;vEV\uY{uk=4BZAWw[V-vp,a<DKR]Y1Gea
+    JOlXD=n5'1SZ[Zn]}TYw*j2N>r[K\spw\2[~'#YUpZCWj>U*JDQw2C?KF%ivoDow^O3E?T~omYdT
+    [x+$piEvuR1p!H3k>nIN}HuX~[?ee2OUm1JB}e^GIGIrol;1pZC1<=}C,iVjUw5jx;7Y(X5JaKOe
+    lXQE[I]U}"^JwQ3TD$lsG{#1[\yI},,&012D=/j1z$>]rTG$zJC#<s!jv=RU<jus?JkRO^V,@5Zs
+    >@:KOk_^>Q_op*7Ks5]j]}WT>[e,;O^IZ=K1lj34OWDEsK@;1Vw?!pe5:YH{^<,HK,21KL!UTp@V
+    JmaI{>PRZn$#9EzmQpKYxr5#T*lriG_Kv&va5p5=rC{}Y$3{oYtE2r$B:k\vJ9VHa]ivaBw5Tn!*
+    EUpY!mEQBxu+,+\oX]GOv*e~HH73-ArDrZVR3J4lxo}YY>G[+j_-]VipWE'osOxER#}*Awa}3U!5
+    >+$#{1Y,#x-AIZ2KjukgxZlXj>AQDHKv}xjnnO<#yV~xY};X5-TX7sUGAnXA,$swI,X$@Aru#!\u
+    aXEp?Cj?!V+=_D]}V;oQ*$s#vw7-R"v_n2=W!zqpB$}aOUeR<Io{w2p4=u+'AU\$*>'ra^UZZp<$
+    ;exo@1nI>]XjU+eYiAl,}ZI$+BJ{ar,[}X,R:o*2\,OpB-O=Uy39eE<{pK-uJXKKj-!kIE*\!'+~
+    T7-$eYs_=n<p[#xpIRXBmj=WeB[l<XDeJUWr\Aw$o*,*rKWn=E\n\7}r*UV*=[X^smQIaIZvq5#3
+    skX,oE#uI.IiX?'~7^VG?38"T*{CFQOz'_MQO?we!Y#!_5]WnzT1rpp-Bma#E@Zo~K*mX{>01Als
+    >1inZ-,~$vBueL9HpBHK$VDRXE*y~'*#v#_HH'n$u]~;x^iXuO7nD${*'H'j*HW\R3o_HwRmq)4p
+    3J+rVkkA=<~%YZ^^av=u!]us#}Z*qH]uB*5~Gp\pAr';?K<![W>[{k1z<Cn^u1KZvdvwTkpUW7Ix
+    D*#5^O2'A'2G\}q~z}RQs2l,O5llr,'TX}Uf#IkZ2[[~kazUrB<-lUnxr\!2%${Ku^Z-v]E_o_o>
+    -eOe,HT+VE+$2^~RV]uIJvvuU7;+='}XZka'p17=-N~hn*3VW{+o~[D,CGA2yld^J@#ov[Os1AsM
+    aX@JW>V}O4RrCe]kYsoG;Bfzt=X-\j[k[7Yz[2\EO-a)V!CuK]JE$GVnTTA>ZS%2HxO[#*RECa{z
+    Ck]E\u-n$R>1aHT^Q3,U5j27,,IGl[wDEYaijwpM1>EZg02a7xQ!+]l=O@},->sC5T,#}vD#$_Fm
+    a]Jv>H~L]Q7?ECm?'#n\52=*+pIol3Z5XC}e&+{}r^#E3QVZB[TXjw5l#n55RI;m\TUu}$+TQEeO
+    TaQTY}=#lIsDuO>O;7J7m:v;Y!jw<,](Eun$v5,l]Ql*f^CK,2=VzQ[l1A=Z;pl,Y1ZD;RDTlk*n
+    Y;D7[#o2>%5k2BnjQ^27[}/UE#Tw$,\/OrE-:EmQBssZjj;e>V*V]*eR]@A7s#]Wry\v_527#]mE
+    @?HAXK*jB]*Du^0*\!w,1osYh/3,a79E3I7eR1T,{G-7IQW_aGsIrz;C2Z^?]-QNO<nWA12X@n'u
+    JVX-biln1WnG=2InlEH}VV}1AOBiU#DUJZ'3H3eYo%kj-^S"uUpi3prj}'-R-9j:E;uW,@~[eH~\
+    9eXJWAobB!Vs*<EpMzD=ZC[lA#{A]$sVj]Ap1faBWvlIk;}]}@Bj@Z\D<YDXWo&=jw}9GWoXfgz2
+    UE#-w'5AwTjQeBY+W-vrm2h{-3v%8P[Y}>gQ73!odE5m=IXpr3xnBul<K;$n1^l}=<>w~EDlEkz3
+    >^+*A<9u>!oG<u'31{OZGH}n$Zo7ex!ju$BnV1Yb^+GJ-B7n{lk,"FAnzJ|~\no=3'DD}#XV\jZ*
+    vY!0OIwkpTHQ<|W\X@w}p-oQK*K9c4KU>^RzpRCn,G>RV7mHJ'0^>{KS[C#e(c#*V'Z[J}^+DWz_
+    >!|"OY2D.sHs^IJUm-rXxy^VYGp#=~><o+(a<OQ*n23,8Rx^a1U,_}Yk5~XrQ<zwB&=j^~5^71}1
+    \^EYi@pIl\FRvxA9[A3}>1!}_JT]jB{H\>K>J>5$>\#*pn[$QQ'On<GZ2{{<!EI]OlK=GrA-.$GB
+    5]<x}1a\~rKCW6$XU[;O<_!8!U=T^_DYH7;?m+]$Cz^>ij'3*Q1+0a_QXG_wVxW;-3lm'>^vZovW
+    >nz\n*=UxrI{'-{a>s-Q!T}XUDX-_?-Z25eo\UORi5rAmA_=7Oe21wE-\w$1WDsCzT>B*Myl;1'L
+    V~XJ?[;QAQp5~v+]i7T<<[^j+-]<#rR~sW-vDG1$_m7[I]7m<Gl17,a}m*5,x-V>7s~^!1RACOQ}
+    ~1A$'OOZ1EAaIwv!Z$=jrVlC,zv;omEHJ'2DIG@CO5wjn^us(eu^R5j]@xHvm]XmU-EA*7Yl1r$E
+    r^#VA)/VW>*IHn5LivDasZVUwCiWxu3}>]Tp$Tgnxmz'G]T(I]Qr[X^U_A,@Kw3l$bJ=aQ@5v;o>
+    r13j;!lW,@xZ@E+>7=6Xov3,!<V35B[a^pTeY7eCD{;+$K{~+U=s7$_|Zr+z[rZ'E_;E^#^U*izK
+    {'B5x]2[\-w*p[Y[sOOpr~IT{=[s/iT,^}lvEG!e_BjK#U->TXo?uYa2^p]*'K{,]D+,_tCt$p@;
+    1ZH!baUHIr]{][=oTveBo{s#$VKI^sOaol3RY[]HoC*'prB]}j>[3uR%q!l#R*r*pu[_\=ko;eYE
+    1[^i
+`endprotected
+
+     
+  // wire declarations for all parameters used in parameter checks
+
+  wire [31:0] constraints_mode;
+  wire [31:0] controller_side;
+  wire [31:0] row_addr_width;
+  wire [31:0] data_width;
+  wire [31:0] dm_width;
+  wire [31:0] perform_dll_tracking;
+  wire [31:0] tras_value;
+  wire [31:0] trcd_value;
+  wire [31:0] trp_value;
+  wire [31:0] trrd_value;
+  wire [31:0] tccd_value;
+  wire [31:0] trtw_value;
+  wire [31:0] twtr_value;
+  wire [31:0] twr_value;
+  wire [31:0] trfc_value;
+  wire [31:0] txsnr_value;
+  wire [31:0] txsrd_value;
+  wire [31:0] tmrd_value;
+  wire [31:0] txp_value;
+  wire [31:0] txard_value;
+  wire [31:0] tclk_value;
+
+  assign constraints_mode = Constraints_Mode;
+  assign controller_side = CONTROLLER_SIDE;
+  assign row_addr_width = ROW_ADDR_WIDTH;
+  assign data_width = DATA_BUS_WIDTH;
+  assign dm_width = ZI_INT_DM_WIDTH;
+  assign perform_dll_tracking = DLL_TRACKING_ENABLE;
+
+  assign tras_value = (USE_PORTS_TO_CONFIGURE == 1 ? tras : TRAS);
+  assign trcd_value = (USE_PORTS_TO_CONFIGURE == 1 ? trcd : TRCD);
+  assign trp_value = (USE_PORTS_TO_CONFIGURE == 1 ? trp : TRP);
+  assign trrd_value = (USE_PORTS_TO_CONFIGURE == 1 ? trrd : TRRD);
+  assign tccd_value = (USE_PORTS_TO_CONFIGURE == 1 ? tccd : TCCD);
+  assign trtw_value = (USE_PORTS_TO_CONFIGURE == 1 ? trtw : TRTW);
+  assign twtr_value = (USE_PORTS_TO_CONFIGURE == 1 ? twtr : TWTR);
+  assign twr_value = (USE_PORTS_TO_CONFIGURE == 1 ? twr : TWR);
+  assign trfc_value = (USE_PORTS_TO_CONFIGURE == 1 ? trfc : TRFC);
+  assign txsnr_value = (USE_PORTS_TO_CONFIGURE == 1 ? txsnr : TXSNR);
+  assign txsrd_value = (USE_PORTS_TO_CONFIGURE == 1 ? txsrd : TXSRD);
+  assign tmrd_value = (USE_PORTS_TO_CONFIGURE == 1 ? tmrd : TMRD);
+  assign txp_value = (USE_PORTS_TO_CONFIGURE == 1 ? txp : TXP);
+  assign txard_value = (USE_PORTS_TO_CONFIGURE == 1 ? txard : TXARD);
+  assign tclk_value = TCLK;
+
+  // wire declarations for all checker firings used as arguments for the 
+  // fire_fire signal of the fire checkers
+
+  wire dll_not_reset_fire,
+       mrs_before_precharge_fire,
+       autoref_before_precharge_fire,
+       selfref_before_precharge_fire,
+       insuff_auto_refresh_before_activation_fire,
+       modereg_not_set_before_active_fire,
+       cas_latency_invalid_fire,
+       additive_latency_invalid_fire,
+       tRRD_violation_fire,
+       incorrect_command_before_mrs_fire,
+       tdll_violation_after_dll_reset_fire,
+       cas_latency_invalid_bypass_fire,
+       additive_latency_invalid_bypass_fire,
+       emrs_before_precharge_fire,
+       emrs_3_before_emrs_2_fire,
+       emrs_before_emrs_3_fire,
+       sequential_activation_violation_fire;
+
+  wire clock_change_during_non_ppd_mode_enable,
+       clock_change_during_illegal_cke_enable,
+       violates_tCLK_enable,
+       clock_frequency_out_of_range_enable,
+       cke_change_during_clock_change_enable,
+       ppd_exit_during_unstable_clock_enable,
+       dll_not_reset_after_ppd_exit_after_clock_change_enable;
+
+  assign clock_change_during_non_ppd_mode_enable = CLOCK_CHANGE_TRACKING_ENABLE;
+  assign clock_change_during_illegal_cke_enable = CLOCK_CHANGE_TRACKING_ENABLE;
+  assign violates_tCLK_enable = ((CLOCK_CHANGE_TRACKING_ENABLE != 0)
+                        && (TCLK_CHECK_ENABLE != 0));
+  assign clock_frequency_out_of_range_enable =
+                       ((CLOCK_CHANGE_TRACKING_ENABLE != 0)
+                        && (CLOCK_FREQUENCY_RANGE_CHECK_ENABLE));
+  assign cke_change_during_clock_change_enable = CLOCK_CHANGE_TRACKING_ENABLE;
+  assign ppd_exit_during_unstable_clock_enable = CLOCK_CHANGE_TRACKING_ENABLE;
+  assign dll_not_reset_after_ppd_exit_after_clock_change_enable =
+                       ((CLOCK_CHANGE_TRACKING_ENABLE != 0)
+                        && (DLL_TRACKING_ENABLE != 0));
+
+
+  // these are used as check enables for corresponding violations and the
+  // checker will fire when this is high, indicating some illegal behavior
+ 
+  assign mrs_during_non_precharge = (z_mode_reg_set_cmd &&
+                                     (all_banks_in_precharge !== 1'b1));
+
+  assign emrs_during_non_precharge = (ZI_DDR2_SDRAM_2_0 === 1 &&
+				      (z_ex_mode_reg_set_cmd ||
+				      z_ex_mode_reg_2_set_cmd ||
+				      z_ex_mode_reg_3_set_cmd) &&
+				      (all_banks_in_precharge !== 1'b1));
+ 
+  assign auto_during_non_precharge = (z_cbr_auto_refresh_cmd &&
+                                      (all_banks_in_precharge !== 1'b1));
+ 
+  assign selfref_during_non_precharge = (z_enter_self_refresh_cmd &&
+                                         (all_banks_in_precharge !== 1'b1));
+ 
+  assign insufficient_autorefs_before_active = (z_activate_cmd &&
+                                          (auto_refresh_cmd_ctr < 2'b10) &&
+					  (first_activation_command === 1'b0));
+ 
+  assign modereg_not_set_before_active = (z_activate_cmd &&
+                                          (mode_reg_set !== 1'b1));
+ 
+  assign dll_not_reset_before_active = (z_activate_cmd && dll_enabled === 1'b1
+                                        && (dll_reset !== 1'b1));
+
+  assign emrs_2_not_issued_before_emrs_3 = (ZI_DDR2_SDRAM_2_0 === 1 &&
+					    z_ex_mode_reg_3_set_cmd && 
+				            ex_mode_reg_2_set === 1'b0);
+
+  assign emrs_3_not_issued_before_emrs = (ZI_DDR2_SDRAM_2_0 === 1 &&
+					  z_ex_mode_reg_set_cmd && 
+                                          a[0] === 1'b0 && 
+                                          ex_mode_reg_3_set === 1'b0);
+
+  // Seq ACT restriction firing
+
+  assign sequential_activation_violation = ((sum_of_acts_over_last_window +
+                                          z_activate_cmd) > 8'd4);
+
+
+  // cas latency values supported are 2, 3, 4 and 5. these are programmed 
+  // during MRS and stored in bits 4 to 6 of mode register. note that the 
+  // encoding of 111 on these lines correspond to cas latency of 5.
+  // Added support for cas latecy 6 as well -- JEDEC 79-2C, May 2006 upgrade
+  
+  //  cas_latency_invalid redefined
+
+  assign cas_latency_invalid = (ZI_DDR2_SDRAM_2_0 === 1) ? 
+                             (z_activate_cmd && (mode_register[6:4] !== 3'b010 
+			      && mode_register[6:4] !== 3'b011 &&
+			      mode_register[6:4] !== 3'b100 && 
+			      mode_register[6:4] !== 3'b101 &&
+                              mode_register[6:4] !== 3'b110)) : 
+                             (z_activate_cmd && (mode_register[6:4] !== 3'b010 
+			      && mode_register[6:4] !== 3'b011 &&
+			      mode_register[6:4] !== 3'b100 && 
+			      mode_register[6:4] !== 3'b111));
+
+  assign cas_latency_invalid_bypass = (ZI_DDR2_SDRAM_2_0 === 1) ?
+                       (z_activate_cmd && (mode_register_in[6:4] !== 3'b010
+                        && mode_register_in[6:4] !== 3'b011 &&
+                        mode_register_in[6:4] !== 3'b100 &&
+                        mode_register_in[6:4] !== 3'b101 &&
+                        mode_register_in[6:4] !== 3'b110 )) :
+                        (z_activate_cmd && (mode_register_in[6:4] !== 3'b010
+                        && mode_register_in[6:4] !== 3'b011 &&
+                        mode_register_in[6:4] !== 3'b100 &&
+                        mode_register_in[6:4] !== 3'b111));
+
+
+ //15DEC06
+
+  wire tCKE_violation = !( (|cke_pipe[QVL_TCKE-1:0] == 1'b0) || (&cke_pipe[QVL_TCKE-1:0] == 1'b1) ) && 
+                             (cke !== cke_pipe[0]);
+
+  // additive latency values supported are 0, 1, 2, 3 & 4. this is programmed
+  // into bits 3 to 5 of extended mode register during EMRS command.
+  // added support for optional additive latency 5
+
+  assign additive_latency_invalid = (ZI_DDR2_SDRAM_2_0 === 1) ?
+                                  (z_activate_cmd && (ex_mode_register[5:3]
+				   !== 3'd0 && ex_mode_register[5:3] !== 3'd1 
+				   && ex_mode_register[5:3] !== 3'd2 &&
+				   ex_mode_register[5:3] !== 3'd3 &&
+				   ex_mode_register[5:3] !== 3'd4) &&
+                                   (OPTIONAL_ADDITIVE_LATENCY_ENABLE == 1 ?
+                                    (ex_mode_register[5:3] !== 3'd5) : 1'b1)) :
+                                  (z_activate_cmd && (ex_mode_register[5:3]
+				   !== 3'd0 && ex_mode_register[5:3] !== 3'd1 
+				   && ex_mode_register[5:3] !== 3'd2));
+
+  assign additive_latency_invalid_bypass = (ZI_DDR2_SDRAM_2_0 === 1) ?
+                              (z_activate_cmd && (ex_mode_register_in[5:3]
+                               !== 3'd0 && ex_mode_register_in[5:3] !== 3'd1
+                               && ex_mode_register_in[5:3] !== 3'd2 &&
+                               ex_mode_register_in[5:3] !== 3'd3 &&
+                               ex_mode_register_in[5:3] !== 3'd4)  &&
+                               (OPTIONAL_ADDITIVE_LATENCY_ENABLE == 1 ? 
+                                (ex_mode_register[5:3] !== 3'd5) : 1'b1)) :
+                               (z_activate_cmd && (ex_mode_register_in[5:3]
+                               !== 3'd0 && ex_mode_register_in[5:3] !== 3'd1
+                               && ex_mode_register_in[5:3] !== 3'd2));
+
+  // Prior to MRS, the only valid commands are NOP, Deselect and Precharge
+
+  assign illegal_cmd_before_mrs = (command !== 6'b110010  &&
+                                 command !== 6'b110111 && cke === 1'b1 &&
+                                 command[3] !== 1'b1 && r_cke === 1'b1 &&
+                                 command !== 6'b110000 &&
+                                 mode_reg_set !== 1'b1);
+
+  assign mrs_programmed_correctly = (additive_latency_invalid === 1'b0 &&
+                                   cas_latency_invalid === 1'b0);
+
+  assign mrs_programmed_correctly_bypass = 
+				   (additive_latency_invalid_bypass === 1'b0 
+                                   && cas_latency_invalid_bypass === 1'b0);
+
+
+  // Minimum interval between DLL reset and first read command should 
+  // be 200 clock cycles
+
+  assign tdll_reset_violation = (first_read_command == 1'b0 && (z_read_cmd ||
+			       z_read_auto_precharge_cmd) &&
+			       dll_reset_to_first_read_counter > 0);
+  assign illegal_reserved_states_in_emrs1_programming =
+                               (ZI_DDR2_SDRAM_2_0 === 1 &&
+                                ex_mode_reg_set &&
+                                (ex_mode_register[18] !== 1'b0 ||
+                                 ex_mode_register[15:13] !== 3'd0));
+
+  assign illegal_ocd_value_for_ddr2_800_emrs1_programming =
+                               (ZI_DDR2_SDRAM_2_0 === 1 &&
+                                DDR2_SPEED_GRADE === 800 &&
+                                ex_mode_reg_set &&
+                                (ex_mode_register[6] !== 1'b1 ||
+                                 ex_mode_register[2] !== 1'b1));
+
+  assign illegal_reserved_states_in_emrs2_programming =
+                               (ZI_DDR2_SDRAM_2_0 === 1 &&
+                                ex_mode_reg_2_set &&
+                                (ex_mode_2_register[6:4]!== 3'd0 ||
+                                 ex_mode_2_register[15:8] !== 8'd0 ||
+                                 ex_mode_2_register[18] !== 1'b0));
+
+  assign illegal_htsrr_bit_states_in_emrs2_programming =
+                               (ZI_DDR2_SDRAM_2_0 === 1 &&
+                                HIGH_TEMP_SELF_REFRESH_RATE_ENABLE == 0 &&
+                                ex_mode_reg_2_set &&
+                                ex_mode_2_register[7] !== 1'b1);
+
+  assign illegal_pasr_bit_states_in_emrs2_programming =
+                               (ZI_DDR2_SDRAM_2_0 === 1 &&
+                                PARTIAL_SELF_REFRESH_ENABLE == 0 &&
+                                ex_mode_reg_2_set &&
+                                ex_mode_2_register[2:0] !== 3'd0);
+
+  assign illegal_dcc_bit_states_in_emrs2_programming =
+                               (ZI_DDR2_SDRAM_2_0 === 1 &&
+                                DUTY_CYCLE_CONTROL_ENABLE == 0 &&
+                                ex_mode_reg_2_set &&
+                                ex_mode_2_register[3] !== 1'b0);
+
+  assign illegal_reserved_states_in_emrs3_programming =
+                               (ZI_DDR2_SDRAM_2_0 === 1 &&
+                                ex_mode_reg_3_set &&
+                                (ex_mode_3_register[18] !== 1'b0 ||
+                                 ex_mode_3_register[15:0] !== 16'd0));
+
+  assign odt_violation_during_dll_stabilization =
+                               ((odt == 1'b1 && r_odt !== 1'b1) &&
+                                odt_dll_reset_enable_counter > 0); 
+
+  assign first_emrs_not_issued_with_ocd_exit = (first_emrs_command &&
+                               ex_mode_register[9:7] !== 3'd0);
+
+  assign emrs2_is_not_issued_after_first_precharge_all =
+                               (first_precharge_all &&
+                                !z_ex_mode_reg_2_set_cmd &&
+                                (z_mode_reg_set_cmd ||
+                                 z_ex_mode_reg_set_cmd ||
+                                 z_ex_mode_reg_3_set_cmd ||
+                                 z_precharge_all_cmd ||
+                                 z_cbr_auto_refresh_cmd));
+
+  assign ocd_default_calibration_not_set_after_second_mrs =
+                               (second_mrs_command &&
+                                !(z_ocd_mode_exit ||
+                                  z_ocd_mode_default) &&
+                                  z_mode_reg_set_cmd);
+
+  assign invalid_bl_before_entering_ocd_calibration_exit =
+                               ((burst_length_programmed !== 3'b010) &&
+                                 z_ocd_mode_adjust);
+
+// State machine for OCD modes
+
+  always @ (z_ocd_mode_drive1 or z_ocd_mode_drive0 or
+          z_ocd_mode_adjust or z_ocd_mode_default or
+          z_ocd_mode_exit or dq or dqs)
+  begin
+    ocd_next_state = ocd_present_state;
+    ocd_drive0_mode_not_followed_by_ocd_cali_exit_mode = 1'b0;
+    ocd_drive1_mode_not_followed_by_ocd_cali_exit_mode = 1'b0;
+    ocd_adjust_mode_not_followed_by_ocd_cali_exit_mode = 1'b0;
+    illegal_dq_dqs_in_ocd_drive0_mode = 1'b0;
+    illegal_dq_dqs_in_ocd_drive1_mode = 1'b0;
+
+    case(ocd_present_state) //  synopsys full_case parallel_case
+    QVL_OCD_DEFAULT : begin
+                     if (z_ocd_mode_exit)
+                       begin
+                         ocd_next_state = QVL_OCD_EXIT;
+                       end
+                     else begin
+                       ocd_next_state = QVL_OCD_DEFAULT;
+                     end
+                   end
+    QVL_OCD_EXIT :
+                   begin
+                     if (z_ocd_mode_drive1)
+                       begin
+                         ocd_next_state = QVL_OCD_DRIVE1;
+                       end
+                     else if (z_ocd_mode_drive0) begin
+                       ocd_next_state = QVL_OCD_DRIVE0;
+                     end
+                     else if (z_ocd_mode_adjust) begin
+                       ocd_next_state = QVL_OCD_ADJUST;
+                     end
+                     else begin
+                       ocd_next_state = QVL_OCD_EXIT;
+                     end
+                   end
+    QVL_OCD_DRIVE1 : 
+                   begin
+                     if (z_ocd_mode_drive0 ||
+                         z_ocd_mode_adjust)
+                       begin
+                         ocd_drive1_mode_not_followed_by_ocd_cali_exit_mode = 1'b1;
+                       end
+                     else
+                       begin
+                         ocd_next_state = QVL_OCD_EXIT;
+                       end
+                     if ((!dqs || (dq !== {DATA_BUS_WIDTH{1'b1}})) &&
+                         (tOIT_counter == 0))
+                       illegal_dq_dqs_in_ocd_drive1_mode = 1'b1;
+                   end
+    QVL_OCD_DRIVE0 :
+                   begin
+                     if (z_ocd_mode_drive1 ||
+                         z_ocd_mode_adjust)
+                       begin
+                         ocd_drive0_mode_not_followed_by_ocd_cali_exit_mode = 1'b1;
+                       end
+                     else
+                       begin
+                         ocd_next_state = QVL_OCD_EXIT;
+                       end
+                     if ((dqs || (dq !== {DATA_BUS_WIDTH{1'b0}})) &&
+                         (tOIT_counter == 0))
+                       illegal_dq_dqs_in_ocd_drive0_mode = 1'b1;
+                   end
+    QVL_OCD_ADJUST :
+                   begin
+                     if (z_ocd_mode_drive0 ||
+                         z_ocd_mode_drive1)
+                       begin
+                         ocd_adjust_mode_not_followed_by_ocd_cali_exit_mode = 1'b1;
+                       end
+                     else
+                       begin
+                         ocd_next_state = QVL_OCD_EXIT;
+                       end
+                   end
+    default : begin
+                   ocd_next_state = ocd_present_state;
+              end
+    endcase
+  end
+   
+    
+
+  wire write_burst_0;
+  wire write_burst_1;
+  wire write_burst_2;
+  wire write_burst_3;
+  wire write_burst_4;
+  wire write_burst_5;
+  wire write_burst_6;
+  wire write_burst_7;
+
+  wire write_burst = (write_burst_0 || write_burst_1 || write_burst_2 ||
+		      write_burst_3 || write_burst_4 || write_burst_5 ||
+		      write_burst_6 || write_burst_7);
+
+
+  // Statistics Block
+
+  reg [63:0] multiple_banks_open_count;
+  reg [63:0] max_banks_simultaneously_open;
+  reg [63:0] cbr_refresh_commands_count;
+  reg [63:0] all_bank_precharges_count;
+  reg [63:0] mrs_prog_interleaved_count;
+  reg [63:0] mrs_prog_sequential_count;
+  reg [63:0] data_accesses_count;
+  reg [63:0] self_refresh_commands_count;
+  reg [63:0] pwrdn_commands_count;
+  reg [63:0] nop_commands_count;
+  reg [63:0] deselect_commands_count;
+
+  reg r_bank_0_status;
+  reg r_bank_1_status;
+  reg r_bank_2_status;
+  reg r_bank_3_status;
+  reg r_bank_4_status;
+  reg r_bank_5_status;
+  reg r_bank_6_status;
+  reg r_bank_7_status;
+  reg [5:0] r_command;
+  reg [5:0] rr_command;
+
+  wire posted_write_0; // current cycle in bank 0 is a posted write
+  wire posted_read_0;  // current cycle in bank 0 is a posted read
+  wire posted_write_1;
+  wire posted_read_1;
+  wire posted_write_2;
+  wire posted_read_2;
+  wire posted_write_3;
+  wire posted_read_3;
+  wire posted_write_4;
+  wire posted_read_4;
+  wire posted_write_5;
+  wire posted_read_5;
+  wire posted_write_6;
+  wire posted_read_6;
+  wire posted_write_7;
+  wire posted_read_7;
+
+  wire z_bank_0_active = (r_bank_0_status === 1'b0 && bank_0_status === 1'b1);
+  wire z_bank_1_active = (r_bank_1_status === 1'b0 && bank_1_status === 1'b1);
+  wire z_bank_2_active = (r_bank_2_status === 1'b0 && bank_2_status === 1'b1);
+  wire z_bank_3_active = (r_bank_3_status === 1'b0 && bank_3_status === 1'b1);
+  wire z_bank_4_active = (r_bank_4_status === 1'b0 && bank_4_status === 1'b1);
+  wire z_bank_5_active = (r_bank_5_status === 1'b0 && bank_5_status === 1'b1);
+  wire z_bank_6_active = (r_bank_6_status === 1'b0 && bank_6_status === 1'b1);
+  wire z_bank_7_active = (r_bank_7_status === 1'b0 && bank_7_status === 1'b1);
+
+  wire collect_stats;
+
+`protected
+
+    MTI!#};*@'WB^QGRUhe~TNSl-Xs-HoUrl-~NY~2sNom2wI@HmN*3Q=E{lm7uZ!C2[pQQQ=mEpp?G
+    2>iVi,:E+\vMYDn~yIZ-z~s\lAER)*7QK51im1nInEs7A+57Ipn{erlv},JoIf~l2@[a{jG1=xBk
+    *A$u~'}Ywuziu*kezz-[W2IrKQw{B}NiTv^<Te]=la$ARQ<irkII~w?OlI']lHYI{K!u5KrW*I+h
+    };Hna1*Ia<C~}XG3Geeu=;'$.;$X@O\<pJYZ@nC"I>ARYsm1npo@QXKJ~5wa*T-[Q}^@Y~^YI?Xz
+    il5RVn,>wwV=Q}#p]{Rmx~OiY^eUpW\aO-~G-^[<5QC'aw*7-+;!GZ~r^,27\5uZH+jRecRjsj2,
+    V[#jn>swl<DX1j'x_*A'ex+VnAYE[;pXAp~I!3Qz+,j~$-ER!jCQ_B8uXji{_+<N=cV=R'fmo-;N
+    q=zrY#EzErIC3Ka*^[!u!BOE}QwH5[AO;N:H\5[]aroz_*{=T\27U@!Qd~zJ]9BrUw,Q^xoZvHkT
+    zjx"^>eW#1[=~7Jr8@9^*n[U<}#^#vl<Gen^rU$Q[},w'$CEsT@HzW1KX>J4uzww,oX*T]>jYZKn
+    TYI3IUREXwY[xCl^C^e7/oBX~\j'\)'@Jn_u,[d[e?Q@T1U=q6G#_[i_ez>$j=EQl*EBr?>o[[7i
+    I~_O5Hk5As;GTxsnX]}E]\[xRvx,'Q#[Ae4[5JEs-VlIG3E'-7#P/Gl}YB{]kRHn-lkO5{X=OG5e
+    p1mx-]u=!rsDX1I_Ilm-R-rQRAI7lB=k2RG?,kAVr^!Xz=nEo$5oej[QnDieEMo1mU_-oOQ;UK^>
+    QGZS8Vr-vuUBH
+`endprotected
+  assign num_banks_active = (ZI_DDR2_SDRAM_2_0 === 1) ?
+                                bank_0_status + bank_1_status + bank_2_status +
+                                bank_3_status + bank_4_status + bank_5_status +
+                                bank_6_status + bank_7_status :
+                                bank_0_status + bank_1_status + bank_2_status +
+                                bank_3_status;
+
+`protected
+
+    MTI!#^e>#rD>rCRap;EUV$<WxCl2[,F[frm.j?p>=#ouv"{sYI<<[,9X{-V[b}ZBwmxsnGo<O%>U
+    3_?RSBxm5}^jaD=]{Q8"l3+VBOQA+^KH,~H[s@]oV<u\${_iuO,[Z]J2B1ZnD{Ruu<e[V'2^r1Qw
+    <I3C\\B-HwW'^~p'{jkryBI@Y4{DZWp~]_Rkas[$BWLxOToO*7}IX1$7A\n$*V]DaeIVIek(9!H2
+    Qs-]$lReGvnpT3IwQ5evuqaT2~!$\~*aZV*a@I/nvX~\^e];1l+\O-1_U<IUs$x}#]>e2l5pEQxU
+    EeEvo5;mOCv>wx31w<[_@nG[3-rA=;On=Ci1[A~B3$,oQp1L^*5GpD#@KUzwKn>~IWn~m]*W$#3'
+    9i}J7DH@A2[v3V(#GB^1DJ>}Z9#5W]ToY-7EZB,D]U:!OTv\-n@_TKDJwG+^TD>_Y}nQ-<7svx<p
+    *;\moIXl5+\xo='}!v#Y?@_sB*E{G]E~$AEW7>si<+XC;}O<1Eih#z;ovn5<|VKECeHlsXz#C\iG
+    CxO]E+<Y}{N,s-+2EA'UBwa,?TGBjZ?{B2Y~=5w73j@JGCze#{CX{Z2<{a?L7ka}3''J^+V^7G';
+    oK<][ZQHLR!^,H'Jv,Rj2av,kB^>Z#DlDiT[rJavGgu|^m1mVs?oCBUOE<JAi_#TEv,~}u=kBl^T
+    ?X[TB!@Q#|IeXk=ZnRjQQnh?r'@_*uoypi[r31epHA!r|/I$3G-{ArQ?B'E7@>_=CDuY'Kl^w'M^
+    J=[WBYZQJE$-VkrQ~Gu=QjYs}IZ=$ee\>E]'k!>or}r-YC*jOCeBC!v~eApQJCA-RYBNlN=_BIC=
+    WI9'ZwZ*m[u-j@lI1$]}GY}2<j{7{7+j%iavi,oZ*yACz;pW{o#UH=4<Ap-:2e7T1mw*>Q?IY'V$
+    {rCW-p\>!UZUo'~7^rpO*w~[7@XeQv[u/I=+=J5#2!,sK,[~#
+`endprotected
+
+  // End of Stats block
+
+  wire bad_data_chk = ZI_DATA_CHECK_ENABLE;
+  wire read_before_write = READ_BEFORE_WRITE_CHECK_ENABLE;
+
+  assign ldq = (ZI_DDR2_SDRAM_2_0 === 1 && DATA_BUS_WIDTH === 16) ? dq : 8'b0;
+
+  assign udq = (ZI_DDR2_SDRAM_2_0 === 1 && DATA_BUS_WIDTH === 16) ? dq >> 8 : 
+                                                                    8'b0;
+
+
+wire [BANK_ADDR_WIDTH-1:0] bank_num_b0 = (BANK_ADDR_WIDTH == 2)? 2'b00 : 3'b000;
+wire [BANK_ADDR_WIDTH-1:0] bank_num_b1 = (BANK_ADDR_WIDTH == 2)? 2'b01 : 3'b001;
+wire [BANK_ADDR_WIDTH-1:0] bank_num_b2 = (BANK_ADDR_WIDTH == 2)? 2'b10 : 3'b010;
+wire [BANK_ADDR_WIDTH-1:0] bank_num_b3 = (BANK_ADDR_WIDTH == 2)? 2'b11 : 3'b011;
+
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+	    ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+	    READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+	    ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+	    ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+		     BANK0
+			   (.clock(ck),
+			    .clock_n(ck_n),
+			    .areset(areset),
+			    .reset(reset),
+			    .command(command),
+			    .address(a),
+			    .bank_addr(ba),
+			    .bank_num(bank_num_b0),
+			    .data_mask(dm_rdqs),
+			    .data(dq),
+			    .dqs(dqs),
+			    .posted_read(posted_read_0),
+			    .posted_write(posted_write_0),
+			    .bank_status(bank_0_status),
+			    .cas_latency(cas_latency_value),
+			    .additive_latency(additive_latency),
+			    .burst_type(burst_type),
+			    .write_burst_in_progress(write_burst_0),
+			    .bad_data_chk(bad_data_chk),
+			    .read_before_write_chk(read_before_write),
+			    .burst_length_programmed(burst_length_programmed),
+			    .tWR_programmed(tWR_programmed),
+			    .slow_exit(slow_exit),
+			    .ldq(ldq),
+			    .ldqs(ldqs),
+			    .ldm(ldm),
+			    .udq(udq),
+			    .udqs(udqs),
+			    .udm(udm),
+			    .rdqs_enable(rdqs_enable),
+		            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+			   );
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+	    ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+            READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+            ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+            ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+	              BANK1
+			   (.clock(ck),
+			    .clock_n(ck_n),
+                            .areset(areset),
+                            .reset(reset),
+                            .command(command),
+                            .address(a),
+                            .bank_addr(ba),
+                            .bank_num(bank_num_b1),
+                            .data_mask(dm_rdqs),
+                            .data(dq),
+                            .dqs(dqs),
+                            .posted_read(posted_read_1),
+                            .posted_write(posted_write_1),
+                            .bank_status(bank_1_status),
+                            .cas_latency(cas_latency_value),
+                            .additive_latency(additive_latency),
+                            .burst_type(burst_type),
+			    .write_burst_in_progress(write_burst_1),
+			    .bad_data_chk(bad_data_chk),
+			    .read_before_write_chk(read_before_write),
+                            .burst_length_programmed(burst_length_programmed),
+                            .tWR_programmed(tWR_programmed),
+			    .slow_exit(slow_exit),
+                            .ldq(ldq),
+                            .ldqs(ldqs), 
+                            .ldm(ldm), 
+                            .udq(udq), 
+                            .udqs(udqs), 
+                            .udm(udm),
+                            .rdqs_enable(rdqs_enable),
+                            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+
+                           );
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+	    ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+            READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+            ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+            ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+	             BANK2
+                           (.clock(ck),
+			    .clock_n(ck_n),
+                            .areset(areset),
+                            .reset(reset),
+                            .command(command),
+                            .address(a),
+                            .bank_addr(ba),
+                            .bank_num(bank_num_b2),
+                            .data_mask(dm_rdqs),
+                            .data(dq),
+                            .dqs(dqs),
+                            .posted_read(posted_read_2),
+                            .posted_write(posted_write_2),
+                            .bank_status(bank_2_status),
+                            .cas_latency(cas_latency_value),
+                            .additive_latency(additive_latency),
+                            .burst_type(burst_type),
+			    .write_burst_in_progress(write_burst_2),
+			    .bad_data_chk(bad_data_chk),
+			    .read_before_write_chk(read_before_write),
+                            .burst_length_programmed(burst_length_programmed),
+                            .tWR_programmed(tWR_programmed),
+			    .slow_exit(slow_exit),
+                            .ldq(ldq),
+                            .ldqs(ldqs), 
+                            .ldm(ldm), 
+                            .udq(udq), 
+                            .udqs(udqs), 
+                            .udm(udm),
+                            .rdqs_enable(rdqs_enable),
+                            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+
+                           );
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+	    ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+            READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+            ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+            ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+	             BANK3
+                           (.clock(ck),
+			    .clock_n(ck_n),
+                            .areset(areset),
+                            .reset(reset),
+                            .command(command),
+                            .address(a),
+                            .bank_addr(ba),
+                            .bank_num(bank_num_b3),
+                            .data_mask(dm_rdqs),
+                            .data(dq),
+                            .dqs(dqs),
+                            .posted_read(posted_read_3),
+                            .posted_write(posted_write_3),
+                            .bank_status(bank_3_status),
+                            .cas_latency(cas_latency_value),
+                            .additive_latency(additive_latency),
+                            .burst_type(burst_type),
+			    .write_burst_in_progress(write_burst_3),
+			    .bad_data_chk(bad_data_chk),
+			    .read_before_write_chk(read_before_write),
+                            .burst_length_programmed(burst_length_programmed),
+                            .tWR_programmed(tWR_programmed),
+			    .slow_exit(slow_exit),
+                            .ldq(ldq),
+                            .ldqs(ldqs), 
+                            .ldm(ldm), 
+                            .udq(udq), 
+                            .udqs(udqs), 
+                            .udm(udm),
+                            .rdqs_enable(rdqs_enable),
+                            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+
+                           );
+
+generate
+
+ if( BANK_ADDR_WIDTH == 3) begin:BANKS_8_MODE
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+            ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+            READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+            ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+            ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+	             BANK4
+                           (.clock(ck),
+                            .clock_n(ck_n),
+                            .areset(areset),
+                            .reset(reset),
+                            .command(command),
+                            .address(a),
+                            .bank_addr(ba),
+                            .bank_num(3'b100),
+                            .data_mask(dm_rdqs),
+                            .data(dq),
+                            .dqs(dqs),
+                            .posted_read(posted_read_4),
+                            .posted_write(posted_write_4),
+                            .bank_status(bank_4_status),
+                            .cas_latency(cas_latency_value),
+                            .additive_latency(additive_latency),
+                            .burst_type(burst_type),
+                            .write_burst_in_progress(write_burst_4),
+                            .bad_data_chk(bad_data_chk),
+                            .read_before_write_chk(read_before_write),
+                            .burst_length_programmed(burst_length_programmed),
+                            .tWR_programmed(tWR_programmed),
+                            .slow_exit(slow_exit),
+                            .ldq(ldq),
+                            .ldqs(ldqs), 
+                            .ldm(ldm), 
+                            .udq(udq), 
+                            .udqs(udqs), 
+                            .udm(udm),
+                            .rdqs_enable(rdqs_enable),
+                            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+                           );
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+            ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+            READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+            ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+            ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+	             BANK5
+                           (.clock(ck),
+                            .clock_n(ck_n),
+                            .areset(areset),
+                            .reset(reset),
+                            .command(command),
+                            .address(a),
+                            .bank_addr(ba),
+                            .bank_num(3'b101),
+                            .data_mask(dm_rdqs),
+                            .data(dq),
+                            .dqs(dqs),
+                            .posted_read(posted_read_5),
+                            .posted_write(posted_write_5),
+                            .bank_status(bank_5_status),
+                            .cas_latency(cas_latency_value),
+                            .additive_latency(additive_latency),
+                            .burst_type(burst_type),
+                            .write_burst_in_progress(write_burst_5),
+                            .bad_data_chk(bad_data_chk),
+                            .read_before_write_chk(read_before_write),
+                            .burst_length_programmed(burst_length_programmed),
+                            .tWR_programmed(tWR_programmed),
+                            .slow_exit(slow_exit),
+                            .ldq(ldq),
+                            .ldqs(ldqs), 
+                            .ldm(ldm), 
+                            .udq(udq), 
+                            .udqs(udqs), 
+                            .udm(udm),
+                            .rdqs_enable(rdqs_enable),
+                            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+
+                           );
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+            ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+            READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+            ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+            ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+	             BANK6
+                           (.clock(ck),
+                            .clock_n(ck_n),
+                            .areset(areset),
+                            .reset(reset),
+                            .command(command),
+                            .address(a),
+                            .bank_addr(ba),
+                            .bank_num(3'b110),
+                            .data_mask(dm_rdqs),
+                            .data(dq),
+                            .dqs(dqs),
+                            .posted_read(posted_read_6),
+                            .posted_write(posted_write_6),
+                            .bank_status(bank_6_status),
+                            .cas_latency(cas_latency_value),
+                            .additive_latency(additive_latency),
+                            .burst_type(burst_type),
+                            .write_burst_in_progress(write_burst_6),
+                            .bad_data_chk(bad_data_chk),
+                            .read_before_write_chk(read_before_write),
+                            .burst_length_programmed(burst_length_programmed),
+                            .tWR_programmed(tWR_programmed),
+                            .slow_exit(slow_exit),
+                            .ldq(ldq),
+                            .ldqs(ldqs), 
+                            .ldm(ldm), 
+                            .udq(udq), 
+                            .udqs(udqs), 
+                            .udm(udm),
+                            .rdqs_enable(rdqs_enable),
+                            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+
+                           );
+
+  qvl_ddr2_sdram_bank_module #(Constraints_Mode,CONTROLLER_SIDE,
+            ROW_ADDR_WIDTH,DATA_BUS_WIDTH,ZI_INT_DM_WIDTH,
+            DLL_TRACKING_ENABLE,TRAS,TRCD,TRP,TRRD,TCCD,TRTW,TWTR,
+            TWR,TRFC,TXSNR,TXSRD,TMRD,AUTOPRECHARGE_ENABLE_ADDRESS_BIT,
+            READ_BEFORE_WRITE_CHECK_ENABLE,TXP,TXARD,BANK_ADDR_WIDTH,
+            ENABLE_PRECHARGE_TO_IDLE_BANK,BYPASS_INIT,ZI_DDR2_SDRAM_2_0,
+            ZI_DATA_CHECK_ENABLE,ZI_DM_RDQS_WIDTH,CLOCK_PERIOD_MAX,
+            CLOCK_PERIOD_MIN)
+	            BANK7
+                           (.clock(ck),
+                            .clock_n(ck_n),
+                            .areset(areset),
+                            .reset(reset),
+                            .command(command),
+                            .address(a),
+                            .bank_addr(ba),
+                            .bank_num(3'b111),
+                            .data_mask(dm_rdqs),
+                            .data(dq),
+                            .dqs(dqs),
+                            .posted_read(posted_read_7),
+                            .posted_write(posted_write_7),
+                            .bank_status(bank_7_status),
+                            .cas_latency(cas_latency_value),
+                            .additive_latency(additive_latency),
+                            .burst_type(burst_type),
+                            .write_burst_in_progress(write_burst_7),
+                            .bad_data_chk(bad_data_chk),
+                            .read_before_write_chk(read_before_write),
+                            .burst_length_programmed(burst_length_programmed),
+                            .tWR_programmed(tWR_programmed),
+                            .slow_exit(slow_exit),
+                            .ldq(ldq),
+                            .ldqs(ldqs), 
+                            .ldm(ldm), 
+                            .udq(udq), 
+                            .udqs(udqs), 
+                            .udm(udm),
+                            .rdqs_enable(rdqs_enable),
+                            .diff_strobe_enable(diff_strobe_enable),
+			    .rdqs(rdqs),
+                            .clock_change_during_non_ppd_mode_enable
+                             (clock_change_during_non_ppd_mode_enable),
+                            .clock_change_during_illegal_cke_enable
+                             (clock_change_during_illegal_cke_enable),
+                            .violates_tCLK_enable (violates_tCLK_enable),
+                            .clock_frequency_out_of_range_enable
+                             (clock_frequency_out_of_range_enable),
+                            .cke_change_during_clock_change_enable
+                             (cke_change_during_clock_change_enable),
+                            .ppd_exit_during_unstable_clock_enable
+                             (ppd_exit_during_unstable_clock_enabl),
+                            .dll_not_reset_after_ppd_exit_after_clock_change_enable
+                             (dll_not_reset_after_ppd_exit_after_clock_change_enable),
+                            .no_set_cas_latency_after_ppd_enable
+                             (no_set_cas_latency_after_ppd_enable)
+                           );
+end
+endgenerate
+
+
+`include "qvl_ddr2_sdram_2_0_monitor_assertions.svh"
+`include "qvl_ddr2_sdram_2_0_monitor_cover.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_ddr2_sdram_2_0_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_ddr2_sdram_2_0_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_ddr2_sdram_2_0_monitor
+`include "zi_cw_ddr2_sdram_2_0_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_ddr2_sdram_2_0_logic

@@ -1,0 +1,290 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_value_coverage_assertions(clock,
+                                         areset,
+                                         reset,
+                                         active,
+                                         zivar,
+                                         is_not,
+                                         used,
+                                         used_cond,
+                                         value_coverage,
+                                         value_coverage_fire,
+                                         all_values_covered,
+                                         values_checked,
+                                         values_covered,
+                                         values_uncovered,
+                                         smallest_value_covered,
+                                         largest_value_covered,
+                                         values_covered_bitmap,
+                                         support,
+                                         fire_count
+                                        );
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = " QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+
+
+
+
+  parameter Constraints_Mode = 0; 
+
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter SUPPORT_WIDTH = 1; 
+
+  // The width infered from the variable to cover.
+  parameter VAR_WIDTH = 1;     
+
+  // Width of the largest value in the -is_not list
+  parameter IS_NOT_WIDTH = 1;  
+
+  // Number of values in the -is_not list
+  parameter IS_NOT_COUNT = 0;  
+
+  // Total width for the is_not port
+  parameter TOTAL_IS_NOT_WIDTH = (IS_NOT_WIDTH * IS_NOT_COUNT) ?
+                                 (IS_NOT_WIDTH * IS_NOT_COUNT) : 1;
+
+  parameter VALUES_TO_COVER = 1 << VAR_WIDTH;
+ 
+  // Inputs
+
+  input clock;  
+  input areset; 
+  input reset;  
+  input active; 
+
+  input[VAR_WIDTH-1:0] zivar; 
+
+  // Input from the directive list
+  input[TOTAL_IS_NOT_WIDTH-1:0] is_not;       
+
+  input used;         
+  input used_cond;    
+
+
+  input value_coverage; 
+
+  input [SUPPORT_WIDTH-1:0] support; 
+
+  // Fire signal
+  output value_coverage_fire;
+
+  // Corner case signal
+  output all_values_covered;
+
+  // Statistics signals
+  output[STAT_CNT_WIDTH-1:0] values_checked;
+
+  output[STAT_CNT_WIDTH-1:0] values_covered;
+
+  output[STAT_CNT_WIDTH-1:0] values_uncovered;
+
+  output[STAT_CNT_WIDTH-1:0] smallest_value_covered;
+
+  output[STAT_CNT_WIDTH-1:0] largest_value_covered;
+
+  output[VALUES_TO_COVER-1:0] values_covered_bitmap;
+
+  // Fire count for FPGA
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+
+  integer i;
+
+`ifdef ZI_CW_FOR_FPGA
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+`endif
+
+  reg value_coverage_fire; //fire signal
+  reg[VAR_WIDTH-1:0] r_var;//registered signal of the input var.
+  reg clock_after_reset;   //signal to indicate the first clock after reset.
+  reg r_active;            //register active signal.
+
+`ifdef QVL_COVER_ON
+  reg[STAT_CNT_WIDTH-1:0] values_checked;
+  reg[STAT_CNT_WIDTH-1:0] values_covered;
+  reg[STAT_CNT_WIDTH-1:0] values_uncovered;
+  reg[STAT_CNT_WIDTH-1:0] smallest_value_covered;
+  reg[STAT_CNT_WIDTH-1:0] largest_value_covered;
+  reg[VALUES_TO_COVER-1:0] values_covered_bitmap;
+
+  reg[VAR_WIDTH:0] number_of_ones;  //Calculates the number of ones in the 
+                                    //values_covered_bitmap.
+  reg[VAR_WIDTH:0] number_of_zeros; //Calculates the number of zeros in the 
+                                    //values_covered_bitmap except the is not.
+  reg[IS_NOT_WIDTH-1:0] shifted_is_not; //internal signal to evaluate the is not
+                                        //bitmap
+  reg[VALUES_TO_COVER-1:0] is_not_val_bitmap; //internal bitmap for is_not
+  reg[VALUES_TO_COVER-1:0] r_is_not_val_bitmap;//registered is_not bitmap
+  reg[VALUES_TO_COVER-1:0] values_cov_bitmap_temp;
+  reg[VALUES_TO_COVER-1:0] values_uncov_bitmap_temp; //reg added 11/05/2006
+
+  reg[VAR_WIDTH-1:0] smallest_value;//internal smallest value covered
+  reg[VAR_WIDTH-1:0] largest_value;//internal smallest value covered
+
+  wire all_values_covered;  //All values covered statistics
+  wire[VALUES_TO_COVER-1:0] current_val_bitmap;
+  //wire[VALUES_TO_COVER-1:0] covered_or_is_not_bitmap;
+  wire[TOTAL_IS_NOT_WIDTH-1:0] is_not_temp;
+  reg[TOTAL_IS_NOT_WIDTH-1:0] new_is_not_temp;
+`endif   
+
+  wire[VALUES_TO_COVER-1:0] covered_or_is_not_bitmap;
+  wire pset_value_coverage_fire;
+  wire pfirst_active;
+  wire is_used;
+  wire xz_on_var;
+
+`ifdef QVL_ASSERT_ON
+  wire value_coverage_fire_combo;
+`endif
+//------------------------------------------------------------------------------
+
+`protected
+
+    MTI!#mv,+BaWzrAo\RJQZC2^aQ++pv_ZlOpneNEZX;7"#S8YB#Z['AlpZ,iK+]^zx_pKaVax@;E_
+    Kr=AY$}TU\v_s!Y>aHa1-=sE}k$U<I7u=CVf'@ZZ*]W<X_{O_<G[1nK3^5}r}1'=ijD}us{lUo\!
+    _}~ae^2[lv[HSDo>s|0&madU77][GZV73oo\XeG<lV]w$+##VOiVvvE7QK]6lQ~>e5K1|![13lGj
+    ]Vj?=m]!Z7^n5y/BeVwuAlJ!YKTUDiRoZ\n2aEW<or5E3~ni<*p>'A<;h5ke$W-;V[mwHoA'*[I2
+    ]0{*^@:xxA$2H1T$=k+8^!'z!QD'p{-As,vKB@,e_Y?H44rIl\^IAZr:pkUOUs\<-D},sAw{!**'
+    A<OX\;7]Qi@!=iQZn$>70@[1WRE;u![{l#\23>5o<w}nQxk'ko^7@j<UEnEaBX}~^BuUW'K+ViOx
+    Y1{AZ!CBU=jW}ACY#0Y'v@2l2x>zODCUD}p=1KN;}pWT<DW];vjiw>\S/^5r1Y>aHt$@>];nVeAo
+    Q-KwnRdl=R5-xGU]Io[ZloT=5XYI{1ZnlZ$E@3nY[a}e[BDzAJ,^#-\a}XTIw[leA@T[nB?VlXTH
+    }AAs}1^%YW<s}'\kkjuExkn{=[<@5B*27^?]@a]{1rmA*OZ1]*Z{=YkQ1>a3->_Z^DlR]5R,-zq%
+    i|w5wIY,H}zJ[;6J{E{f3[ijVU*BO**x/EvY>C#p<P7]ZJsOx[5Kpo'EOai$<m1~ZRAA$|an]mv!
+    K;aR{H}*RZrVarijUpRRJaX1[_JOR=[m,p<IvD?\lOY+'uTh,$+r<HRn']ae*wr$an[sv,Au\,]=
+    ;7pw,zJJHrIBw'${<>E2T->OI3_v$@{Ar1?]YU=vWUoH
+`endprotected
+//-----------------------------------------------------------------------------
+// Block for generation of fire and statistics output
+
+  assign is_used = ((used === 1'b0) ||
+                    ((used === 1'b1) && (used_cond === 1'b1)));
+
+  assign pset_value_coverage_fire = (zivar !== r_var) | (~clock_after_reset) | 
+                                    pfirst_active;
+  assign pfirst_active = active & ~r_active;
+  assign xz_on_var = ((zivar ^ zivar) !== 0); //Set when one bit in var is x or z
+
+`ifdef QVL_ASSERT_ON
+  assign value_coverage_fire_combo = (active == 1'b1 && 
+				      xz_on_var == 1'b0 && 
+				      value_coverage == 1'b1 && 
+				      is_used == 1'b1 &&
+				      pset_value_coverage_fire == 1'b1);
+`endif
+
+`ifdef QVL_COVER_ON
+  assign all_values_covered       = (& (values_covered_bitmap |r_is_not_val_bitmap));
+
+// assign current_val_bitmap       = (active === 1'b1) ? ((1'b1 << zivar) & ~(is_not_val_bitmap)):{VALUES_TO_COVER{1'b0}};
+
+//Code modified 11/05/2006
+  assign current_val_bitmap       = (active === 1'b1) ? (1'b1 << zivar) :{VALUES_TO_COVER{1'b0}};
+  assign covered_or_is_not_bitmap = values_covered_bitmap | r_is_not_val_bitmap;
+
+  // The below assignment in done inorder to create an event in case of mti
+  // simulator.
+  assign is_not_temp = is_not | {TOTAL_IS_NOT_WIDTH{1'b0}}; 
+`endif
+
+`protected
+
+    MTI!#xGw$3sY?5}@l^G?_][\Ji>j#}-]H!=KfN9eg"pxuw{[B]I$-B^O[i2A^BzzCHy#aB*5azXD
+    +~[K{\~vzTe5S9mSaznkpK+jBR4*eIV;7,]-TjuR<y}$O\=#@*W5n?R__O~B}rT]4$~[<ix,zj*D
+    W>AGr1uoiyeE~CF<X1Y\_~[1#5w*C={?e~\9lpzO;[xijlnJz>B!A^wa'[{_?RK-x#QE@^ZCH+~Z
+    >B@2z5j~u5,=Uw-{wIW,eOaG-[4\n=pslG#@X]}AG$j5YmHu+I?2sRnRx~~r?EK'B<*AoW#Tj']>
+    {@3wRA7w{w#52-$->p2Eo'JanpeY<[?lKC_cebQ5{oro<r1+D[6[xX-InTO$!D=74R2xvE_v,/$B
+    ]G=X\QtD,2Ixj1$@='<}_wwp^{I_IAk4wzJrGZZA<V,}EF$[Q,Ha>}l5^7B-}'V=B':-E-=,U<aQ
+    '?x[?1^%?z@@MYIZn];wCl;_mlzas&%AqBxin->[<o.gq8Fn{+?i$*~?5AuU7C<\,Iifwnlr_Yke
+    *>\{=p^aj@[>aCVplE-;3Ep=r}u>I?ZV3Dvp]3Tv;Cm$5xTG/N,21CZw53VSwEo{,xv$k<EZD{-G
+    $kp*3=([u]Kv"Gu!;$lX3Y+=ua*QvGB@-m]T$J>jW_kVeDiHev#}jpK\RRVlvzYn$DIXxBI<Jx^\
+    B:r3oYA5VeOD>D6"Q.nIkl~CIsns>I\Cvv%ff=ZI]A*K:vm+X2=vHBU<2-U}37^!z;_iG4+TWox<
+    nWe]<vXl_#3}~\A}JVTsImZ}Tp^i2OjR<v3rWVlVws|YKG_qI.+rkO]IwJY@5}w>zzXD2Jgh^]ze
+    IxzapZ<$QVx5Ta<?x,$q]1RI{1l!WaxW}]w-*m-aU'E55o*HQDA,z'YWv^*Z11rT[eQapzurZjGU
+    bB_@Cix;m_Y>EB,J+\~\7!>R!F\Y^Yqx^{[O^I$0AIi;Yzo^Qx<[5YC=xUlaQQ^v#<XHv[Y$h,QJ
+    sp+RD0a7lu?];Oi>A@/[7@oIU;AGWz3;+pQnGZ</liC3LiT2AR1uZ[ZR~rGCp[mxp;=e$$]{GXNq
+    ]JYiy'Z+~p'jQB>1WS}mB1A7Zv};3;.XXVw/5wAwjavH@Q_m+EiXvlC7iR]z^H=5Wo3]I;W{Kz]}
+    :-<YeWOR*\^<Is7m*W*eu'Y!@4-_!Vg#5@TW[1O]#nV1z<[Q[]K[*$,5ekx$_uklC-Q_iAs,ioDO
+    U}ik'T_1k!!ZY=!7WnTHY+]B{15K[>12Hzx#V[1\=+xWE!{r~'o^nJk*$+a$'#G;_ZUVIJR.l?,X
+    }ze~=B7^CmIoFTC;\1~riXonvZO~E?<Y-(X,TkCm{a<ARG5GU~VE_}OsADx_-W#DG+DDQ-1C~JYz
+    1T\J;;1z!xz-K*In!3lm2EjUGlH{<1C,Kp*]#-O|SQXDaO?j3EBE!H-ww~}QO{+Qjm+-TYJ$$lEK
+    ,Ca~5W7n]z_;5)JzCI1nnk[_O>&=ZE=^rnnEWz!a=^z?>7X;Uz[(xVo*^v^m75s,>\VJmEm^4l<T
+    UwTTT;[BrXl\r-\w@1<Y5-CRH_A3-l'#$&^@>}V~T1_tnROr^;AUjJ=j(QJ~uTAQk]#s?x2,kyED
+    !#<pB'^#v~*w;jcv5I+iaII6p:QVKDKlvKU5ZkcG;r=siBzROKZ#7nH\ZpaWD@!c*T=,J<OeKw\m
+    2s?o(,T_G>Vl\?Y9MDGA9?U{E,X^>VU7Y&zkK;M]$@QvII5a=U?5u~TrX-u,p{Z0#v{IoK+~H],R
+    JHemc;Au_7$wOxBR<MGK+!\u*{53s3\>AXvGTu_!K#=Z@\;^YYJp7A={7@7?r-YvJp#I^+.l5om!
+    o_@DUs1uz}GAsBl-{s!CBm\}}GXyxEC~Ox5JS#n}IZ&^eksD5a?JIRrl>2Xl+{D8Xo'RoDD=3n^n
+    ~DJ}W7^2Ej]s~,,5-x*Dl3CG}wr;+Y]w/$B{p,nATv<JIz{Q$__@sDlm'[m~oE1-?cWw=I*?wZ+R
+    RK0HswH@+JQ*nS<za]<}}A87D[=C!KXK<+CMna+T~DOTv*vnI-w'1iT{TsE_rm2WGCp~Zvml&OH~
+    o\@r3T_s2Vs\YXnpw\m*;_2EzLYQeHA[7@@x!szsXKUOzT=UV,@TAYG$Up\EBo=EaX(?njmbK1T[
+    :2^AoiDR$V--}>j;3|4Gr\n~UzI
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_value_coverage_chk: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (value_coverage_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_value_coverage_chk"),
+                          .msg            ({msg,"The value of the variable was covered."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_value_coverage_chk: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (value_coverage_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+`endif
+
+`include "qvl_value_coverage_cover.svh"
+
+`qvlendmodule
+

@@ -1,0 +1,111 @@
+<HTML><HEAD><TITLE>{[incr Tk]} - Toplevel manual page</TITLE></HEAD><BODY>
+<H3><A NAME="M2">NAME</A></H3>
+Toplevel - base class for mega-widgets in a top-level window
+<H3><A NAME="M3">INHERITANCE</A></H3>
+itk::Archetype &lt;- itk::Toplevel
+<H3><A NAME="M4">STANDARD OPTIONS</A></H3>
+<B>background</B>	<B>cursor</B>
+<P>
+See the &quot;options&quot; manual entry for details on the standard options.
+<H3><A NAME="M5">WIDGET-SPECIFIC OPTIONS</A></H3>
+Name:   <B>title</B><BR>
+Class:  <B>Title</B><BR>
+Command-Line Switch:    <B>-title</B><BR>
+<DL><DD>
+Sets the title that the window manager displays in the title bar
+above the window.  The default title is the null string.
+</DL>
+<H3><A NAME="M6">DESCRIPTION</A></H3>
+The <B><A HREF="../TkCmd/toplevel.htm">Toplevel</A></B> class inherits everything from the <B>Archetype</B>
+class, and adds a Tk toplevel called the &quot;hull&quot; component to represent
+the body of the mega-widget.  The window class name for the hull
+is set to the most-specific class name for the mega-widget.
+The protected variable <B>itk_interior</B> contains the window
+path name for the &quot;hull&quot; component.  Derived classes specialize
+this widget by packing other widget components into the hull.
+<P>
+Since the hull for the <B><A HREF="../TkCmd/toplevel.htm">Toplevel</A></B> class is implemented with
+a Tk toplevel, mega-widgets in the <B><A HREF="../TkCmd/toplevel.htm">Toplevel</A></B> class have
+their own toplevel window.  This class is used to create dialog
+boxes and other pop-up windows.
+
+<H3><A NAME="M7">COMPONENTS</A></H3>
+Name:	<B>hull</B><BR>
+Class:	<B><A HREF="../TkCmd/toplevel.htm">Toplevel</A></B><BR>
+<DL><DD>
+The &quot;hull&quot; component acts as the body for the entire mega-widget.
+Other components are packed into the hull to further specialize
+the widget.
+
+</DL>
+<H3><A NAME="M8">EXAMPLE</A></H3>
+The following example implements a <B>MessageInfo</B>
+mega-widget.  It creates a pop-up message that the
+user can dismiss by pushing the &quot;Dismiss&quot; button.
+<PRE>option add *MessageInfo.title &quot;Notice&quot; widgetDefault
+
+class MessageInfo {
+    inherit itk::Toplevel
+
+    constructor {args} {
+        itk_component add dismiss {
+            button $itk_interior.dismiss -text &quot;Dismiss&quot; 
+                -command &quot;destroy $itk_component(hull)&quot;
+        }
+        pack $itk_component(dismiss) -side bottom -pady 4
+
+        itk_component add separator {
+            frame $itk_interior.sep -height 2 -borderwidth 1 -relief sunken
+        }
+        pack $itk_component(separator) -side bottom -fill x -padx 4
+
+        itk_component add icon {
+            label $itk_interior.icon -bitmap info
+        }
+        pack $itk_component(icon) -side left -padx 8 -pady 8
+
+        itk_component add infoFrame {
+            frame $itk_interior.info
+        }
+        pack $itk_component(infoFrame) -side left -expand yes 
+            -fill both -padx 4 -pady 4
+
+        itk_component add message {
+            label $itk_interior.mesg -width 20
+        } {
+            usual
+            rename -text -message message Text
+        }
+        pack $itk_component(message) -expand yes -fill both
+
+        eval itk_initialize $args
+
+        after idle [code $this centerOnScreen]
+    }
+
+    protected method centerOnScreen {} {
+        update idletasks
+        set wd [winfo reqwidth $itk_component(hull)]
+        set ht [winfo reqheight $itk_component(hull)]
+        set x [expr ([winfo screenwidth $itk_component(hull)]-$wd)/2]
+        set y [expr ([winfo screenheight $itk_component(hull)]-$ht)/2]
+        wm geometry $itk_component(hull) +$x+$y
+    }
+}
+
+usual MessageInfo {
+    keep -background -cursor -foreground -font
+    keep -activebackground -activeforeground -disabledforeground
+    keep -highlightcolor -highlightthickness
+}
+
+#
+# EXAMPLE:  Create a notice window:
+#
+MessageInfo .m -message &quot;File not found:&#92;n/usr/local/bin/foo&quot;</PRE>
+<H3><A NAME="M9">KEYWORDS</A></H3>
+<A href="../Keywords/I.htm#itk">itk</A>, <A href="../Keywords/A.htm#Archetype">Archetype</A>, <A href="../Keywords/W.htm#Widget">Widget</A>, <A href="../Keywords/M.htm#mega-widget">mega-widget</A>
+<HR><PRE>
+<A HREF="../copyright.htm">Copyright</A> &#169; 1993-1998 Lucent Technologies, Inc.
+<A HREF="../copyright.htm">Copyright</A> &#169; 1995-1997 Roger E. Critchlow Jr.</PRE>
+</BODY></HTML>

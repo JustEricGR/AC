@@ -1,0 +1,136 @@
+<Container>
+
+<!--
+##################################################
+ VHDL
+##################################################
+-->
+<Container name="VHDL">
+	<Template name="Stop">
+finish_sim_time :process
+begin
+	wait for &lt;%stop_time%&gt;;
+	assert false
+		report "Simulation Finished"
+		severity Failure;
+end process finish_sim_time;
+</Template>
+	<Template name="Clock50">
+signal &lt;%signal%&gt;: &lt;%type%&gt; := '&lt;%initial_val%&gt;';
+&lt;%signal%&gt; &lt;= not &lt;%signal%&gt; after &lt;%delay%&gt;;
+</Template>
+	<Template name="Clock">
+SIGNAL &lt;%signal%&gt;: &lt;%type%&gt; := '&lt;%initial_val%&gt;';
+
+PROCESS
+BEGIN
+	&lt;%signal%&gt; &lt;= '&lt;%initial_val%&gt;', '&lt;%2nd_val%&gt;' AFTER &lt;%delay%&gt;;
+	WAIT FOR &lt;%2nd_delay%&gt;;
+END PROCESS;
+</Template>
+	<Template name="NewDesignStart">
+ENTITY &lt;%du_name%&gt; IS
+	[@generics@]
+</Template>
+	<Template name="NewDesignEnd">
+END &lt;%du_name%&gt;;
+ARCHITECTURE &lt;%architecture_name%&gt; OF &lt;%du_name%&gt; IS
+	[%block_declarative_item%]
+BEGIN
+	[%concurrent_statement%]
+END &lt;%architecture_name%&gt;;
+</Template>
+	<Template name="count">
+SIGNAL &lt;%clk%&gt;: &lt;%clk_type%&gt;;
+SIGNAL &lt;%rst%&gt;: &lt;%rst_type%&gt;;
+SIGNAL &lt;%cnt%&gt;: &lt;%cnt_type%&gt;;
+&lt;%process_name%&gt;: PROCESS (&lt;%clk%&gt;)
+BEGIN
+	IF (&lt;%clk%&gt;'event AND &lt;%clk%&gt; = &lt;%clk_val%&gt;) THEN
+		IF (&lt;%rst%&gt; = &lt;%rst_val%&gt;) THEN
+			&lt;%cnt%&gt; &lt;= &lt;%init_val%&gt;;
+		ELSE
+			&lt;%cnt%&gt; &lt;= &lt;%cnt%&gt; + 1;
+		END IF;
+	END IF;
+END PROCESS;
+</Template>
+	<Template name="random">
+SIGNAL &lt;%sig_name%&gt;: &lt;%sig_type%&gt;;
+SIGNAL &lt;%lfsr_name%&gt;: &lt;%lfsr_type%&gt; := "&lt;%init_val%&gt;";
+</Template>
+</Container>
+
+
+<!--
+##################################################
+ Verilog
+##################################################
+-->
+<Container name="Verilog">
+	<Template name="Stop">
+initial begin
+	#&lt;%stop_time%&gt; $finish;
+end
+</Template>
+	<Template name="Clock50">
+reg &lt;%signal%&gt;;
+initial begin &lt;%signal%&gt; = 1'b&lt;%initial_val%&gt;;
+forever #&lt;%delay%&gt; &lt;%signal%&gt; = !&lt;%signal%&gt;;
+end
+</Template>
+	<Template name="Clock">
+reg &lt;%signal%&gt;;
+initial begin
+	&lt;%signal%&gt; = &lt;%initial_val%&gt;;
+	forever begin
+		&lt;%signal%&gt; = #&lt;%delay%&gt; &lt;%2nd_val%&gt;;
+		&lt;%signal%&gt; = #&lt;%2nd_delay%&gt; &lt;%initial_val%&gt;;
+	end
+end
+</Template>
+	<Template name="NewDesignStart">
+module &lt;%du_name%&gt;</Template>
+	<Template name="NewDesignEnd">endmodule
+</Template>
+	<Template name="count">
+&lt;%clk_type%&gt; &lt;%clk%&gt;;
+&lt;%rst_type%&gt; &lt;%rst%&gt;;
+&lt;%cnt_type%&gt; &lt;%cnt%&gt;;
+
+always @(&lt;%edgelevel%&gt; &lt;%clk%&gt;)
+begin
+	if (&lt;%rst%&gt; == &lt;%rst_val%&gt;)
+		&lt;%cnt%&gt; &lt;= 'b0;
+	else
+		&lt;%cnt%&gt; &lt;= &lt;%cnt%&gt; + 1;
+end
+</Template>
+	<Template name="random">
+&lt;%sig_type%&gt; &lt;%sig_name%&gt;;
+&lt;%lfsr_type%&gt; &lt;%lfsr_name%&gt; = &lt;%init_val%&gt;;
+</Template>
+</Container>
+
+
+<!--
+##################################################
+ SystemC
+##################################################
+-->
+<Container name="SystemC">
+	<Template name="NewDesignStart">
+SC_MODULE(&lt;%du_name%&gt;) {
+</Template>
+	<Template name="NewDesignEnd">
+	SC_CTOR(&lt;%du_name%&gt;) {
+	}
+
+	// Destructor
+	~&lt;%du_name%&gt;() {
+	}
+};
+</Template>
+</Container>
+
+</Container>

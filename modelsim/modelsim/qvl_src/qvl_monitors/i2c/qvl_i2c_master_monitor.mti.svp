@@ -1,0 +1,188 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+ /***********************************************************************
+ * 
+ * DESCRIPTION  This file is part of 0-In CheckerWare.
+ *              It describes the bus monitor for the I2C bus standard.
+ *
+ * PURPOSE      This monitor checks the I2C bus protocol.
+ *
+ * REFERENCE    The I2C-Bus Specification Ver 2.1, Jan. 2000, Philips
+ * 
+ * INPUTS       clock         - Clock signal. This clock is used to sample
+ *				both SDA and SCL. This should be atleast 
+ *                              2X faster than the SCL frequency.
+ *              clock_prescale_count - This is used to generate the internal 
+ *                                     sampling clock to sample SCL and SDA.   
+ *              areset        - Asynchonous Reset signal (active high)
+ *              sda_out       - SDA output to PAD
+ *		sda_in        - SDA input from PAD
+ *              scl_out       - SCL output to PAD
+ *		scl_in        - SCL input from PAD
+ * 
+ * NOTES        This monitor can be connected to both of the following 
+ *              bus signals:
+ *
+ *              a) SDA and SCL as Open Collector signals. In this cenario, 
+ *                 sda_out_en_n and scl_en_n signals should be connected to 1'b0.
+ *                 sda_in and sda_out should be connected to SDA.     
+ *                 scl_in and scl_out should be connected to SCL.
+ *
+ *              b) SDA and SCL as Tristate buffer outputs. 
+ *                 SDA Tristate signals: sda_out, sda_out_en_n, sda_in  
+ *                 SCL Tristate signals: scl_out, scl_out_en_n, scl_in 
+ *                 
+ * NOTES        While the I2C-Bus Specification specifies three modes,
+ *		the current monitor supports standard-mode (100 Kbps)
+ *		and fast-mode (400 Kbps), and high-speed mode (3.4 Mbps).
+ *
+ *
+ * USAGE        The monitor should be instantiated within the target design.
+ *
+ *                             +-----------------------------+
+ *                             |  I2C Device                 | 
+ *                             |            +-------------+  |
+ *          <---sda_out_en_n --|            |   Master    |  |
+ *          <---sda_out -------|            |   Device    |  |
+ *          ----sda_in  ------>|  +------+  |             |  |
+ *                             |  |      |  |             |  |
+ *                             |  | I2C  |  |             |  |
+ *                             |  |      |  |             |  |
+ *                             |  | MON  |  +-------------+  |
+ *                             |  |      |                   |
+ *                             |  |      |  +-------------+  |
+ *          <---sda_out_en_n --|  |      |  |   Slave     |  |
+ *          <---sda_out -------|  |      |  |   Device    |  |
+ *          ----sda_in  ------>|  +------+  |             |  |
+ *                             |            |             |  |
+ *                             |            |             |  |
+ *                             |            +-------------+  |
+ *                             |                             |
+ *                             +-----------------------------+
+ *                             
+ * Last Update: 6th April 2006                            
+ ***********************************************************************/
+
+`include "std_qvl_defines.h"
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_i2c_master_monitor (clock,
+                          reset,
+                          areset,
+                          sda_out,
+                          sda_in,
+                          sda_out_en_n,
+                          scl_out,
+                          scl_in,
+                          scl_out_en_n,
+                          clock_prescale_count);
+
+  parameter Constraints_Mode = 0;
+              //Common Enable/Disable for all assertions as Constraints to Formal tools,
+              //#0-In Search, Confirm and Prove. To use a group of assertions of this
+              //monitor as Constraints with Formal tools, Pass value 1 to this parameter.
+  parameter MAX_TXN_LENGTH   = 0;
+              //Maximum Transaction Length Limit. A Check will fire, if this monitor finds
+              //an I2C Transaction that is longer than the length specified to this
+              //parameter. The check is disabled, if this parameter is passed with 0. To
+              //activate this check, pass any non-zero positive number.
+  parameter CLOCK_PRESCALE_EN = 0;
+              //Clock Prescaler Enable. If set to 1, you should pass a non-zero positive
+              //value to clock_prescale_count signal. If set to 0. You should connect an
+              //external Sampling Enable to the 0th bit of clock_prescale_count signal.
+  parameter OUTPUT_ENABLES_ON = 0;
+              //Output Enables ON. If the I2C design has tristate compatible signals,
+              //pass 1 to this parameter, and connect the coresponding enable signals to
+              //sda_out_en_n, and scl_out_en_n. If the I2C design does not have output
+              //enable signals, connect 1'b0 to both sda_out_en_n, and scl_out_en_n signals
+
+//Internal Parameters
+  parameter ZI_ADDR_WIDTH = 10;
+  parameter ZI_DISABLE_CHECKS = 0;
+
+  input	clock;		
+  input reset;
+  input areset;
+  input	sda_out; 
+  input sda_in;		
+  input sda_out_en_n; 
+  input	scl_out;
+  input scl_out_en_n; 
+  input scl_in;		
+  input [15:0] clock_prescale_count; 
+
+`protected
+
+    MTI!#k>Go1WuK5^EIw'rn0}1QH{E_Iv3<1IC0';1o=;o>-VlOYNl?j2fQ+X!=W!R]aHVG>Q_}lOK
+    2D'3=[D[=x,kn'kC,^s7V],G$@riYCZuBCz3DD-U4Zjl,H<AA<'CY6\x5Ca]>^zG!-k-w[#l5Rru
+    vYRDT}PJAs[}CrGoK\Tu^*x5{<'e-o3@=[nlE@$!7;=R~$s1fu5k!ZoETC+7}1q<aZs=IC#}lk;x
+    u2O||Ap-l[Z<[r7loYng=monW1u2Xe_@pm$o=-vm)Dl+Uv"T*l?l#^T;<><V>7jY{OsH5,+Ve^xw
+    'Ke=m=V[?pp^TD]#]oO\IH7sV7I#s{ZC\n5,{CA,_aI#'[X1r-^}AAeNQekxK<H]!(cBT{!,eH<=
+    ^x2Vk$!?D7ks*i{Kw*zQA2GOC!TLkAzzXT][IAYYnOERX6*_,or*2G1ztL|BC3CK=[!uz-=WCK<C
+    x~]JnZ^\4elKw,l}G#j2}6wxK$EZ!*D$W]h5ZJ^>Di5GWOov~X#7euW\-*?6k\$*(&T*Y$GCZ<Is
+    Z5kr+xemUzoY,UznX?c_TD<G~VzZE$BY<]l1ji5g4Hlp1ka[IuG37'Ri=[r,<Dmzk&,ZxW?HanIw
+    zG$'a]Y?r@yYkC5ts;7k3p7?rNr?_i#U~+W]=pTX'/aU![FqwE#H1~pQEW\?EX5Ga{OWee+7Ya$o
+    nC3A5\-RG5J<RmOvsa+I*5{\TBr]J>oANo}HYv\uBUw]J:<-+k~AXKJY3xI07#D$Ons]pZ]Zl[i7
+    2l\nH{3]
+`endprotected
+
+  wire [ZI_ADDR_WIDTH-1:0] slave_addr = 10'b0;
+
+  wire `QVL_DUT2CHX_DELAY sampled_reset = reset;
+  wire `QVL_DUT2CHX_DELAY sampled_areset = areset;
+  wire `QVL_DUT2CHX_DELAY sampled_sda_out = sda_out;
+  wire `QVL_DUT2CHX_DELAY sampled_sda_in = sda_in;
+  wire `QVL_DUT2CHX_DELAY sampled_sda_out_en_n = sda_out_en_n;
+  wire `QVL_DUT2CHX_DELAY sampled_scl_out = scl_out;
+  wire `QVL_DUT2CHX_DELAY sampled_scl_out_en_n = scl_out_en_n;
+  wire `QVL_DUT2CHX_DELAY sampled_scl_in = scl_in;
+  wire `QVL_DUT2CHX_DELAY [15:0] sampled_clock_prescale_count = clock_prescale_count;
+
+qvl_i2c_monitor #(Constraints_Mode, // (Constraints_Mode),
+                    1, //.DEVICE_TYPE (1),
+                    MAX_TXN_LENGTH, // (MAX_TXN_LENGTH),
+                    CLOCK_PRESCALE_EN, // (CLOCK_PRESCALE_EN),
+                    OUTPUT_ENABLES_ON) // (OUTPUT_ENABLES_ON) )
+                      MAS_MON0 (.clock (clock),
+                                .reset (sampled_reset),
+                                .areset (sampled_areset),
+                                .sda_out (sampled_sda_out),
+                                .sda_out_en_n (sampled_sda_out_en_n),
+                                .sda_in (sampled_sda_in),
+                                .scl_out (sampled_scl_out),
+                                .scl_out_en_n (sampled_scl_out_en_n),
+                                .scl_in (sampled_scl_in),
+                                .slave_addr (10'b0),
+                                .clock_prescale_count (sampled_clock_prescale_count) ) ;
+
+
+//`include "qvl_i2c_known_driven_assertions.inc"
+
+`qvlendmodule

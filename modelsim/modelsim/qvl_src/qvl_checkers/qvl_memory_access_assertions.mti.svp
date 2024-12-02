@@ -1,0 +1,703 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_memory_access_assertions(
+	active,
+	clock,
+	reset,
+	areset,
+	read_addr,
+	read_data,
+	read,
+	write_addr,
+	write_data,
+	write,
+	read_old_data,
+	start_addr,
+	end_addr,
+	initialized,
+	single_write,
+	single_read,
+	single_access,
+	range,
+	data,
+	initialized_fire,
+	single_write_fire,
+	single_read_fire,
+	single_access_fire,
+	range_fire,
+	data_fire,
+	memory_accesses,
+	memory_reads,
+	memory_writes,
+	locations_read,
+	locations_written,
+        same_addr_reads_and_writes,
+	support,
+        fire_count
+	);
+   
+   
+   
+
+   
+ parameter severity_level = `QVL_ERROR;
+ parameter property_type = `QVL_ASSERT;
+ parameter msg = "QVL_VIOLATION : ";
+ parameter coverage_level = `QVL_COVER_NONE;
+parameter Constraints_Mode = 0; 
+parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+parameter LATENCY = 0; 
+parameter READ_ADDR_WIDTH = 2; 
+parameter WRITE_ADDR_WIDTH = 2; 
+parameter MEM_DEPTH = 2 << (READ_ADDR_WIDTH-1);
+parameter memory_depth = MEM_DEPTH - 1;		// is used in next two lines
+parameter DATA_OPTION_SPECIFIED = 0; 
+parameter conditional_memory_depth = (DATA_OPTION_SPECIFIED ? memory_depth : 0);
+
+parameter READ_DATA_WIDTH = 1;  
+parameter WRITE_DATA_WIDTH = 1; 
+parameter memory_width = READ_DATA_WIDTH-1;
+
+parameter START_ADDR_WIDTH = 1; 
+parameter END_ADDR_WIDTH = 1; 
+parameter END_ADDR_SPECIFIED = 1; 
+
+parameter INT_LAT = (LATENCY === 0) ? 1 : LATENCY;
+   
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+input active;	
+input clock;	
+input reset;	
+input areset;	
+
+input [READ_DATA_WIDTH-1:0] read_data; 
+input [READ_ADDR_WIDTH-1:0] read_addr; 
+input read; 
+input [WRITE_DATA_WIDTH-1:0] write_data; 
+input [READ_ADDR_WIDTH-1:0] write_addr; 
+input write; 
+input read_old_data; 
+input [START_ADDR_WIDTH-1:0] start_addr; 
+input [END_ADDR_WIDTH-1:0] end_addr; 
+
+input initialized; 
+   
+input single_write; 
+   
+input single_read; 
+   
+input single_access; 
+   
+input range; 
+   
+input data; 
+   
+parameter INITIALIZED_ON   = 0; 
+parameter SINGLE_WRITE_ON  = 0; 
+parameter SINGLE_READ_ON   = 0; 
+parameter SINGLE_ACCESS_ON = 0; 
+parameter RANGE_ON         = 0; 
+parameter DATA_ON          = 0; 
+
+output initialized_fire, single_write_fire, single_read_fire, single_access_fire, range_fire, data_fire;
+
+reg initialized_fire, single_write_fire, single_read_fire, single_access_fire, range_fire, data_fire;
+
+//output Stats
+output [STAT_CNT_WIDTH-1:0] memory_accesses,
+							memory_reads,
+							memory_writes,
+							locations_read,
+		 					locations_written;
+
+reg [STAT_CNT_WIDTH-1:0] memory_accesses,
+							memory_reads,
+							memory_writes,
+							locations_read,
+		 					locations_written;
+output [STAT_CNT_WIDTH-1:0] same_addr_reads_and_writes;
+reg [STAT_CNT_WIDTH-1:0] same_addr_reads_and_writes;
+`ifdef QVL_COVER_ON
+reg [STAT_CNT_WIDTH-1:0] simultaneous_reads_and_writes;
+`endif
+
+output [STAT_CNT_WIDTH-1:0] fire_count;
+reg [STAT_CNT_WIDTH-1:0] fire_count;
+reg [2:0] fire_count_tmp;
+
+
+reg [memory_width:0] memory [0:conditional_memory_depth];   
+   
+reg raddr_fire, waddr_fire;		// internal firing components of range_fire
+`ifdef ZI_FOR_SEARCH_DISABLE
+reg [memory_depth:0] last_op_wr; // commented last_op above and recoded as
+reg [memory_depth:0] last_op_rd; // last_op_wr and last_op_rd to fix bug 5744
+reg [memory_depth:0] last_op_wr_tmp;
+reg [memory_depth:0] last_op_rd_tmp;
+reg [memory_depth:0] first_write;
+`else
+reg [1:0] last_op[0:memory_depth];	// == 2'b00 if no previous operation, == 2'b01 if read op, == 2'b10 if write op
+reg first_write [memory_depth:0];
+`endif
+
+`ifdef ZI_FOR_SEARCH_DISABLE
+reg [memory_depth:0] location_status_wr; // commented location_status above and
+reg [memory_depth:0] location_status_rd; // recoded as location_status_wr and
+reg [memory_depth:0] location_status_wr_tmp;
+reg [memory_depth:0] location_status_rd_tmp;
+reg [memory_depth:0] temp_1;
+`else
+reg [1:0] location_status[0:memory_depth];	// == 2'b00 if not seen, == 2'b01 if seen once, == 2'b10 if seen twice
+                                         // location_status_rd to fix bug 5744
+`endif
+
+reg inc_mem_reads_stat,
+		inc_mem_writes_stat,
+		inc_loc_read_stat,
+		inc_loc_written_stat;
+
+`ifdef ZI_FOR_SEARCH_DISABLE
+wire	[1:0] last_op_raddr;
+wire	[1:0] last_op_waddr;
+wire	[1:0] location_status_raddr;
+wire	[1:0] location_status_waddr;
+`else
+wire	[1:0] last_op_raddr;
+wire	[1:0] last_op_waddr;
+wire	[1:0] location_status_raddr;
+wire	[1:0] location_status_waddr;
+`endif
+
+wire    [READ_ADDR_WIDTH-1:0] int_end_addr;
+wire    start_addr_xz_detected;
+wire    end_addr_xz_detected;
+wire	valid_waddr;
+wire	valid_raddr;
+wire	valid_wr;
+wire	valid_rd;
+ 
+wire xz_detected;
+
+parameter read_op = 2'b01, write_op = 2'b10;
+parameter seen_once = 2'b01, seen_twice = 2'b10;
+wire single_access_violation;
+wire inc_loc_write_stat_combo;
+wire inc_loc_read_stat_combo;
+integer i,idx, idy, j, k;
+
+reg           inc_simul_same_addr_reads_and_writes;
+reg           true_inc_simul_same_addr_reads_and_writes;
+reg [READ_DATA_WIDTH-1:0] pipe_stages [LATENCY:1]; 
+reg pipe_stages_read [LATENCY:1];
+reg [READ_ADDR_WIDTH-1:0] pipe_stages_read_addr [LATENCY:1];
+
+wire [READ_DATA_WIDTH-1:0] pipe_stages_read_data;
+wire pipe_lined_read;
+wire [READ_ADDR_WIDTH-1:0] pipelined_read_addr; 
+
+wire [READ_DATA_WIDTH-1:0] expected_read_data;
+
+wire valid_range;
+reg [LATENCY:0] r_pipelined_valid_range; 
+wire [LATENCY:0] pipelined_valid_range; 
+wire valid_address;
+
+
+`ifdef QVL_ASSERT_ON
+  wire initialized_fire_combo;
+  wire single_write_fire_combo;
+  wire single_read_fire_combo;
+  wire single_access_fire_combo;
+  wire range_fire_combo;
+  wire range_read_addr_fire_combo;
+  wire range_write_addr_fire_combo;
+  wire data_fire_combo;
+`endif
+
+
+`ifdef QVL_ASSERT_ON
+  
+  assign range_fire_combo = (range_read_addr_fire_combo ||
+                             range_write_addr_fire_combo);
+
+  assign initialized_fire_combo = (areset === 1'b0) && (reset === 1'b0) &&
+                                  (active === 1'b1) &&
+                         (!xz_detected) && ((read !== 1'b0)  ||
+                                            (write !== 1'b0)) &&
+                         (initialized === 1'b1 &&
+                          single_access_violation === 1'b0) &&
+                         (((read === 1'b1) & (location_status_raddr === 2'b00) &
+                           (valid_raddr === 1'b1)) & ((((valid_wr === 1'b1) &
+                           (read_addr === write_addr) &
+                           (single_access === 1'b1)) !== 1'b1) ||
+                          (((valid_wr === 1'b1) & (read_addr === write_addr) &
+                            (single_access === 1'b0) &
+                            (read_old_data === 1'b0)) !== 1'b1)));
+
+  assign single_write_fire_combo = (areset === 1'b0) && (reset === 1'b0) &&
+                                   (active === 1'b1) &&
+                         (!xz_detected) && ((read !== 1'b0)  ||
+                                            (write !== 1'b0)) &&
+                        ((single_write === 1'b1) &
+                         (valid_wr === 1'b1) & (last_op_waddr === write_op) &
+                         (valid_waddr === 1'b1)) &&
+                        ((((valid_rd === 1'b1) & (read_addr === write_addr)) &&
+                         (!single_access & !read_old_data)) ||
+                        (!((valid_rd === 1'b1) & (read_addr === write_addr))));
+
+  assign single_read_fire_combo = (areset === 1'b0) && (reset === 1'b0) &&
+                                  (active === 1'b1)&&
+                         (!xz_detected) && ((read !== 1'b0)  ||
+                                            (write !== 1'b0)) &&
+                          single_read &&
+                          ((valid_rd === 1'b1) & (last_op_raddr === read_op) &
+                           (valid_raddr === 1'b1)) &&
+                          ((((valid_wr === 1'b1) & (read_addr === write_addr))&&
+                             (!single_access) & read_old_data) ||
+                             (!(((valid_wr === 1'b1) &
+                                            (read_addr === write_addr)))));
+
+  assign single_access_fire_combo = (areset === 1'b0) && (reset === 1'b0) &&
+                                    (active === 1'b1)&&
+                                    (!xz_detected & !read_old_data) &&
+                                    ((read !== 1'b0)|| (write !== 1'b0)) &&
+                          (single_access === 1'b1) && (((valid_rd === 1'b1) &
+                          (valid_wr === 1'b1) & (read_addr === write_addr))&
+                          ((valid_raddr === 1'b1) & (valid_waddr === 1'b1)));
+
+  assign range_read_addr_fire_combo = (areset === 1'b0) && (reset === 1'b0) &&
+                                      (active === 1'b1) && (!xz_detected) &&
+                                      ((read !== 1'b0)  ||
+                                            (write !== 1'b0)) &&
+                                      (range) && ((raddr_fire === 1'b1));
+
+  assign range_write_addr_fire_combo = (areset === 1'b0) && (reset === 1'b0) &&
+                                      (active === 1'b1) && (!xz_detected) &&
+                                      ((read !== 1'b0)  ||
+                                            (write !== 1'b0)) &&
+                                      (range) && ((waddr_fire === 1'b1));
+
+  assign data_fire_combo = (areset === 1'b0) && (reset === 1'b0) &&
+                           (active === 1'b1) && (!xz_detected) &&
+                         ((data === 1'b1) && ((((LATENCY === 0) &&
+                          (valid_rd === 1'b1) && (valid_raddr === 1'b1) &&
+                          (valid_wr === 1'b1) && (valid_waddr === 1'b1) &&
+                          (read_addr === write_addr) &&
+                          (single_access === 1'b0)) && ((!read_old_data &&
+                         (read_data !== write_data)) || ((read_old_data &&
+                       (valid_address === 1'b1 && (pipe_lined_read === 1'b1)&&
+                          (read_data !== expected_read_data) &&
+                          (first_write[read_addr] === 1'b1)))))) ||
+                       (((pipe_lined_read === 1'b1) && valid_address === 1'b1 &&
+                         (read_data !== expected_read_data)))));
+
+`endif
+
+
+//	creating wires to cleanup some code 
+`ifdef ZI_FOR_SEARCH_DISABLE
+assign last_op_raddr = {last_op_wr[read_addr], last_op_rd[read_addr]};
+assign last_op_waddr = {last_op_wr[write_addr], last_op_rd[write_addr]};
+assign location_status_raddr = {location_status_wr[read_addr],
+                                       location_status_rd[read_addr]};
+assign location_status_waddr = {location_status_wr[write_addr],
+                                       location_status_rd[write_addr]};
+`else
+assign last_op_raddr = last_op[read_addr];
+assign last_op_waddr = last_op[write_addr];
+assign location_status_raddr = location_status[read_addr];
+assign location_status_waddr = location_status[write_addr];
+`endif
+
+assign int_end_addr = (END_ADDR_SPECIFIED) ? end_addr : MEM_DEPTH - 1;
+assign start_addr_xz_detected = (^(start_addr) === 1'bx);
+assign end_addr_xz_detected = (^(int_end_addr) === 1'bx);
+assign valid_waddr = ((^write_addr !== 1'bx) & (write_addr >= start_addr) & (write_addr <= int_end_addr) &
+                       (start_addr_xz_detected !== 1'b1) & (end_addr_xz_detected !== 1'b1));
+assign valid_raddr = ((^read_addr !== 1'bx) & (read_addr >= start_addr) & (read_addr <= int_end_addr) &
+                       (start_addr_xz_detected !== 1'b1) & (end_addr_xz_detected !== 1'b1));
+assign valid_wr = (write === 1'b1) ? 1'b1 : 1'b0;	// filtering x & z from write command
+assign valid_rd = (read === 1'b1) ? 1'b1 : 1'b0;	// filtering x & z from read command
+ 
+assign xz_detected = (^write === 1'bx) || (^read === 1'bx) ||
+                   (write === 1'b1 && ^write_addr === 1'bx) ||
+                   (read === 1'b1 && ^read_addr === 1'bx);
+
+
+
+
+assign single_access_violation = (single_access === 1'b1 && SINGLE_ACCESS_ON &&
+                                (((valid_rd === 1'b1) & (valid_wr === 1'b1) & 
+                                  (read_addr === write_addr)) &
+                                ((valid_raddr === 1'b1) & (valid_waddr === 1'b1))));
+
+assign inc_loc_write_stat_combo = 
+  (single_access_violation !== 1'b1 && 
+   write === 1'b1 && valid_waddr === 1'b1 && 
+  (last_op_waddr === 2'b00 ||
+  (location_status_waddr === seen_once && last_op_waddr === read_op)));
+
+assign inc_loc_read_stat_combo = 
+  (single_access_violation !== 1'b1 &&
+   valid_raddr === 1'b1 && read === 1'b1 &&
+   (last_op_raddr === 2'b00 || 
+    (location_status_raddr === seen_once  && last_op_raddr === write_op)));
+
+
+
+
+   // Latency defined above in LATENCY param
+
+  assign pipe_stages_read_data = (LATENCY!=0) ? pipe_stages[LATENCY] : ((!read_old_data && valid_wr && valid_waddr && (read_addr == write_addr)) ? write_data : memory[read_addr]);
+  assign pipe_lined_read = (LATENCY!=0) ? 
+                              pipe_stages_read[LATENCY] : 
+                              (valid_rd && valid_raddr && (!read_old_data ? 
+                                (first_write[read_addr] || (valid_wr && valid_waddr && (read_addr == write_addr))) : 
+                                first_write[read_addr]));
+
+  assign pipelined_read_addr = (LATENCY!=0) ? pipe_stages_read_addr[LATENCY] :
+			       read_addr;
+
+assign expected_read_data = (((data === 1'b1) && pipe_lined_read) ? pipe_stages_read_data : {READ_DATA_WIDTH{1'bx}});
+
+assign valid_range = (valid_rd === 1'b1 && write !== 1'bx && 
+		    valid_raddr === 1'b1 && valid_waddr === 1'b1);
+
+assign pipelined_valid_range = 
+		  {r_pipelined_valid_range, valid_range}; 
+
+assign valid_address = LATENCY === 0 ? valid_range : 
+		     pipelined_valid_range[LATENCY];
+
+`protected
+
+    MTI!#<Uv!3,JUG2V*1+mk7F;{vna1G@-XY1L}@Ae\1""E*}[[+rZ#5E-#'iWHle*<z$IQx#R>hO@
+    }}EX7*>5@'!D~pHj]k>[i;NF}7#uRlE]Pr?\]]+'VeavzBl<E=@x2}_~;?o;]P<RoYU[;_1C3J/.
+    YmU{<V}~E-CVLwq?wXbG>-_w}7C~$?pC'B#3EBavVm\TOGXeX*JsR*A|IfRIBUUY]-F;ji#/\iD[
+    $3a{yk55XR+A,\e#~(+7rr:Cw]{Hj{[bT]V7xU$ByK>p{lwC#ave-P#OG*T<n#q}2OuuHIa_Q3@<
+    X-<9;,uVNGK-G;'e#!pulBxCj5>mxUrH@I;W>Jv3;ci[-[UO]vjZ*I]4b7wJ+Uo<-e-X5w=E\"Dl
+    DmB2IVnU~#[3B#:(]7TkgO\slv'CE<R~vCWAnAa+'x!aTQi\wp2xVVYR!xq~C^w*2V<iX@o}Ckj\
+    ,={ZaXv+YA!BK*={>xrJz3,vApu<E+-To$JorQ-knj<jOoD~TlQHED+][G;K5e{/}wr!HGpGBaJo
+    \3D^ViOrv@+?:iX}p&l_px1*mleBj?Z_Q7K{]eJ1@}5JQ?+\wK}v\Z$[@}5kBn;r7$#pi[&,z;Q#
+    YD\\TDAp*e$Wp,RGspC,vv@oB!paYB@YfT1nnH5^B2Av21r7#!Evo_Qi1p?!_;VQ?[;xiB<eTZDI
+    X/x=Kn,JViuX~$(hawIp^izI[=B?$p='5H[~kam5zz7YKX<7H*aB_W[*sxT#Yk~5SI<w'~e,Io=>
+    2n,e]H}QTY^man]~,Tsw#0,}_xmT@auGU{R>Ap<T$^_vKp2=+IpCWp!=5!rH<*HV\3q^]$\E3uV*
+    $nX~*VJrWn[roQ^l-s;D{!]=<Gi<lQK\oRJU'-U<1@;1^uooTUGy4'Z_{yk*pE+^nUQ5H5noU!ru
+    ]?tT=eQH1G>*#@u{U$}Wn+pCwT5uBQ=-X}zopI<Nnxmn<-Km'+x]d}*;GGxK@5+*~(--UaVxR]^G
+    Y_'\+GG@Gs;'*T7Dv=<]7knr#~BV~C#xKa,K@Z!Az,BezYjOmlZ+O{j'UQXV5C5>-KYYR\7A5kVX
+    EIpiaws2s@]{xTT{$YCZOmOMBmX$?\-<k>{*yUxGRr?'ZouDx$=<@CXR@t['3poT!{#r7O;xK>fV
+    QZKr#3l}{VTLMTv>r^~I~BK}OJn<a*$A*CKwprQU=^=EG>za@RScCj<sCo<IiGu#5InOfb2[j-[W
+    2]'te0OU<H7I_Cerp[E@$*b<VH@LIVXD|1Q]]K1Y~V'ACYV!{KwB-UXjk$3u@w79@>G<iHK!%feR
+    K3M3xl2=4y:=';o'1!G{vI][8!B]xLoU112o{uuekaRYZs_#l>d>*};95]<Wi8Hp+<C>uB*s'sD\
+    ?pwpB*,r1jOZBusC**YU=x<>=z*kQ$BDE'2+Il[E\XuYE_A[Cp,Z\D,$e,r{}m5GC}5BY\;ab^7=
+    ;^Z\;7;[xmov3{l?!XH~Xem\,p2{zaYa+T+W]!A$aA$-}l+rmww7R?lA#Yn@@Mex7X*,=[2Ha$1!
+    .P_Wa^Ox_vTX,R#aUDj^K>)!RpBl5]vrRHU[K+_!-Bom[E^GCwK#-oap*C*jZj]@5e~4GQZVpYOR
+    .^ZaeBsZ_eBok}'eEbN;5lVI~{rmS+T@mOOs^]C21EDrTR<{KO<2wp7}{l^v_3B^pe'>*R'$>#Xm
+    p_k>*a*!~,vs}&[WJo^3B+~Tar#<GBTlml?^>$!'3E]_p*=@B@Uol!/I2xA75?KVWG-x~^$|?\_3
+    p/_JYiHX_$_"N5H~[:w*Zwrvm#1wWVks#='RmRm+RwL@s,~MjUJJR*{3E>HGUY]s/>o}]JXVW\mC
+    IH=}7!]}ab}!jO?pTj[nE><1_[{*K;1;Y#&5~YJX^E,K^YeV5xm!}soaTa2\tBE[[llu[^Te;mqO
+    Gj+}mV1pbZRAj5JO2{[k2\V2u~<jj$kl@+H>BE]*3fpul;M]~U,,'D,zJ!5gaGK?e2u]%N\n1V5^
+    5],pZ*v?AkQ<IljrY2r=C]u$wpB!u^2GvG}A;Ke;nxQUpkIpjHxlv*r*5Usr[uTEzvCQ{kC)vn~I
+    Z7-V7oOOI?]!DE}^!x_j0ZX@C-sV>{^a$m\nD[$iK|$px$}!DjEa]p{nm?r\x^)T[e[OWzwUG*~I
+    '$}|7w>Cz_,Wjekux+'Q)%yzex_"3A+J2(s_Ku;C\pB*i>~jjE}l$TZ<<IJB@RWA!zzxovTYm_n{
+    aez5@+5GK\z2$ksTD7Bw1Isl?jAO7pKO;H2Vuu}#$9cKj)2{Hrs^1\zDQi}j^HkVE#ETI]1oIk$U
+    Di+52<D&)=2TXl2[BHX@n>Q#a_[kG7K<zo#A~r5j]WOBkQ7eT!,L;<$^_;nVYG{;x5\'oDr3\Kzo
+    >j<$UlQ7Cx<X[rupBiUAA'-u@_GRPsOI1Aw@1IX~m1D>lEzURo7$}2{J~'VRari!j7I_-^mGIev~
+    ~O+VuY\7C*;Gp]'$^pE$x[DD5@{\$u$]WaAZ^vZ2KYT~D}@JD|#rDUV{2kOWn>mv[uwe#I1n+GVi
+    e2[uvAzEY,nps{TAxvB\<kR![[S^Gk}}Ho~!^O@'si,:li7=5?+#c-'mB;1WY\e>j1iC;^1{E53+
+    173+Q=ZJT*juv4NK[]]XAGTZ,$CkVmvB+3Z$jnZ[k>xDSjjmWp?umAse#oQ;[Jr\Q7H]]52pvb"I
+    sQ<pm{5+A*Ybe3!@!^neWDr>ujuG=]ppo<AUEnE<[gG1?AIVn{jkWAy_k2$}@;rQWYnjQw*hY}\o
+    QUTAHnZ[VOX<D!on~*ExG#AY^5\]z\G!Oz-I^I#5zbj7;?c>C+r{_!At'CjG>Y1Y,zax_!s*V'UU
+    _7xU=UYX.9'$ezR5GjoY!JxinHDY12lq<7X}<]+#+.P+sk>z{V~kT3!~lJ3*5K5iTBw@$BeB#>xq
+    :X+A,zKHVKsKspweAGn[v+E2*QuBXy([il^epU-O_mAU-E#mHp<lz;@'(mYzJpi{aAU~U>Ar^O+n
+    +Xe#D^)s,_ixHI]:QE\}1Tpp[~$x<\iY2lD,]Y*1x?]Y*k1;Gr*7{}nH7T\J\KjRuXjiG;lC1nBC
+    ZUK{@Gn7j!E],;o5**E*uB}x:J}Wm<IKp^n3s#G[v?p~UO7lHX+IlrUY-k\HRjAU_Hxj1Hn<wo3m
+    VwDwVqseUT(ZTVQ^*il$+,oV~jer3DK*VjRr2'TYQ1TQE^?=,I-_,r7-D=3Y<ezTTo1(zIj=fpj>
+    $Q=ipV#ajx}uRxzTTJ-<HC#5>a{-?[$nA2VIn@-WkQnYB|$,{<jzAW_{o3;>n$Ru5>4uB,ieJ]nk
+    *vWW*pI\n}naIpjKt4n5WTbnxn<mxU*QrzYm$T{LtpB7DYn^^;'piA}C$$<zY0R?^^Xx$+Jw7Q(.
+    zM_]H!YeuT~{CGE3{>,**@l'e['RjoZ]UR*m-$is]T~'B*aal$g@R,HtY#X!],KnozEIB;HZE$aI
+    .$+z3qa>5>'J@Tj!5p]^2jD1ksO;Al[YexIjx$s~Da3}p[Nr]<D8#1}1A+@U={Ju?A_spe1*C[3e
+    ajXo@OCn]wwV5,YODA^#p>]U'K-xk]e{%K<KrispO^Vwz&rY@m5{Ce;Qx$"lt~[<ZR#H7lw]KD!-
+    @:^u+UX]BAUrpE3'i'O7l{_zYa=AGWRQ~C]^I7Ve2j!$rp\za#+zQ}vVwl'}xYQ3Wxjkp#_KjK9o
+    O+7N(Bb*O@zsDwZ*xx~pi!_67UBsmU<WGn{1:<S8pVQGJVEBV\<kREZu?ovz0yDv?C8n$XC*IBEo
+    AEo%:hEK[T'vXGr}kk1eo@BXnrl7C@Ha_DkX{[Tj\G#r5IO7]'1pE@x*E+Nj1wn5X'aAA-mz_eH3
+    sreWU>n-&JH7<j'7v:_<1;\~'Bpx\BmG2W]Y$Ur1K_-l$oTp;7r@;wj[TX}erl\j<rZVIIIJs,aT
+    FC31XeA'#HwQJMZ1k?EH-D<},+*\?af]~3Z?vRZ^QlQUB@<n75z"(\=nl3^s;+eUDTBkV[+vv?^J
+    ~TziHi(CU+Gj!;<zu-H^=nam7'WE}+TkT+kDG=wIjQ}jTRk>+A;bFC_5w'wOVgQ>E5@Q]xQr'v=<
+    !jmXEA3aXsFqzkjIq,kl=jH-xDRz_x#+51ACi_Y'T<|i]o#EYUT]XrB__}sGRi7DDk}^2E^zO?#>
+    H\r^{AWupk7BYT_k+vOEos~rXE]RJx@'T+TkD^-}TQ'Bm!ZOwnDYDWGIrp'P1<$R]i~#\]X$5$B~
+    E*i\XBR~wV5-F=pDJ}Gz_)9*se<r:IT1kBW]<M^XGUoGN$zZB!YDB"q[I;B\!V7mHY'#Y[7VVEiC
+    5H;zi;@]aA>jma^)=ow\IvCI{nYXKxKAV*>O]^5Wz\I7*opwlV!~*.AB?}7Ei@6{l+Q,u~$-Qz+$
+    s>BYo32G,DRR+',ER{Y77]XH5=-Hp~\G#)k5?j!|k^7rT7rXm+;l]a0s_"C_$Ae!U$=#<2O#Kwk5
+    *s]mwT^A\?7?o\[v+*JC\>1DpCsv1_vx;![ZH<z~Q2leDIv5;Al^eTQ{\;u{-w|mO^]#s+!bJOT]
+    rnaoK\ivCTO\)i{DJ=C?]2C>Vp=[EJA!<mB\_\JWYvk@An}+X+eVzQAKly]RIKgejV1l2^ODi;2Q
+    ['>[XXn'GAw@Qsn=En2U+$B\$!as3+sWj\KzxmXR{'BwR+\vsaQ5H*@1a,2Z}7Xo[]=-$^l5]-@p
+    '#DR{KK0I1_[}>7n;_ETl)~A\nGi^nCuK{1\UHvjT{OY;,_\j*-Hl>6Dn!!xa>GRlx{V@G+UU,Q2
+    CR[;,?O65HW}1j?@}K57z,}1KH-GGr3-}$5W;522M3[pi!U,TG#~Up5oIouRZ:_Au~1<CkK<G=\W
+    mId.>C>$=vFtA1CHHz5?L~}z;lK2[LJAGHAjA=x7vnYe]urHpD}aBOw<]kDW1]kXvpWD@2IBk<*v
+    'T}wl1TC#a[nUrpIY1Nlkz'(~'vook][;U$[.A,#lBZG]T>nK]l]uz[^3e{T,7r^^{_1?xTRBn}s
+    YkAnpjQ;X^GA>kBKWioUkli+l$OZa4Y*U7},,\X5uZo-JE&faa-3)Z$;ap7llG1=;VRJKoe'Alzj
+    wsxO^e=m$0m_!k]]x;HaEz[=iB]+x1ajYk}XWYRDz\~<Q_Q?^V-v1iE;Tx_aZ}$uIvL{D{n{DaRP
+    YXY?H]TaXV+7i7ixiU-*\1|#Do\B\!}jX5YYrm}TEU!|^H}}=kRJzl$@^owuIQaUek}']^!n]~ll
+    e;@ICCIv:"'k7+pR]RlsuJfEKju#rw7E<+E-]??*T3~2G^\uG>*sK+EW=UWC],G{DK@VWj;>o=m9
+    WRU_O_RA~']Ti]@uE*]z?e1p3wW;vC[?vo?k'_mocQr~m84Ow1$mvROVi;j=#;vRx=E=e;R?jz=o
+    RxH<xCelp/HRW[*msOov51**aOzA\wIS+\AKIKQAOEk31!u5{s-}aQa{;l\wlw,7wVWVCDz,zk&]
+    <-aMArYrpK*>z!m1D5IQs$Ow;$=@*>RaxOrm-\@3YU,Ap$WT3_3G;$-j?Txuis@ua*;pAQJ\VwAW
+    <*1IURl+~[Xpx*mY#C'jZQlUr5YOaxee*iH;!RzzV+Q#5~U<jTs,,>xXC{XeY2X+EZWpCzuXIum3
+    ,nn{wXwl-e\aGGpX5JAw?.Vl2@<<Q@d5{$5+GpaaE}r{{[eHa{[qV~]RK_}+2l,')*7xZFLTss;t
+    5z]]ou*^e3{^Hw,A\R-sDJ2B$j\=Wno_1+I'[wKu[1==}2C,{OesqRZ-Ua*\YKT^v;{C!p7D7-X_
+    H15AW[?>QA]#\?>~[Q^In*WnW^;l7^j=R]]7;7*<vp'VI@_3sDYv1v[5BJEJb]Qm{Q^_u\{}zJ&[
+    3!{Vm{}^+x*AXVo\m1]1T<jwa!<}xXZW[5+>njAoXJKuv?ZR<[=R[Kn}ZZJ!Tno?*kR-7eR_^EaY
+    E5CKsr$Arp}<XCVAvUu]A[]KH<wJ'uu^Bn>E]>=Yn=CBirR=uw?GKV,2*@}%>>KxvW1_{[aR>XW2
+    M7@j[:(Q!g#j'^C@1{\=wkCw5Ij5XjYn}aj>a1GZ\]7X=;+T7D$+_\1gm\#jsrUWj1T1E7XX-G*i
+    7#<^C*BRq:f+G@GN$}UG,s'uBTOnD+z[CC77/}wK_'[?a5W+5k-BWq-OxYH+T$T>!<W1wzp;XK2E
+    \'E]i]^$w{l@GnHX=5oez;I?J$}7QYLW}$I_C5Kz!=A;VeRUTxWQwTosmQj^A\nb/T^nW_;XeB?_
+    QK1E*KY5B'K>3z}$K1ros'4s3XTCa@K,O>s@omVGzvDB2OO%G!aBT+mx=x?zVHrvE,+XdnEY]'57
+    D1je+pBrP4>1XE\>@EbECAjw+IWv[jTd3jOIV+nCraC{cTol5E-~=PQz1WEV-}pY7\pe{oGXn<pA
+    =B@Qs+zB7\C<WIL357B9I+]eTRTW#G!^>lO{D-rE$ZBs,UUvzkuOe\-p@ADuI!j5'WK@Gwz_lT-'
+    RI~3UaVu+S^^1Ynjv$IQEa-U5pMx\B^lH=vp+CQ*>ro+HQ2sWCVw5'VLsVExV!@;Xea@3V-ZswY1
+    ]ujUDBQY*,;@pl~pIr\n@O'7O^z-rCrzzj<s}f\*xY2jU+B%3e+w,wERj+zZXep+a'B@7_AnOG&R
+    Os[_XJ2H<wKjk---,m\E-$D_kHjTw_Q!=+~I1kw7-rGO$k?wEau?[VHv,=3@<1\pBJu7+BG#Uj?T
+    BKzjHHI^1AeP*2uTOH$~3_a'+Qx\=~s{TpiZr+]WKl3{IzV#,p]R-AA'?GW{*j>\|_zZ+>r5}[,@
+    r$'{~s?=IYB1DlWZ*]-$AA1i,pO]Is]C[dHYj;O*Wv7\_E4TR-UgDu}?o}m3RD$J.xBTmjGU,rCk
+    ZX]Js#o+3+E}xGpWKvT+YR_xO.xXrjJ}a>WD\oCjEB{_VG}W[p*wBGj<@Tsw<WG#^juz1e9[ZvnT
+    lkQJH}B1Ru[8oHv$B=^Jj7k\R~VXLVDxusB[WxUmQD:!RKA%*;lj,@[<D{^w]pZko7*A*+zp3[xU
+    ~Ij#BZzxBs'u^pe+Co\E-'Oui==Vx!lA77}>e];Or+VuY1-DAIw~p{RG#]Ea,(Cmur?GrCq/{Awx
+    zeOoH5~zDUX*js2[*ip#H{_QG2v>aXWYx']{vi<z1?_{R}1T~e\~<*DE_C\}\K1RV2<wWe2D?z3p
+    KaBC$DVkZD^?Dx+T8_VJGEpZ[E#'XKX,_G7l-VVzu(V-H':Y~x+YHZ3ne<3uCw*WT1_?BiVoBu>;
+    B-C]>1rz-AX>BTZqN72WEnl!oFV^}kRu1;FJ-$?zTar-Xp+^W@?TAnv_j3s@>G78;\r;;7ox\oYW
+    ?jW]uQsE^{lpbEe;!NwTDCH}jX[eD]_52san+!7~<T@^Ra[Qw<e2D=>7~}e__;<{)Basp?nZ'2_e
+    p?]w>a{}R,^3}KB#*To-x'}'E4I#2,*#l2+75{L7jCiRQzm[V2\=Uj~2D3QKspQvo#IGjC-pnRjc
+    zn3C%6!wwD3_k\]j?>VjZ-__,K<-I?RGnssV$<Xs++;zn&Y*lrAIKE5-ZI3<--H{WW5U5ekn[}I}
+    \_u_r<Z*sHj>V'65U3le{7je5Ar+ru]7<X={,!r_G[rIO,EzzpU2]7]rrvR}[llDua>?z~Vj<DnI
+    ~>CjaOE;l3C;HZaZ\3Ha>v!wowJ',pp$]V[pIvI>lm,4C+!me-p-@+}*7xo^Y7ppdY^~$oQ[Y4Ol
+    Dr(8}Y}^$zn@XG'\57$>'3~KUj\B+{\\EBV#~wWQ7Qs+L_'Ru>D#Iue2Qi-~$xrT@_*nrx!@B?CX
+    ,Q\K>TEw2h,}o,Opj>j_7u#^^35rsUlEpBICRjemY[@xz<<&@^CnOEAs9l-UB,+Xk{>}vuzOAIRJ
+    I^OoK=l~WznW5UeXV3x*U~G-^+o]QEWBBA'!,JXns'#RaD~K<-1ju^z-J|1oXI//{*p-p-R^jAXm
+    ~1RTlC-l[uE^<$#$E_-JR1W[wow2DnR,J_*U\5TO1?CRzk^5{U{z&j-Z]wo-#Z^1]N*O*$_t>zuj
+    L.Di\I!{Cn!R*}_x\@G]2z-TJ]I>H+uQ=Jo1i{K*IRi\<>-G\7b\B~eo=x3|4YT=EWO#R
+`endprotected
+
+`ifdef QVL_ASSERT_ON 
+  //Instance of assert never for Initialized check.
+  //
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+	 if(INITIALIZED_ON == 1)
+	   begin : assert_memory_access_initialized_check 
+              A_qvl_memory_access_initialized_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (initialized_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_memory_access_initialized_check"),
+                          .msg            ({msg," Memory location was read before it was written."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (INITIALIZED_ON == 1)
+	 if(SINGLE_WRITE_ON == 1)
+	   begin : assert_memory_access_single_write_check
+              A_qvl_memory_access_single_write_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_write_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_memory_access_single_write_check"),
+                          .msg            ({msg," Memory location was written more than once without an intervening read."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (SINGLE_WRITE_ON == 1)
+	 if(SINGLE_READ_ON == 1)
+	   begin : assert_memory_access_single_read_check
+              A_qvl_memory_access_single_read_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_read_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_memory_access_single_read_check"),
+                          .msg            ({msg," Memory location was read more than once without an intervening write."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (SINGLE_READ_ON == 1)
+	 if(SINGLE_ACCESS_ON == 1)
+	   begin : assert_memory_access_single_access_check
+              A_qvl_memory_access_single_access_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_access_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_memory_access_single_access_check"),
+                          .msg            ({msg," Memory location was read and written in the same cycle."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (SINGLE_ACCESS_ON == 1)
+	 if(RANGE_ON == 1)
+	   begin : assert_memory_access_range_read_addr_check
+              A_qvl_memory_access_range_read_addr_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (range_read_addr_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_memory_access_range_read_addr_check"),
+                          .msg            ({msg," Memory address falls outside the specified address range."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (RANGE_ON == 1)
+	 if(RANGE_ON == 1)
+	   begin : assert_memory_access_range_write_addr_check
+              A_qvl_memory_access_range_write_addr_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (range_write_addr_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_memory_access_range_write_addr_check"),
+                          .msg            ({msg," Memory address falls outside the specified address range."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (RANGE_ON == 1)
+	 if(DATA_ON == 1)
+	   begin : assert_memory_access_data_check
+              A_qvl_memory_access_data_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (data_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_memory_access_data_check"),
+                          .msg            ({msg," Data read from memory location does not match the expected data."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+	 if(INITIALIZED_ON == 1)
+	   begin : assume_memory_access_initialized_check
+              M_qvl_memory_access_initialized_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (initialized_fire_combo)));
+	   end
+	 if(SINGLE_WRITE_ON == 1)
+	   begin : assume_memory_access_single_write_check
+              M_qvl_memory_access_single_write_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_write_fire_combo)));
+	   end
+	 if(SINGLE_READ_ON == 1)
+	   begin : assume_memory_access_single_read_check
+              M_qvl_memory_access_single_read_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_read_fire_combo)));
+	   end
+	 if(SINGLE_ACCESS_ON == 1)
+	   begin : assume_memory_access_single_access_check
+              M_qvl_memory_access_single_access_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_access_fire_combo)));
+	   end
+	 if(RANGE_ON == 1)
+	   begin : assume_memory_access_range_read_addr_check
+              M_qvl_memory_access_range_read_addr_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (range_read_addr_fire_combo)));
+	   end
+	 if(RANGE_ON == 1)
+	   begin : assume_memory_access_range_write_addr_check
+              M_qvl_memory_access_range_write_addr_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (range_write_addr_fire_combo)));
+	   end
+	 if(DATA_ON == 1)
+	   begin : assume_memory_access_data_check
+              M_qvl_memory_access_data_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (data_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+  //Instance of assert never for Single write check.
+  //
+
+  //Instance of assert never for Single read  check.
+  //
+
+  //Instance of assert never for Single Access check.
+  //
+
+  //Instance of assert never for Range check.
+  //
+
+  //Instance of assert never for Range check.
+  //
+
+  //Instance of assert never for Data check.
+  //
+`endif
+`include "qvl_memory_access_cover.svh"
+`qvlendmodule

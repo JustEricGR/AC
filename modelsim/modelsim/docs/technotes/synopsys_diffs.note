@@ -1,0 +1,84 @@
+                   Model Technology Technical Note
+			 Copyright 1991-2009 Mentor Graphics Corporation
+						All Rights Reserved.
+
+	This document contains information that is proprietary to 
+	Mentor Graphics Corporation. The original recipient of this 
+	document may duplicate this document in whole or in part for 
+	internal business purposes only, provided that this entire 
+	notice appears in all copies. In duplicating any part of this 
+	document, the recipient agrees to make every reasonable 
+	effort to prevent the unauthorized use and distribution of the 
+	proprietary information.
+
+	Trademarks that appear in Mentor Graphics product 
+	publications that are not owned by Mentor Graphics are 
+	trademarks of their respective owners.
+
+
+              Language Differences, ModelSim and Synopsys
+              ===========================================
+
+We know of four differences between the versions of the VHDL language
+accepted by ModelSim and Synopsys:
+
+1) If a parameter to a procedure is an unconstrained array, the VHDL
+   Language Reference Manual does not allow an aggregate assignment
+   containing an "others" choice to that parameter. (LRM Section
+   7.3.2.2)  The Synopsys VHDL compiler allows this usage, and the
+   Synopsys package "mvl7textio" uses such assignments on lines 149,
+   157, 200 and 210 to the variable "value", e.g.:
+        
+        value := (others => 'X');
+
+   This can be changed to legal VHDL as follows:
+
+        value := (value'range => 'X');
+
+2) The Synopsys VHDL analyzer extends the visibility of a "library"
+   clause from a package or an entity to the context clause of the
+   corresponding package body or architecture body. This is contrary
+   to the last paragraph of LRM Section 10.1.
+
+   The Synopsys package "arithmetic" and the file of entity declara-
+   tions "entities.vhd" can be corrected as follows:
+
+   The "use" clause on line 142 of arithmetic (immediately preceding
+   the start of the package body) can be removed or commented out.
+
+   Before lines 2302 and 2466, which read as follows:
+
+        use SYNOPSYS.BV_ARITHMETIC.all;
+
+   insert the line:
+
+        library SYNOPSYS;
+
+3) When an enumerated data type is declared, an implicit declaration 
+   of the operator "=" is also generated. This declaration can be 
+   hidden by an explicit declaration of "=" in the same package
+   (LRM Section 10.3).  However, if another version of the "=" opera-
+   tor is declared in a different package than that containing the
+   enumeration declaration, and both operators become visible through
+   "use" clauses, neither can be used without explicit naming (i.e.,
+   ARITHMETIC."="(left, right)).  This is inconvenient. The Synopsys
+   compiler allows the explicit declaration to hide the implicit
+   declaration, which is what most users expect. Model Technology
+   asked that this be changed in the 1992 version of VHDL, but the
+   suggestion was not accepted.
+
+   Due to the inconvenience, the Model Technology VCOM command has
+   been modified to allow the explicit "=" operator to hide the 
+   implicit one if the command line "-explicit" switch is specified.
+
+4) The TEXTIO function "endline" was dropped from VHDL because it
+   cannot be legally declared in the VHDL language (VASG-ISAC VHDL
+   Issue Number 0032, 10 November 1988). It seems to still be sup-
+   ported in the Synopsys version of TEXTIO. All occurrences of:
+
+        ENDLINE(LLL)
+
+   should be replaced by:
+
+        LL'length = 0
+

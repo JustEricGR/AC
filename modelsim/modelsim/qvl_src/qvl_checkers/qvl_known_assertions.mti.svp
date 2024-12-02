@@ -1,0 +1,197 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+ 
+`qvlmodule qvl_known_assertions (zivar, 
+                                 used, 
+                                 used_cond,
+                                 clock, 
+                                 reset, 
+                                 areset, 
+                                 known,
+		                 active, 
+                                 known_fire,
+                                 values_checked, 
+                                 support,
+	                         fire_count);
+
+   
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = " QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+// Instantiation dependant parameters
+//      WIDTH is the number of bits in the checked zivar
+parameter WIDTH = 4; 
+
+
+
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+// Checker clock
+input clock;    
+// Checker synchronous Reset
+input reset;    
+// Checker asynchronous Reset
+input areset;   
+// Activation Condition
+input active;   
+// Checked register value
+input [WIDTH-1:0] zivar; 
+input used; 
+input used_cond; 
+input known;   
+
+output known_fire;    // Fire signal asserted when violation is seen
+reg known_fire;                       // Asserted when violation is found
+output  [STAT_CNT_WIDTH-1:0] values_checked;         // Statistic, the total number of loads
+reg [STAT_CNT_WIDTH-1:0] values_checked;         // Statistic, the total number of loads
+
+output [STAT_CNT_WIDTH-1:0] fire_count;
+reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+
+wire check_used;
+wire is_used; 
+
+reg [WIDTH-1:0] last_value;     // Holds previous state value of checked register
+wire flag_x;			// flag when a x is found 
+reg last_active;
+reg force_checking;
+
+wor [WIDTH-1:0] tmp;
+
+wire	new_value_stats;
+wire new_value; // always do checking otherwise it is a hole as a constraint
+
+`ifdef QVL_ASSERT_ON
+  wire known_fire_combo;
+`endif
+
+
+assign check_used = ((used === 1'b1) && (used_cond === 1'b1));
+assign is_used = ((used === 1'b0) || ((used === 1'b1) && (used_cond === 1'b1))); 
+
+`ifdef QVL_ASSERT_ON
+ assign known_fire_combo =  ((active === 1'b1) && (reset === 1'b0)) &&
+                             (new_value === 1'b1) &&  
+                             (flag_x === 1'b1) && 
+                             (is_used === 1'b1) && 
+                             (known === 1'b1);
+
+`endif
+`protected
+
+    MTI!#[_RmbAlA7WA-IlOe>l#+@D$,,WQG\,!5[xm={=3o#(,OV~uY}2-}ApC^wTLqG$;W+7iuiEb
+    >w,-C03w}2%Bz\\JU7VFw=lv[j{}>E~A?p+~R*mHrVjV^jW!DCR?@=E;zI]-1R#H,l^Y[5'wix7>
+    Y'kR$xpo13XK]x*R{$\G*>5@rOzL(,>V~]O{nI{DCYXU*u$[[n]X}x+T-?a-DaYixFRz#Ap?\>OV
+    R~."O's1fD?u$$-oiGeiGpQ=pxm=a?E3Wk>z1RQRo;wsU}Uva,V_ipij$s0p}W}u\\Df#DHOUsWv
+    <T;U:QG2vTs{^GVe#\pGUij;$O\q\e5Di$xr,3AJD>{xDvoTD+s^=!ou>lXxDm2
+`endprotected
+
+//  First loop through each bit of the register and flag if any X values are found
+
+//This is a workaround to replace z's with 0 in zivar, we can then use a
+//simple xor gate to find any left over x's 
+//Thanks for Jeremy for this insight & efficient implementation
+
+assign tmp = 'b0;
+assign tmp = zivar;
+
+assign flag_x = (^tmp === 1'bx);
+
+assign	new_value_stats = ((zivar !== last_value) 
+                       || (last_active !== active)
+                       || (force_checking === 1'b1) 
+                       || ((is_used === 1'b1) && (zivar !== last_value)));
+assign new_value = 1'b1; // always do checking otherwise it is a hole as a constraint
+
+//  Every clock cycle detect if a new value has been recieved while the checker is
+//  not being reset or disabled.  If the new value is received and the count is
+//  greater than one then assert fire.
+`protected
+
+    MTI!#\5=;3V2H2<;U2{vmv;2r\OOKX{TpfH^Eir~aVN&#eK]x57\E7#Al;7VoKQ$F#{BW=gy!{-O
+    <''xYGiE[TmBGV2s9Y*bIm[ziAR^!_'YoI\nrnEOV!@VEB^#^}siG~sxp-re&Qm-V5Vu}Rxpj}Ul
+    ^XjY\]M^=Qjp\*]UY;R\n'[En5*1B>\i}z<T>+YMHE;B7O3#qe5vT'u6}1<$oeRT$ZRj|u5X^~7m
+    ''k^jIH$@CVI7F,nC~*ROxm{a'$!+]UnDW$i_@/i5#@u$kEx]@[eVo'iR{T_ws<HYx4_v/aHOsEp
+    <K:lG?At=!K>D*';OrmDWlo~_jKTV$@El_il,sr2=,VwQaA<XjR>,RWVp!U=i5#}5;;~v!H{W$]2
+    ivvI7~7kw<V]_j_;!n<R+skaBH~jz~uGi5~^WY?~/nrEQznK\{>;lN>owzP*HV@-H,v%~w[']}r]
+    {n3]i1j1\UED1lp^xp37$~BR=Ou!e@o$D>rwGi<=Bk~#JlWoeA<Tl<5_]3-2VVuR}KI+U5QE$O^\
+    >1C@TV*Z[~w<nEw$j^kzji;O=?n;-_2${CCawOZ\Xvlx)Y+T>W7s[@v#<l}Q<5@@}pKmnFEe{k9_
+    2Eez\,T\=V[Z{-'!=E#w'ax!5+EkX\>KouH}jO~jk+vo,jv@]CU2UT#VDvrYAA?Cn\?W,+B*m<kY
+    vi]u6yv'H2Z=OXC]<~XVxeoG;*1+TXI?G\#oRiG;@w?pD_/oC+7G-XGsTXXz@<JQJ]KF=n-v=ZD*
+    j~-u&Is#CpAo<4=8qL!{Y7wp{e}#Z2OO7$A*p{*JnK2V7BO;C=]3$rDnBB1{+m5i1]E2eAFERvA1
+    Uu3/:AR][Cj1#7vGYR'<-j'5~O][ozr<'k$^Z3++Q-AsYsxjU=z-K;\Tr+EwWonBQCHeDY*sQsRH
+    k:Q5WIz=,>]R}aOzHT^k]E6<t?[i<gREeE}pT
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+   // Instance for known fire violation
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_known_fire: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (known_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_known_fire"),
+                          .msg            ({msg,"The value contains unknown (X) bits."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_known_fire: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (known_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif
+
+`include "qvl_known_cover.svh"
+
+`qvlendmodule

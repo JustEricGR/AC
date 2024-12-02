@@ -1,0 +1,66 @@
+                   Model Technology Technical Note
+			 Copyright 1991-2009 Mentor Graphics Corporation
+						All Rights Reserved.
+
+	This document contains information that is proprietary to 
+	Mentor Graphics Corporation. The original recipient of this 
+	document may duplicate this document in whole or in part for 
+	internal business purposes only, provided that this entire 
+	notice appears in all copies. In duplicating any part of this 
+	document, the recipient agrees to make every reasonable 
+	effort to prevent the unauthorized use and distribution of the 
+	proprietary information.
+
+	Trademarks that appear in Mentor Graphics product 
+	publications that are not owned by Mentor Graphics are 
+	trademarks of their respective owners.
+
+           MTI Technote on Generating Signalscan SST files
+           ===============================================
+
+The following steps are necessary to interface Signalscan's SST dump
+routines (Signalscan is a product of Design Acceleration, Inc.) to
+ModelSim/Plus: 
+
+1. Copy Signalscan's veriuser.c file (usually found at the location,
+   /usr/local/lib/signalscan/veriuser.c) to the local directory.
+
+2. Edit the copied veriuser.c to include the following function at
+   the end of the file:
+
+    void init_usertfs()
+    {
+        p_tfcell usertf;
+
+        for (usertf = veriusertfs; usertf; usertf++) {
+            if (usertf->type == 0)
+                return;
+            mti_RegisterUserTF(usertf);
+        }
+    }
+    
+3. Compile the edited veriuser.c file:
+
+      cc -c -I/usr/modeltech/include veriuser.c
+
+   The include path ("/usr/modeltech/include" in the above) should
+   reflect the include directory which is located immediately below
+   the directory in which you installed the ModelSim.
+
+4. Link the veriuser.o file created in the previous step to the
+   Signalscan's VCS version of the shared library. On the Sun4
+   platform, that would look like:
+
+ ld -o veriuser.sl veriuser.o /usr/local/lib/signalscan/librecord-vcs-4.so.2.0
+
+5. Modify the Veriuser entry in the modelsim.ini file to load the
+   newly created veriuser.sl. It should now read:
+
+    ; Path to dynamically loaded object for Verilog PLI application
+    Veriuser = veriuser.sl
+
+   You may substitute the full path name for veriuser.sl if it is
+   not in your local directory.
+
+At the next invocation of vsim, veriuser.sl should load, providing
+access to the Signalscan SST dump routines.

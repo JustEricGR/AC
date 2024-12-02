@@ -1,0 +1,4368 @@
+#
+# Monitor view
+#
+#  Create a view for monitoring hdl data objects (signals, registers, etc.)
+#
+
+package provide Monitor 1.0
+
+package require Iwidgets
+
+
+#
+# Provide a lowercased access method for the MonitorNode class.
+# 
+namespace eval MonitorWin {
+	variable change_prompt 
+	variable prop_dlg_signame ""
+	variable save_monitor_format_file "" 
+	variable load_monitor_format_file ""
+	variable MonitorFormatDir ""
+	variable propsig_radix ""
+	variable propsig_radixenum ""
+	variable propsig_label ""
+	variable kernelMonitorCode {
+		# This code is meant to be executed in the kernel only
+		proc mti_monitor {options obj left right dir start end seqId} {
+			global monitor_data monitor_seqId monitor_newvals monitor_changes monitor_options
+
+			if {![info exists monitor_data($obj)]} {
+				set monitor_data($obj) ""
+			}
+			if {![info exists monitor_options($obj)]} {
+				set monitor_options($obj) ""
+			}
+			if {![info exists monitor_seqId($obj)]} {
+				set monitor_seqId($obj) [expr {$seqId - 1}]
+			}
+			if {$monitor_seqId($obj) != $seqId || 
+				![info exists monitor_newvals($obj)] ||
+				$monitor_options($obj) ne $options} {
+				set cmd [concat mti_examine $options]
+				for {set idx $left} {$idx != ($right + $dir)} {incr idx $dir} {
+					lappend cmd [format "%s(%d)" $obj $idx]
+				}
+				if {[catch {eval $cmd} newvals]} {
+					set newvals "null"
+				}
+				set monitor_seqId($obj) $seqId
+				if {[info exists monitor_newvals($obj)]} {
+					set monitor_data($obj) $monitor_newvals($obj)
+				}
+				set monitor_newvals($obj) $newvals
+				set changes [list]
+				foreach val $newvals oldval $monitor_data($obj) {
+					if {$oldval eq $val} {
+						set changed 0
+					} else {
+						set changed 1
+					}
+					lappend changes $changed
+				}
+				set monitor_changes($obj) $changes
+				set monitor_options($obj) $options
+			} else {
+				set newvals $monitor_newvals($obj)
+				set changes $monitor_changes($obj)
+			}
+			return [list [lrange $newvals $start $end] [lrange $changes $start $end]]
+		}
+		proc mti_monitor_reset {} {
+			global monitor_data monitor_newvals monitor_changes monitor_options
+			array unset monitor_data
+			array unset monitor_newvals
+			array unset monitor_changes
+			array unset monitor_options
+		}
+	}
+	variable kernelMonitorCodeSet 0
+	variable kernelSeqId 0
+}
+
+proc ::vsimwidgets::monitornode {pathName args} {
+    uplevel ::vsimwidgets::MonitorNode $pathName $args
+}
+
+class vsimwidgets::MonitorNode {
+    inherit itk::Widget
+
+	itk_option define -activebackground activeBackground ActiveBackground "#000080"
+	itk_option define -activeforeground activeForeground ActiveForeground White
+	itk_option define -selectbackground selectBackground Foreground "#000080"
+	itk_option define -selectforeground selectForeground Background White
+	itk_option define -class class Class Node
+	itk_option define -foreground foreground Foreground Black
+	itk_option define -background background Background White
+	itk_option define -textforeground textForeground Foreground White
+	itk_option define -textbackground textBackground Background SteelBlue
+	itk_option define -inactivebackground inactiveBackground InactiveBackground White
+	itk_option define -inactiveforeground inactiveForeground InactiveForeground Black
+	itk_option define -changeforeground changeForeground ChangeForeground red
+	itk_option define -minheight minheight Minheight 50
+	itk_option define -minwidth minwidth Minwidth 70
+	itk_option define -height height Height 50
+	itk_option define -width width Width 70
+	itk_option define -state state State  active   ;# one of active, inactive
+	itk_option define -parent parent Parent ""
+	itk_option define -name name Name ""
+	itk_option define -expand expand Expand 0
+	itk_option define -font font Font {Helvetica 12}
+	itk_option define -maxwidth maxwidth Maxwidth 50
+	itk_option define -maxheight maxheight Maxheight 20
+	itk_option define -radix radix Radix default
+	itk_option define -radixenum radixenum RadixEnum default
+	
+    constructor {args} {}
+	destructor {} 
+
+	public method updateNode {}
+	public method notify {reason args}
+	public method add_item {w}
+	public method set_clustered {v} { set clustered $v}
+	public method is_clustered {} { return $clustered}
+	public method is_cluster {} { return [expr {[string equal $type "cluster"]? 1:0}]}
+	public method obj {} {return $obj_name}
+	public method get {}
+	public method IsDrag {{d ""}} {return [expr {$d eq ""? [set _drag]:[set _drag $d]}]}
+
+	public method cursor {w x y}
+	public method childsite {} {}
+	public method _post {w x y}
+	public method isexpanded {} { return $itk_option(-expand) }
+	public method radix {{new ""}} 
+	public method radixenum {{new ""}} 
+	public method display_name {{new ""}} 
+	public method fixSize {args}
+	public method setPos {newX newY} { set x $newX; set y $newY}
+ 	public method getPos {} { return [list $x $y]}
+	public method isMapped {{m ""}}
+	public method accType {} {return $acc_type}
+
+	public method useSimplenm {} { set use_simple_name 1}
+	public method isSimplenm {} {return $use_simple_name}
+	public method getAddress {}
+	public method selectItem {item}
+
+	public method dumpNode {} ;# Used to QA the widget.
+
+	private method _icursor {w x y}
+	private method _expand_selected {args}
+	private method _select {w}
+	private method _found {node {ar 0}}
+	private method _name {} {return $itk_option(-name)}
+	private method add_values {parent name}
+	private method get_type {obj}
+	private method get_element_type {obj}
+	private method get_value {obj}
+	private method fill_type_data {}
+	private method get_name {}
+	private method arrayUpdate {node start count}
+	private method arraySize {node start count}
+	private method simpleNameOf {obj}
+	private method eeUpdate {node start count}
+	private method eeSize {node}
+	private method _selectCommand {{extend 0}}
+
+	private method getSimpleName {obj}
+	private method getItemLists {obj depth}
+	private method getLocalItems {obj}
+	private method getCommonItems {obj}
+	private method objSuperDepth {obj}
+	private method Exam {obj args}
+	private method ExamList {objList args}
+	private method Desc {obj args}
+	private method mti_monitor {options obj left right dir start end seqId}
+	private method gui_monitor {options obj left right dir start end seqId}
+	public  method mti_monitor_reset {}
+	private method isSim {}
+
+	private variable items     [list]	;# list of record/union/st fields
+	private variable values             ;# array of lists of current values
+	private variable type "simple"
+	private variable obj_name
+	private variable disp_name
+	private variable header_name ""
+	private variable header_label ""
+	private variable simple_name ""
+	private variable is_expandable
+	private variable left_idx 0
+	private variable right_idx 0
+	private variable dir 1
+	private variable value	[list "No Data"]
+	private variable activated 0
+	private variable clustered 0
+	private variable _drag 0
+	private variable x 0
+	private variable y 0
+	private variable mapped 0
+	private variable acc_type 0
+	private variable use_simple_name 0
+	private variable valuecs ""
+	private variable isVirtual 0
+	private variable address
+	private variable classNameList
+	private variable seqId -1
+
+	private variable EXCache
+	private variable EXCacheId ""
+	private variable EXLCache
+	private variable EXLCacheId ""
+	private variable monitor_data 
+	private variable monitor_seqId 
+	private variable monitor_newvals 
+	private variable monitor_changes 
+	private variable monitor_options
+
+	common cursors
+	if {$::tcl_platform(platform) == "windows"} {
+		set cursors(arrow) {}
+		set cursors({}) {}
+		set cursors() {}
+		set cursors(top_left_corner) size_nw_se
+		set cursors(bottom_left_corner) size_ne_sw
+		set cursors(left_side) size_we
+		set cursors(top_right_corner) size_ne_sw
+		set cursors(bottom_right_corner) size_nw_se
+		set cursors(right_side) size_we
+		set cursors(top_side) size_ns
+		set cursors(bottom_side) size_ns
+	} else {
+		set cursors(arrow) {}
+		set cursors({}) {}
+		set cursors() {}
+		set cursors(top_left_corner) top_left_corner
+		set cursors(bottom_left_corner) bottom_left_corner
+		set cursors(left_side) left_side
+		set cursors(top_right_corner) top_right_corner
+		set cursors(bottom_right_corner) bottom_right_corner
+		set cursors(right_side) right_side
+		set cursors(top_side) top_side
+		set cursors(bottom_side) bottom_side
+	}
+
+
+}
+option add *MonitorNode.activeBackground "#000080" widgetDefault
+option add *MonitorNode.activeForeground White     widgetDefault
+option add *MonitorNode.inactiveBackground grey50  widgetDefault
+option add *MonitorNode.inactiveForeground grey75  widgetDefault
+
+# ------------------------------------------------------------------
+#                        CONSTRUCTOR
+# ------------------------------------------------------------------
+body vsimwidgets::MonitorNode::constructor {args} {
+	if {$::MonitorWin::kernelMonitorCodeSet == 0} {
+		if {$::vsimPriv(kernel_loaded)} {
+			vsim_kernel eval $::MonitorWin::kernelMonitorCode
+			set ::MonitorWin::kernelMonitorCodeSet 1
+		}
+	}
+	set _drag 0
+	if {[set i [lsearch $args "-name"]] >= 0} {
+		set name [lindex $args [expr {$i + 1}]]
+	} else {
+		error "No -name specified!"
+	}
+	set parent ""
+	set itk_option(-parent) ""
+	if {[set i [lsearch $args "-parent"]] >= 0} {
+		set parent [lindex $args [expr {$i + 1}]]
+	}
+	set itk_option(-expand) 0
+	if {[set i [lsearch $args "-expand"]] >= 0} {
+		set expand [lindex $args [expr {$i + 1}]]
+		set itk_option(-expand) $expand
+	}
+	set itk_option(-radix) default
+	if {[set i [lsearch $args "-radix"]] >= 0} {
+		set itk_option(-radix) [lindex $args [expr {$i + 1}]]
+	}
+	set itk_option(-radixenum) default
+	if {[set i [lsearch $args "-radixenum"]] >= 0} {
+		set itk_option(-radixenum) [lindex $args [expr {$i + 1}]]
+	}
+	if {[set i [lsearch $args "-cluster"]] >= 0} {
+		set type "cluster"
+		set args [lreplace $args $i [expr {$i + 1}]]
+	}
+	set itk_option(-font) {Helvetica 12}
+	if {[set i [lsearch $args "-font"]] >= 0} {
+		set itk_option(-font) [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args $i [expr {$i + 1}]]
+	}
+	if {[set i [lsearch $args "-relative"]] >= 0} {
+		set use_simple_name 1
+		set args [lreplace $args $i [expr {$i + 1}]]
+	}
+	set itk_option(-changeforeground) red
+	if {[set i [lsearch $args "-changeforeground"]] >= 0} {
+		set changeforeground [lindex $args [expr {$i + 1}]]
+		set itk_option(-changeforeground) $changeforeground
+	}
+
+	set itk_option(-maxwidth) 200
+	set itk_option(-maxheight) 300
+	if {$parent ne ""} {
+		set obj_name [$parent get $name]
+	} else {
+		set obj_name $name
+	}
+	set simple_name [simpleNameOf $obj_name]
+	if {$type eq "simple"} {
+		set type [get_type $obj_name]
+	}
+	if {$type == "cluster" } {
+		itk_component add pw {
+			frame $itk_component(hull).pw 
+		} {
+			keep -background
+		}
+		set headercs $itk_component(pw)
+		set valuecs $itk_component(pw)
+		itk_component add header {
+			label $headercs.header -text "Displays" -justify left -relief ridge -bd 1
+		} {
+			keep -font
+		}
+		pack $itk_component(header) -fill x -expand 1
+
+	} else {
+		set valuecs $itk_component(hull)
+	}
+
+	if {$type eq "record" || $type eq "ref"} {
+			set itk_option(-expand) 1
+	}
+	set values() ""
+	add_values $parent $name
+	pack $itk_component(values) -fill both -expand 1 ;#
+	if {$type == "cluster" } {
+		pack $itk_component(pw) -fill both -expand 1
+	} 
+	::bind $itk_component(hull)   <Enter>    [code $this _icursor 1 %x %y]
+	::bind $itk_component(hull)   <Motion>   [code $this _icursor 1 %x %y]
+	::bind $itk_component(hull)   <Leave>    [code $this _icursor 0 0 0]
+
+	::bind $itk_component(values) <Enter> [code $this _icursor 0 0 0]
+	::bind $itk_component(values) <Leave> [code $this _icursor 1 %x %y]
+
+	if {$parent ne ""} {
+		if {$type == "cluster" } {
+			::bind $itk_component(header) <ButtonPress-1> "focus %W;[code $parent _B1 $name %X %Y]"
+			::bind $itk_component(header) <B1-Motion> [code $parent _B1Motion $name %X %Y]
+			::bind $itk_component(header) <ButtonRelease-1> [code $parent _B1ItemRelease $name %X %Y]
+			::bind $itk_component(header) <Key-Delete> [code $parent delete_current $name]
+			::bind $itk_component(header) <Control-1> "focus %W;[code $parent _C1 $name %X %Y]"
+			::bind $itk_component(values) <ButtonPress-1> [code $this _select %W]
+			::bind $itk_component(header) <ButtonPress-3> [code $parent _post %W %x %y]
+		} else {
+			::bind $itk_component(values) <ButtonPress-1> "focus %W;[code $parent _B1 $name %X %Y]"
+			::bind $itk_component(values) <B1-Motion> "[code $parent _B1Motion $name %X %Y]"
+			::bind $itk_component(values) <ButtonRelease-1> "[code $parent _B1ItemRelease $name %X %Y]"
+			::bind $itk_component(values) <Control-1> "focus %W;[code $parent _C1 $name %X %Y]"
+		}
+
+		::bind $itk_component(values) <Double-ButtonPress-1> "[code $this _expand_selected];UpdateToolbars"
+		::bind $itk_component(values) <Key-Delete> "[code $parent delete_current $name];UpdateToolbars"
+
+		::bind $itk_component(values) <ButtonPress-3> [code $parent _post %W %x %y]
+		::bind $itk_component(values) <Map> [code $parent mapped $name]
+	}
+	$itk_component(hull) component hull configure -borderwidth 3 -relief ridge
+
+    #
+    # Initialize the widget based on the command line options.
+    #
+	eval itk_initialize $args
+	$itk_component(hull) component hull configure -borderwidth 3 -relief ridge
+	updateNode
+}
+
+body vsimwidgets::MonitorNode::dumpNode {} {
+	set rv "#----------------- dumpNode -----------------\n"
+
+	# This list must be kept in sync with the list of private
+	# variables in the class.
+
+	set varList {
+		obj_name disp_name header_name header_label simple_name type acc_type 
+		left_idx right_idx dir clustered x y 
+		use_simple_name isVirtual classNameList 
+		address items value values
+	}
+	foreach varName $varList {
+		if {[array exists $varName]} {
+			foreach n [lsort -dictionary [array names $varName]] {
+				set cmd "set ${varName}($n)"
+				append rv "$varName ($n) = [eval $cmd]\n"
+			}
+		} elseif {[info exists $varName]} {
+			append rv "$varName  = [join [set $varName] \n\t]\n"
+		} else {
+			append rv "$varName not defined\n"
+		}
+	}
+	return $rv
+}
+
+body vsimwidgets::MonitorNode::Exam {obj args} {
+	set force [expr {[lsearch $args -handle] >= 0}]
+	set signature $args
+	if {$itk_option(-radix) eq "default"} {
+		set rdx $::DefaultRadix
+	} else {
+		set rdx $itk_option(-radix)
+	}
+	lappend args -radix $rdx -env [::env]
+	lappend signature $rdx [::env]
+	if {$itk_option(-radixenum) == "symbolic"} {
+		lappend args -radixenumsymbolic
+		lappend signature -radixenumsymbolic
+	} elseif {$itk_option(-radixenum) == "numeric"} {
+		lappend args -radixenumnumeric
+		lappend signature -radixenumnumeric
+	}
+	if {$itk_option(-parent) ne ""} {
+		set time [$itk_option(-parent) time]
+		if {$time ne ""} {
+			lappend args -time $time
+			lappend signature -time
+		}
+	}
+	lappend args $obj
+	lappend signature $obj
+	lappend signature $::MonitorWin::kernelSeqId 
+
+	if {!$force && 
+		$EXCacheId eq $::MonitorWin::kernelSeqId &&
+		[info exists EXCache($signature)]} {
+		return $EXCache($signature)
+	}
+	set cmd [linsert $args 0 ::examine]
+#	return [eval $cmd]
+	if {!$force} {
+		if {[catch {eval $cmd} rv]} {
+			set rv ""
+			if {[info exists EXCache($signature)]} {unset EXCache($signature)}
+		} else {
+			set EXCache($signature) $rv
+		}
+		set EXCacheId $::MonitorWin::kernelSeqId
+	} else {
+		set rv [eval $cmd]
+	}
+	return $rv
+}
+
+body vsimwidgets::MonitorNode::Desc {obj args} {
+	lappend args -env [::env] $obj
+	if {[catch {eval [linsert $args 0 ::describe]} td]} {
+		#echo "Desc error: $td"
+		set td ""
+	}
+	return $td
+}
+
+body vsimwidgets::MonitorNode::ExamList {objList args} {
+	set signature $args
+	if {$itk_option(-radix) eq "default"} {
+		set rdx $::DefaultRadix
+	} else {
+		set rdx $itk_option(-radix)
+	}
+	lappend args -radix $rdx -env [::env]
+	lappend signature $rdx
+	if {$itk_option(-radixenum) eq "symbolic"} {
+		lappend args -radixenumsymbolic 
+		lappend signature -radixenumsymbolic 
+	} elseif {$itk_option(-radixenum) eq "numeric"} {
+		lappend args -radixenumnumeric
+		lappend signature -radixenumnumeric
+	}
+	if {$itk_option(-parent) ne ""} {
+		set time [$itk_option(-parent) time]
+		if {$time ne ""} {
+			lappend args -time $time
+			lappend signature -time
+		}
+	}
+	lappend signature $objList
+	lappend signature $::MonitorWin::kernelSeqId 
+	set cmd [concat ::examine $args $objList]
+	if {$EXLCacheId eq $::MonitorWin::kernelSeqId &&
+		[info exists EXLCache($signature)]} {
+		return $EXLCache($signature)
+	}
+#	return [eval $cmd]
+	set EXLCache($signature) [eval $cmd]
+	set EXLCacheId $::MonitorWin::kernelSeqId
+	return $EXLCache($signature)
+}
+
+body vsimwidgets::MonitorNode::mti_monitor {options obj left right dir start end seqId} {
+	if {!$isVirtual && [isSim]} {
+		set mv [vsim_kernel mti_monitor $options $obj \
+					$left $right $dir $start $end $seqId]
+	} else {
+		if {$itk_option(-parent) ne ""} {
+			set time [$itk_option(-parent) time]
+			if {$time ne ""} {
+				lappend options -time $time
+			}
+		}
+		set mv [gui_monitor $options $obj $left $right $dir $start $end $seqId]
+	}
+	return $mv
+}
+
+body vsimwidgets::MonitorNode::gui_monitor {options obj left right dir start end seqId} {
+
+	if {![info exists monitor_data($obj)]} {
+		set monitor_data($obj) ""
+	}
+	if {![info exists monitor_options($obj)]} {
+		set monitor_options($obj) ""
+	}
+	if {![info exists monitor_seqId($obj)]} {
+		set monitor_seqId($obj) [expr {$seqId - 1}]
+	}
+	if {$monitor_seqId($obj) != $seqId || 
+		![info exists monitor_newvals($obj)] ||
+		$monitor_options($obj) ne $options} {
+		set cmd [concat examine $options]
+		for {set idx $left} {$idx != ($right + $dir)} {incr idx $dir} {
+			lappend cmd [format "%s(%d)" $obj $idx]
+		}
+		if {[catch {eval $cmd} newvals]} {
+			set newvals "null"
+		}
+		set monitor_seqId($obj) $seqId
+		if {[info exists monitor_newvals($obj)]} {
+			set monitor_data($obj) $monitor_newvals($obj)
+		}
+		set monitor_newvals($obj) $newvals
+		set changes [list]
+		foreach val $newvals oldval $monitor_data($obj) {
+			if {$oldval eq $val} {
+				set changed 0
+			} else {
+				set changed 1
+			}
+			lappend changes $changed
+		}
+		set monitor_changes($obj) $changes
+		set monitor_options($obj) $options
+	} else {
+		set newvals $monitor_newvals($obj)
+		set changes $monitor_changes($obj)
+	}
+	return [list [lrange $newvals $start $end] [lrange $changes $start $end]]
+}
+
+body vsimwidgets::MonitorNode::mti_monitor_reset {} {
+	array unset monitor_data
+	array unset monitor_newvals
+	array unset monitor_changes
+	array unset monitor_options
+}
+
+
+body vsimwidgets::MonitorNode::isSim {} {
+	if {[NamespaceIsSim [context namespace $obj_name]] &&
+		($itk_option(-parent) eq "" || [$itk_option(-parent) time] eq "")} {
+		return 1
+	} else {
+		return 0
+	}
+}
+
+body vsimwidgets::MonitorNode::radix {{new ""}} {
+	if {$new == ""} {
+		return $itk_option(-radix)
+	} else {
+		set itk_option(-radix) $new
+		if {[string equal $type "cluster"]} {
+			foreach item $items {
+				$item radix $new
+			}
+			return
+		}
+		updateNode
+	}
+}
+
+body vsimwidgets::MonitorNode::radixenum {{new ""}} {
+	if {$new == ""} {
+		return $itk_option(-radixenum)
+	} else {
+		set itk_option(-radixenum) $new
+		if {[string equal $type "cluster"]} {
+			foreach item $items {
+				$item radixenum $new
+			}
+			return
+		}
+		updateNode
+	}
+}
+
+body vsimwidgets::MonitorNode::get_name {} {
+	if {$use_simple_name && $simple_name ne ""} {
+		return $simple_name
+	}
+	return $obj_name
+}
+
+body vsimwidgets::MonitorNode::getAddress {} {
+	if {![info exists address] || $address eq ""} {
+		return "unknown"
+	}
+	return $address
+}
+
+body vsimwidgets::MonitorNode::display_name {{new ""}} {
+	if {$new == ""} {
+		return $header_name
+	} else {
+		set header_name $new
+		updateNode
+	}
+
+	set av [getAddress]
+	if {$av ne "n/a"} {
+		set header_label "$header_name ($av)"
+	} else {
+		set header_label "$header_name"
+	}
+
+}
+
+body vsimwidgets::MonitorNode::fixSize {args} {
+	updateNode
+	return $args
+}
+
+body vsimwidgets::MonitorNode::notify {reason args} {
+return
+	switch -- $reason {
+		size {
+			set new_width [expr {[lindex $args 0] - 10}]
+			if {$type eq "simple" &&
+				[winfo class $itk_component(values)] ne "Scrolledlistbox" &&
+				[winfo class $itk_component(values)] ne "Scrolledtext"} {
+				$itk_component(values) configure -wraplength $new_width
+			}
+		}
+	}
+}
+
+body vsimwidgets::MonitorNode::_post {w x y} {
+	if {$itk_option(-parent) ne ""} {
+		$itk_option(-parent) _post $w $x $y
+	}
+}
+
+
+body vsimwidgets::MonitorNode::_select {w} {
+	focus $w
+	if {$itk_option(-parent) ne ""} {
+		$itk_option(-parent) activate $itk_option(-name)
+	}
+}
+
+body vsimwidgets::MonitorNode::_found {node {ar 0}} {
+	if {$itk_option(-parent) eq ""} {
+		return ""
+	}
+	set found_nodes [$itk_option(-parent) exists $node]
+	set len [llength $found_nodes]
+	if {$len <= 0} {
+		return ""
+
+	} elseif {(!$ar && $len >=1)} {
+		return [lindex $found_nodes end]
+	} elseif {$ar} {
+		set ret ""
+		foreach item $found_nodes {
+			if {[$item isexpanded]} {
+				set ret $item
+			}
+		}
+		return $ret
+	}
+	return ""
+}
+
+body vsimwidgets::MonitorNode::_expand_selected {args} {
+	if {($itk_option(-parent) ne "") &&
+		(($type ne "simple" && $type ne "str") ||
+		 ([info exists is_expandable($obj_name)] && $is_expandable($obj_name)))} {
+		set d $itk_option(-name)
+		if {$clustered} {
+			set d $clustered
+		}
+		if {![catch {$itk_component(values) curselection} sel_list]} {
+			foreach sel $sel_list {
+				set item [lindex [$itk_component(values) get $sel] 0]; #[lindex $items $sel]
+				if {[set found_node [_found $item]] ne ""} {
+					$itk_option(-parent) activate [$found_node _name] 1 $d $item
+					_selectCommand
+				} else {
+					if {[catch {eval $itk_option(-parent) add {$item} -depends $d} err]} {
+						mti_error_message $err\n
+					} else {
+						_selectCommand
+					}
+				}
+			}
+		}
+	}
+}
+
+body vsimwidgets::MonitorNode::_selectCommand {{extend 0}} {
+	if {$itk_option(-parent) eq ""} { return }
+	if {$type ne "str" &&
+		[catch {
+		focus [$itk_component(values) component col0]
+		if {!$extend} {
+			$itk_option(-parent) unselectEdge all
+		}
+		set fromaddr [getAddress]
+		foreach sel [$itk_component(values) cursel] {
+			foreach item [$itk_component(values) get $sel] {
+				if {[catch {Exam $item -handle} toaddr]} {
+					continue
+				}
+				set path "PATH:${fromaddr}_${toaddr}"
+				$itk_option(-parent) selectEdge $path
+			}
+		}
+	} status]} {
+		mti_error_message "$status\n"
+	}
+}
+
+body vsimwidgets::MonitorNode::get {} {
+	if {[string equal $type "cluster"]} {
+		set res [list]
+		foreach item $items {
+			lappend res [$item get]
+		}
+		return $res
+	} else {
+		return $obj_name
+	}
+}
+
+body vsimwidgets::MonitorNode::simpleNameOf {obj} {
+	return [context tail $obj]
+}
+
+body vsimwidgets::MonitorNode::get_type {obj} {
+	if {[catch {Desc $obj -type -depth 1} tmp]} {
+		if {$type eq "cluster"} {
+			return cluster
+		} else {
+			return undef
+		}
+	}
+	set desc [split [string trim $tmp]]
+	if {[string compare -length 6 "Record" $desc] == 0} {
+		return record
+	} elseif {[string compare -length 5 "Array" $desc] == 0} {
+		set l [lindex $desc 1]
+		set r [lindex $desc 3]
+		if {$l != $r} {
+			return array
+		} else {
+			return simple
+		}
+	} elseif {[string compare -length 3 "Ref" $desc] == 0} {
+		return ref
+	} elseif {[string compare -length 5 "Assoc" $desc] == 0} {
+		return assoc
+	} elseif {[string compare -length 7 "Dynamic" $desc] == 0} {
+		return dyn
+	} elseif {[string compare -length 6 "String" $desc] == 0} {
+		return str
+	} else {
+		return simple
+	}
+
+}
+
+body vsimwidgets::MonitorNode::get_element_type {obj} {
+	if {[catch {Desc $obj -elemtype -depth 1} tmp]} {
+		if {$type eq "cluster"} {
+			return cluster
+		} else {
+			return undef
+		}
+	}
+	set desc [split [string trim $tmp]]
+	if {[string compare -length 6 "Record" $desc] == 0} {
+		return record
+	} elseif {[string compare -length 5 "Array" $desc] == 0} {
+		set l [lindex $desc 1]
+		set r [lindex $desc 3]
+		if {$l != $r} {
+			return array
+		} else {
+			return simple
+		}
+	} elseif {[string compare -length 3 "Ref" $desc] == 0} {
+		return ref
+	} elseif {[string compare -length 5 "Assoc" $desc] == 0} {
+		return assoc
+	} elseif {[string compare -length 7 "Dynamic" $desc] == 0} {
+		return dyn
+	} elseif {[string compare -length 6 "String" $desc] == 0} {
+		return str
+	} else {
+		return simple
+	}
+
+}
+
+body vsimwidgets::MonitorNode::fill_type_data {} {
+	if {$type eq "cluster"} return
+	set obj [get_name]
+	if {[catch {Desc $obj -type -depth 1} tmp] || $tmp eq ""} {
+		#echo "fill_type_data Desc error: $tmp"
+		set type undef
+		return
+	}
+	if {[catch {Exam $obj -handle} address] || $address == 0} {
+		set address "n/a"
+	}
+
+	set tmp [string trim $tmp \n]
+	set desc [split $tmp]
+	set simple_name [simpleNameOf $obj_name]
+	set acc_type [lindex $desc end]
+	if {[string compare -length 6 "Record" $desc] == 0} {
+		set items [lrange $desc 1 end-1]
+		set type record
+	} elseif {[string compare -length 5 "Array" $desc] == 0} {
+		set left_idx [lindex $desc 1]
+		set right_idx [lindex $desc 3]
+		if {[catch {Desc $obj -elemtype -depth 1} tmp]} {
+			set type simple
+		} else {
+			set elemdesc [split [string trim $tmp \n] " "]
+			if {[string compare -length 6 "Simple" $elemdesc] == 0} {
+				set type simple
+			} elseif {$left_idx != $right_idx} {
+				set dir [expr {[string equal [lindex $desc 2] "to"] ? 1 : -1}]
+				set type array
+			} else {
+				set type simple
+			}
+		}
+	} elseif {[string compare -length 3 "Ref" $desc] == 0} {
+		set type ref
+		if {$simple_name eq "this"} {
+			set use_simple_name 1
+		} else {
+			set items [getLocalItems $obj_name]
+		}
+	} elseif {[string compare -length 5 "Assoc" $desc] == 0} {
+		set type assoc
+		if {![catch {Exam [get_name]} vlist]} {
+			set len [llength [lindex $vlist 0]]
+			if {$len <= 0} {
+				incr len
+			}
+			set items [range 1 to $len]
+		}
+	} elseif {[string compare -length 7 "Dynamic" $desc] == 0} {
+		set type dyn
+		if {![catch {Exam [get_name]} vlist]} {
+			set len [llength [lindex $vlist 0]]
+			if {$len <= 0} {
+				incr len
+			}
+			set items [range 1 to $len]
+		}
+	} elseif {[string compare -length 6 "String" $desc] == 0} {
+		set type str
+	} else {
+		set type simple
+	}
+	set disp_name [get_name]
+}
+
+body vsimwidgets::MonitorNode::add_values {parent name} {
+	set obj [fill_type_data]
+	set av [getAddress]
+	set header_name [get_name]
+	if {$av ne "n/a"} {
+		set header_label "$header_name ($av)"
+	} else {
+		set header_label "$header_name"
+	}
+	if {$type eq "cluster"} {
+		itk_component add values {
+			panedwindow $valuecs.pw1 -showhandle 0 -orient vertical -relief groove
+		} {
+			keep -background
+		}
+		set is_expandable($obj_name) 0
+	} elseif {$type eq "array"} {
+		set wid [expr {[font measure $itk_option(-font) "M"] * 20}]
+		set hgt [expr {[font metrics $itk_option(-font) -linespace] * 40}]
+		itk_component add values {
+			vsimwidgets::hierarchy $valuecs.h \
+				-hscrollmode dynamic -vscrollmode dynamic \
+				-command [code $this _expand_selected] \
+				-alwaysquery 1 \
+				-sbwidth 7 \
+				-textfont $itk_option(-font) \
+				-header 0 \
+				-relief ridge \
+				-displayboxes 0 \
+				-displayhboxes 0 \
+				-width $wid \
+				-height $hgt
+		} {
+			ignore -background -activebackground -borderwidth
+			keep -textfont -labelfont
+			keep -textbackground -textbackground2
+			keep -textforeground
+		}
+		$itk_component(values) configure \
+			-selectcommand [code $this _selectCommand] \
+			-labelvariable [scope header_label]
+		$itk_component(values) component label configure -anchor e -justify right
+		$itk_component(values) column configure 0 -width 0
+		set disp_name [list]
+		set top [winfo toplevel $itk_component(hull)]
+		$top configure -cursor watch
+
+
+		for {set idx $left_idx} {[expr {$idx * $dir}] <= [expr {$right_idx * $dir}]} {incr idx $dir} {
+			set item "$obj_name\($idx\)"
+
+			set label "\[$idx\]"
+			lappend disp_name $label
+
+			lappend items $item
+			set is_expandable($item) 1
+		}
+		set changed_tag [list]
+		if {[llength $items] < 40} {
+			set hgt [expr {[font metrics $itk_option(-font) -linespace] * ([llength $items] + 4)}]
+			$itk_component(values) configure -height $hgt
+		}
+		if {[catch {::context type $obj_name} ct]} {
+			set isVirtual 0
+		} else {
+			set isVirtual [string match "Virtual*" $ct]
+		}
+		# query setup
+		$itk_component(values) configure \
+			-querycommand [code $this arrayUpdate %n %i %c] \
+			-qsizecommand [code $this arraySize %n %i %c]
+		$top configure -cursor {}
+
+	} elseif {$type eq "str"} {
+		set wid [expr {[font measure $itk_option(-font) "M"] * 40}]
+		set hgt [expr {[font metrics $itk_option(-font) -linespace] * 2}]
+		itk_component add values {
+			iwidgets::scrolledtext $valuecs.st \
+				-hscrollmode dynamic \
+				-wrap word \
+				-width $wid \
+				-height $hgt \
+				-visibleitems 40x2 \
+				-sbwidth 7
+		} {
+			ignore -background -activebackground -borderwidth
+			rename -textfont -font font Font
+			keep -textbackground
+			keep -textforeground
+		}
+		$itk_component(values) configure -labelvariable [scope header_label]
+		$itk_component(values) tag configure changed -foreground $itk_option(-changeforeground)
+
+		# Turn watch cursor on as this may take a second
+		set top [winfo toplevel $itk_component(hull)]
+		$top configure -cursor watch
+
+		set disp_name [list]
+		set gn [get_name]
+		foreach item $items {
+			set label [string range $item [string length $gn] end]
+			lappend disp_name $label
+			set is_expandable($item) 1
+		}
+		set changed_tag [list]
+		if {[catch {::context type $obj_name} ct]} {
+			set isVirtual 0
+		} else {
+			set isVirtual [string match "Virtual*" $ct]
+		}
+
+		$top configure -cursor {}
+
+ 	} else {
+		set wid [expr {[font measure $itk_option(-font) "M"] * 20}]
+		set hgt [expr {[font metrics $itk_option(-font) -linespace] * 40}]
+		itk_component add values {
+			vsimwidgets::hierarchy $valuecs.h \
+				-hscrollmode dynamic -vscrollmode dynamic \
+				-command [code $this _expand_selected] \
+				-alwaysquery 1 \
+				-sbwidth 7 \
+				-textfont $itk_option(-font) \
+				-header 0 \
+				-relief ridge \
+				-width $wid \
+				-height $hgt
+		} {
+			ignore -background -activebackground -borderwidth
+			keep -textfont -labelfont
+			keep -textbackground -textbackground2
+			keep -textforeground
+		}
+		$itk_component(values) configure -selectcommand [code $this _selectCommand] \
+			-labelvariable [scope header_label]
+		$itk_component(values) component label configure -anchor e -justify right
+		$itk_component(values) column configure 0 -width 0
+		if { $type eq "ref" || ($type eq "record" && [string match *.super [get_name]]) } {
+			$itk_component(values) configure -displayboxes 1 -displayhboxes 1
+		} else {
+			$itk_component(values) configure -displayboxes 0 -displayhboxes 0
+		}
+
+
+		# Turn watch cursor on as this may take a second
+		set top [winfo toplevel $itk_component(hull)]
+		$top configure -cursor watch
+
+		set disp_name [list]
+		set gn [get_name]
+		foreach item $items {
+			set label [string range $item [string length $gn] end]
+			lappend disp_name $label
+			set is_expandable($item) 1
+		}
+		set changed_tag [list]
+		set nitems [llength $items]
+		if {[objSuperDepth $obj_name] > 0} {
+			incr nitems [objSuperDepth $obj_name]
+		}
+		if {$nitems < 40} {
+			set hgt [expr {[font metrics $itk_option(-font) -linespace] * ($nitems + 3)}]
+			$itk_component(values) configure -height $hgt
+		}
+		if {[catch {::context type $obj_name} ct]} {
+			set isVirtual 0
+		} else {
+			set isVirtual [string match "Virtual*" $ct]
+		}
+
+		# query setup
+		if {[catch {$itk_component(values) configure \
+						-qsizecommand [code $this eeSize %n] \
+						-querycommand [code $this eeUpdate %n %i %c]} x]} {
+			mti_error_message "$x\n"
+		}
+		# ee stands for "everything else"
+
+		$top configure -cursor {}
+
+ 	}
+	if {$parent ne ""} {
+		switch $type {
+			old_simple -
+			cluster {
+			}
+			old_default {
+				::bind [$itk_component(values) component listbox] <ButtonPress-1> "+[code $parent _B1 $name %X %Y]"
+				::bind [$itk_component(values) component listbox] <B1-Motion> "+[code $parent _B1Motion $name %X %Y]"
+				::bind [$itk_component(values) component listbox] <ButtonRelease-1> "+[code $parent _B1ItemRelease $name %X %Y]"
+				::bind [$itk_component(values) component listbox] <Control-1> "+[code $parent _C1 $name %X %Y]"
+				::bind [$itk_component(values) component listbox] <ButtonPress-3>	[code $parent _post %W %x %y]
+				::bind [$itk_component(values) component listbox] <Key-Delete> [code $parent delete_current $name]			
+			}
+			str {
+				::bind [$itk_component(values) component text] <ButtonPress-1>   "+focus %W; [code $parent _B1 $name %X %Y]"
+				::bind [$itk_component(values) component text] <B1-Motion>       "+[code $parent _B1Motion $name %X %Y]"
+				::bind [$itk_component(values) component text] <ButtonRelease-1> "+[code $parent _B1ItemRelease $name %X %Y]"
+				::bind [$itk_component(values) component text] <Control-1>       "+[code $parent _C1 $name %X %Y]"
+				::bind [$itk_component(values) component text] <ButtonPress-3>	 "focus %W; [code $parent _post %W %x %y]"
+				::bind [$itk_component(values) component text] <Key-Delete>      "+[code $parent delete_current $name]"
+			}
+			default {
+				foreach comp {col0 canvas} {
+					::bind [$itk_component(values) component $comp] <ButtonPress-1> "+[code $parent _B1 $name %X %Y]"
+					::bind [$itk_component(values) component $comp] <B1-Motion> "+[code $parent _B1Motion $name %X %Y]"
+					::bind [$itk_component(values) component $comp] <ButtonRelease-1> "+[code $parent _B1ItemRelease $name %X %Y]"
+					::bind [$itk_component(values) component $comp] <Control-1> "+[code $parent _C1 $name %X %Y]"
+					::bind [$itk_component(values) component $comp] <ButtonPress-3> "[code $parent _post %W %x %y]; break"
+					::bind [$itk_component(values) component $comp] <Key-Delete> [code $parent delete_current $name]
+				}
+			}
+		}
+		if {$type ne "cluster" &&
+			[winfo class $itk_component(values)] ne "Label" &&
+			[lsearch [$itk_component(values) component] label] >= 0} {
+			::bind [$itk_component(values) component label] <ButtonPress-1> \
+				"+[code $parent _B1 $name %X %Y]"
+			::bind [$itk_component(values) component label] <B1-Motion> \
+				"+[code $parent _B1Motion $name %X %Y]"
+			::bind [$itk_component(values) component label] <ButtonRelease-1> \
+				"+[code $parent _B1ItemRelease $name %X %Y]"
+			::bind [$itk_component(values) component label] <Control-1> \
+				"+[code $parent _C1 $name %X %Y]"
+			::bind [$itk_component(values) component label] <ButtonPress-3> \
+				[code $parent _post %W %x %y]
+		}
+	}
+}
+
+body vsimwidgets::MonitorNode::add_item {w} {
+	if {$type ne "cluster"} return
+	$itk_component(values) add $w -stretch last
+	lappend items $w
+	::raise $w
+}
+
+body vsimwidgets::MonitorNode::get_value {obj} {
+	if {[catch {Exam $obj -name} val]} {
+		set value "Object Not Found $obj: $val"
+		return
+	} 
+	set val [lindex $val 0]
+	set val [lindex $val 1]
+	if {$type ne "array" &&
+		[info exists items] && 
+		[llength $items] > [llength $val]} {
+		set val [lindex $val 0]
+	}
+# TODO: Need a better way to limit values
+#	if {[string length $val] > 50} {
+#		set val [string range $val 0 50]
+#		append val "..."
+#	}
+	if {$isVirtual &&
+		[regexp {^\((.+,*)\)$} $val -> vval]} {
+		set val [split $vval ,]
+	}
+	set value $val
+}
+
+body vsimwidgets::MonitorNode::childsite {} {
+	return $itk_component(hull)
+}
+
+body vsimwidgets::MonitorNode::eeSize {node} {
+	set size 0
+	if {$node eq ""} {
+		if {$type eq "record" && ![string match *.super [get_name]] } {
+			set size [llength $items]
+		} elseif {$type eq "array" } {
+			# We shouldn't be here as arrays are handled by it's own callback
+		} elseif { $type eq "ref" || ($type eq "record" && [string match *.super [get_name]]) } {
+			if {[catch {Exam [get_name].super -value} super_val] ||
+				$super_val eq {{}}} {
+				set hasSuper 0
+				set superDepth 0
+			} else {
+				set hasSuper 1
+				set superDepth [objSuperDepth $obj_name]
+				if {![info exists superStateList]} {
+					set superStateList [list]
+				}
+				if {[llength $superStateList] < $superDepth} {
+					for {set i [llength $superStateList]} {$i < $superDepth} {incr i} {
+						lappend superStatelist 0
+					}
+				}
+				set superStateList [lrange $superStateList 0 [expr {$superDepth - 1}]]
+			}
+			set temp [getLocalItems $obj_name]
+			set nitems [llength $temp]
+			if {$superDepth >= 0} {
+				set nitems [expr {$nitems + $superDepth}]
+			}
+			set size $nitems
+		} elseif { $type eq "assoc" || $type eq "dyn"} {
+			if {[catch {Exam [get_name] -name} vlist]} {
+				return $vlist
+			}
+			set len [llength [lindex [lindex $vlist 0] 1]]
+			if {$len <= 0} {
+				incr len
+			}
+			set size $len
+		} elseif { $type eq "str"} {
+			set size 1
+		} else {
+			set size 1
+		}
+	} elseif { $type eq "ref" || ($type eq "record" && [string match *.super [get_name]]) } {
+		set size [llength [getLocalItems $node]]
+	}
+	return $size
+}
+
+body vsimwidgets::MonitorNode::eeUpdate {node start count} {
+	if {$node eq ""} {
+
+		set obj_val $value
+		set rv [list]
+		set max_wid 0
+		if {$type eq "record" && ![string match *.super [get_name]] } {
+			foreach item $items val $obj_val old_val $values($node) {
+				set chg [expr {$val ne $old_val}]
+				set uid $obj_name.$item
+				set item_type [get_type $uid]
+				set is_expandable($item) [expr {$item_type ne "simple"}]
+				set entry [list $uid "$item = $val"]
+				if {$chg} {
+					lappend entry [list "color=$itk_option(-changeforeground)" ]
+				} else {
+					lappend entry {}
+				}
+				lappend entry {}
+				lappend rv $entry
+			}
+			set values($node) $obj_val
+			set itk_option(-expand) 1
+		} elseif { $type eq "ref" || ($type eq "record" && [string match *.super [get_name]]) } {
+			if {[catch {Exam [get_name].super -value} super_val] ||
+				$super_val eq {{}}} {
+				set hasSuper 0
+			} else {
+				set hasSuper 1
+			}
+			set is_expandable($obj_name) 1
+			set items [getLocalItems $obj_name]
+			set gn [get_name]
+			if {$hasSuper} {
+				set super_name $gn
+				set sd [objSuperDepth $gn]
+				foreach idx [range 1 to $sd] {
+					set cn [lindex $classNameList $idx]
+					set super_name ${super_name}.super
+					set idx_name [string range $super_name [string length $gn] end]
+					set entry [list $super_name "$idx_name ($cn)" {branch} {}]
+					set rv [linsert $rv 0 $entry]
+				}
+			}
+			if {[llength $items] > 0} {
+				set new_values [ExamList $items]
+				foreach item $items new_value $new_values old_value $values($node) {
+					if {$item eq ""} break
+					set item_type [get_type $item]
+					set chg [expr {$old_value ne $new_value}]
+					switch $item_type {
+						ref -
+						assoc -
+						dyn {
+							if {$new_value ne "null" && $new_value ne ""} {
+								set new_value "{...}"
+							}
+						}
+						array {
+							if {[get_element_type $item] ne "simple"} {
+								set new_value "{...}"
+							}
+						}
+					}
+					
+					set idx_name [string range $item [string length $gn] end]
+					set entry [list $item "$idx_name = $new_value"]
+					if {$chg} {
+						lappend entry "color=$itk_option(-changeforeground)" {}
+					} else {
+						lappend entry {} {}
+					}
+					lappend rv $entry
+				}
+			} else {
+				set new_values [list]
+			}
+			set values($node) $new_values
+		} elseif { $type eq "assoc"} {
+			if {[catch {Exam [get_name] -name} vlist]} {
+				return ""; # $vlist  What to do with this error?
+			}
+			set valueList [lindex [lindex $vlist 0] 1]
+			set max_wid 0
+			set disp_name [list]
+			if {[info exists is_expandable]} {
+				unset is_expandable
+			}
+			if {[llength $valueList] > 0} {
+				set elem_type [get_type "[get_name]\(*\)"]
+				set elem_exp [expr {[string equal $elem_type "simple"] ? 0 : 1}]
+				set idx 0
+				set items [list]
+				foreach item $valueList {
+					set idx_val_list [split $item ':']
+					set idx_name [lindex $idx_val_list 0]
+					set item_value [lindex $idx_val_list 1]
+					set item "$obj_name\[$idx_name\]"
+					lappend disp_name "\[$idx_name\]"
+					set entry [list $item "[lindex $disp_name end] = $item_value" {} {}]
+					lappend rv $entry
+					lappend items $item
+					set is_expandable($item) $elem_exp
+					incr idx
+				}
+			} else {
+				set entry [list $obj_name "\{\}" {} {}]
+				lappend rv $entry
+			}
+			return $rv
+		} elseif { $type eq "dyn"} {
+			if {[catch {Exam [get_name] -name} vlist]} {
+				mti_error_message "$vlist\n"
+				return $vlist
+			}
+			set items [lindex [lindex $vlist 0] 1]
+
+			if {[llength $items] > 0 && $items ne "null"} {
+				set elem_type [get_element_type [get_name]]
+				set elem_exp [expr {[string equal $elem_type "simple"] ? 0 : 1}]
+				set idx 0 ;#TODO: Have to put in start/count limit here!
+				foreach item_value $items {
+					set uid ${obj_name}\[$idx\]
+					set entry [list $uid "\[$idx\] = $item_value" {} {}]
+					set is_expandable($uid) $elem_exp
+					lappend rv $entry
+					incr idx
+				}
+			} else {
+				set entry "[get_name] null {} {}"
+				lappend rv $entry
+			}
+			return $rv
+		} elseif { $type eq "str"} {
+			set uid $obj_name
+			set entry [list $obj_name $value]
+			set chg [expr {$values($node) ne $obj_val}]
+			if {$chg} {
+				lappend entry "color=$itk_option(-changeforeground)"
+			} else {
+				lappend entry {}
+			}
+			lappend entry {} ;# icons
+			lappend rv $entry
+			set values($node) $obj_val
+		} elseif { $type eq "undef"} {
+			set uid $obj_name
+			set entry [list $uid "Invalid"]
+			set chg [expr {$values($node) ne $obj_val}]
+			if {$chg} {
+				lappend entry "color=$itk_option(-changeforeground)"
+			} else {
+				lappend entry {}
+			}
+			lappend entry {} ;# icons
+			lappend rv $entry
+			set values($node) ""
+		} else {
+			set uid $obj_name
+			set entry [list $obj_name $value]
+			set chg [expr {$values($node) ne $obj_val}]
+			if {$chg} {
+				lappend entry "color=$itk_option(-changeforeground)"
+			} else {
+				lappend entry {}
+			}
+			lappend entry {} ;# icons
+			lappend rv $entry
+			set values($node) $obj_val
+		}
+	} elseif { [string match *.super $node] } {
+		# Expanding super
+		set superItems [getLocalItems $node]
+		if {[llength $superItems] > 0} {
+			set new_values [ExamList $superItems]
+		} else {
+			set new_values [list]
+		}
+		set gn [get_name]
+		set rv [list]
+		foreach item $superItems new_value $new_values {
+			set item_type [get_type $item]
+			switch $item_type {
+				ref -
+				assoc -
+				dyn {
+					if {$new_value ne "null" && $new_value ne ""} {
+						set new_value "{...}"
+					}
+				}
+				array {
+					if {[get_element_type $item] ne "simple"} {
+						set new_value "{...}"
+					}
+				}
+			}
+			set idx_name [string range $item [string length $node] end]
+			set entry [list $item "$idx_name = $new_value"]
+			#TODO: Need to add old value testing in here
+			lappend entry {} {}
+			lappend rv $entry
+		}
+		set values($node) $new_values
+	}
+	return $rv
+}
+
+
+body vsimwidgets::MonitorNode::arraySize {node start count} {
+	if {$dir > 0} {
+		set rv [expr {$right_idx - $left_idx + 1}]
+	} else {
+		set rv [expr {$left_idx - $right_idx + 1}]
+	}
+	return $rv
+}
+
+body vsimwidgets::MonitorNode::arrayUpdate {node start count} {
+	set rv [list]
+	if {$node eq ""} {
+		set top [winfo toplevel $itk_component(hull)]
+		$top configure -cursor watch
+		set end [expr {$start + $count}]
+
+		if {$itk_option(-radix) eq "default"} {
+			set rdx $::DefaultRadix
+		} else {
+			set rdx $itk_option(-radix)
+		}
+		set options [list -radix $rdx -value]
+		if {$itk_option(-radixenum) == "symbolic"} {
+			lappend options "-radixenumsymbolic"
+		} elseif {$itk_option(-radixenum) == "numeric"} {
+			lappend options "-radixenumnumeric"
+		}
+		set mv [mti_monitor $options $obj_name \
+					$left_idx $right_idx $dir $start $end \
+					$::MonitorWin::kernelSeqId]
+		set vals [lindex $mv 0]
+		set chgs [lindex $mv 1]
+		set len [llength [lrange $items $start $end]]
+		if {[llength $vals] == 1 && [llength $chgs] == 1 && $vals eq "null"} {
+			set vals [concat "null" [string repeat "{} " [expr {$len - 1}]]]
+			set chgs [string repeat "0 " $len]
+		}
+		foreach \
+			item       [lrange $items $start $end] \
+			item_value $vals \
+			item_chgd  $chgs \
+			label      [lrange $disp_name $start $end] {
+
+			set item_type [get_type $item]
+			switch $item_type {
+				ref -
+				assoc -
+				dyn {
+					if {$item_value ne "null" && $item_value ne ""} {
+						set item_value "{...}"
+					}
+				}
+				array {
+					if {[get_element_type $item] ne "simple"} {
+						set item_value "{...}"
+					}
+				}
+			}
+
+			set new_value "$label = $item_value"
+			if {$item_chgd ne "" && $item_chgd} {
+				set tag "color=$itk_option(-changeforeground)"
+			} else {
+				set tag {}
+			}
+			set entry [list $item $new_value $tag {}]
+			lappend rv $entry
+		}
+	}
+	set changed_tag [list]
+	$top configure -cursor {}
+	return $rv
+}
+
+body vsimwidgets::MonitorNode::updateNode {} {
+	if {[string equal $type "cluster"]} {
+		$itk_component(header) configure -text $header_label
+		foreach item $items {
+			$item updateNode
+		}
+		return
+	}
+	set obj $obj_name
+	if {[catch {Exam $obj -handle} obj_address] || $obj_address == 0} {
+		set obj_address "n/a"
+	}
+	if {$obj_address ne $address} {
+		# Address changed!
+		if {[info exists classNameList]} {
+			unset classNameList
+		}
+		array unset EXCache
+		catch {fill_type_data} obj
+		set av [getAddress]
+		if {$av ne "n/a"} {
+			set header_label "$header_name ($av)"
+		} else {
+			set header_label "$header_name"
+		}
+	}
+	catch {get_value $obj} obj_val
+	if {$type eq "str"} {
+		# Updates are controlled here.  For other values, this control is done
+		# in the tree query routines.
+		if {$::MonitorWin::kernelSeqId eq $seqId} return
+		set chg [expr {$values() ne $obj_val}]
+		$itk_component(values) component text configure -state normal
+		set saveview [$itk_component(values) component text yview]
+		$itk_component(values) delete 1.0 end
+		if {$chg} {
+			set tag changed
+		} else {
+			set tag {}
+		}
+		$itk_component(values) insert end $obj_val $tag
+		$itk_component(values) component text yview moveto [lindex $saveview 0]
+		$itk_component(values) component text configure -state disabled
+		set values() $obj_val
+		set seqId $::MonitorWin::kernelSeqId
+	} else {
+		$itk_component(values) delete 0 end
+		set max_wid 0
+		set top [winfo toplevel $itk_component(hull)]
+		$top configure -cursor watch
+		set marklist [list]
+		set offset [$itk_component(values) index @0,0]
+		$itk_component(values) requery
+		$itk_component(values) see2 $offset
+		set changed_tag [list]
+		set idx 0
+		$top configure -cursor {}
+	}
+
+	return
+}
+
+body vsimwidgets::MonitorNode::_icursor {w x y} {
+	if {$clustered} return
+	if {$w != 0 } {
+		set cur [cursor $w $x $y]
+		$itk_component(hull) configure -cursor $cursors($cur)
+	} else {
+		$itk_component(hull) configure -cursor {}
+	}
+}
+
+body vsimwidgets::MonitorNode::cursor {w x y} {
+	if {$clustered} return
+	set geom [winfo geometry $itk_component(hull)]
+	if {[scan $geom "%dx%d+%d+%d" wid hgt right down] != 4} {
+		error "Bad geometry specification!"
+	}
+	set bd [expr {[$itk_component(hull) component hull cget -borderwidth] + 1}]
+
+	set delta [expr {$bd * 3}]
+	set down [expr {$hgt - $delta}]
+	set right [expr {$wid - $delta}]
+
+	if {$x < $delta} { 
+		# westy
+		if {$y < $delta} {
+			set result top_left_corner
+		} else {
+			if {$y > $down} {
+				set result bottom_left_corner
+			} else {
+				set result left_side
+			}
+		}
+	} else { 
+		# NOT westy
+		if {$x > $right} { 
+			# easty
+			if {$y < $delta} {
+				set result top_right_corner
+			} else {
+				if {$y > $down} {
+					set result bottom_right_corner
+				} else {
+					set result right_side
+				}
+			}
+		} else {
+			# NOT westy and  NOT easty
+			if {$y > $down} {
+				set result bottom_side
+			} elseif {$y < $delta} {
+				set result top_side
+			} else {
+				set result ""
+			}
+		}
+	}
+
+	return $result
+}
+
+configbody vsimwidgets::MonitorNode::radix {
+	set new_radix [::_parse_radix_ $itk_option(-radix)]
+	# Expanded abbreviation:
+	set itk_option(-radix) $new_radix
+	updateNode
+}
+
+configbody vsimwidgets::MonitorNode::radixenum {
+	if {$itk_option(-radixenum) ==	"symbolic" ||
+		$itk_option(-radixenum) ==	"numeric" ||
+		$itk_option(-radixenum) ==	"default" } {
+		updateNode
+	}
+}
+
+configbody vsimwidgets::MonitorNode::activebackground {
+	if {$activated} {
+		$this config -state active
+	} else {
+		$this config -state inactive
+	}
+}
+
+configbody vsimwidgets::MonitorNode::activeforeground {
+	if {$activated} {
+		$this config -state active
+	} else {
+		$this config -state inactive
+	}
+}
+
+configbody vsimwidgets::MonitorNode::inactivebackground {
+	if {$activated} {
+		$this config -state active
+	} else {
+		$this config -state inactive
+	}
+}
+
+configbody vsimwidgets::MonitorNode::inactiveforeground {
+	if {$activated} {
+		$this config -state active
+	} else {
+		$this config -state inactive
+	}
+}
+
+configbody vsimwidgets::MonitorNode::selectbackground {
+	if {$activated} {
+		$this config -state active
+	} else {
+		$this config -state inactive
+	}
+}
+
+configbody vsimwidgets::MonitorNode::selectforeground {
+	if {$activated} {
+		$this config -state active
+	} else {
+		$this config -state inactive
+	}
+}
+
+configbody vsimwidgets::MonitorNode::state {
+	switch $itk_option(-state) {
+		active {
+			set activated 1
+			if {$type == "cluster" } {
+				$itk_component(header) configure -background $itk_option(-activebackground) -foreground $itk_option(-activeforeground)
+			} else {
+				$itk_component(values) configure -background $itk_option(-activebackground) -foreground $itk_option(-activeforeground)
+			}
+		}
+		inactive {
+			set activated 0
+			if {$type == "cluster"} {
+				$itk_component(header) configure -background $itk_option(-inactivebackground) -foreground $itk_option(-inactiveforeground)
+				foreach item $items {
+					$item configure -state inactive
+				}
+			} else {
+				$itk_component(values) configure -background $itk_option(-inactivebackground) -foreground $itk_option(-inactiveforeground)
+			}
+
+		}
+		default {
+			error "illegal state: $itk_option(-state)"
+			set itk_option(-state) inactive
+		}
+	}
+}
+
+body vsimwidgets::MonitorNode::isMapped {{m ""}} { 
+	if {$m eq ""} {
+		return $mapped
+	}
+	set mapped $m
+}
+
+# Given an object name, return is simple leaf name
+body vsimwidgets::MonitorNode::getSimpleName {obj} {
+	set name [context tail $obj]
+	return [lindex [split $name .] end]
+}
+
+# Find the list of local items in a class
+# and the list of super items in a class (i.e. statics)
+# This function is recursive.
+# Return value:  is a tuple, a list of 2 lists
+body vsimwidgets::MonitorNode::getItemLists {obj depth} {
+	if {[catch {Desc $obj -type} res]} {
+		return {}
+	}
+	set obj_items [list]
+	foreach field [lrange $res 1 end-1] {
+		if {[regexp {^#.*#$} $field]} {
+			continue
+		}
+		lappend obj_items "${obj}.${field}"
+	}
+
+	if {$depth > 0} {
+		set slist [getItemLists ${obj}.super [expr {$depth - 1}]]
+	} else {
+		set slist [list]
+	}
+	set superitems [lindex $slist 0]
+	set s2items [lindex $slist 1]
+	if {$superitems eq {}} {
+		return [list $obj_items $obj_items]
+		set superitems $obj_items
+		set s2items $obj_items
+	}
+
+	set i 0
+	set common_items [list]
+	foreach item $obj_items sitem $superitems {
+		if {[getSimpleName $item] eq [getSimpleName $sitem]} {
+			lappend common_items $sitem
+		} else {
+			break
+		}
+		incr i
+	}
+	set j $i
+	foreach item [lrange $obj_items $j end] sitem $s2items {
+		if {[getSimpleName $item] eq [getSimpleName $sitem]} {
+			lappend common_items $sitem
+		} else {
+			break
+		}
+		incr j
+	}
+
+	return [list $common_items [lrange $obj_items $j end]]
+}
+
+# Return a list of immediately defined class members
+body vsimwidgets::MonitorNode::getLocalItems {obj} {
+	catch {objSuperDepth $obj} depth
+	if {$depth < 0} {
+		return {}
+	}
+	return [lindex [getItemLists $obj $depth] 1]
+}
+
+# Return a list of common class members
+# for all its derivation hierarchy
+body vsimwidgets::MonitorNode::getCommonItems {obj} {
+	set depth [objSuperDepth $obj]
+	if {$depth < 0} {
+		return {}
+	}
+	return [lindex [getItemlists $obj $depth] 0]
+}
+
+# Determine if an object has a super class
+# and how deep does it go.
+# Return value:
+#    -1 : error (not a class?)
+#     0 : base class
+#   n>0 : super class depth
+#
+body vsimwidgets::MonitorNode::objSuperDepth {obj} {
+	if {[info exists classNameList]} {
+		return [expr {[llength $classNameList] - 1}]
+	}
+	if {[catch {Desc $obj} typedef]} {
+		return -1
+	}
+	set line1 [lindex [split $typedef \n] 0]
+	set i 0
+	while {1} {
+		if {[regexp {^class (.+) extends (.+)$} $line1 -> className superClass]} {
+			lappend classNameList $className
+			if {[catch {Desc $superClass} typedef]} {
+				set i 0
+				break
+			}
+			set line1 [lindex [split $typedef \n] 0]
+			incr i
+		} elseif {[regexp {^class (.+)$} $line1 -> className]} {
+			lappend classNameList $className
+			break
+		} else {
+			set i -1
+			break
+		}
+	}
+	return $i
+}
+
+#
+# Select a specific entry in the node's list
+body vsimwidgets::MonitorNode::selectItem {item} {
+	if {$type ne "str"} {
+		set ix [$itk_component(values) index "&$item"]
+		if {$ix ne "" && $ix >= 0} {
+			$itk_component(values) selection clear
+			$itk_component(values) selection set $ix
+		}
+	}
+}
+
+
+
+# ------------------------------------------------------------------
+#                        Get Object type and fill items
+# ------------------------------------------------------------------
+
+
+
+#
+# Provide a lowercased access method for the Monitor class.
+# 
+
+proc ::vsimwidgets::monitor {pathName args} {
+    uplevel ::vsimwidgets::Monitor $pathName $args
+}
+
+#
+# NOTE!!! keep in mind that Monitor is derived from Scrolledcanvas.
+#	      Scrolled canvas has internal functions called bind and focus,
+#		  which work differently than the global scope bind and focus.
+#		  
+#
+
+class vsimwidgets::Monitor {
+    inherit iwidgets::Scrolledcanvas
+
+	itk_option define -headerbackground headerBackground HeaderBackground "#000080"
+	itk_option define -headerforeground headerForeground HeaderForeground White
+	itk_option define -selectbackground selectBackground Foreground $::PrefDefault(active_bg)
+	itk_option define -selectforeground selectForeground Background White
+	itk_option define -valueforeground valueForeground ValueForeground Black
+	itk_option define -valuebackground valueBackground ValueBackground "light grey"
+	itk_option define -inactivebackground inactiveBackground InactiveBackground White
+	itk_option define -inactiveforeground inactiveForeground InactiveForeground Black
+    itk_option define -popupmenu popupMenu PopupMenu {}
+	itk_option define -font font Font {Helvetica 12}
+	itk_option define -timevariable timeVariable TimeVariable ""
+
+	constructor {args} {}
+	destructor {} 
+
+	public method Action {operation args}
+	public method activate {name {see 1} {depends_on ""} {trueItem ""}}
+	public method childsite {{name ""}} {}
+	public method getcurrent {} {}
+	public method lastcurrent {} {}
+	public method setcurrent {path} {}
+	public method curselection {} { return [getcurrent]}
+	public method TileNodes {{vert Horizontally}}
+	public method select {obj}
+	public method select_all {{unselect 0}}
+	public method selectItem {name item {activate 0}}
+	public method cluster {}
+	public method uncluster {}
+	public method uncluster_node {node}
+	public method currNode {} {return [expr {$node_num - 1}]}
+
+	public method add {args}
+	public method add_node {args}
+	public method exists {node}
+	public method get {name} 
+	public method get1 {name} {return $itk_component($name)}
+	public method add_edge {from_item to_item {toName ""}}
+	public method connect {from to}
+	public method collapse {{all 0} {node ""}}
+    public method clear {}
+	public method delete_node {item {hide_it 0}}
+	public method delete_current {{item ""}}
+	public method delete_edge {from_item {to_item ""}}
+	public method get_id {node} {return $item_tags($node)}
+	public method itemcget {item args}
+	public method itemconfig {item args}
+	public method move {item args}
+	public method quitsim {args}
+	public method updateNodes {args}
+	public method updateNode {node}
+	public method updateFromRun {args}
+	public method update {args}
+	public method timeUpdate {args}
+	public method restart {args}
+	public method restartPrep {args}
+	public method getformat {}
+	public method write {file_name}
+	public method size {} {return [llength [array names nodes]]}
+	public method setoption {option}
+	public method get_scroll_area {}
+	public method get_display_area {}
+	public method see {node}
+	public method radix {node {new ""}} {$itk_component($node) radix $new}
+	public method radixenum {node {new ""}} {$itk_component($node) radixenum $new}
+	public method disp_name {node {new ""}} {$itk_component($node) display_name $new}
+	public method BindDND {}
+	public method coords {node} {return [$itk_component(canvas) coords $item_tags($node)]}
+	public method IsSelectedSystemC {}
+	public method SetStartLoading {} {set load_num [expr {$node_num - 1}]}
+	public method selectEdge {tag}
+	public method unselectEdge {tag}
+
+    
+	public method _B1 {name x y}
+	public method _C1 {name x y}
+	public method _startresize {name w x y X Y}
+	public method _doresize {name X Y x y}
+	public method _stopresize {name w x y X Y}
+    public method _B1Motion {name x y}
+	public method _B1ItemRelease {name x y}
+    public method _post {w x y}
+    public method dragItems {w}
+	public method MonitorDropHandler {args}
+	public method get_edge_coords {from_item to_item }
+	public method update_edge {name}
+	public method MoveTo {name x y}
+	public method FindPos {name {x 0} {y 0}}
+	public method mapped {name}
+	public method time {}
+
+	public method dump {{filter 1}} ;# Used to QA the widget.
+
+    private method _B1Release {x y}
+	private method _B1Press {x y w}
+	private method _B1Press_pan {x y w}
+	private method _drawArea {x y X Y}
+	private method _updateScrollRegion {}
+	private method _UpdateCursor {dir K}
+	private method autoScroll {name x y}
+
+
+	private variable nodes     ;# array of node pathnames index by node id
+	private variable edges    ;# array of edge pathnames index by edge number
+	private variable depends  ;# array of dependency nodes index by node id
+	private variable item_tags  ;# array of canvas tags by name
+	private variable cluster    ;# array of cluster nodes by id
+	private variable _startx
+	private variable _starty
+	private variable _startResize 0
+	private variable lastXevent
+	private variable lastYevent
+	private variable eventtype
+	private variable handle ""
+	private variable current [list]
+	private variable lastCurrent ""
+	private variable width
+	private variable node_num 1
+	private variable load_num 0
+	private variable lastx 0
+	private variable lasty 0
+	private variable layout Columns
+	private variable _xArea 0
+	private variable _yArea 0
+	private variable _doSelect 0
+	private variable _doPan 0
+	private variable _dragging 0
+	private variable _dragname ""
+	private variable pending_events
+	private variable autoScrollId ""
+	private variable timevar ""
+	private variable currentContext ""
+	private variable tmpFile ""
+}
+
+body vsimwidgets::Monitor::constructor {args} {
+    #
+    # Initialize the widget based on the command line options.
+    #
+
+	if {0} {
+		# draw grid
+		for {set x 25} {$x < 3000} {incr x 25} {
+			for {set y 25} {$y < 3000} {incr y 25} {
+				$itk_component(canvas) create rectangle $x $y [expr {$x+1}] [expr {$y+1}]
+			}
+		}
+	}
+
+	::bind $itk_component(lwchildsite) <Button-1>       {# Ignore this!}
+	::bind $itk_component(canvas) <ButtonPress-3>       [code $this _post %W %x %y]
+	::bind $itk_component(canvas) <ButtonPress-1>       [code $this _B1Press_pan %x %y %W] ;# B1 - Pan
+	::bind $itk_component(canvas) <Shift-ButtonPress-1> [code $this _B1Press %x %y %W] ;# Shift-B1 - Select
+	::bind $itk_component(canvas) <ButtonPress-2>       [code $this _B1Press %x %y %W] ;#       B2 - Select
+	::bind $itk_component(canvas) <ButtonRelease-1>     [code $this _B1Release %x %y]
+	::bind $itk_component(canvas) <ButtonRelease-2>     [code $this _B1Release %x %y]
+	::bind $itk_component(canvas) <B1-Motion>           [code $this _drawArea %x %y %X %Y]
+	::bind $itk_component(canvas) <B2-Motion>           [code $this _drawArea %x %y %X %Y]
+	::bind $itk_component(canvas) <Key-Delete>          [code $this delete_current]
+	::bind $itk_component(canvas) <KeyPress>            [code $this _UpdateCursor Press %K]
+	::bind $itk_component(canvas) <KeyRelease>          [code $this _UpdateCursor Release %K]
+	::bind $itk_component(canvas) <MouseWheel>          {%W yview scroll [expr {- (%D / 30) * 4}] units}
+	::bind $itk_component(canvas) <Button-4>            {%W yview scroll -19 units} ;# class binding does -1 for total of -20
+	::bind $itk_component(canvas) <Button-5>            {%W yview scroll  19 units} ;# class binding does 1 for total of 20
+	::bind $itk_component(canvas) <Up>                  {%W yview scroll  -3 units} 
+	::bind $itk_component(canvas) <Down>                {%W yview scroll   3 units} 
+	::bind $itk_component(canvas) <Left>                {%W xview scroll  -3 units} 
+	::bind $itk_component(canvas) <Right>               {%W xview scroll   3 units} 
+	::bind $itk_component(canvas) <Control-Up>          {%W yview scroll  -1 pages} 
+	::bind $itk_component(canvas) <Control-Down>        {%W yview scroll   1 pages} 
+	::bind $itk_component(canvas) <Control-Left>        {%W xview scroll  -1 pages} 
+	::bind $itk_component(canvas) <Control-Right>       {%W xview scroll   1 pages} 
+	::bind $itk_component(canvas) <Shift-Up>            {%W yview moveto   0.0 }
+	::bind $itk_component(canvas) <Shift-Down>          {%W yview moveto   1.0 }
+	::bind $itk_component(canvas) <Shift-Left>          {%W xview moveto   0.0 }
+	::bind $itk_component(canvas) <Shift-Right>         {%W xview moveto   1.0 }
+	BindDND
+	RegisterHandlers $itk_component(canvas) Drag_VerifyTreeItems 0 [code $this MonitorDropHandler]
+	#RegisterDropHandler $itk_component(canvas) [code $this MonitorDropHandler] [code $this dragItems] Drag_VerifyTreeItems
+    eval itk_initialize $args	
+	$itk_component(canvas) configure -yscrollincrement 1 -xscrollincrement 1 -cursor {}
+}
+
+configbody vsimwidgets::Monitor::timevariable {
+	if {$itk_option(-timevariable) ne ""} {
+		set timevar $itk_option(-timevariable)
+		trace add variable $timevar write [code $this timeUpdate]
+	} elseif {$timevar ne ""} {
+		trace remove variable $timevar write [code $this timeUpdate]
+		set timevar ""
+	}
+}
+
+
+body vsimwidgets::Monitor::dump {{filter 1}} {
+	set results ""
+	foreach i [lsort -dictionary [array names nodes]] {
+		set n $nodes($i)
+		if {[winfo exists $itk_component($i)]} {
+			append results "Dump of $n\n"
+			set rv [$itk_component($i) dumpNode]
+			if {$filter} {
+				if {[regsub -all {\(?0x[0-9a-zA-Z]+\)?} $rv {(0x----)} subrv]} {
+					set rv $subrv
+				}
+			}
+			append results $rv
+		} else {
+			mti_error_message "error: $i: $n component not found\n"
+		}
+	}
+	return $results
+}
+
+body vsimwidgets::Monitor::time {} {
+	if {$itk_option(-timevariable) ne ""} {
+		upvar "#0" $itk_option(-timevariable) time 
+		if {[info exists time]} {
+			return $time
+		}
+	}
+	return ""
+}
+
+body vsimwidgets::Monitor::exists {node} {
+	set found [list]
+	if {[catch {::examine -name $node} tmp]} {
+		return $found
+	}
+	if {[catch {::examine -handle $node} address]} {
+		set address "n/a"
+	}
+	set tmp [lindex $tmp 0]
+	set node [lindex $tmp 0]
+	foreach name [array names nodes] {
+		if {![info exists itk_component($name)]} continue
+		if {[$itk_component($name) is_cluster]} continue
+		set tmp [lindex [::examine -name $nodes($name)] 0]
+		set node1 [lindex $tmp 0]
+		if {[string equal $node1 $node] } {
+			lappend found $itk_component($name)
+		}
+		if {$address ne "n/a" &&
+			$address eq [$itk_component($name) getAddress]} {
+			lappend found $itk_component($name)
+		}
+	}
+	return $found
+}
+
+body vsimwidgets::Monitor::add {args} {
+	set obj [list]
+	set rest [list]
+	set lastx 0
+	set lasty 0
+	set savelayout $layout
+	for {set idx 0} {$idx < [llength $args]} {incr idx} {
+		set arg [lindex $args $idx]
+		if {[string index $arg 0] != "-"} {
+			lappend obj $arg
+			continue
+		} else {
+			if {[string equal $arg "-x"]} {
+				incr idx
+				set lastx [lindex $args $idx ]
+				set layout XY
+				continue
+			}	
+			if {[string equal $arg "-y"]} {
+				incr idx
+				set lasty [lindex $args $idx ]
+				set layout XY
+				continue
+			} elseif {[string equal $arg "-radix"] || 
+					  [string equal $arg "-radixenum"] || 
+					  [string equal $arg "-expand"] || 
+					  [string equal $arg "-depends"]} {
+				lappend rest $arg
+				incr idx 
+				lappend rest [lindex $args $idx]
+				continue
+			} elseif {[string equal $arg "-relative"]} {
+				lappend rest $arg
+				continue
+			}
+			lappend rest $arg
+			incr idx 
+			lappend rest [lindex $args $idx]
+		}
+	}
+	if {[catch {eval ::examine -name $obj} sig_list]} {
+		set err1 $sig_list
+		set sig_list {}
+	}
+	foreach sig [K $sig_list [set sig_list {}]] {
+		lappend sig_list [lindex $sig 0]
+	}
+	set sig2_list [list]
+	if {[string last * $obj] >= 0} {
+		if {[catch {eval ::examine -name -internal $obj} sig2_list]} {
+			set err2 $sig2_list
+			set sig2_list {}
+		}
+	}
+	if {[llength $sig_list] == 0 && [llength $sig2_list] == 0} {
+		if {[info exists err1]} { error $err1 }
+		if {[info exists err2]} { error $err2 }
+		error "Nothing found matching $obj"
+	}
+	foreach sig $sig2_list {
+		if {[lsearch $sig_list [lindex $sig 0]] < 0} {
+			lappend sig_list [lindex $sig 0]
+		}
+	}
+	foreach sig $sig_list {
+		set sig_name $sig ;#[lindex $sig 0]
+		set cmd [list ::examine -name $sig_name]
+		if {[catch $cmd]} {
+			return
+		}
+		eval [linsert $rest 0 add_node $node_num $sig_name]
+	}
+	set layout $savelayout
+	if {[set bb [bbox graph]] ne ""} {
+		_updateScrollRegion
+	}
+	return
+}
+
+body vsimwidgets::Monitor::add_node {args} {
+	global PrefWatch
+	set name [lindex $args 0]
+	if {[info exists itk_component($name)]} {
+		destroy $itk_component($name)
+		unset nodes($name)
+		if {[info exists item_tags($name)]} {
+			$itk_component(canvas) delete $item_tags($name)
+			unset item_tags($name)
+		}
+		error "$name already exists"
+	}
+	set obj [lindex $args 1]
+	set args [lrange $args 2 end]
+	set depends_on ""
+	if {[set i [lsearch $args "-depends"]] >= 0} {
+		set depends_on [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args $i [expr {$i + 1}]]
+		set bbox [bbox $item_tags($depends_on)]
+		set lastx [expr {[lindex $bbox 0] + 4}]
+		set lasty [expr {[lindex $bbox 1] + 2}]
+	}
+
+	set nodes($name) $obj
+	set pending_events($name) [list]
+	itk_component add $name {
+		eval [linsert $args 0 vsimwidgets::monitornode $itk_component(canvas).$name -name $name -parent $this -width 45 -height 30 -font $itk_option(-font)]
+	} {
+		rename -background -valuebackground valueBackground ValueBackground
+		rename -foreground -valueforeground valueForeground ValueForeground
+		rename -activebackground -headerbackground headerBackground HeaderBackground
+		rename -activeforeground -headerforeground headerForeground HeaderForeground
+		keep -inactiveforeground -inactivebackground
+		keep -selectbackground -selectforeground
+		keep -font -radixenum -cursor
+		keep -minwidth -maxwidth
+		keep -minheight -maxheight
+		ignore -radix
+	}
+	set item_tags($name) [$itk_component(canvas) create window $lastx $lasty -anchor nw -window $itk_component($name) -tag graph]
+
+	set cs [$itk_component($name) childsite]
+
+	if { $depends_on != "" } {
+		add_edge $depends_on $name
+	}
+
+	$this bind $item_tags($name) <ButtonPress-1> [code $this _B1 $name %X %Y]
+	$this bind $item_tags($name) <B1-Motion> [code $this _B1Motion $name %X %Y]
+	$this bind $item_tags($name) <ButtonRelease-1> [code $this _B1ItemRelease $name %X %Y]
+	
+	::bind $cs <B1-Motion> [code $this _doresize $name %X %Y %x %y]
+	::bind $cs <ButtonPress-1> [code $this _startresize $name %W %x %y %X %Y]
+	::bind $cs <ButtonRelease-1> [code $this _stopresize $name %W %x %y %X %Y]
+	activate $name
+	incr node_num
+	lappend pending_events($name) [code $this FindPos $name $lastx $lasty]
+	lappend pending_events($name) [code $this activate $name]
+}	
+
+body vsimwidgets::Monitor::mapped {name} {
+	if {![$itk_component($name) isMapped ""]} {
+		foreach event $pending_events($name) {
+			eval $event
+		}
+		set pending_events($name) [list]
+		$itk_component($name) isMapped 1
+	}
+}
+
+body vsimwidgets::Monitor::get {name} {
+	if {[info exists itk_component($name)]} {
+		return [$itk_component($name) get]
+	} else {
+		return $nodes($name)
+	}
+}
+
+body vsimwidgets::Monitor::updateNode {node} {
+	if {[info exists itk_component($node)]} {
+		$itk_component($node) updateNode
+	}
+}
+
+body vsimwidgets::Monitor::updateNodes {args} {
+	if {$currentContext ne [::environment]} {
+		foreach n [array names nodes] {
+			if {[catch {$itk_component($n) updateNode} err]} {
+				#puts stderr "\nWatch Window update nodes error: $err\n"
+			}
+		}
+		set currentContext [::environment]
+	}
+	return
+}
+
+body vsimwidgets::Monitor::updateFromRun {args} {
+	incr ::MonitorWin::kernelSeqId
+	set currentContext ""
+	updateNodes
+}
+
+body vsimwidgets::Monitor::update {args} {
+	# Hmmm, what to update?
+	# Since this is called from clock and ?change?
+	# Force an update:
+	updateFromRun
+}
+
+body vsimwidgets::Monitor::timeUpdate {args} {
+	incr ::MonitorWin::kernelSeqId
+	set currentContext ""
+	updateNodes
+}
+
+body vsimwidgets::Monitor::_startresize {name w x y X Y} {
+	if {[$itk_component($name) is_clustered]} return
+	set _startResize 1
+	set eventtype [$itk_component($name) cursor $w $x $y]
+}
+
+body vsimwidgets::Monitor::_stopresize {name w x y X Y} {
+	set _startResize 0
+}
+
+body vsimwidgets::Monitor::_doresize {name x y X Y} {
+	if {[$itk_component($name) is_clustered]} return
+	set handle $item_tags($name)	
+	if {$_startResize} {
+
+		set miny [$itk_component($name) cget -minheight]
+		set minx [$itk_component($name) cget -minwidth]
+
+		set coord [$itk_component(canvas) coords $handle]
+
+		# Top side
+		switch $eventtype {
+			top_side -
+			top_right_corner -
+			top_left_corner {
+				set hgt [expr {[$itk_component(canvas) itemcget $handle -height] - $Y}]
+ 				if {$hgt > $miny} {
+					set oy [lindex $coord 1]
+					lset coord 1 [expr {$Y + $oy}]
+					$itk_component(canvas) coords $handle $coord
+					$itk_component(canvas) itemconfig $handle -height $hgt
+				}
+			}
+		}
+
+		# Left side
+		switch $eventtype {
+			left_side -
+			top_left_corner -
+			bottom_left_corner {
+				set wid [expr {[$itk_component(canvas) itemcget $handle -width] - $X}]
+ 				if {$wid > $minx} {
+					set ox [lindex $coord 0]
+					lset coord 0 [expr {$X + $ox}]
+					$itk_component(canvas) coords $handle $coord
+					$itk_component(canvas) itemconfig $handle -width $wid
+				}
+			}
+		}
+
+		# Right side
+		switch $eventtype {
+			right_side -
+			top_right_corner -
+			bottom_right_corner {
+				set wid [expr {$X + 3}]
+				if {$wid > $minx} {
+					$itk_component(canvas) itemconfig $handle -width $wid
+				}
+			}
+		}
+
+		# Bottom side
+		switch $eventtype {
+			bottom_side -
+			bottom_left_corner -
+			bottom_right_corner {
+				set hgt [expr {$Y + 3}]
+				$itk_component(canvas) itemconfig $handle -height $hgt
+			}
+		}
+	}
+	update_edge $name
+	#$itk_component($name) notify size [$itk_component(canvas) itemcget $handle -width] [$itk_component(canvas) itemcget $handle -height]
+}
+
+body vsimwidgets::Monitor::_B1Press {x y w} {
+	global vsimPriv
+	if {[llength $current] > 1 && $lastCurrent != ""} {
+		setcurrent $lastCurrent
+	}
+	set _xArea [$itk_component(canvas) canvasx $x]
+	set _yArea [$itk_component(canvas) canvasy $y]
+	set _doSelect 1
+	::focus $itk_component(canvas)
+}
+
+body vsimwidgets::Monitor::_drawArea {x y X Y} {
+	if {$_dragging} {
+		_B1Motion $_dragname $X $Y
+		return
+	}
+	if {$_doSelect} {
+		catch {$itk_component(canvas) delete -tag selectBox}
+		$itk_component(canvas) create rect $_xArea $_yArea [$itk_component(canvas) canvasx $x] [$itk_component(canvas) canvasy $y] -tag selectBox 
+	}
+	if {$_doPan} {
+		$itk_component(canvas) configure -cursor fleur
+		$itk_component(canvas) yview scroll [expr {int($_yArea - [$itk_component(canvas) canvasy $y])}] units
+		$itk_component(canvas) xview scroll [expr {int($_xArea - [$itk_component(canvas) canvasx $x])}] units
+	}
+}
+
+body vsimwidgets::Monitor::_B1Release {x y} {
+	if {$_doSelect} {
+		catch {$itk_component(canvas) delete -tag selectBox}
+		foreach name [array names nodes] {
+			$itk_component($name) configure -state inactive
+		}
+		set current [list]
+		set sel_list [$itk_component(canvas) find overlapping $_xArea $_yArea [$itk_component(canvas) canvasx $x] [$itk_component(canvas) canvasy $y]]
+		if {[llength $sel_list]} {
+			foreach name [array names item_tags] {
+				if {[lsearch $sel_list $item_tags($name)]>=0} {
+					$itk_component($name) configure -state active
+					lappend current $name
+					$itk_component(canvas) addtag msel withtag $item_tags($name)
+				}
+			}
+			set lastCurrent [lindex $current end]
+			set _startx(msel) $_xArea
+			set _starty(msel) $_xArea
+		}
+		set _doSelect 0
+	} else {
+		set X [expr {$x + [winfo rootx $itk_component(canvas)]}]
+		set Y [expr {$y + [winfo rooty $itk_component(canvas)]}]
+		_B1ItemRelease "" $X $Y
+	}
+	set _doPan 0
+	$itk_component(canvas) configure -cursor {}
+	UpdateToolbars
+}
+
+body vsimwidgets::Monitor::_B1Press_pan {x y w} {
+	global vsimPriv
+	if {[llength $current] > 1 && $lastCurrent != ""} {
+		setcurrent $lastCurrent
+	}
+	set _xArea [$itk_component(canvas) canvasx $x]
+	set _yArea [$itk_component(canvas) canvasy $y]
+	set _doSelect 0
+	set _doPan 1
+	::focus $itk_component(canvas)
+}
+
+body vsimwidgets::Monitor::_UpdateCursor {dir K} {
+	if {$dir eq "Press"} {
+		if {$K eq "Shift_L" || $K eq "Shift_R"} {
+			$itk_component(canvas) configure -cursor crosshair
+		}
+	} elseif {$dir eq "Release"} {
+		if {$K eq "Shift_L" || $K eq "Shift_R"} {
+			$itk_component(canvas) configure -cursor {}
+		}
+	}
+}
+
+body vsimwidgets::Monitor::_C1 {name x y} {
+	if {[$itk_component($name) is_clustered]} return
+	if {[llength $current] == 1 && [string compare $name [lindex $current 0]]} {
+		if {[info exists item_tags([lindex $current 0])]} {
+			$itk_component(canvas) addtag msel withtag $item_tags([lindex $current 0])
+		}
+	}
+	if {[set i [lsearch -exact $current $name]] >= 0 } {
+		$itk_component($name) configure -state inactive
+		set current [lreplace $current $i $i]
+		$itk_component(canvas) dtag $item_tags($name) msel
+	} else {
+		$itk_component($name) configure -state active
+		lappend current $name
+		$itk_component(canvas) addtag msel withtag $item_tags($name)
+	}
+	set lastCurrent [lindex $current end]
+	set rx [winfo rootx $itk_component(canvas)]
+	set ry [winfo rooty $itk_component(canvas)]
+	set cx [$itk_component(canvas) canvasx [expr {$x - $rx}]]
+	set cy [$itk_component(canvas) canvasy [expr {$y - $ry}]]
+	set _startx(msel) $cx
+	set _starty(msel) $cy
+	return
+
+}
+
+body vsimwidgets::Monitor::_B1 {name x y} {
+	if {[info exists itk_component($name)]} {
+		focus $itk_component($name)
+	}
+	if {[$itk_component($name) is_clustered]} {
+		activate $name 0
+		set ok 0
+		foreach cnode [array names cluster] {
+			if {[lsearch $cluster($cnode) $name] >= 0} {
+				set ok 1
+				set name $cnode
+			}
+		}
+		if {!$ok} {
+			return
+		}
+	}
+	$itk_component($name) IsDrag 1
+	set _dragname $name
+	if {[llength $current] <= 1 ||
+		[lsearch $current $name] < 0} {
+		set tag $item_tags($name)
+		set w [$itk_component(canvas) itemcget $tag -window]
+		activate $name 0
+		if {![$itk_component($name) is_cluster]} {
+			::raise $w
+		}
+	} else {
+		set tag msel
+	}
+	set rx [winfo rootx $itk_component(canvas)]
+	set ry [winfo rooty $itk_component(canvas)]
+	set cx [$itk_component(canvas) canvasx [expr {$x - $rx}]]
+	set cy [$itk_component(canvas) canvasy [expr {$y - $ry}]]
+	if {[llength $current] <= 1} {
+		set coords [$itk_component(canvas) coords $tag]
+		set _startx($tag) [expr {$cx - [lindex $coords 0]}]
+		set _starty($tag) [expr {$cy - [lindex $coords 1]}]
+	} else {
+		set _startx($tag) $cx
+		set _starty($tag) $cy
+	}
+}
+
+body vsimwidgets::Monitor::_B1Motion {name x y} {
+	if {$_dragname eq ""} return
+	set name $_dragname
+	if {[$itk_component($name) is_clustered]} return
+	if {[llength $current] <= 1} {
+		set tag $item_tags($name)
+	} else {
+		set tag msel
+	}
+	set rx [winfo rootx $itk_component(canvas)]
+	set ry [winfo rooty $itk_component(canvas)]
+
+	set dx [expr {$x - $rx}]
+	set dy [expr {$y - $ry}]
+
+	autoScroll $name $x $y
+
+	set cx1 [$itk_component(canvas) canvasx $dx]
+	set cy1 [$itk_component(canvas) canvasy $dy]
+
+	if {[catch {set cx [expr {$cx1 - $_startx($tag)}]}]} {
+		set cx 0
+	}
+	if {[catch {set cy [expr {$cy1 - $_starty($tag)}]}]} {
+		set cy 0
+	}
+	if {[llength $current] <= 1} {
+		$itk_component(canvas) coords $tag $cx $cy
+		update_edge $name
+	} else {
+		$itk_component(canvas) move $tag $cx $cy
+		set _startx($tag) $cx1
+		set _starty($tag) $cy1
+		foreach name $current {
+			update_edge $name
+		}
+	}
+	set _dragging 1
+	$itk_component(canvas) configure -cursor fleur
+}
+
+body vsimwidgets::Monitor::autoScroll {name x y} {
+
+	if {![$itk_component($name) IsDrag]} return
+
+	if {$autoScrollId ne ""} {
+		after cancel $autoScrollId
+	}
+
+	set rx [winfo rootx $itk_component(canvas)]
+	set ry [winfo rooty $itk_component(canvas)]
+
+	set dx [expr {$x - $rx}]
+	set dy [expr {$y - $ry}]
+
+	set xw [winfo width $itk_component(canvas)]
+	set yh [winfo height $itk_component(canvas)]
+
+	set ex [expr {$xw - $dx}]
+	set ey [expr {$yh - $dy}]
+
+	set again 0
+
+	set csr [cget -scrollregion]
+	set cx1 [lindex $csr 0]
+	set cy1 [lindex $csr 1]
+	set cx2 [lindex $csr 2]
+	set cy2 [lindex $csr 3]
+
+	if {$dx < 3} {
+		set units [expr {-(3 - ($dx/2))}]
+		lset csr 0 [expr {$cx1 + $units}]
+		after idle $itk_component(canvas) xview scroll $units unit
+		set again 1
+	}
+	if {$dy < 3} {
+		set units [expr {-(3 - ($dy/2))}]
+		lset csr 1 [expr {$cy1 + $units}]
+		after idle $itk_component(canvas) yview scroll $units unit
+		set again 1
+	}
+	if {$ex < 3} {
+		set units [expr {(3 - ($ex/2))}]
+		lset csr 2 [expr {$cx2 + $units}]
+		after idle $itk_component(canvas) xview scroll $units unit
+		set again 1
+	}
+	if {$ey < 3} {
+		set units [expr {(3 - ($ey/2))}]
+		lset csr 3 [expr {$cy2 + $units}]
+		after idle $itk_component(canvas) yview scroll $units unit
+		set again 1
+	}
+	configure -scrollregion $csr
+	if {$again} {
+		set autoScrollId [after 50 [code $this _B1Motion $name $x $y]]
+	}
+}
+
+body vsimwidgets::Monitor::_B1ItemRelease {name x y} {
+	if {$name eq ""} {
+		foreach node [array names nodes] {
+			if {[$itk_component($node) IsDrag]} {
+				set name $node
+				break
+			}
+		}
+		if {$name eq ""} return
+	}
+	$itk_component($name) IsDrag 0
+	if {$_dragging} {
+		_updateScrollRegion
+	}
+	set _dragging 0
+	set _dragname ""
+	foreach node $current {
+		set coords [$itk_component(canvas) coords $item_tags($node)]
+		$itk_component($node) setPos [lindex $coords 0] [lindex $coords 1]
+	}
+	$itk_component(canvas) configure -cursor {}
+	UpdateToolbars
+}
+
+body vsimwidgets::Monitor::itemconfig {item args} {
+	eval $itk_component(canvas) itemconfig $item $args
+}
+
+body vsimwidgets::Monitor::see {node} {
+	set area [cget -scrollregion]
+	if {[llength $area] == 0} {
+		return
+	}
+	set disp_area [get_display_area]
+	set node_box [bbox $node]
+	set x1 [lindex $area 0]
+	set y1 [lindex $area 1]
+	set x2 [lindex $area 2]
+	set y2 [lindex $area 3]
+
+	set xd1 [lindex $disp_area 0]
+	set yd1 [lindex $disp_area 1]
+	set xd2 [lindex $disp_area 2]
+	set yd2 [lindex $disp_area 3]
+	set xn1 [lindex $node_box 0]
+	set yn1 [lindex $node_box 1]
+	set xn2 [lindex $node_box 2]
+	set yn2 [lindex $node_box 3]
+	set dx [expr {$x2 - $x1}]
+	set dy [expr {$y2 - $y1}]
+
+	set deltax [expr {0 + (($xd2 - $xd1)/2.0)}]
+	set deltay [expr {0 + (($yd2 - $yd1)/2.0)}]
+
+	set ncx [expr {$xn1 + (($xn2-$xn1)/2.0)}]
+	set ncy [expr {$yn1 + (($yn2-$yn1)/2.0)}]
+
+	if {$xn1 < $xd1 || $xn2 > $xd2} {
+		set xfraction  [expr {($ncx - $deltax)/double($dx)}]
+	}
+	if {$yn1 < $yd1 || $yn2 > $yd2} {
+		set yfraction  [expr {($ncy - $deltay)/double($dy)}]
+	}
+
+	set fxl [lindex [$this xview] 0]
+	set fxr [lindex [$this xview] 1]
+	set fyt [lindex [$this yview] 0]
+	set fyb [lindex [$this yview] 1]
+	if {[info exists xfraction] && (1||($xfraction < $fxl || $xfraction > $fxr))} {
+		$this xview moveto $xfraction
+	}
+	if {[info exists yfraction] && (1||($yfraction < $fyt || $yfraction > $fyb))} {
+		$this yview moveto $yfraction
+	}
+}
+
+body vsimwidgets::Monitor::get_scroll_area {} {
+	return [bbox graph]
+}
+
+body vsimwidgets::Monitor::get_display_area {} {
+	set w [winfo width $itk_component(hull)]
+	set h [winfo height $itk_component(hull)]
+	set cx0 [expr {[$itk_component(canvas) canvasx 0] + 35}]
+	set cy0 [expr {[$itk_component(canvas) canvasy 0] + 35}]
+	set cx1 [expr {[$itk_component(canvas) canvasx $w] - 35}]
+	set cy1 [expr {[$itk_component(canvas) canvasy $h] - 35}]
+	return [list $cx0 $cy0 $cx1 $cy1]
+}
+
+body vsimwidgets::Monitor::move {item args} {
+	eval $itk_component(canvas) move $item $args
+}
+
+body vsimwidgets::Monitor::itemcget {item args} {
+	eval $itk_component(canvas) itemcget $item $args
+}
+
+body vsimwidgets::Monitor::activate {name {see 1} {depends_on ""} {trueItem ""}} {
+	setcurrent $name
+	if {$see && ![$itk_component($name) is_cluster]} {
+		see $item_tags($name)
+	}
+	if {$depends_on ne ""} {
+		if {![info exists depends($name)] || [lsearch $depends($name) $depends_on] < 0} {
+			add_edge $depends_on $name $trueItem
+		}
+	}
+}
+
+body vsimwidgets::Monitor::selectItem {name item {activate 0}} {
+	if {$activate} {
+		activate $name
+	}
+	$itk_component($name) selectItem $item
+}
+
+body vsimwidgets::Monitor::cluster {} {
+	set sel $current
+	set use_node $node_num
+	if {[llength $sel] > 1} {
+		set found_one 0
+		for {set idx 0} {$idx <[llength $sel]} {} {
+			set node [lindex $sel $idx]
+			if {[$itk_component($node) is_cluster]} {
+				if {$found_one == 0} {
+					set found_one 1
+					set use_node $node
+					set sel [lreplace $sel $idx $idx]
+					continue
+				} else {
+					# can't group two groups just do nothing
+					return
+				}
+			}
+			set coords [$itk_component(canvas) coords $item_tags($node)]
+			$itk_component($node) setPos [lindex $coords 0] [lindex $coords 1]
+			incr idx
+		}
+		if {$found_one == 0} {
+			add_node $use_node Group -cluster 1
+			set cluster($use_node) [list]
+		}
+		set height 0
+		set width [$itk_component(canvas) itemcget $item_tags($use_node) -width]
+		foreach node $sel {
+			set height1 [$itk_component(canvas) itemcget $item_tags($node) -height]
+			set width1 [$itk_component(canvas) itemcget $item_tags($node) -width]
+			if {$width1 > $width} {
+				set width $width1
+			}
+			set height [expr {$height + $height1}]
+			delete_node $node 1
+			$itk_component($use_node) add_item $itk_component($node)
+			$itk_component(canvas) itemconfig $item_tags($use_node) -height $height
+			$itk_component(canvas) itemconfig $item_tags($use_node) -width $width
+			$itk_component($node) set_clustered $use_node
+			lappend cluster($use_node) $node
+		}
+		activate $use_node
+	}
+}
+
+body vsimwidgets::Monitor::uncluster {} {
+	set sel $current
+	set found 0
+	foreach node $sel {
+		if {[$itk_component($node) is_cluster]} {
+			uncluster_node $node
+			set found 1
+		}
+	}
+	if {$found} {
+		set current ""
+	}
+}
+
+body vsimwidgets::Monitor::uncluster_node {node} {
+	if {[info exists cluster($node)] && [llength $cluster($node)] > 0} {
+		set coords [$itk_component(canvas) coords $item_tags($node)]
+		set x [lindex $coords 0]
+		set y [lindex $coords 1]
+		foreach name $cluster($node) {
+			set nodes($name) [$itk_component($name) obj]
+			$itk_component($name) set_clustered 0
+			set item_tags($name) [$itk_component(canvas) create window $x $y -anchor nw -window $itk_component($name) -tag graph]
+			#set args [$itk_component($name) fixSize]
+			#eval $itk_component(canvas) itemconfig $item_tags($name) $args
+			set y [expr {$y + [$itk_component(canvas) itemcget $item_tags($name) -height]}]
+			set pos [$itk_component($name) getPos]
+			MoveTo $name [lindex $pos 0] [lindex $pos 1]
+		}
+		delete_node $node 1
+		unset cluster($node)
+	}
+}
+
+
+body vsimwidgets::Monitor::select_all {{unselect 0}} {
+	if {$unselect} {
+		setcurrent ""
+	} else {
+		set current [list]
+		foreach name [array names nodes] {
+			$itk_component($name) configure -state active
+			lappend current $name
+			$itk_component(canvas) addtag msel withtag $item_tags($name)
+		}
+		set lastCurrent [lindex $current end]
+	}
+}
+
+body vsimwidgets::Monitor::getcurrent {} {
+	return $current
+}
+
+body vsimwidgets::Monitor::setcurrent {name} {
+	set curr_node ""
+	foreach curr_node $current {
+		if {[info exists curr_node] && [info exists itk_component($curr_node)]} {
+			if {[info exists item_tags($curr_node)]} {
+				$itk_component(canvas) dtag $item_tags($curr_node) msel
+			}
+			if {$curr_node != $name} {
+				$itk_component($curr_node) configure -state inactive
+			}
+		}
+	}
+
+	if {$curr_node != ""} {
+		set lastCurrent $curr_node
+	} 
+	
+	if {$name != "" && $name != "canvas" && $name != "cs" && [info exists itk_component($name)]} {
+		$itk_component($name) configure -state active
+		if { [set i [$itk_component($name) is_clustered]] != 0} {
+			$itk_component($i) configure -state active
+			set current [list $i]
+			raise $itk_component($name)
+		} else {
+			set current [list $name]
+			if {![$itk_component($name) is_cluster]} {
+				raise $itk_component($name)
+			}
+		}
+	} else {
+		# Bad name, clear it away
+		set current [list]
+	}
+}
+
+body vsimwidgets::Monitor::dragItems {w} {
+	if {[info exists current]} {
+		return [lindex current 0]
+	}
+	return ""
+}
+
+body vsimwidgets::Monitor::MonitorDropHandler {args} {
+	set sig_list [lindex $args 3]
+	set x [$itk_component(canvas) canvasx [lindex $args 1]]
+	set y [$itk_component(canvas) canvasy [lindex $args 2]]
+	foreach sig $sig_list {
+		if {[catch {::add watch $sig -x $x -y $y} error]} {
+			mti_error_message "$error\n"
+		}
+	}
+
+}
+
+body vsimwidgets::Monitor::quitsim {args} {
+	clear
+	if {[array names nodes] != ""} {
+		unset nodes
+	}
+	if {[array names item_tags] != ""} {
+		unset item_tags
+	}
+	if {[array names edges] != ""} {
+		unset edges
+	}
+	if {[array names dependes] != ""} {
+		unset dependes
+	}
+	if {[array names cluster] != ""} {
+		unset cluster
+	}
+
+	set current [list]
+	set lastCurrent ""
+	set handle ""
+	set node_num 1
+	set ::MonitorWin::kernelMonitorCodeSet 0
+}
+
+body vsimwidgets::Monitor::restartPrep {args} {
+	set tmpFile [MtiFileUtil::MakeTempFileName]
+	write $tmpFile
+	quitsim
+}
+
+body vsimwidgets::Monitor::restart {args} {
+	if {$tmpFile ne ""} {
+		set on [transcript -q]
+		catch {transcript off;do $tmpFile}
+		if {$on} {transcript on}
+		catch {file delete -force $tmpFile}
+		set tmpFile ""
+	}
+}
+
+body vsimwidgets::Monitor::clear {} {
+	if {[info exists nodes]} {
+		foreach node [array names nodes] {
+			delete_node $node
+		}
+	}
+	set current [list]
+	set lastx 0
+	set lastx 0
+	set node_num 1
+	configure -scrollregion [list 0 0 100 100]
+}
+
+body vsimwidgets::Monitor::delete_current {{item ""}} {
+	if {$item ne "" && [$itk_component($item) is_clustered]} return
+	foreach node $current {
+		delete_node $node
+	}
+	set current [list]
+	return -code break
+}
+
+body vsimwidgets::Monitor::delete_node {item {hide_it 0}} {
+	set pending_events($item) [list]
+	if { [info exists depends($item)]  &&  [llength $depends($item)] > 0} {
+		foreach di $depends($item) {
+			delete_edge $di $item
+		}
+		unset depends($item)
+	}
+	if { [info exists depends] } {
+		foreach node [array names depends] {
+			set ix [lsearch $depends($node) $item]
+			if {$ix >= 0} {
+				set depends($node) [lreplace $depends($node) $ix $ix]
+			}
+		}
+	}
+	if {[info exists itk_component($item)]} {
+		if {$hide_it == 0} {
+			if {[$itk_component($item) is_cluster]} {
+				foreach name $cluster($item) {
+					destroy $itk_component($name)
+				}
+			}
+			destroy $itk_component($item)
+		} else {
+			if {[$itk_component($item) is_cluster]} {
+				destroy $itk_component($item)
+			}
+		}
+	}
+	if {[info exists item_tags($item)]} {
+		$itk_component(canvas) delete $item_tags($item)
+	}
+	delete_edge $item
+	array unset item_tags $item
+	array unset nodes $item
+}
+
+body vsimwidgets::Monitor::delete_edge {from_item {to_item ""}} {
+	if {[info exists edges($from_item)] && $edges($from_item) != ""} {
+		set edge_list $edges($from_item)
+		for {set idx 0} {$idx < [llength $edge_list]} {incr idx } {
+			set edge [lindex $edge_list $idx]
+			if { $to_item != "" && [string equal [lindex $edge 0] $to_item]} {
+				$itk_component(canvas) delete [lindex $edge 1]
+				set edges($from_item) [lreplace $edges($from_item) $idx $idx]
+				return
+			} elseif {$to_item == ""} {
+				$itk_component(canvas) delete [lindex $edge 1]
+			}
+		}
+		unset edges($from_item)
+	}
+}
+
+body vsimwidgets::Monitor::add_edge {from_item to_item {toName ""}} {
+	catch {$itk_component($to_item) getAddress} toaddr
+	catch {$itk_component($from_item) getAddress} fromaddr
+	if {$toName eq ""} {
+		set toName $nodes($to_item)
+	}
+	set obj "OBJ:$toName"
+	set path "PATH:${fromaddr}_${toaddr}"
+	if {![info exists edges($from_item)] } {
+		set edges($from_item) [list]
+	}
+	set coords [get_edge_coords $from_item $to_item]
+	if {[llength $coords] == 4} {
+		set edge_id [$itk_component(canvas) create line $coords \
+						 -tags [list edge line graph $path $obj] \
+						 -joinstyle round \
+						 -smooth true \
+						 -arrow last \
+						 -arrowshape {10 10 5} \
+						 -width 10 \
+						 -fill grey \
+						 -activefill grey40]
+	} else {
+		set edge_id [$itk_component(canvas) create line 0 0 0 0 \
+						 -tags [list edge line graph $path $obj] \
+						 -joinstyle round \
+						 -smooth true \
+						 -arrow last \
+						 -arrowshape {10 10 5} \
+						 -width 10 \
+						 -fill grey \
+						 -activefill grey40 \
+						 -state hidden]
+	}
+	bind $edge_id <Double-Button-1> [code $this selectItem $from_item $toName 1]
+	bind $edge_id <Button-1>        [code $this selectItem $from_item $toName 0]
+	set edge_list [list $to_item $edge_id]
+	lappend edges($from_item) $edge_list
+	if {![info exists depends($to_item)] || [lsearch $depends($to_item) $from_item] < 0} {
+		lappend depends($to_item) $from_item
+	}
+}
+
+body vsimwidgets::Monitor::selectEdge {tag} {
+	$itk_component(canvas) itemconfigure $tag \
+		-fill $::PrefWatch(selectBackground) \
+		-activefill $::PrefWatch(selectBackground) \
+		-width 5 \
+		-arrowshape {10 10 5} 
+	$itk_component(canvas) raise $tag
+}
+
+body vsimwidgets::Monitor::unselectEdge {tag} {
+	if {$tag eq "all"} {
+		set tag edge
+	}
+	$itk_component(canvas) itemconfigure $tag \
+		-fill grey \
+		-activefill grey40 \
+		-width 3 \
+		-arrowshape {10 10 5}
+}
+
+body vsimwidgets::Monitor::update_edge {name} {
+	if {[info exists edges($name)] } {
+		foreach edge $edges($name) {
+			if {$edge != ""} {
+				set coords [get_edge_coords $name [lindex $edge 0]]
+				if {[llength $coords] == 4} {
+					$itk_component(canvas) coords [lindex $edge 1] $coords
+					$itk_component(canvas) itemconfigure [lindex $edge 1] -state normal
+				} else {
+					$itk_component(canvas) itemconfigure [lindex $edge 1] -state hidden
+				}
+			}
+		}
+	}
+
+	if {[info exists depends($name)] } {
+		foreach di $depends($name) {
+			foreach edge $edges($di) {
+				if {$edge != "" && [string equal $name [lindex $edge 0]]} {
+					set coords [get_edge_coords $di $name]
+					if {[llength $coords] == 4} {
+						$itk_component(canvas) coords [lindex $edge 1] $coords
+						$itk_component(canvas) itemconfigure [lindex $edge 1] -state normal
+					} else {
+						$itk_component(canvas) itemconfigure [lindex $edge 1] -state hidden
+					}
+				}
+			}
+		}
+	}
+}
+
+# 2D Line Segment Intersection
+# Implementation of the theory provided by Paul Bourke
+# April 1989
+#
+# C++ Written by Damian Coventry
+# Tuesday, 9 January 2007
+# Translated to Tcl by Brian Griffin
+#
+proc vsimwidgets::FindIntersection {x1 y1 x2 y2 u1 v1 u2 v2} {
+
+	set x1 [expr {double($x1)}] 
+	set y1 [expr {double($y1)}] 
+	set x2 [expr {double($x2)}] 
+	set y2 [expr {double($y2)}] 
+	set u1 [expr {double($u1)}] 
+	set v1 [expr {double($v1)}] 
+	set u2 [expr {double($u2)}] 
+	set v2 [expr {double($v2)}] 
+
+	set d [expr {(($v2 - $v1)*($x2 - $x1)) - (($u2 - $u1)*($y2 - $y1))}]
+
+	set a [expr {(($u2 - $u1)*($y1 - $v1)) - (($v2 - $v1)*($x1 - $u1))}]
+
+	set b [expr {(($x2 - $x1)*($y1 - $v1)) - (($y2 - $y1)*($x1 - $u1))}]
+
+	if {$d == 0.0} {
+		if {$a == 0.0 && $b == 0.0} {
+			return "C" ;# coincident
+		}
+		return "P" ;# parallel
+	}
+
+	set ua [expr {$a / $d}]
+	set ub [expr {$b / $d}]
+
+	if {$ua >= 0.0 && $ua <= 1.0 && $ub >= 0.0 && $ub <= 1.0} {
+		# Get the intersection point.
+		set _x_ [expr {$x1 + $ua*($x2 - $x1)}]
+		set _y_ [expr {$y1 + $ua*($y2 - $y1)}]
+
+		return [list "I" $_x_ $_y_] ;# intersect
+	}
+
+	return "NI" ;# don't intersect
+}
+
+body vsimwidgets::Monitor::get_edge_coords {from_item to_item } {
+	set to_coords [$itk_component(canvas) bbox $item_tags($to_item)]
+
+	set to_x1 [lindex $to_coords 0]
+	set to_y1 [lindex $to_coords 1]
+	set to_x2 [lindex $to_coords 2]
+	set to_y2 [lindex $to_coords 3]
+	set to_xc [expr {$to_x1 + ($to_x2 - $to_x1)/2}]
+	set to_yc [expr {$to_y1 + ($to_y2 - $to_y1)/2}]
+
+	set from_coords [$itk_component(canvas) bbox $item_tags($from_item)]
+	set from_x1 [lindex $from_coords 0]
+	set from_y1 [lindex $from_coords 1]
+	set from_x2 [lindex $from_coords 2]
+	set from_y2 [lindex $from_coords 3]
+	set from_xc [expr {$from_x1 + ($from_x2 - $from_x1)/2}]
+	set from_yc [expr {$from_y1 + ($from_y2 - $from_y1)/2}]
+
+
+	if {$from_xc == $to_xc} {
+		if {$from_yc > $to_yc} {
+			return [list $from_xc $from_y1 $to_xc $to_y2]
+		} else {
+			return [list $from_xc $from_y2 $to_xc $to_y1]
+		}
+	} elseif {$from_yc == $to_yc} {
+		if {$from_xc > $to_xc} {
+			return [list $from_x1 $from_yc $to_x2 $to_yc]
+		} else {
+			return [list $from_x2 $from_yc $to_x1 $to_yc]
+		}
+	}
+
+	# Find intersecting side for each node
+	# If nodes overlap, there may not be any intersecting sides
+
+	if {$from_xc < $to_xc} {
+		# s1 right -
+		set s1 [vsimwidgets::FindIntersection $from_x2 $from_y1 $from_x2 $from_y2 $from_xc $from_yc $to_xc $to_yc]
+		if {[lindex $s1 0] eq "I"} {
+			set s1 [list [lindex $s1 1] [lindex $s1 2]]
+		} else {
+			# - top
+			set s1 [vsimwidgets::FindIntersection $from_x1 $from_y1 $from_x2 $from_y1 $from_xc $from_yc $to_xc $to_yc]
+			if {[lindex $s1 0] eq "I"} {
+				set s1 [list [lindex $s1 1] [lindex $s1 2]]
+			} else {
+				# - bottom
+				set s1 [vsimwidgets::FindIntersection $from_x1 $from_y2 $from_x2 $from_y2 $from_xc $from_yc $to_xc $to_yc]
+				if {[lindex $s1 0] eq "I"} {
+					set s1 [list [lindex $s1 1] [lindex $s1 2]]
+				} else {
+					set s1 {}
+				}
+			}
+		}
+	} else {
+		# s1 left -
+		set s1 [vsimwidgets::FindIntersection $from_x1 $from_y1 $from_x1 $from_y2 $from_xc $from_yc $to_xc $to_yc]
+		if {[lindex $s1 0] eq "I"} {
+			set s1 [list [lindex $s1 1] [lindex $s1 2]]
+		} else {
+			# - top
+			set s1 [vsimwidgets::FindIntersection $from_x1 $from_y1 $from_x2 $from_y1 $from_xc $from_yc $to_xc $to_yc]
+			if {[lindex $s1 0] eq "I"} {
+				set s1 [list [lindex $s1 1] [lindex $s1 2]]
+			} else {
+				# - bottom
+				set s1 [vsimwidgets::FindIntersection $from_x1 $from_y2 $from_x2 $from_y2 $from_xc $from_yc $to_xc $to_yc]
+				if {[lindex $s1 0] eq "I"} {
+					set s1 [list [lindex $s1 1] [lindex $s1 2]]
+				} else {
+					set s1 {}
+				}
+			}
+		}
+	}
+	
+	if {$to_xc < $from_xc} {
+		# s2 right -
+		set s2 [vsimwidgets::FindIntersection $to_x2 $to_y1 $to_x2 $to_y2 $from_xc $from_yc $to_xc $to_yc]
+		if {[lindex $s2 0] eq "I"} {
+			set s2 [list [lindex $s2 1] [lindex $s2 2]]
+		} else {
+			# - top
+			set s2 [vsimwidgets::FindIntersection $to_x1 $to_y1 $to_x2 $to_y1 $from_xc $from_yc $to_xc $to_yc]
+			if {[lindex $s2 0] eq "I"} {
+				set s2 [list [lindex $s2 1] [lindex $s2 2]]
+			} else {
+				# - bottom
+				set s2 [vsimwidgets::FindIntersection $to_x1 $to_y2 $to_x2 $to_y2 $from_xc $from_yc $to_xc $to_yc]
+				if {[lindex $s2 0] eq "I"} {
+					set s2 [list [lindex $s2 1] [lindex $s2 2]]
+				} else {
+					set s2 {}
+				}
+			}
+		}
+	} else {
+		# s2 left -
+		set s2 [vsimwidgets::FindIntersection $to_x1 $to_y1 $to_x1 $to_y2 $from_xc $from_yc $to_xc $to_yc]
+		if {[lindex $s2 0] eq "I"} {
+			set s2 [list [lindex $s2 1] [lindex $s2 2]]
+		} else {
+			# - top
+			set s2 [vsimwidgets::FindIntersection $to_x1 $to_y1 $to_x2 $to_y1 $from_xc $from_yc $to_xc $to_yc]
+			if {[lindex $s2 0] eq "I"} {
+				set s2 [list [lindex $s2 1] [lindex $s2 2]]
+			} else {
+				# - bottom
+				set s2 [vsimwidgets::FindIntersection $to_x1 $to_y2 $to_x2 $to_y2 $from_xc $from_yc $to_xc $to_yc]
+				if {[lindex $s2 0] eq "I"} {
+					set s2 [list [lindex $s2 1] [lindex $s2 2]]
+				} else {
+					set s2 {}
+				}
+			}
+		}
+	}
+
+	if {[llength $s1] == 0 || [llength $s2] == 0} {
+		return [list]
+	}
+	return [concat $s1 $s2]
+}
+
+body vsimwidgets::Monitor::_post {w x y} {
+	if { $itk_option(-popupmenu) == {} } {
+		# Don't post the menu if there's nothing in it
+		#return
+	}
+	set rx [expr {[winfo rootx $w]+$x}]
+	set ry [expr {[winfo rooty $w]+$y}]
+
+	mti_popup $itk_option(-popupmenu) $rx $ry
+}
+
+body vsimwidgets::Monitor::_updateScrollRegion {} {
+	set nsr [bbox graph]
+	set nx1 [lindex $nsr 0]
+	set ny1 [lindex $nsr 1]
+
+	if {($nx1 < 0 || $ny1 < 0)} {
+		# shrink or full
+
+		# First, realign the graph so we have a 0,0 origin
+		# and a 10 pixel buffer.
+		set movex [expr {- $nx1 + 10}]
+		set movey [expr {- $ny1 + 10}]
+		move graph $movex $movey
+	}
+
+	# Next, adjust the scrollregion to match the current graph
+	# Don't forget the 10 pixel buffer
+	set nsr [bbox graph]
+	set nx1 [expr {[lindex $nsr 0] - 10}]
+	set ny1 [expr {[lindex $nsr 1] - 10}]
+	set nx2 [expr {[lindex $nsr 2] + 10}]
+	set ny2 [expr {[lindex $nsr 3] + 10}]
+	set csr [cget -scrollregion]
+	set cx1 [lindex $csr 0]
+	set cy1 [lindex $csr 1]
+	set cx2 [lindex $csr 2]
+	set cy2 [lindex $csr 3]
+
+	configure -scrollregion [list $nx1 $ny1 $nx2 $ny2]
+}
+
+
+body vsimwidgets::Monitor::write {file_name} {
+	set group_list [list]
+	set names [list none]
+	set group_names [list]
+	set idx 1
+	if {$file_name != ""} {
+		set f [open $file_name w]
+	}
+	puts $f [getformat]
+	close $f
+}
+
+body vsimwidgets::Monitor::getformat {} {
+	set group_list [list]
+	set names [list none]
+	set group_names [list]
+	set idx 1
+	set f ""
+	append f "onerror {resume}\n"
+	foreach node [array names nodes] {
+		if {![info exists itk_component($node)]} {
+			mti_error_message "Internal error: node $node not found!\n"
+			continue
+		}
+		if {[$itk_component($node) is_cluster]} {
+			lappend group_list "WatchSelect {}"
+			lappend group_names $node
+			foreach name $cluster($node) {
+				set coords [$itk_component($name) getPos]
+				set obj [$itk_component($name) obj]
+				set line [list ::add watch $obj -x [lindex $coords 0] -y [lindex $coords 1]]
+				append line " -radix [$itk_component($name) radix] -radixenum [$itk_component($name) radixenum]\n"
+				append f $line
+				lappend group_list "WatchSelect $idx"
+				lappend names $name
+				incr idx
+			}
+			lappend group_list "WatchGroup"
+			continue
+		}
+		set coords [$itk_component(canvas) coords $item_tags($node)]
+		set line [list ::add watch $nodes($node) -x [lindex $coords 0] -y [lindex $coords 1]]
+		if { [$itk_component($node) isexpanded]} {
+			append line " -expand 1"
+		}
+		append line " -radix [$itk_component($node) radix] -radixenum [$itk_component($node) radixenum]\n"
+		append f $line
+		lappend names $node
+		incr idx
+	}
+	set names [concat $names $group_names]
+	foreach cmd $group_list {
+		append f $cmd
+		append f "\n"
+	}
+	foreach node [array names depends] {
+		if {[llength $depends($node)] > 0} {
+			foreach di $depends($node) {
+				set from [lsearch $names $di]
+				set to [lsearch $names $node]
+				append f "WatchConnect $from $to\n"
+			}
+		}
+	}
+	return $f
+}
+
+
+body vsimwidgets::Monitor::Action {windowobj operation args } {
+	global vsimPriv
+	set wname [$windowobj GetBody]
+	set current_namespace [getCurrentNamespace]
+	switch $operation {
+		active_window_menu {   
+							ClearActiveWindowMenu
+							AddMenuItem "Force..."					$vsimPriv(AWMenu)	[list MonitorWin::MonitorSigCmd Signals::ForceDialog $wname]				can_force		F
+							AddMenuItem "NoForce"					$vsimPriv(AWMenu)	[list MonitorWin::MonitorSigCmd Signals::NoForceDialog $wname]				can_noforce		N
+							AddMenuItem "Clock..."					$vsimPriv(AWMenu)	[list MonitorWin::MonitorSigCmd ClkDialog $wname]							can_clock		C
+							AddMenuItem "Change..."					$vsimPriv(AWMenu)	[list MonitorWin::MonitorSigCmd MonitorWin::MonitorChangeDialog $wname]	can_change		H
+							AddMenuItem "Follow Selection Context"	$vsimPriv(AWMenu) [list MonitorWin::select_env $wname]										can_followcontext	O
+							AddSeparator							$vsimPriv(AWMenu)
+							AddMenuItem "Save Format..."			$vsimPriv(AWMenu) [list MonitorWin::MonitorSaveFormat $wname]								can_saveformat		S	
+							AddMenuItem "Load Format..."			$vsimPriv(AWMenu)	[list MonitorWin::MonitorLoadFormat $wname]								can_loadformat	L
+							AddSeparator							$vsimPriv(AWMenu)
+							AddMenuItem "Group"						$vsimPriv(AWMenu)	[code $this cluster]												can_group				G
+							AddMenuItem "UnGroup"					$vsimPriv(AWMenu)	[code $this uncluster]												can_ungroup				U
+							AddSeparator							$vsimPriv(AWMenu)
+							set tile_menu [AddSubMenu	"Tile"		$vsimPriv(AWMenu)	""																	"" T]
+							AddMenuItem "Tile Horizontally"			$tile_menu	[code $this TileNodes Horizontally]											""						T.H
+							AddMenuItem "Tile Vertically"			$tile_menu	[code $this TileNodes Vertically]												""					T.V
+							AddMenuItem "Tile Columns"				$tile_menu	[code $this TileNodes Columns]												""						T.C
+							AddSeparator							$vsimPriv(AWMenu)
+							AddMenuItem "Clear"						$vsimPriv(AWMenu)	[code $this clear]													can_clear				E
+							return 1
+						}
+
+		copy			{
+							clipboard clear
+							set items [$wname.m curselection]
+							foreach item $items { 
+								set sigName [$wname.m get $item]
+								clipboard append $sigName
+								clipboard append " "							
+							} 
+							return 1
+						}
+
+		paste			{
+							if {![catch {clipboard get} sel] && $sel != ""} {
+								foreach item $sel {
+									set sig [lindex $item 0]
+									if {[catch {add $sig -x 5 -y 5} error]} {
+										mti_error_message "$error\n"
+									}
+								}
+							}
+						}
+
+		open			{
+							return [$::vsimPriv(Vcop) Action Create OpenFile]
+						}
+
+		load			{
+							MonitorWin::MonitorLoadFormat $wname
+						}
+
+		save			{
+							MonitorWin::MonitorSaveFormat $wname
+						}
+
+		force			{
+							set force_cmd [list MonitorWin::MonitorSigCmd Signals::ForceDialog $wname]
+							return [eval $force_cmd]
+						}
+
+		noforce			{
+							set noforce_cmd [list MonitorWin::MonitorSigCmd Signals::NoForceDialog $wname]
+							return [eval $noforce_cmd]
+						}
+
+		clock			{
+							set clk_cmd [list MonitorWin::MonitorSigCmd ClkDialog $wname]
+							return [eval $clk_cmd]
+						}
+
+		change			{
+							set change_cmd [list MonitorWin::MonitorSigCmd MonitorWin::MonitorChangeDialog $wname]
+							return [eval $change_cmd]
+
+						}
+
+		selectall		{
+							return [$wname.m select_all]
+						}
+
+
+		unselectall		{
+							return [$wname.m select_all 1]
+						}
+
+		clear			{
+							return [$wname.m clear]
+						}
+	
+		close_window	{ 
+							$vsimPriv(windowmgr) HideWindow $windowobj user
+							return 1
+						}
+
+		SetMenuState	{
+			SetActiveWindowMenu "Watch" T
+			set menus [lindex $args 0]
+			set selected [llength [$wname.m curselection]]
+		    set sel_list [$wname.m curselection]
+
+			foreach submenu $menus {
+				set cmd [lindex $submenu 1]
+				set action [lindex $submenu 0]
+				switch $action {
+					can_force -
+					can_noforce -
+					can_clock {
+						set results disabled	
+						if {[llength $sel_list] == 1 &&
+							$vsimPriv(kernel_loaded)} {
+							set sigName [$wname.m get [lindex $sel_list 0]]
+							if {![catch {vsim_kernel mti_find $sigName} res] && $res ne ""} {
+								set results normal
+							}
+						} 
+						lappend cmd $results
+					}
+
+					can_change {
+						set results disabled	
+						if {[llength $sel_list] == 1} {
+							if {![$wname.m IsSelectedSystemC] &&
+								$vsimPriv(kernel_loaded)} {
+								set sigName [$wname.m get [lindex $sel_list 0]]
+								if {![catch {vsim_kernel mti_find $sigName} res] && $res eq ""} {
+									set results normal
+								}
+							}
+						}
+						lappend cmd $results
+					}
+
+
+					can_selectall {
+							lappend cmd normal
+					}
+
+					can_unselectall -
+					can_copy	{ 
+						if {$selected > 0} {
+							lappend cmd normal
+						} else {
+							lappend cmd disabled
+						}
+					}
+
+					can_paste {
+						if {[::selection own] != "" && ![catch {::selection get} sel] && $sel != ""} {
+							lappend cmd normal
+						} else {
+							lappend cmd disabled
+						}
+					}
+
+					can_clear	{
+						if {[$wname.m size] > 0} {
+							lappend cmd normal
+						} else {
+							lappend cmd disabled
+						}
+					}
+					
+					can_followcontext -	
+					can_properties {
+						if {[llength $sel_list] == 1 } {
+							lappend cmd normal
+						} else  {
+							lappend cmd disable
+						}
+					}
+					
+					can_ungroup
+						{
+						set results disabled	
+						if {[llength $sel_list] > 1} {
+							set results normal
+						}
+						if {[llength $sel_list] == 1} {
+							if {[[$wname.m get1 [lindex $sel_list 0]] is_cluster]} {
+								set results normal
+							}
+						}	
+						lappend cmd $results
+					}
+					
+					can_group 
+					 {
+						set results disabled	
+						if {[llength $sel_list] > 1} {
+							set results normal
+						}
+						lappend cmd $results
+					}
+				
+					can_saveformat -
+					can_loadformat -
+					can_close_window -
+					can_load -
+					can_open		{
+						lappend cmd normal
+					}
+
+					can_save {			
+						set cmd [Vsimmenu::SetMenuText $action "Save Format..." $cmd]
+						lappend cmd normal
+					}
+
+					can_addselwave -
+					can_addsellist -
+					can_addsellog {
+						if {$selected > 0} {		
+							lappend cmd normal
+						} else {
+							lappend cmd disabled
+						}
+					}
+
+					can_addwave {
+						set the_menu [GetMenu [lindex $cmd 1] [lindex $cmd 2]]
+						ClearMenu $the_menu
+						AddMenuItem "Selected Signals"	$the_menu	"watchSelCommand $wname {add wave}" "" S
+						SetMenuItem	"Selected Signals"	$the_menu	$selected
+						AddMenuItem "Signals in Design"	$the_menu	{eval transcribe add wave -r $PathSeparator*} "" D
+						SetMenuItem	"Signals in Design"	$the_menu	[string length $current_namespace]
+						lappend cmd normal
+					}
+
+					can_addlist {
+						set the_menu [GetMenu [lindex $cmd 1] [lindex $cmd 2]]
+						ClearMenu $the_menu
+						AddMenuItem "Selected Signals"	$the_menu	"watchSelCommand $wname {add list}" "" S
+						SetMenuItem	"Selected Signals"	$the_menu	$selected
+						AddMenuItem "Signals in Design"	$the_menu	{eval transcribe add list -r $PathSeparator*} "" D
+						SetMenuItem	"Signals in Design"	$the_menu	[string length $current_namespace]
+						lappend cmd normal
+					}
+					
+					can_addlog		{
+						set the_menu [GetMenu [lindex $cmd 1] [lindex $cmd 2]]
+						ClearMenu $the_menu
+						AddMenuItem "Selected Signals"	$the_menu	"watchSelCommand $wname {add log}" "" S
+						SetMenuItem	"Selected Signals"	$the_menu	[expr {$current_namespace == $vsimPriv(SimDatasetName) && $selected}]
+						AddMenuItem "Signals in Design"	$the_menu	{eval transcribe add log -r $PathSeparator*} "" D
+						SetMenuItem	"Signals in Design"	$the_menu	[expr {$current_namespace == $vsimPriv(SimDatasetName)}]
+						lappend cmd normal
+					}
+
+					can_adddataflow	{
+						set the_menu [GetMenu [lindex $cmd 1] [lindex $cmd 2]]
+						ClearMenu $the_menu
+						AddMenuItem "Selected Signals"	$the_menu	"watchSelCommand $wname {add data}" "" S
+						SetMenuItem	"Selected Signals"	$the_menu	[expr {$current_namespace == $vsimPriv(SimDatasetName) && $selected}]
+						AddMenuItem "Signals in Design"	$the_menu	{eval transcribe add data -r $PathSeparator*} "" D
+						SetMenuItem	"Signals in Design"	$the_menu	[expr {$current_namespace == $vsimPriv(SimDatasetName)}]
+						lappend cmd normal
+					}
+
+					default	{
+						lappend cmd disabled
+					}
+				}
+				eval $cmd
+			}
+		}
+
+		default			{
+							return 0
+						}
+	}
+
+}
+
+body vsimwidgets::Monitor::TileNodes {{vert Horizontally}} {
+
+	set w [winfo width $itk_component(canvas)]
+	set h [winfo height $itk_component(canvas)]
+	set n_nodes [array size nodes]
+	set layout $vert
+	if {$n_nodes <= 1} return
+	if {$vert eq "Horizontally"} {
+		set x 0
+		set y 0
+		set max_h 0
+		set col 0
+		foreach node [array names nodes] {
+			set bb [$itk_component(canvas) bbox $item_tags($node)]
+			set nw [expr {[lindex $bb 2] - [lindex $bb 0]}]
+			set nh [expr {[lindex $bb 3] - [lindex $bb 1]}]
+			if {$col && ($x + $nw) > $w} {
+				incr y [expr {$max_h + 6}]
+				set max_h 0
+				set col 0
+				set x 0
+			}
+			if {$nh > $max_h} {
+				set max_h $nh
+			}
+			$itk_component(canvas) coords $item_tags($node) $x $y
+			catch {after idle [code $this update_edge $node]}
+			incr x [expr {$nw + 2}]
+			incr col
+		}
+	} elseif {$vert eq "Vertically"} {
+		set x 0
+		set y 0
+		set max_w 0
+		set row 0
+		foreach node [array names nodes] {
+			set bb [$itk_component(canvas) bbox $item_tags($node)]
+			set nw [expr {[lindex $bb 2] - [lindex $bb 0]}]
+			set nh [expr {[lindex $bb 3] - [lindex $bb 1]}]
+			if {$row && ($y + $nh) > $h} {
+				incr x [expr {$max_w + 6}]
+				set max_w 0
+				set row 0
+				set y 0
+			}
+			if {$nw > $max_w} {
+				set max_w $nw
+			}
+			$itk_component(canvas) coords $item_tags($node) $x $y
+			catch {after idle [code $this update_edge $node]}
+			incr y [expr {$nh + 2}]
+			incr row
+		}
+	} elseif {$vert eq "Columns"} {
+		set max_w 0
+		set nam_w 0
+		foreach node [array names nodes] {
+			set bb [$itk_component(canvas) bbox $item_tags($node)]
+			set nw [expr {[lindex $bb 2] - [lindex $bb 0]}]
+			set nh [expr {[lindex $bb 3] - [lindex $bb 1]}]
+			if {$max_w < $nw} { 
+				set max_w $nw
+				set max_node $node
+			}
+			set nl [font measure [$itk_component($node) cget -font] $nodes($node)]
+			if {$nam_w < $nl} { set nam_w $nl }
+		}
+		set bb [$itk_component(canvas) bbox $item_tags($max_node)]
+		set nw [expr {[lindex $bb 2] - [lindex $bb 0]}]
+		set nh [expr {[lindex $bb 3] - [lindex $bb 1]}]
+		set nl [font measure [$itk_component($max_node) cget -font] $nodes($max_node)]
+		set ox [expr {$nam_w - $nl}]
+		set ncols [expr {$w / ($max_w + $ox)}]
+		if {$ncols == 0} { set ncols 1 }
+		set n_nodes [array size nodes]
+		set nrows [expr {$n_nodes / $ncols}]
+		set rem [expr {$n_nodes - ($nrows * $ncols)}]
+		incr nrows $rem
+		set x 0
+		set y 0
+		set max_w 0
+		set row 0
+		foreach node [array names nodes] {
+			set bb [$itk_component(canvas) bbox $item_tags($node)]
+			set nw [expr {[lindex $bb 2] - [lindex $bb 0]}]
+			set nh [expr {[lindex $bb 3] - [lindex $bb 1]}]
+			set nl [font measure [$itk_component($node) cget -font] $nodes($node)]
+			if {$row > $nrows} {
+				incr x [expr {$max_w + 6}]
+				set max_w 0
+				set row 0
+				set y 0
+			}
+			set ox [expr {$nam_w - $nl}]
+			if {($nw + $ox) > $max_w} {
+				set max_w [expr {$nw + $ox}]
+			}
+			$itk_component(canvas) coords $item_tags($node) [expr {$x + $ox}] $y
+			catch {after idle [code $this update_edge $node]}
+			incr y [expr {$nh + 2}]
+			incr row
+		}
+	}
+	_updateScrollRegion
+}
+
+body vsimwidgets::Monitor::setoption {option} {
+	global PrefWatch
+	switch $option {
+		font -
+		radix -
+		minwidth -
+		maxwidth -
+		minheight -
+		maxheight  {
+			$this configure -$option $PrefWatch($option)
+		}
+
+		background        {
+			$this configure -textbackground $PrefWatch(background) \
+				-textbackground2 $PrefWatch(background2)
+		}
+
+		selectBackground -
+		selectForeground -
+		headerBackground -
+		headerForeground -
+		valueBackground -
+		valueForeground - 
+		inactiveBackground -  
+		inactiveForeground  {
+			$this configure -[string tolower $option] $PrefWatch($option)
+		}
+	}
+}
+
+body vsimwidgets::Monitor::BindDND {} {
+	dnd cleartarget $itk_component(canvas) 
+	dnd bindtarget $itk_component(canvas) {text/plain} <Drop> {DND_Drop %W %x %y %D}
+	dnd bindtarget $itk_component(canvas) {text/plain} <Drag> {DND_Drag %W %x %y}
+
+}
+
+body vsimwidgets::Monitor::MoveTo {name x y} {
+	set tag $item_tags($name)
+	$itk_component(canvas) coords $tag $x $y
+	update_edge $name
+}
+
+body vsimwidgets::Monitor::FindPos {name {x 0} {y 0}} {
+	if {![info exists item_tags($name)]} return
+	#set x 0
+	#set y 0
+	set w [winfo width $itk_component(canvas)]
+	set h [winfo height $itk_component(canvas)]
+	set bb [$itk_component(canvas) bbox $item_tags($name)]
+	set nw [expr {[lindex $bb 2] - [lindex $bb 0]}]
+	set nh [expr {[lindex $bb 3] - [lindex $bb 1]}]
+	set max_h 0
+	set col 0
+	set max_w 0
+	set row 0
+	while {1} {
+		if {$layout eq "Horizontally"} {
+			if {$col && ($x + $nw) > $w} {
+				set y [expr {$y + $max_h + 6}]
+				set max_h 0
+				set col 0
+				set x 0
+			}
+			if {$nh > $max_h} {
+				set max_h $nh
+			}
+			set ids [$itk_component(canvas) find overlapping $x $y [expr {$x + $nw + 2}] [expr {$y + $max_h + 6}]]
+			set found 0
+			foreach idx $ids {
+				if {!($idx == $item_tags($name) || 
+					  [$itk_component(canvas) type $idx] eq "line" ||
+					  [$itk_component(canvas) itemcget $idx -tags] eq {})} {
+					set found 1
+				}
+			}
+			if {$found} {
+				set bb [$itk_component(canvas) bbox [lindex $ids 0]]
+				set nw1 [expr {[lindex $bb 2] - [lindex $bb 0]}]
+				set nh1 [expr {[lindex $bb 3] - [lindex $bb 1]}]
+				set x [expr {$x + $nw1 + 12}]
+				if {$nh1 > $max_h} {
+					set max_h $nh1
+				}
+			} else {
+				break
+			}
+			incr col
+		} elseif {$layout ne "XY"} {
+			if {$row && ($y + $nh) > $h} {
+				set x [expr {$x + $max_w + 16}]
+				set max_w 0
+				set row 0
+				set y 0
+			}
+			if {$nw > $max_w} {
+				set max_w $nw
+			}
+			set ids [$itk_component(canvas) find overlapping $x $y [expr {$x + $max_w + 6}] [expr {$y + $nh + 2}]]
+			set found 0
+			foreach idx $ids {
+				if {!($idx == $item_tags($name) || 
+					  [$itk_component(canvas) type $idx] eq "line" ||
+					  [$itk_component(canvas) itemcget $idx -tags] eq {})} {
+					set found 1
+				}
+			}
+			if {$found} {
+				set bb [$itk_component(canvas) bbox [lindex $ids 0]]
+				set nh1 [expr {[lindex $bb 3] - [lindex $bb 1]}]
+				set nw1 [expr {[lindex $bb 2] - [lindex $bb 0]}]
+				set y [expr {$y + $nh1 + 12}]
+				if {$nw1 > $max_w} {
+					set max_w $nw1
+				}
+			} else {
+				break
+			}
+			incr row
+		} else {
+			break
+		}
+	}
+	$itk_component(canvas) coords $item_tags($name) $x $y
+	catch {after idle [code $this update_edge $name]}
+
+	_updateScrollRegion
+}
+
+body vsimwidgets::Monitor::select {name} {
+	set name [expr {$load_num + $name}]
+	$itk_component($name) configure -state active
+	lappend current $name
+	$itk_component(canvas) addtag msel withtag $item_tags($name)
+	if {$current ne "" } {
+		set lastCurrent [lindex $current end]
+	}
+	return
+}
+
+body vsimwidgets::Monitor::connect {from to} {
+	set from [expr {$load_num + $from}]
+	set to [expr {$load_num + $to}]
+	add_edge $from $to
+	return
+}
+
+body vsimwidgets::Monitor::IsSelectedSystemC {} {
+	foreach sig [getcurrent] {
+		if {[$itk_component($sig) accType] eq 3001} {
+			return 1
+		}
+	}
+	return 0
+}
+#############################################################################
+proc vsimwidgets::Monitor::monitorUpdate {args} {
+	foreach m [::find object -class ::vsimwidgets::Monitor] {
+		$m updateNodes
+	}
+}
+
+
+proc MonitorWin::CreateWatchWindow {windowobj} {
+    global PrefWatch PrefDefault vsimPriv
+    global PathSeparator DatasetSeparator
+
+	set cs [$windowobj GetBody]
+    set fn textFont
+	set mw [vsimwidgets::monitor $cs.m -hscrollmode dynamic -vscrollmode dynamic \
+				-textbackground $PrefWatch(background) \
+				-selectbackground $PrefWatch(selectBackground) \
+				-selectforeground $PrefWatch(selectForeground) \
+				-headerbackground $PrefWatch(headerBackground) \
+				-valuebackground $PrefWatch(valueBackground) \
+				-inactivebackground $PrefWatch(inactiveBackground) \
+				-inactiveforeground $PrefWatch(inactiveForeground) \
+				-headerforeground $PrefWatch(headerForeground) \
+				-valueforeground $PrefWatch(valueForeground) \
+				-font $fn]
+	$vsimPriv(windowmgr) RegisterWindow $windowobj [$mw component canvas]
+	$windowobj configure -viewwidget $mw
+
+
+    ##	
+    ## Bind the destroy operation to do some variable cleanup.
+    ##
+    bind $cs <Destroy> "watch_clear_triggers $mw"
+
+    ##
+    ## Pack all widgets.
+    ##
+    pack $mw -expand true -fill both
+
+	set popup_menu [watch_make_popup $cs ]
+	$mw configure -popupmenu $popup_menu
+	watch_set_triggers $mw
+	$windowobj configure -actioncommand [code $cs.m Action]
+}
+
+proc watch_create_menus { windowobj  menu_bar} {
+	global vsimPriv
+	set wname [$windowobj GetBody]
+	set mw $wname.m
+	set file_menu [AddMenu			"File"	$menu_bar	"" F ]
+	AddMenuItem "Save Format..."			$file_menu  [list MonitorWin::MonitorSaveFormat $wname]								can_saveformat		S
+	AddMenuItem "Load Format..."			$file_menu 	[list MonitorWin::MonitorLoadFormat $wname]								can_loadformat		L
+	AddSeparator
+	AddMenuItem  "Close Window"				$file_menu	{$vsimPriv(Vcop) Action close_window}										can_close_window	W
+	set edit_menu [AddMenu			"Edit"	$menu_bar	"" E ]
+	AddMenuItem "Cut"						$edit_menu	{$vsimPriv(Vcop) Action cut}												can_cut				E.T
+	AddMenuItem "Copy"						$edit_menu	{$vsimPriv(Vcop) Action copy}												can_copy			E.C
+	AddMenuItem "Paste"						$edit_menu	{$vsimPriv(Vcop) Action paste}												can_paste			E.P
+	AddMenuItem "Delete"					$edit_menu	{$vsimPriv(Vcop) Action delete}												can_delete			E.D
+	AddMenuItem "Clear"						$edit_menu	{$vsimPriv(Vcop) Action clear}											can_clear			E.L
+	AddSeparator						
+	AddMenuItem "Select All"				$edit_menu	{$vsimPriv(Vcop) Action selectall}											can_selectall		E.S
+	AddMenuItem "Unselect All"				$edit_menu	{$vsimPriv(Vcop) Action unselectall}										can_unselectall		E.U
+	AddSeparator
+	AddMenuItem "Force..."					$edit_menu	[list MonitorWin::MonitorSigCmd Signals::ForceDialog $wname]				can_force			E.F
+	AddMenuItem "NoForce"					$edit_menu	[list MonitorWin::MonitorSigCmd Signals::NoForceDialog $wname]				can_noforce			E.N
+	AddMenuItem "Clock..."					$edit_menu	[list MonitorWin::MonitorSigCmd ClkDialog $wname]							can_clock			E.K
+	AddMenuItem "Change..."					$edit_menu	[list MonitorWin::MonitorSigCmd MonitorWin::MonitorChangeDialog $wname]		can_change			E.H
+	AddMenuItem "Follow Selection Context"	$edit_menu	[list MonitorWin::select_env $wname]										can_followcontext	E.O
+	set view_menu [AddMenu			"View"	$menu_bar	"" V ]
+	AddMenuItem "Tile Horizontally"			$view_menu	[code $mw TileNodes Horizontally]											""					V.H
+	AddMenuItem "Tile Vertically"			$view_menu	[code $mw TileNodes Vertically]												""					V.V
+	AddMenuItem "Tile Columns"				$view_menu	[code $mw TileNodes Columns]												""					V.C
+	AddSeparator
+	AddMenuItem "Properties..."				$view_menu	"MonitorWin::NodeProp $wname"												can_properties		V.P
+	set add_menu [AddMenu			"Add"	$menu_bar	"" A ]
+	AddMenuItem "Add to Wave"				$add_menu	"watchSelCommand $wname {add wave}"											can_addselwave		A.W
+	AddMenuItem "Add to List"				$add_menu	"watchSelCommand $wname {add list}"											can_addsellist		A.L
+	AddMenuItem "Log Signal"				$add_menu	"watchSelCommand $wname {add log}"											can_addsellog		A.O
+	AddMenuItem "Add to Dataflow"			$add_menu	"watchSelCommand $wname {add dataflow}"										can_addsellog		A.D
+	set tools_menu [AddMenu			"Tools"	$menu_bar   "" T ]	
+	AddMenuItem "Group"						$tools_menu	[code $mw cluster]															can_group			T.G
+	AddMenuItem "UnGroup"					$tools_menu	[code $mw uncluster]														can_ungroup			T.U
+	AddWindowMenu							$menu_bar
+}
+
+proc watch_make_popup {wname} {
+	global PrefDefault
+	set mw $wname.m
+	set popup_menu [AddPopupMenu WatchPopup "" $wname]
+	set add_menu [AddSubMenu	"Add"				$popup_menu	""																can_addselwave]
+	AddMenuItem "Add to Wave"				$add_menu	"watchSelCommand $wname {add wave}"											can_addselwave		A.W
+	AddMenuItem "Add to List"				$add_menu	"watchSelCommand $wname {add list}"											can_addsellist		A.L
+	AddMenuItem "Log Signal"				$add_menu	"watchSelCommand $wname {add log}"											can_addsellog		A.O
+	AddMenuItem "Add to Dataflow"			$add_menu	"watchSelCommand $wname {add dataflow}"										can_addsellog		A.D
+	AddSeparator							$popup_menu
+	AddMenuItem "Force..."					$popup_menu	[list MonitorWin::MonitorSigCmd Signals::ForceDialog $wname]				can_force
+	AddMenuItem "NoForce"					$popup_menu	[list MonitorWin::MonitorSigCmd Signals::NoForceDialog $wname]				can_noforce
+	AddMenuItem "Clock..."					$popup_menu	[list MonitorWin::MonitorSigCmd ClkDialog $wname]							can_clock
+	AddMenuItem "Change..."					$popup_menu	[list MonitorWin::MonitorSigCmd MonitorWin::MonitorChangeDialog $wname]	can_change
+	AddMenuItem "Follow Selection Context"	$popup_menu [list MonitorWin::select_env $wname]										can_followcontext
+	AddSeparator							$popup_menu
+	AddMenuItem "Save Format..."			$popup_menu [list MonitorWin::MonitorSaveFormat $wname]								can_saveformat
+	AddMenuItem "Load Format..."			$popup_menu	[list MonitorWin::MonitorLoadFormat $wname]								can_loadformat
+	AddSeparator							$popup_menu
+	AddMenuItem "Group"						$popup_menu	[code $mw cluster]															can_group
+	AddMenuItem "UnGroup"					$popup_menu	[code $mw uncluster]														can_ungroup
+	AddSeparator							$popup_menu
+	AddMenuItem "Properties..."				$popup_menu	"MonitorWin::NodeProp $wname"												can_properties
+	AddMenuItem "Clear"						$popup_menu	[code $mw clear]															can_clear
+    return $popup_menu
+}
+
+proc watch_clear_triggers {treeObj} {
+    RemoveCmdFromQueue RunQ            "$treeObj updateFromRun"
+    RemoveCmdFromQueue ConfigureQ      "$treeObj updateNodes"
+    RemoveCmdFromQueue RestartPrepQ    "$treeObj restartPrep"
+	RemoveCmdFromQueue RestartQ        "$treeObj restart"
+    RemoveCmdFromQueue QuitSimQ        "$treeObj quitsim"
+	RemoveCmdFromQueue ContextQ 	    "treeObj updateNodes"
+}
+
+proc watch_set_triggers {treeObj} {
+    watch_clear_triggers $treeObj
+    AddCmdToQueue RunQ            "$treeObj updateFromRun"
+    AddCmdToQueue ConfigureQ      "$treeObj updateNodes"
+	AddCmdToQueue RestartPrepQ    "$treeObj restartPrep"
+    AddCmdToQueue RestartQ        "$treeObj restart"
+    AddCmdToQueue QuitSimQ        "$treeObj quitsim"
+	AddCmdToQueue ContextQ		  "$treeObj updateNodes"
+}
+
+proc watchSelCommand {w cmd} {
+	foreach i [$w.m curselection] {
+		set sigNames [$w.m get $i]
+		foreach sig $sigNames {
+			eval transcribe $cmd {$sig}
+		}
+	}
+
+}
+
+proc MonitorWin::MonitorSigCmd {cmd w} {
+	if {[cdbg_mode]} {
+		echo "Not allowed when stopped in C debug mode"
+		return ""
+	}
+	set l [$w.m curselection]
+	if {$l == {}} {
+		if {[set fw [focus]] == ""} {
+			set fw .
+		}
+		tk_messageBox -parent [winfo toplevel $fw] -title "No Selection" \
+			-message "No items selected." -type ok -icon error
+	}
+	foreach i [$w.m curselection] {
+		set sigName [$w.m get $i]
+		if {[ContextIsSim $sigName]} {
+			if { [catch {::examine -value [context path $sigName]} sigValue] }	continue
+		} else {
+			set sigValue ""
+		}
+		$cmd $w.m $sigName $sigValue
+		$w.m updateNode $i
+	}
+	return ""
+}
+
+
+
+proc MonitorWin::MonitorChangeDialog {wname variable value} {
+    global change_prompt
+
+    set change_prompt(varname) $variable
+    set change_prompt(value) $value
+    set change_prompt(ok) 0
+
+	if {[set fw [focus]] == ""} {
+		set fw $wname
+	}
+	set wtop [winfo toplevel $fw]
+	set top .change
+	toplevel $top -borderwidth 10
+
+	wm withdraw $top
+	wm title $top  "Change Selected Variable"
+
+	iwidgets::entryfield $top.varname  -labeltext "Item Name:"  -textvariable change_prompt(varname)  -width 40
+	iwidgets::entryfield $top.value    -labeltext "Value:"      -textvariable change_prompt(value)    -width 40
+	$top.varname.label config -width 14
+	$top.value.label   config -width 14
+
+	##################
+	# Pack Widgets
+	##################
+	global dialog_prompt
+	set dialog_prompt(change_dlg) 0
+	set b [MtiFormUtil::makeStdButtonBox $top.bb $top {set dialog_prompt(change_dlg) 1} no Change Cancel]
+	wm resizable $top 0 0
+	
+	grid $top.varname -  -sticky w -padx 5  -pady 5
+	grid $top.value   -  -sticky w -padx 5  -pady 5
+	grid $top.bb      -  -sticky e -padx 10 -pady 10
+	wm transient $top $wtop
+	Geometry::center_dialog $top $wtop
+	ModalDialogActivate $top $top.varname
+	if {$dialog_prompt(change_dlg) == 1} {
+		set cmd [list transcribe change $change_prompt(varname) $change_prompt(value)]
+		eval $cmd
+	}
+}
+
+proc MonitorWin::AddWatch  {args} {
+	global vsimPriv
+	set windowobj [$vsimPriv(windowmgr) GetDefaultWindow watch]
+	set child [$windowobj GetRegisteredView]
+	eval $child add $args
+}
+
+proc MonitorWin::MonitorSaveFormat {winname} {
+	variable load_monitor_format_file
+	variable MonitorFormatDir
+	variable save_monitor_format_file
+
+	if {$save_monitor_format_file == ""} {
+		set save_monitor_format_file "watch.do"
+	}
+	set filetypes [MacroFileTypes]
+
+	
+	set initial_dir [pwd] 
+	if { $MonitorFormatDir != ""} {
+	    set initial_dir $MonitorFormatDir
+	}
+
+	set save_file [tk_getSaveFile -initialdir $initial_dir -initialfile $save_monitor_format_file -title "Save Format" -filetypes $filetypes -parent $winname]
+	if {$save_file != ""} {
+		$winname.m write $save_file
+		set MonitorFormatDir [ file dirname [MtiFS::NormalizeFileName  $save_file]]
+		set save_monitor_format_file [file tail $save_file]
+		set load_monitor_format_file $save_monitor_format_file
+	}
+}
+
+
+proc MonitorWin::MonitorLoadFormat {winname} {
+	variable load_monitor_format_file
+	variable MonitorFormatDir
+	variable save_monitor_format_file
+
+	if {$load_monitor_format_file == ""} {
+		set load_monitor_format_file "watch.do"
+	}
+
+	set initial_dir [pwd] 
+	if {$MonitorFormatDir != ""} {
+	    set initial_dir $MonitorFormatDir
+	}
+
+	set filetypes [MacroFileTypes]
+	set load_monitor_format_file [tk_getOpenFile -initialfile \
+			$load_monitor_format_file -title "Open Format" -initialdir $initial_dir -filetypes $filetypes -parent $winname]
+	if {$load_monitor_format_file != ""} {
+		$winname.m SetStartLoading
+		transcribeNext do $load_monitor_format_file
+		set MonitorFormatDir [ file dirname [MtiFS::NormalizeFileName  load_monitor_format_file]]
+		set save_monitor_format_file [file tail $load_monitor_format_file]
+
+	}
+}
+
+proc MonitorWin::NodeProp {wname} {
+	variable prop_dlg_signame
+	variable propsig_radix
+	variable propsig_radixenum
+	variable propsig_label
+	set dlg .nodeprop
+	if {[winfo exists $dlg] == 1} {
+		wm deiconify $dlg
+		return
+	}
+	set wtop [winfo toplevel $wname]
+	set f [toplevel $dlg -bd 4]
+	wm withdraw $f
+	wm resizable $f 0 0
+	wm transient $f $wname
+	wm title $f "Properties"
+
+	# signal name
+	button $f.test -text none
+	set fnt [$f.test cget -font]
+	destroy $f.test
+
+	frame $f.siglabel_frame 
+	label $f.siglabel_frame.signal_label -text "Signal:" -justify left -font $fnt
+	label $f.siglabel_frame.signal_name -text "" -justify left -textvariable ::MonitorWin::prop_dlg_signame -font $fnt
+	grid $f.siglabel_frame.signal_label -row 0 -column 0  -sticky we
+	grid $f.siglabel_frame.signal_name -row 0 -column 1  -sticky we
+
+	# display name
+	iwidgets::labeledframe $f.display_frame -labeltext "Display Name" -labelpos nw 
+	set df [$f.display_frame childsite]
+	entry $df.display_name -textvariable ::MonitorWin::propsig_label -width 55
+	grid $df.display_name -sticky we
+
+
+	# Radix
+	iwidgets::labeledframe $f.radix_frame -labeltext "Radix" -labelpos nw 
+	set rf [$f.radix_frame childsite]
+	radiobutton $rf.r1 -text Symbolic    -variable ::MonitorWin::propsig_radix -value symbolic -anchor w 
+	radiobutton $rf.r2 -text Binary      -variable ::MonitorWin::propsig_radix -value binary -anchor w 
+	radiobutton $rf.r3 -text Octal       -variable ::MonitorWin::propsig_radix -value octal -anchor w 
+	radiobutton $rf.r4 -text Decimal     -variable ::MonitorWin::propsig_radix -value decimal -anchor w 
+	radiobutton $rf.r5 -text Unsigned    -variable ::MonitorWin::propsig_radix -value unsigned -anchor w 
+	radiobutton $rf.r6 -text Hexadecimal -variable ::MonitorWin::propsig_radix -value hexadecimal -anchor w 
+	radiobutton $rf.r7 -text ASCII       -variable ::MonitorWin::propsig_radix -value ascii -anchor w 
+	radiobutton $rf.r8 -text Default     -variable ::MonitorWin::propsig_radix -value default -anchor w 
+	
+	grid $rf.r1 $rf.r5 -sticky w
+	grid $rf.r2 $rf.r6 -sticky w
+	grid $rf.r3 $rf.r7 -sticky w
+	grid $rf.r4 $rf.r8 -sticky w
+
+	# RadixEnum
+	iwidgets::labeledframe $f.radixenum_frame -labeltext "RadixEnum" -labelpos nw 
+	set ref [$f.radixenum_frame childsite]
+	radiobutton $ref.re1 -text Symbolic -variable ::MonitorWin::propsig_radixenum -value symbolic -anchor w 
+	radiobutton $ref.re2 -text Numeric -variable ::MonitorWin::propsig_radixenum -value numeric -anchor w 
+	radiobutton $ref.re3 -text Default -variable ::MonitorWin::propsig_radixenum -value default -anchor w 
+	grid $ref.re1 -sticky w
+	grid $ref.re2 -sticky w
+	grid $ref.re3 -sticky w
+
+	grid $f.siglabel_frame -row 0 -column 0
+	grid $f.display_frame   -row 1 -column 0  -columnspan 2 -sticky we
+	grid $f.radix_frame     -row 2 -column 0
+	grid $f.radixenum_frame     -row 2 -column 1
+
+	set bok  [MtiFormUtil::makeButtonBox $f.bb 2 [list \
+				[list "OK"     "MonitorWin::ApplyPropSig $wname;destroy $f"] \
+				[list "Cancel" "destroy $f"] \
+				[list "Apply" "MonitorWin::ApplyPropSig $wname "] \
+			 ]]
+
+ 	grid $bok       -row 4 -column 0 -padx 0  -pady 2 -sticky e
+	MonitorWin::UpdateProperty $wname $f
+	Geometry::center_dialog $f $wtop
+	ModalDialogActivate $f 
+}
+
+proc MonitorWin::UpdateProperty {wname f} {
+	global PrefDefault
+	variable prop_dlg_signame
+	variable propsig_radix
+	variable propsig_radixenum
+	variable propsig_label
+
+	set item_list [$wname.m curselection]
+	set df [$f.display_frame childsite]
+	$df.display_name config -bg $PrefDefault(default_bg)
+	$df.display_name config	-state disabled
+	set propsig_radix {}
+	set propsig_radixenum {}
+	set propsig_label ""
+	set prop_dlg_signame [Project::shorten [$wname.m get [lindex $item_list 0]] 50]
+	if {[llength $item_list] == 1} {
+		set propsig_radix [$wname.m radix [lindex $item_list 0]]
+		set propsig_radixenum [$wname.m radixenum [lindex $item_list 0]]
+		set propsig_label [$wname.m disp_name [lindex $item_list 0]]
+
+		$df.display_name config	-bg $PrefDefault(input1_bg)
+		$df.display_name config	-state normal
+	}
+}
+
+proc MonitorWin::ApplyPropSig {wname} {
+	variable propsig_radix
+	variable propsig_radixenum
+	variable propsig_label
+
+	set item_list [$wname.m curselection]
+	if {[llength $item_list] == 1 && $propsig_label != ""} {
+		$wname.m disp_name [lindex $item_list 0] $propsig_label
+	}
+	foreach item $item_list {
+		$wname.m radix $item $propsig_radix
+		$wname.m radixenum $item $propsig_radixenum
+	}
+}
+
+proc MonitorWin::select_env {wname} {
+	set currentEnv [env]
+	set item_list [$wname.m curselection]
+	set net [$wname.m get [lindex $item_list 0]]
+	set env [context parent $net]
+	if {[context path $env] != [context path $currentEnv]} {
+		# Only force change if it's different
+		catch {env $env}
+	}
+}
+
+proc WatchSelect {{obj ""}} {
+	global vsimPriv
+	if {$obj eq ""} {
+		set windowobj [$vsimPriv(windowmgr) GetWindow watch] 
+		set m [$windowobj GetRegisteredChild]
+		$m select_all 1
+		return
+	}
+	$wname.m select $obj
+}
+
+proc WatchGroup {} {
+	global vsimPriv
+	set windowobj [$vsimPriv(windowmgr) GetWindow watch] 
+	set m [$windowobj GetRegisteredChild]
+	$m cluster
+}
+
+proc WatchConnect {from to} {
+	global vsimPriv
+	set windowobj [$vsimPriv(windowmgr) GetWindow watch] 
+	set m [$windowobj GetRegisteredChild]
+	$m connect $from $to
+}
+

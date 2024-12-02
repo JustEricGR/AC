@@ -1,0 +1,352 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+ /***********************************************************************
+ * 
+ * DESCRIPTION  This file is part of 0-In CheckerWare.
+ *              It describes the bus monitor for the I2C bus standard.
+ *
+ * PURPOSE      This monitor checks the I2C bus protocol.
+ *
+ * REFERENCE    The I2C-Bus Specification Ver 2.1, Jan. 2000, Philips
+ * 
+ * INPUTS       clock         - Clock signal. This clock is used to sample
+ *				both SDA and SCL. This should be atleast 
+ *                              2X faster than the SCL frequency.
+ *              clock_prescale_count - This is used to generate the internal 
+ *                                     sampling clock to sample SCL and SDA.   
+ *              areset        - Asynchonous Reset signal (active high)
+ *              sda_out       - SDA output to PAD
+ *		sda_in        - SDA input from PAD
+ *              scl_out       - SCL output to PAD
+ *		scl_in        - SCL input from PAD
+ *		slave_addr    - 10 Bits wide. Append 3'b00, if you are connecting 
+ *                              a 7-bit address.
+ * 
+ * NOTES        This monitor can be connected to both of the following 
+ *              bus signals:
+ *
+ *              a) SDA and SCL as Open Collector signals. In this cenario, 
+ *                 sda_out_en_n and scl_en_n signals should be connected to 1'b0.
+ *                 sda_in and sda_out should be connected to SDA.     
+ *                 scl_in and scl_out should be connected to SCL.
+ *
+ *              b) SDA and SCL as Tristate buffer outputs. 
+ *                 SDA Tristate signals: sda_out, sda_out_en_n, sda_in  
+ *                 SCL Tristate signals: scl_out, scl_out_en_n, scl_in 
+ *                 
+ * NOTES        While the I2C-Bus Specification specifies three modes,
+ *		the current monitor supports standard-mode (100 Kbps)
+ *		and fast-mode (400 Kbps), and high-speed mode (3.4 Mbps).
+ *
+ *
+ * USAGE        The monitor should be instantiated within the target design.
+ *
+ *                             +-----------------------------+
+ *                             |  I2C Device                 | 
+ *                             |            +-------------+  |
+ *          <---sda_out_en_n --|            |   Master    |  |
+ *          <---sda_out -------|            |   Device    |  |
+ *          ----sda_in  ------>|  +------+  |             |  |
+ *                             |  |      |  |             |  |
+ *                             |  | I2C  |  |             |  |
+ *                             |  |      |  |             |  |
+ *                             |  | MON  |  +-------------+  |
+ *                             |  |      |                   |
+ *                             |  |      |  +-------------+  |
+ *          <---sda_out_en_n --|  |      |  |   Slave     |  |
+ *          <---sda_out -------|  |      |  |   Device    |  |
+ *          ----sda_in  ------>|  +------+  |             |  |
+ *                             |            |             |  |
+ *                             |            |             |  |
+ *                             |            +-------------+  |
+ *                             |                             |
+ *                             +-----------------------------+
+ *                             
+ * Last Update: 6th April 2006                            
+ ***********************************************************************/
+
+`include "std_qvl_defines.h"
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`qvlmodule qvl_i2c_monitor (clock,
+                          reset,
+                          areset,
+                          sda_out,
+                          sda_in,
+                          sda_out_en_n,
+                          scl_out,
+                          scl_in,
+                          scl_out_en_n,
+                          slave_addr,
+                          clock_prescale_count);
+
+  parameter Constraints_Mode = 0;
+              //Common Enable/Disable for all assertions as Constraints to Formal tools,
+              //#0-In Search, Confirm and Prove. To use a group of assertions of this
+              //monitor as Constraints with Formal tools, Pass value 1 to this parameter.
+  parameter DEVICE_TYPE      = 1;
+              //This parameter Configures this monitor for Master ONLY I2C Device, or
+              //Slave ONLY I2C device or Both the devices. Pass value 1 to Connect this
+              //monitor to track an I2C Master ONLY DUT. Pass '2' to connect this monitor
+              //to track an I2C Slave ONLY DUT. Pass '0' to configure this monitor for an
+              //I2C DUT that contains both Master and Slave are active functions.
+  parameter MAX_TXN_LENGTH   = 0;
+              //Maximum Transaction Length Limit. A Check will fire, if this monitor finds
+              //an I2C Transaction that is longer than the length specified to this
+              //parameter. The check is disabled, if this parameter is passed with 0. To
+              //activate this check, pass any non-zero positive number.
+  parameter CLOCK_PRESCALE_EN = 0;
+              //Clock Prescaler Enable. If set to 1, you should pass a non-zero positive
+              //value to clock_prescale_count signal. If set to 0. You should connect an
+              //external Sampling Enable to the 0th bit of clock_prescale_count signal.
+  parameter OUTPUT_ENABLES_ON = 0;
+              //Output Enables ON. If the I2C design has tristate compatible signals,
+              //pass 1 to this parameter, and connect the coresponding enable signals to
+              //sda_out_en_n, and scl_out_en_n. If the I2C design does not have output
+              //enable signals, connect 1'b0 to both sda_out_en_n, and scl_out_en_n signals
+
+//Internal Parameters
+  parameter ZI_ADDR_WIDTH = 10;
+  parameter ZI_DISABLE_CHECKS = 0;
+
+  input	clock;		
+  input reset;
+  input areset;
+  input	sda_out; 
+  input sda_in;		
+  input sda_out_en_n; 
+  input	scl_out;
+  input scl_out_en_n; 
+  input scl_in;		
+  input [ZI_ADDR_WIDTH-1:0] slave_addr; 
+  input [15:0] clock_prescale_count;
+
+//Wires for Slave/Master Monitor.
+
+wire [4:0] next_state, present_state, r_present_state;
+wire [4:0] serial_bit_count;
+wire r_w_n_bit;
+wire dataphase_expected, gcall_received;
+wire [9:0] eff_bus_address;
+wire hs_mode_flag;
+wire r_master_active;
+wire arbitration_lost;
+wire start_byte_flag;
+wire [(4*8)-1:0] next_state_string;
+wire [(4*8)-1:0] present_state_string;
+wire clock_enable;
+wire sampling_enable;
+wire slave_wait;
+wire master_active, slave_active;
+wire start_or_repeated_start;
+wire stop_state;
+wire [9:0] eff_input_address;
+wire dut_as_master, dut_as_slave;
+wire master_active_continue;
+wire [1:0] extended_address_status;
+
+wire master_sda_out, master_sda_out_en_n, master_sda_in, slave_sda_out, 
+     slave_sda_out_en_n, slave_sda_in, master_scl_out, master_scl_out_en_n,
+     master_scl_in, slave_scl_out, slave_scl_out_en_n, slave_scl_in; 
+
+assign master_sda_out = (dut_as_master == 1) ? sda_out : sda_in ;
+
+assign master_sda_out_en_n = (dut_as_master == 1) ? sda_out_en_n : 1'b0; 
+
+assign master_sda_in = (dut_as_master == 1) ? sda_in : sda_out  ;
+
+assign slave_sda_out =  (dut_as_master == 0) ? sda_out : sda_in; 
+
+assign slave_sda_out_en_n = (dut_as_master == 0) ? sda_out_en_n : 1'b0;
+
+assign slave_sda_in = (dut_as_master == 0) ? sda_in : sda_out ;
+
+assign master_scl_out = (dut_as_master == 1) ? scl_out : scl_in ;
+
+assign master_scl_out_en_n = (dut_as_master == 1) ? scl_out_en_n : 1'b0;
+
+assign master_scl_in = (dut_as_master == 1) ? scl_in : scl_out ;
+
+assign slave_scl_out = (dut_as_master == 0) ? scl_out: scl_in ; 
+
+assign slave_scl_out_en_n = (dut_as_master == 0) ? scl_out_en_n : 1'b0 ; 
+
+assign slave_scl_in = (dut_as_master == 0) ? scl_in : scl_out ;
+
+/* The following parameters specify the state tracking the I2C protocol */ 
+
+`protected
+
+    MTI!#*{Y-~\{aTYm-ADGXg^O]*B75OJBe*O+\[81zj[x!;_5Yzi(H^~B,-+WG@$n,2p$EeDk$;^_
+    1Tu;n8elKOo^l21B;'xJ{T$-sw|;+E#m7x]gTx-v]?{}rpcp\OKcIA1]-[!\7xi$*J]o=}o@|W-O
+    }7t!'7JDCe>:)k_rBlj_}!1Y$JE{KXp{Ap;}U~']3r=TX]@]<2R7lxaC>I@{+r@Zkp1z+^AYC^YA
+    z{ae,;lTGTR+D#^aCQ'=Y!VnB"u*R@=7@#_pR{ROK_o~]kyK{vOpQpZ$[!Rlu]7OV,WGuWm$u]\L
+    Qw7rH'jJxQT;*?Bejx3UiQI@zV-}*'C#u-N]|snHO-<<{}xXls]^m^e*O7=+V5z[pe;~JkQKkegD
+    CWmUpvH3XJ#iUV<F7Wu[t+z1>cwIji5;TeQHzRHw+5j*$]8S7kr;dl]ikK[Eas*?WXnC^jw<VY?V
+    =jH=#>}7IIKQA]~u_W,A~,*5eew1<D!up?{v3zz#VU}J>AjBIl>$7rGA1}}+>In]x)]\X{XDrpxC
+    eH\i'_^,zzz?_+~{Q-e<B{ZICv1e#ImYCR>Q3)Y[^[^+H]b_p@;hl_5<oh$E?]psvK3E3$
+`endprotected
+
+qvl_i2c_state_machine #(
+                 Constraints_Mode, // (Constraints_Mode),
+                 DEVICE_TYPE, // (DEVICE_TYPE),
+                 MAX_TXN_LENGTH, // (MAX_TXN_LENGTH),
+                 CLOCK_PRESCALE_EN, // (CLOCK_PRESCALE_EN),
+                 OUTPUT_ENABLES_ON, // (OUTPUT_ENABLES_ON),
+                 ZI_ADDR_WIDTH, // (ZI_ADDR_WIDTH),
+                 ZI_DISABLE_CHECKS) // (ZI_DISABLE_CHECKS),
+I2C_STATE0
+       (
+//Port signals 
+        .clock (clock),
+        .reset (reset),
+        .areset (areset),
+        .sda_out (sda_out),
+        .sda_in (sda_in),
+        .sda_out_en_n (sda_out_en_n),
+        .scl_out (scl_out),
+        .scl_out_en_n (scl_out_en_n),
+        .scl_in (scl_in),
+        .slave_addr (slave_addr),
+        .clock_prescale_count (clock_prescale_count),
+
+//Internal Signals.
+        .next_state (next_state),
+        .present_state (present_state),
+        .r_present_state (r_present_state),
+        .serial_bit_count (serial_bit_count),
+        .arbitration_lost (arbitration_lost),
+        .eff_bus_address (eff_bus_address),
+        .eff_input_address (eff_input_address),
+        .slave_wait (slave_wait),
+        .start_or_repeated_start (start_or_repeated_start),
+        .stop_state (stop_state),
+        .dataphase_expected (dataphase_expected),
+        .gcall_received (gcall_received),
+        .start_byte_flag (start_byte_flag),
+        .hs_mode_flag (hs_mode_flag),
+        .r_master_active (r_master_active),
+        .master_active (master_active),
+        .master_active_continue (master_active_continue),
+        .clock_enable (clock_enable),
+        .sampling_enable (sampling_enable),
+        .slave_active (slave_active),
+        .extended_address_status (extended_address_status),
+        .dut_as_master (dut_as_master),
+        .dut_as_slave (dut_as_slave),
+        .r_w_n_bit (r_w_n_bit),
+        .next_state_string (next_state_string),
+        .present_state_string (present_state_string)
+ );
+
+
+qvl_i2c_master_checks #(
+                 Constraints_Mode, // (Constraints_Mode),
+                 DEVICE_TYPE, // (DEVICE_TYPE),
+                 MAX_TXN_LENGTH, // (MAX_TXN_LENGTH),
+                 CLOCK_PRESCALE_EN, // (CLOCK_PRESCALE_EN),
+                 OUTPUT_ENABLES_ON, // (OUTPUT_ENABLES_ON),
+                 ZI_ADDR_WIDTH, // (ZI_ADDR_WIDTH),
+                 ZI_DISABLE_CHECKS) // (ZI_DISABLE_CHECKS),
+I2C_MAS_CHK0 
+       (.clock (clock),
+        .reset (reset),
+        .areset (areset),
+        .sda_out (master_sda_out),
+        .sda_in (master_sda_in),
+        .sda_out_en_n (master_sda_out_en_n),
+        .scl_out (master_scl_out),
+        .scl_out_en_n (master_scl_out_en_n),
+        .scl_in (master_scl_in),
+        .slave_addr (slave_addr),
+        .clock_prescale_count (clock_prescale_count),
+
+//Output Signals.
+        .next_state (next_state),
+        .present_state (present_state),
+        .r_present_state (r_present_state),
+        .serial_bit_count (serial_bit_count),
+        .arbitration_lost (arbitration_lost),
+        .eff_bus_address (eff_bus_address),
+        .eff_input_address (eff_input_address),
+        .slave_wait (slave_wait),
+        .start_or_repeated_start (start_or_repeated_start),
+        .stop_state (stop_state),
+        .dataphase_expected (dataphase_expected),
+        .gcall_received (gcall_received),
+        .start_byte_flag (start_byte_flag),
+        .hs_mode_flag (hs_mode_flag),
+        .r_master_active (r_master_active),
+        .master_active (master_active),
+        .master_active_continue (master_active_continue), 
+        .clock_enable (clock_enable),
+        .sampling_enable (sampling_enable),
+        .slave_active (slave_active),
+        .r_w_n_bit (r_w_n_bit),
+        .next_state_string (next_state_string),
+        .present_state_string (present_state_string),
+        .dut_as_master (dut_as_master),
+        .dut_as_slave (dut_as_slave)  );
+
+qvl_i2c_slave_checks #(
+                 Constraints_Mode, // (Constraints_Mode),
+                 DEVICE_TYPE, // (DEVICE_TYPE),
+                 MAX_TXN_LENGTH, // (MAX_TXN_LENGTH),
+                 CLOCK_PRESCALE_EN, // (CLOCK_PRESCALE_EN),
+                 OUTPUT_ENABLES_ON, // (OUTPUT_ENABLES_ON),
+                 ZI_ADDR_WIDTH, // (ZI_ADDR_WIDTH),
+                 ZI_DISABLE_CHECKS) // (ZI_DISABLE_CHECKS),
+I2C_SLV_CHK0
+       (.clock (clock),
+        .reset (reset),   
+        .areset (areset),   
+        .sda_out (slave_sda_out),   
+        .sda_in (slave_sda_in),   
+        .sda_out_en_n (slave_sda_out_en_n),   
+        .scl_out (slave_scl_out),   
+        .scl_out_en_n (slave_scl_out_en_n),   
+        .scl_in (slave_scl_in),   
+        .slave_addr (slave_addr),   
+        .clock_prescale_count (clock_prescale_count),
+//Internal Signals.
+        .next_state (next_state),
+        .present_state (present_state),
+        .r_present_state (r_present_state),
+        .serial_bit_count (serial_bit_count),
+        .arbitration_lost (arbitration_lost),
+        .eff_bus_address (eff_bus_address),
+        .eff_input_address (eff_input_address),
+        .slave_wait (slave_wait),
+        .start_or_repeated_start (start_or_repeated_start),
+        .stop_state (stop_state),
+        .dataphase_expected (dataphase_expected),
+        .gcall_received (gcall_received),
+        .start_byte_flag (start_byte_flag),
+        .hs_mode_flag (hs_mode_flag),
+        .r_master_active (r_master_active),
+        .master_active (master_active),
+        .clock_enable (clock_enable),
+        .sampling_enable (sampling_enable),
+        .slave_active (slave_active),
+        .extended_address_status (extended_address_status),
+        .r_w_n_bit (r_w_n_bit),
+        .next_state_string (next_state_string),
+        .present_state_string (present_state_string), 
+        .dut_as_master (dut_as_master),  
+        .dut_as_slave (dut_as_slave) );
+
+`qvlendmodule

@@ -1,0 +1,325 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_hamming_distance_assertions (
+                           clock,
+                           reset,
+                           areset,
+                           active,
+                           zivar,
+                           used,
+                           used_cond,
+                           equal_check,
+                           min_check,
+                           max_check,
+                           equal_fire,
+                           min_fire,
+                           max_fire,
+                           total_checked_cycles,
+                           equal_distance_cycles,
+                           min_distance,
+                           max_distance,
+                           min_bits_changed_count,
+                           max_bits_changed_count,
+                           support,
+                           fire_count
+                            );
+
+  // module level pragmas
+
+   
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  // Instantiation dependent parameters
+
+  parameter WIDTH = 1; 
+
+  parameter DISTANCE = 0; 
+
+  parameter MAX = WIDTH; 
+
+  parameter MIN = 1; 
+
+  parameter CNTWIDTH = 1; 
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  parameter CW_FOR_FPGA = 0;
+  parameter STATS1_W = CW_FOR_FPGA ? CNTWIDTH : 63;
+
+  input     clock;     
+  input     areset;    
+  input     reset;     
+  input     active;    
+
+  input [WIDTH-1:0] zivar; 
+  input     used;      
+  input     used_cond; 
+
+  // check enables and modes
+
+  input     equal_check; 
+
+  input     min_check;   
+
+  input     max_check;   
+
+  output   equal_fire;
+  output   min_fire;
+  output   max_fire;
+                
+  output [STAT_CNT_WIDTH-1:0] total_checked_cycles;
+  output [STAT_CNT_WIDTH-1:0] equal_distance_cycles;
+  output [STATS1_W:0] min_distance;
+  output [STATS1_W:0] max_distance;
+  output [STAT_CNT_WIDTH-1:0] min_bits_changed_count;
+  output [STAT_CNT_WIDTH-1:0] max_bits_changed_count;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [2:0] fire_count_tmp;
+
+  reg equal_fire;
+  reg min_fire;
+  reg max_fire;
+
+  reg [STAT_CNT_WIDTH-1:0] total_checked_cycles;
+  reg [STAT_CNT_WIDTH-1:0] equal_distance_cycles;
+  reg [STATS1_W:0] min_distance;
+  reg [STATS1_W:0] max_distance;
+  reg [STAT_CNT_WIDTH-1:0] min_bits_changed_count, max_bits_changed_count;
+
+  // Register declaration for statistics
+
+  reg        min_distance_set;
+
+  reg [WIDTH-1:0] old_var; // To store the value of zivar on the previous clock 
+			   // edge
+
+  // Truncate the parameters to the required size.
+
+  wire [CNTWIDTH:0] min = MIN;
+  wire [CNTWIDTH:0] max = MAX;
+  wire [CNTWIDTH:0] distance = DISTANCE;
+
+
+
+  reg last_active; 
+  wire check_dist;
+  wire xz_detected;
+  wire enable_check;
+  wire [CNTWIDTH:0] difference_count;
+  wire is_used;
+  wire min_bits_changed;
+  wire max_bits_changed;
+
+
+`ifdef QVL_ASSERT_ON
+  wire equal_fire_combo;
+  wire min_fire_combo;
+  wire max_fire_combo;
+`endif
+
+`protected
+
+    MTI!#\jo^I,GimrD{XTQ\sE@}5mK*zVvx,z7o=;Qz*R"[D'R=3[7*boY-uNojummRa-$ERaUR]O+
+    wOrFc(=TTuKGvG7euw2]*Yx7#D5ar[vV}K|z;$>2=Jx10vZeG=@[WVzA-sZpi?{v*-8x,npq#}5Y
+    5Y\]LFD7IB]BlD*\Ym$ZE^R3>WCO1xs~m>_QGrQ*x$]Vu?G@{**ek35Y7@SRYXk}EJ{<jl~KTpKC
+    ;n$FD,]k_jJ=!<+nJ]@>*eHQLaUHWI>lwao[3'rBx!&:B{Zu1;@7VU@x3Tx[}eV,{5*x_R\'XCT1
+    W<x;**<?xg!}z^lx{,;s-H_Q^A17wmk<*UkDXuT$z#_~!X<U^T<vjri_V#JYl2}3>HB2*=T1>YmT
+    C@[}oT'VG}=i77eA3{{aY<3}p<e3H[N)~E;=_5@s1K,V\T;J?Qipg*{~J@]E^(IxADtAE=}B3okU
+    U-$Tj-$c3EH3#O+3v;\}=iXXV==_Zw*3T<Y=[(Jvo[Gn~$'ZD*s+-!1rD[pA_pu7oQJXQuo>me{X
+    E51@@}L:n<1']}#jX5-~O1+o'5w\2p*k5.nETXUT{e\Q+O1rV_MFATTT~$Km~jrupqjTaZ$Y#T^B
+    z]CL5D,B+OA<eK'2k}1[d}@q5ZE<xTZYM
+`endprotected
+  // Register and wire declarations
+
+  assign check_dist = (zivar !== old_var && last_active === 1'b1 && 
+		       active === 1'b1);  // To enable checks only if zivar has
+					  // changed.
+
+  assign xz_detected = ( (^zivar ^ ^old_var) === 1'bx); // To isolate "x" and "z".
+
+  assign enable_check = ~xz_detected && check_dist;
+                             // The Enable used by the get_count function and
+			     // by the checker logic.
+
+  assign difference_count = 
+			(enable_check ? get_count(zivar ^ old_var): 0);
+		             // Invoke the function to get the distance
+                             // Enable signal to improve performance during
+			     // simulation.  If this signal is low, the 
+			     // function is not called even if zivar or old_var 
+			     // change.
+
+  assign is_used = (used === 1'b0) || (used === 1'b1 && used_cond === 1'b1);
+
+  assign min_bits_changed = (difference_count === min);
+  assign max_bits_changed = (difference_count === max);
+
+
+`ifdef QVL_ASSERT_ON
+assign equal_fire_combo = (active == 1'b1 && enable_check &&
+    equal_check === 1'b1 && difference_count !== distance && is_used === 1'b1);
+
+  assign min_fire_combo = (active == 1'b1 && enable_check &&
+    min_check === 1'b1 && difference_count < min && is_used === 1'b1);
+
+  assign max_fire_combo = (active == 1'b1 && enable_check &&
+    max_check === 1'b1 && difference_count > max && is_used === 1'b1);
+`endif
+
+`protected
+
+    MTI!#ww'~@sOwd[oWD,l3ECD5uj1GEs,G+e$1[v3em|.s]o$3}2DQ:o01C52%3o=1zz\In}-{k7+
+    ~R\OXN=(lD?KP*{DEJj,;D~_v'@^<e15<HE2sgWOzpqDAG}#{QDoVu7GjV;]~1pt,>G#@7TWr~ww
+    xs~a9_oi2u+5rPu}j#}@Kzm[l\,9PIp@D1B$xK<*X']\Z!RV\=nUs^TDZ~XurxI;~^^'z72J_HrU
+    Re727x~^w=Kr_C+eG{TO@GAZC7?**Cj7uTVC#-\)q3G{=l>uEqce2s7<VWxBi2n_X,2T_n79sQY$
+    G3$\'a;jio}_zloWc|\eV=|!VH*V|=7k]$T{TO_X\io\G&1zXWaC;WWv_unz^Q]GD1<'[C!{5l*R
+    eiojvY>v'iXUa*Z'\;B!5k+UuZX*e#x$aOED1OGfrB3>],<s]$YD\pe[i83B-Yv_3'[\GAI}}ow=
+    J2,O+#WH-GA{>'TCG*NwjEJ3_V!Yx2mQ};W#5?D2]liQo!E7?B;wRCI=nu-kT]^vV+>6'V?EZCk,
+    wwH[9BGD[]Q~]i7ls|>VF7LDi25I9b_xUoEHQJx@ms=1CV{Vj,n=A?O;2wN-H]k!TO~(Hn[--hQe
+    ~z[oz;vuKlOvr]kU@$jXTED^X<jpz$,?G\^KW!wlG1EK,B's}=q>s?p%os+<sO$QK\{ur?zTv)e*
+    V]x+!_z!*$Ywx,Rrjr[HZ[o3'r*V7;TU*vHs!^_;uU=I@7}j=Ja$bF:I>Ko#RwVDZ_E[{[]z5!Ul
+    *DYln2e?$!@bbI(7}x,EmooRUVrT{oTDm{C*nzrB,r+BA*sr/3Is=$[kmWa=j^3u]**WWa,o-G-K
+    VWxR\C[H2oAoA[=o[l;o~7V=<VEJnzi3D~oKzvIK]7R\'5v=-~oU+J>CITO]3URxwwI'~O#uD]Io
+    A'k\]53sriwnIs\u*}~<jeG*RA[}$]!uC1i+[sUjpj2a^<D@Z=nZw!RW3iRV>|Ne'YCjHoko7H3^
+    ArxDs$Z-XK1K_;^?a7C$aBEw}efuUr*olQZ=B\>F,WBi^qW^p7Z5?OD^DsDH3nr\n7>al!uHo^73
+    u2Rvn1{{U*7V<kje*+~pI}Ys]?iv,sk<7r7KBu_'DCe@\V?EkW6)eZoiBl=;[UQ~G=%snIi\Z*?u
+    D}WZsVn$\w~d1Z{wz<IlF}DjmF1JW@U+Z>[BJlY_}i3aB-B;J;7R[@J{UmHoHK+o[Io,!l=;[Dlp
+    QeYnEB\{{{D5noeBn{KwWQE&IJBX]13C^DT=^nz\-X[<wRG~N~D'<EeZe-,Q@1TeeG7kIH1mVDlw
+    rQDk+~Rz$1L?][22<-kq};xTxZ^lr?W@?jQ^=#oOG#~IZG-K\,e17\tEG+[8\2um*e~#]+Q~o*n5
+    QFD3zZq3<<1vvpxQx-e>$>nxxCKQq<pEZIk]_+B+TIXp~}1zvlY!O61PCY#!{L*UT>TC!2@p>nwx
+    o54mYsv}x#E[@lk{ajmE!p>+v2ntC~p1~DA3OTxBa+l^TTwVV'TC85#,O^s$JbXD\z%anYGWRr*u
+    riQo3Zx&oQBBx7\rmUGJrA*+13vI-zlzVJ[-uB=EjY[jEJ<TXTAZnDXXP+ozkna;TT5Z!_KBZ<zi
+    u(ajRuA}Kl5Joib[X=T7,>e2rl;s^HsXQ=uY+jv,H{Y>oJC'uYwr#K!-++2G\Eu'DC]~lO,zuJY5
+    K_<OxmoP<^mDG2oxz{Z$_T<^mA$}RBTOU+>zdZr}E!n;J?z{wW+^@sk;K<_F\}UCrK[,b}B[Y1><
+    ?QR\o7R}v$_wO@D2ss#X7DRTTv9mCY?a-xn\>liTH]JysrE5"|[Q]YcbxWb+wu,AIBT$wWKzmQ#b
+    G'CuxQ'I$3uA}k]~^s-}V1>Jos6a1p_7VTu8jOa]z'Qx}@5j=>QCz|=Az2\Dpz_73='H$w'^IoW5
+    57zA@p,_[rvGwW]t"FH-,3_@^r1W\7}WERK\H{(@1<~U=^].O7Bp>a{=['~\Cx2!vl]G\T^1{pJ,
+    2RjUQrCpHGO[ExWnv2~3Rk!@*HsIQ,*5^amp}}[O\~[C[j-a?S4nennv++s
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+	 if(DISTANCE > 0)
+	   begin : assert_hamming_distance_equal_check
+              A_qvl_hamming_distance_equal_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (equal_fire_combo)))
+                else qvl_error_t(
+                          .err_msg        ("A_qvl_hamming_distance_equal_check"),
+                          .msg            ({msg,"The value of test_expr has a distance not equal to the specified distance from the previous value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (DISTANCE > 0)
+	 if(MIN >0)
+	   begin : assert_hamming_distance_min_check
+              A_qvl_hamming_distance_min_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (min_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_hamming_distance_min_check"),
+                          .msg            ({msg,"The value of test_expr has a distance less than the specified minimum from the previous value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (MIN >0)
+	 if(MAX>0)
+	   begin : assert_hamming_distance_max_check
+              A_qvl_hamming_distance_max_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (max_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_hamming_distance_max_check"),
+                          .msg            ({msg,"The value of test_expr has a distance greater than the specified maximum from the previous value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+	 if(DISTANCE > 0)
+	   begin:assume_hamming_distance_equal_check
+              M_qvl_hamming_distance_equal_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (equal_fire_combo)));
+	   end
+	 if(MIN > 0)
+	   begin:assume_hamming_distance_min_check
+              M_qvl_hamming_distance_min_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (min_fire_combo)));
+	   end
+	 if(MAX > 0)
+	   begin:assume_hamming_distance_max_check
+              M_qvl_hamming_distance_max_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (max_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+`endif //QVL_ASSERT_ON
+
+`include "qvl_hamming_distance_cover.svh"
+
+`qvlendmodule 

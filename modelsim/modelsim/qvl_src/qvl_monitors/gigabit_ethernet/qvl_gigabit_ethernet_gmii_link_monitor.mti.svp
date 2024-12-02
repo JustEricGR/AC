@@ -1,0 +1,389 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the GMII Interface Monitor.
+ *
+ * DESCRIPTION   This monitor checks the 1 Gigabit Etherent frames for
+ *               carrier sense related violations and malformed packets.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *               802.3ae Amendment: Media Access Control (MAC) Parameters,
+ *               Physical Layers, and Management Parameters for 10 Gb/s
+ *               Operation, 2002.
+ *
+ * INPUTS        areset - asynchronous reset (active high)
+ *               reset  - synchronous reset (active high)
+ *               clk    - interface clk
+ *               data   - data (8-bit)
+ *               ctrl   - encoded control lines (enable and error)
+ *               col    - collision detect
+ *               crs    - carrier sense
+ *
+ * LAST MODIFIED 08 March 2005
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+ `ifdef QVL_SV_COVERGROUP_OFF
+  //DO nothing
+ `else
+  `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+   // Do nothing
+  `else
+  `define QVL_MW_FINAL_COVER
+  `endif 
+`endif
+
+`qvlmodule qvl_gigabit_ethernet_gmii_link_monitor (areset,
+                                                 reset,
+                                                 clk,
+                                                 data,
+                                                 ctrl,
+                                                 col,
+                                                 crs
+                                                );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis.
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate as to which side of the GMII link
+  // the monitor is instantiated. This parameter, along with the Constraints
+  // Mode parameter is used in constraining the correct side in case of the
+  // formal analysis.
+ 
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  // Set this parameter to the desired length of Jumbo frames. The default
+  // length of Jumbo frames is taken to be 9K bytes (9126 bytes).
+ 
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved
+  // values in fields. By default, these checks will be performed.
+ 
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+ 
+  // This parameter holds the information whether this instance of the 
+  // monitor is on the Transmit interface or the receive interface.
+
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+
+  // Parameter HALF_DUPLEX = 0 indicates a default configuration of full duplex
+  // operation. Set this parameter to 1 to configure the monitor in half duplex
+
+  parameter HALF_DUPLEX = 0;
+  wire [31:0] pw_HALF_DUPLEX = HALF_DUPLEX;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  parameter SLOT_TIME = 512;
+  wire [31:0] pw_SLOT_TIME = SLOT_TIME ;
+
+  parameter JAM_SIZE = 32;
+  wire [31:0] pw_JAM_SIZE = JAM_SIZE ;
+
+  parameter BURST_LIMIT = 65536;
+  wire [31:0] pw_BURST_LIMIT = BURST_LIMIT ;
+
+  input areset;
+  input reset;
+  input clk;
+  input [7:0] data;
+  input [1:0] ctrl;
+  input col;
+  input crs;
+
+  // Internal variables
+  reg r_crs;
+  reg r_col;
+  reg r_enable;
+  reg r_error;
+  reg [7:0] r_data;
+  reg data_valid;
+
+  wire enable;
+  wire error;
+  wire tx_interface_idle;
+  wire rx_interface_idle;
+  wire collisions_count;
+  wire false_carrier_count;
+  wire carrier_extn_count;
+  wire back_to_back_frames_count;
+  wire [7:0] gmii_statistics;
+
+  // The following set of wires are taken from the MAC monitor, for the purpose
+  // of statistics computation. These feed the statistics module.
+
+  wire [04:0] w_present_state;
+  wire [04:0] w_next_state;
+  wire [04:0] w_last_state;
+  wire [31:0] w_r_data;
+  wire [03:0] w_r_ctrl;
+  wire [11:0] w_vid;
+  wire [15:0] w_frame_type;
+  wire [15:0] w_frame_size;
+  wire [15:0] w_req_length;
+  wire [63:0] w_inter_frame_gap;
+
+
+  assign enable = ctrl[1];
+  assign error = ctrl[0];
+
+  assign tx_interface_idle = 
+    (TX_INTERFACE == 1 && enable === 1'b0 && error === 1'b0);
+  assign rx_interface_idle = 
+    (TX_INTERFACE == 0 && enable === 1'b0 && (error === 1'b0 || 
+    (error === 1'b1 && data === 8'b0)));
+  assign collisions_count = 
+    (HALF_DUPLEX == 1 && col === 1'b1 && r_col === 1'b0);
+  assign false_carrier_count =
+    (TX_INTERFACE === 1'b0 && enable === 1'b0 && r_enable === 1'b0 && 
+     error === 1'b1 && data === 8'h0E);
+  assign carrier_extn_count = 
+    (enable === 1'b0 && r_enable === 1'b1 && error === 1'b1 && 
+     r_error === 1'b0 && (data === 8'h0F || data === 8'h1F) && 
+     HALF_DUPLEX == 1);
+  assign back_to_back_frames_count = 
+    (enable === 1'b1 && r_enable === 1'b0 && data === 8'h55 && 
+     error === 1'b0 && r_error === 1'b1 && (r_data === 8'h0F || 
+     r_data === 8'h1F) && HALF_DUPLEX == 1);
+  assign gmii_statistics = {4'b0,back_to_back_frames_count,carrier_extn_count,
+    false_carrier_count, collisions_count};
+    
+`protected
+
+    MTI!#'}p5zU<+a_sD=GuUV#42+~Vh-$U!7W=i=37W|,!A'Cr,[D#=[ETlW)=_7a<]}}7RApGI;-=
+    OnzX$i;@CRuDN*^x>3Hr[\C-Ox@x3!>;,dA]5>x@o<E+s;#aO\ZeKKPJX5IC{KB.<[{Tcs^Hn~ww
+    C!sI'\aZ<[Zzii+QB|fo?zrv2T'}GUWG*J]P}V*+T>7Bq*ZY[(2jbIJ}O[jz\$|rYx2fo+D?WhN*
+    e1==-\1o}oB"7w\_]#2UE2-A![D[rWxj72E^'K1vY;EA&ED$\?jT^-E<=ans}]JAx$zG'h'B2l=H
+    3BtZ7QzLpWs'eapUHj2$}#x,o*KV&EYK^1!uuo[Ri_=ABx3r-^[?k$Z3~asI+z?@J*C3l<]X-W}e
+    5*Ppi>'_}O}Ds,GTEp\/D;'?Q+np'>+^H5#2X$UG;UD@sDGnCwl\nBWr}+on+Ri@B'w3RAnKUsw}
+    6;EA7asmQx#TGZT8;Yvid1XKEkD{2
+`endprotected
+
+  qvl_gigabit_ethernet_mac_monitor 
+  #(.Constraints_Mode(Constraints_Mode),
+    .MAC_SIDE(MAC_SIDE),
+    .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),
+    .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE),
+    .TX_INTERFACE(TX_INTERFACE),
+    .GMII(1),                                                 //GMII == 1 for GMII interface
+    .HALF_DUPLEX(HALF_DUPLEX),
+    .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),
+    .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED),
+    .SLOT_TIME(SLOT_TIME),
+    .JAM_SIZE(JAM_SIZE),
+    .BURST_LIMIT(BURST_LIMIT)
+   )
+ 
+    MAC_MONITOR
+    (.areset(areset),
+     .reset(reset),
+     .clk(clk),
+     .data({24'b0,data}),
+     .ctrl({2'b0,ctrl}),
+     .crs(crs),
+     .col(col),
+     .data_valid(data_valid),
+     .dec_err(1'b0),
+     .level_select(1'b1),
+     .w_present_state(w_present_state),
+     .w_next_state(w_next_state),
+     .w_last_state(w_last_state),
+     .w_r_data(w_r_data),
+     .w_r_ctrl(w_r_ctrl),
+     .w_vid(w_vid),
+     .w_frame_type(w_frame_type),
+     .w_frame_size_count(w_frame_size),
+     .w_requested_data_length(w_req_length),
+     .w_inter_frame_gap(w_inter_frame_gap)
+    );
+
+  // Wire declarations for statistics module hookup
+
+  wire [63:0] total_frames_count;
+  wire [63:0] data_frames_count;
+  wire [63:0] ctrl_frames_count;
+  wire [63:0] jumbo_frames_count;
+  wire [63:0] untagged_data_frames_count;
+  wire [63:0] vlan_tagged_data_frames_count;
+  wire [63:0] priority_tagged_data_frames_count;
+  wire [63:0] untagged_pause_frames_count;
+  wire [63:0] vlan_tagged_pause_frames_count;
+  wire [63:0] priority_tagged_pause_frames_count;
+  wire [63:0] untagged_jumbo_frames_count;
+  wire [63:0] vlan_tagged_jumbo_frames_count;
+  wire [63:0] priority_tagged_jumbo_frames_count;
+  wire [63:0] frames_with_global_address_count;
+  wire [63:0] frames_with_local_address_count;
+  wire [63:0] frames_with_group_address_count;
+  wire [63:0] frames_with_individual_address_count;
+  wire [63:0] min_size_untag_data_pkt_count;
+  wire [63:0] max_size_untag_data_pkt_count;
+  wire [63:0] packets_with_pad_count;
+  wire [63:0] remote_faults_count;
+  wire [63:0] local_faults_count;
+  wire [63:0] lane0_termnates_count;
+  wire [63:0] lane1_termnates_count;
+  wire [63:0] lane2_termnates_count;
+  wire [63:0] lane3_termnates_count;
+  wire [63:0] align_column_count;
+  wire [63:0] sync_column_count;
+  wire [63:0] skip_column_count;
+  wire [63:0] valid_block_count;
+  wire [63:0] data_block_count;
+  wire [63:0] control_block_count;
+  wire [63:0] idle_block_count;
+  wire [63:0] error_block_count;
+  wire [63:0] s0_block_count;
+  wire [63:0] s4_block_with_idle_count;
+  wire [63:0] s4_block_with_os_count;
+  wire [63:0] t0_block_count;
+  wire [63:0] t1_block_count;
+  wire [63:0] t2_block_count;
+  wire [63:0] t3_block_count;
+  wire [63:0] t4_block_count;
+  wire [63:0] t5_block_count;
+  wire [63:0] t6_block_count;
+  wire [63:0] t7_block_count;
+  wire [63:0] longest_ipg;
+  wire [63:0] shortest_ipg;
+  wire [63:0] invalid_frame_length_count;
+  wire [63:0] max_align_interval;
+  wire [63:0] min_align_interval;
+  wire [63:0] collisions_statistics_count;
+  wire [63:0] false_carrier_statistics_count;
+  wire [63:0] carrier_extn_statistics_count;
+  wire [63:0] back_to_back_frames_statistics_count;
+
+  wire collect_stats;
+ 
+  qvl_gigabit_ethernet_statistics 
+    #(1, // GMII = 1 for 1G 
+      TX_INTERFACE)
+    
+    GIGABIT_STATS
+    (.areset (areset),
+     .reset (reset),
+     .clk (clk),
+     .level_select(1'b1),
+     .collect_stats (collect_stats),
+     .present_state (w_present_state),
+     .next_state (w_next_state),
+     .last_state (w_last_state),
+     .data ({24'b0,data}),
+     .r_data (w_r_data),
+     .vid (w_vid),
+     .frame_type (w_frame_type),
+     .frame_size_count (w_frame_size),
+     .requested_length (w_req_length),
+     .inter_frame_gap (w_inter_frame_gap),
+     .mii_statistics (8'b0),
+     .gmii_statistics (gmii_statistics),
+     .xgmii_statistics (8'b0),
+     .xaui_statistics (8'b0),
+     .xsbi_statistics (16'b0),
+     .total_frames_count (total_frames_count),
+     .data_frames_count (data_frames_count),
+     .ctrl_frames_count (ctrl_frames_count),
+     .jumbo_frames_count (jumbo_frames_count),
+     .untagged_data_frames_count (untagged_data_frames_count),
+     .vlan_tagged_data_frames_count (vlan_tagged_data_frames_count),
+     .priority_tagged_data_frames_count (priority_tagged_data_frames_count),
+     .untagged_pause_frames_count (untagged_pause_frames_count),
+     .vlan_tagged_pause_frames_count (vlan_tagged_pause_frames_count),
+     .priority_tagged_pause_frames_count (priority_tagged_pause_frames_count),
+     .untagged_jumbo_frames_count (untagged_jumbo_frames_count),
+     .vlan_tagged_jumbo_frames_count (vlan_tagged_jumbo_frames_count),
+     .priority_tagged_jumbo_frames_count (priority_tagged_jumbo_frames_count),
+     .frames_with_global_address_count (frames_with_global_address_count),
+     .frames_with_local_address_count (frames_with_local_address_count),
+     .frames_with_group_address_count (frames_with_group_address_count),
+     .frames_with_individual_address_count
+       (frames_with_individual_address_count),
+     .min_size_untag_data_pkt_count (min_size_untag_data_pkt_count),
+     .max_size_untag_data_pkt_count (max_size_untag_data_pkt_count),
+     .packets_with_pad_count (packets_with_pad_count),
+     .remote_faults_count (remote_faults_count),
+     .local_faults_count (local_faults_count),
+     .lane0_termnates_count (lane0_termnates_count),
+     .lane1_termnates_count (lane1_termnates_count),
+     .lane2_termnates_count (lane2_termnates_count),
+     .lane3_termnates_count (lane3_termnates_count),
+     .align_column_count (align_column_count),
+     .sync_column_count (sync_column_count),
+     .skip_column_count (skip_column_count),
+     .valid_block_count (valid_block_count),
+     .data_block_count (data_block_count),
+     .control_block_count (control_block_count),
+     .idle_block_count (idle_block_count),
+     .error_block_count (error_block_count),
+     .s0_block_count (s0_block_count),
+     .s4_block_with_idle_count (s4_block_with_idle_count),
+     .s4_block_with_os_count (s4_block_with_os_count),
+     .t0_block_count (t0_block_count),
+     .t1_block_count (t1_block_count),
+     .t2_block_count (t2_block_count),
+     .t3_block_count (t3_block_count),
+     .t4_block_count (t4_block_count),
+     .t5_block_count (t5_block_count),
+     .t6_block_count (t6_block_count),
+     .t7_block_count (t7_block_count),
+     .longest_ipg (longest_ipg),
+     .shortest_ipg (shortest_ipg),
+     .invalid_frame_length_count (invalid_frame_length_count),
+     .max_align_interval (max_align_interval),
+     .min_align_interval (min_align_interval),
+     .collisions_statistics_count(collisions_statistics_count),
+     .false_carrier_statistics_count(false_carrier_statistics_count),
+     .carrier_extn_statistics_count(carrier_extn_statistics_count),
+     .back_to_back_frames_statistics_count(back_to_back_frames_statistics_count)
+     );
+ 
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_gigabit_ethernet_gmii_link_monitor_cover.svh"
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_gmii_link_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_gmii_link_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_gmii_link_monitor
+`include "zi_cw_gigabit_ethernet_gmii_link_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_gigabit_ethernet_gmii_link_monitor

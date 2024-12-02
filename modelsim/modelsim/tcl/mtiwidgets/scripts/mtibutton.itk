@@ -1,0 +1,218 @@
+#
+# Button w/repeat
+# ----------------------------------------------------------------------
+# Implements a Button with auto repeat
+#
+# WISH LIST:
+#
+# ----------------------------------------------------------------------
+#   AUTHOR:  Brian Griffin          EMAIL: bgriffin@model.com
+#
+#   @(#) $Id: //dvt/mti/rel/6.5b/src/tkgui/mtibutton.itk#1 $
+# ----------------------------------------------------------------------
+#            Copyright 2001-2009 Mentor Graphics Corporation
+# ======================================================================
+# See the file "license.terms" for information on usage and
+# redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+#
+# Usual options.
+#
+itk::usual Repeatbutton {
+    keep -background -borderwidth \
+	 -cursor -font -foreground -highlightbackground \
+	 -highlightcolor -highlightthickness -takefocus -text -textvariable \
+	 -image -bitmap -justify -padx -pady -underline -wraplength
+}
+#
+# Provide a lowercased access method for the Button class.
+# 
+proc ::mtiwidgets::repeatbutton {pathName args} {
+    uplevel ::mtiwidgets::Repeatbutton $pathName $args
+}
+
+
+# ------------------------------------------------------------------
+#                            BUTTON
+# ------------------------------------------------------------------
+class mtiwidgets::Repeatbutton {
+    inherit itk::Widget
+
+    constructor {args} {}
+    destructor {}
+
+	itk_option define -anchor anchor Anchor center
+	itk_option define -background background Background SystemButtonFace 
+	itk_option define -bitmap bitmap Bitmap {}
+	itk_option define -borderwidth borderWidth BorderWidth 2 
+	itk_option define -cursor cursor Cursor {} 
+	itk_option define -font font Font {{MS Sans Serif} 8 bold roman} 
+	itk_option define -foreground foreground Foreground SystemButtonText 
+	itk_option define -height height Height 0 
+	itk_option define -highlightbackground highlightBackground HighlightBackground lightgray
+	itk_option define -highlightcolor highlightColor HighlightColor SystemWindowFrame 
+	itk_option define -highlightthickness highlightThickness HighlightThickness 0 
+	itk_option define -image image Image {} 
+	itk_option define -justify justify Justify center 
+	itk_option define -padx padX Pad 1 
+	itk_option define -pady padY Pad 1 
+	itk_option define -takefocus takeFocus TakeFocus 0 
+	itk_option define -text text Text {} 
+	itk_option define -textvariable textVariable Variable {} 
+	itk_option define -underline underline Underline -1 
+	itk_option define -width width Width 0 
+	itk_option define -wraplength wrapLength WrapLength 0 
+
+	itk_option define -repeatdelay repeatDelay RepeatDelay 500
+	itk_option define -repeatperiod repeatPeriod RepeatPeriod 200
+	itk_option define -command command Command {}
+	itk_option define -state state State normal
+
+    public method invoke {} 
+
+    protected method _relayout {args} 
+	protected method _release {}
+	protected method _repeat {}
+
+    protected variable _reposition ""  ;# non-null => _relayout pending
+	protected variable _repeatId ""
+}
+
+# ------------------------------------------------------------------
+#                        CONSTRUCTOR
+# ------------------------------------------------------------------
+body mtiwidgets::Repeatbutton::constructor {args} {
+
+    itk_component add button {
+		label $itk_component(hull).button \
+				-borderwidth 2 \
+				-relief raised
+    } {
+        usual Repeatbutton
+		ignore -relief -borderwidth -height -width
+    }
+    pack $itk_component(button) -expand 1 -fill both 
+
+    #
+    # Initialize the widget based on the command line options.
+    #
+    eval itk_initialize $args
+
+	bind $itk_component(button) <Button-1> [code $this invoke]
+	bind $itk_component(button) <ButtonRelease-1> [code $this _release]
+	bind $itk_component(button) <Leave> [code $this _release]
+
+    #
+    # Layout the button.
+    #
+    _relayout
+}
+
+# ------------------------------------------------------------------
+#                           DESTRUCTOR
+# ------------------------------------------------------------------
+body mtiwidgets::Repeatbutton::destructor {} {
+    if {$_reposition != ""} {after cancel $_reposition}
+}
+
+# ------------------------------------------------------------------
+# PROTECTED METHOD: _relayout ?when?
+#
+# Adjust the width and height of the Button to accomadate all the
+# current options settings.  Add back in the highlightthickness to 
+# the button such that the correct reqwidth and reqheight are computed.  
+# Set the width and height based on the reqwidth/reqheight, 
+# highlightthickness, and ringpad.
+# If "when" is "now", the change is applied immediately.  If 
+# it is "later" or it is not specified, then the change is applied later,
+# when the application is idle.
+# ------------------------------------------------------------------
+body mtiwidgets::Repeatbutton::_relayout {args} {
+	if {[lindex $args 0] == ""} {
+		set when later
+	} else {
+		set when [lindex $args 0]
+	}
+    if {$when == "later"} {
+		if {$_reposition == ""} {
+			set _reposition [after idle [code $this _relayout now]]
+		}
+		return
+    } elseif {$when != "now"} {
+		error "bad option \"$when\": should be now or later"
+    }
+	
+    set _reposition ""
+	
+    if {$itk_option(-width) == 0} {
+		set w [expr {[winfo reqwidth $itk_component(button)] \
+						 + 2 * $itk_option(-highlightthickness) \
+						 + 2 * $itk_option(-borderwidth)}]
+    } else {
+		set w $itk_option(-width)
+    }
+    
+    if {$itk_option(-height) == 0} {
+		set h [expr {[winfo reqheight $itk_component(button)] \
+				+ 2 * [$itk_component(button) cget -highlightthickness] \
+				+ 2 * $itk_option(-borderwidth)}]
+    } else {
+		set h $itk_option(-height)
+    }
+
+    component hull configure -width $w -height $h
+    
+	component hull configure -relief flat \
+		-highlightthickness 0 -takefocus 0
+	
+	$itk_component(button) configure \
+		-highlightthickness [$this cget -highlightthickness] \
+		-takefocus 1 \
+		-relief raised
+
+}
+
+# ------------------------------------------------------------------
+# METHOD: invoke
+#
+# Thin wrap of standard button widget invoke method.
+# ------------------------------------------------------------------
+body mtiwidgets::Repeatbutton::invoke {} {
+	if {$itk_option(-command) != ""} {
+		$itk_component(button) configure -relief sunken
+		update
+		if {$itk_option(-repeatdelay) > 0} {
+			set _repeatId [after $itk_option(-repeatdelay) [code $this _repeat]]
+		}
+		catch {uplevel "#0" $itk_option(-command)}
+	}
+}
+
+# ------------------------------------------------------------------
+# METHOD: _repeat
+#
+# Repeat the command as long as the button is held down.
+# ------------------------------------------------------------------
+body mtiwidgets::Repeatbutton::_repeat {} {
+	if {$_repeatId == "" || [winfo containing [winfo pointerx .] [winfo pointery .]] != $itk_component(button)} {
+		_release
+		return
+	}
+	if {$itk_option(-command) != ""} {
+		if {$itk_option(-repeatdelay) > 0 && $itk_option(-repeatperiod) > 0} {
+			set _repeatId [after $itk_option(-repeatperiod) [code $this _repeat]]
+		}
+		catch {uplevel "#0" $itk_option(-command)}
+	}
+}
+
+# ------------------------------------------------------------------
+# METHOD: _release
+#
+# Release the button, cancel the repeat
+# ------------------------------------------------------------------
+body mtiwidgets::Repeatbutton::_release {} {
+	after cancel $_repeatId
+	set _repeatId ""
+	$itk_component(button) configure -relief raised
+}

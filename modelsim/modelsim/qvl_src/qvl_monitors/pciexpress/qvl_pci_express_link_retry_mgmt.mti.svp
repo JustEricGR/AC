@@ -1,0 +1,1104 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/******************************************************************************
+*
+* PURPOSE     This file is part of the Questa Verification Library (QVL).
+*
+* DESCRIPTION This module accepts TLP,DLLP and perform retry management 
+*             checks
+*
+* REFERENCE   PCI Express Base Specification Revision 1.0, July 22 2002
+*             PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*             PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+******************************************************************************/
+
+`ifdef ZiCwDebug
+  `define ZiCwDebugDelay1 #1
+  `define ZiCwQuietIfNoCwDebug
+`else
+  `define ZiCwDebugDelay1
+  `define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_express_link_retry_mgmt(areset,
+                                         reset,
+
+                                         phy_status,
+                                         link_layer_checks_disable,
+                                         link_up,
+
+                                         max_payload_size,
+                                         link_operating_width,
+
+                                         tx_link_clk,
+                                         tx_level_select,
+                                         tx_valid_code,
+
+                                         tx_detected_acknak_seq_num,
+                                         tx_ended_acknak_seq_num,
+
+                                         tx_detected_dllp_ack,
+                                         tx_ended_dllp_ack,
+
+                                         tx_detected_dllp_nak,
+                                         tx_ended_dllp_nak,
+
+                                         tx_current_tlp_pkt_valid,
+
+                                         tx_detected_tlp_pkt_valid,
+                                         tx_detected_null_tlp_pkt_valid,
+                                         tx_detected_bad_tlp_pkt_valid,
+
+                                         tx_ended_tlp_pkt_valid,
+                                         tx_ended_null_tlp_pkt_valid,
+                                         tx_ended_bad_tlp_pkt_valid,
+
+                                         tx_detected_tlp_seq_num,
+                                         tx_ended_tlp_seq_num,
+
+                                         tx_replay_timer_elapsed,
+                                         tx_replay_num_elapsed,
+
+                                         tx_detected_retry_progress,
+                                         tx_ended_retry_progress,
+
+                                         tx_next_tlp_seq_num,
+                                         tx_ack_nak_sequence_number_of_dllp,
+
+                                         tx_replay_timer,
+                                         tx_acknak_timer,
+
+                                         tx_num_outstanding_tlps,
+                                         tx_incr_detected_duplicate_tlp,
+                                         tx_incr_ended_duplicate_tlp,
+
+                                         rx_link_clk,
+                                         rx_level_select,
+                                         rx_valid_code,
+
+                                         rx_detected_acknak_seq_num,
+                                         rx_ended_acknak_seq_num,
+
+                                         rx_detected_dllp_ack,
+                                         rx_ended_dllp_ack,
+
+                                         rx_detected_dllp_nak,
+                                         rx_ended_dllp_nak,
+
+                                         rx_current_tlp_pkt_valid,
+
+                                         rx_detected_tlp_pkt_valid,
+                                         rx_detected_null_tlp_pkt_valid,
+                                         rx_detected_bad_tlp_pkt_valid,
+
+                                         rx_ended_tlp_pkt_valid,
+                                         rx_ended_null_tlp_pkt_valid,
+                                         rx_ended_bad_tlp_pkt_valid,
+
+                                         rx_detected_tlp_seq_num,
+                                         rx_ended_tlp_seq_num,
+  // PCI_EXPRESS_GEN2 code start
+                                         current_speed_5gt,
+  // PCI_EXPRESS_GEN2 code end                                     
+
+                                         rx_replay_timer_elapsed,
+                                         rx_replay_num_elapsed,
+
+                                         rx_detected_retry_progress,
+                                         rx_ended_retry_progress,
+
+                                         rx_next_tlp_seq_num,
+                                         rx_ack_nak_sequence_number_of_dllp, 
+
+                                         rx_replay_timer,
+                                         rx_acknak_timer,
+
+                                         rx_num_outstanding_tlps,
+                                         rx_incr_detected_duplicate_tlp,
+                                         rx_incr_ended_duplicate_tlp,
+
+                                         // L0s adjustment
+
+                                         extended_sync_enable,
+                                         L0s_entry_supported,
+                                         tx_n_fts,
+                                         rx_n_fts,
+                                         enable_recovery_state
+                                        );
+
+   parameter Constraints_Mode = 0;
+   parameter DOUBLE_DATA_RATE = 0;
+   parameter OVERRIDE_TIMER_VALUE = 0;
+   parameter REPLAY_TIMER_VALUE = 711;
+   parameter ACKNAK_TIMER_VALUE = 237;
+   // PCI_EXPRESS_GEN2 code start
+   // Parameter PCI_EXPRESS_GEN2 enables generation2 features of monitor.
+   parameter PCI_EXPRESS_GEN2 = 0;
+   wire [31:0] pw_PCI_EXPRESS_GEN2 = PCI_EXPRESS_GEN2;
+   // PCI_EXPRESS_GEN2 code end
+   input areset;
+   input reset;
+
+   input phy_status;
+   input link_layer_checks_disable;
+   input link_up;
+
+   input [2:0] max_payload_size;
+   input [5:0] link_operating_width;
+
+   input tx_link_clk;
+   input tx_level_select;
+   input tx_valid_code;
+
+   input [11:0] tx_detected_acknak_seq_num;
+   input [11:0] tx_ended_acknak_seq_num;
+
+   input tx_detected_dllp_ack;
+   input tx_ended_dllp_ack;
+
+   input tx_detected_dllp_nak;
+   input tx_ended_dllp_nak;
+
+   input tx_current_tlp_pkt_valid;
+
+   input tx_detected_tlp_pkt_valid;
+   input tx_detected_null_tlp_pkt_valid;
+   input tx_detected_bad_tlp_pkt_valid;
+
+   input tx_ended_tlp_pkt_valid;
+   input tx_ended_null_tlp_pkt_valid;
+   input tx_ended_bad_tlp_pkt_valid;
+
+   input [11:0] tx_detected_tlp_seq_num;
+   input [11:0] tx_ended_tlp_seq_num;
+
+   input rx_link_clk;
+   input rx_level_select;
+   input rx_valid_code;
+
+   input [11:0] rx_detected_acknak_seq_num;
+   input [11:0] rx_ended_acknak_seq_num;
+
+   input rx_detected_dllp_ack;
+   input rx_ended_dllp_ack;
+
+   input rx_detected_dllp_nak;
+   input rx_ended_dllp_nak;
+
+   input rx_current_tlp_pkt_valid;
+
+   input rx_detected_tlp_pkt_valid;
+   input rx_detected_null_tlp_pkt_valid;
+   input rx_detected_bad_tlp_pkt_valid;
+
+   input rx_ended_tlp_pkt_valid;
+   input rx_ended_null_tlp_pkt_valid;
+   input rx_ended_bad_tlp_pkt_valid;
+
+   input [11:0] rx_detected_tlp_seq_num;
+   input [11:0] rx_ended_tlp_seq_num;
+
+// PCI_EXPRESS_GEN2 code start
+   input current_speed_5gt;
+// PCI_EXPRESS_GEN2 code end
+
+   output tx_replay_timer_elapsed; 
+   output tx_replay_num_elapsed;
+
+   output tx_detected_retry_progress;
+   output tx_ended_retry_progress;
+
+   output [11:0] tx_next_tlp_seq_num;
+   output [11:0] tx_ack_nak_sequence_number_of_dllp; 
+
+   output [15:0] tx_replay_timer;
+   output [15:0] tx_acknak_timer;
+
+   output tx_incr_detected_duplicate_tlp;
+   output tx_incr_ended_duplicate_tlp;
+   output [11:0] tx_num_outstanding_tlps;
+
+   output rx_replay_timer_elapsed; 
+   output rx_replay_num_elapsed;
+
+   output rx_detected_retry_progress;
+   output rx_ended_retry_progress;
+
+   output [11:0] rx_next_tlp_seq_num;
+   output [11:0] rx_ack_nak_sequence_number_of_dllp; 
+
+   output [15:0] rx_replay_timer;
+   output [15:0] rx_acknak_timer;
+
+   output rx_incr_detected_duplicate_tlp;
+   output rx_incr_ended_duplicate_tlp;
+   output [11:0] rx_num_outstanding_tlps;
+
+   // Inputs added to get the L0s adjustment value.
+
+   input extended_sync_enable;
+   input L0s_entry_supported;
+   input [7:0] tx_n_fts;
+   input [7:0] rx_n_fts;
+   input enable_recovery_state;
+
+   wire tx_replay_timer_elapsed;
+   wire tx_replay_num_elapsed;
+
+   wire tx_detected_retry_progress;
+   wire tx_ended_retry_progress;
+
+   wire [11:0] tx_next_tlp_seq_num;
+   wire [11:0] tx_ack_nak_sequence_number_of_dllp; 
+
+   wire [15:0] tx_replay_timer;
+   wire [15:0] tx_acknak_timer;
+
+   wire tx_incr_detected_duplicate_tlp;
+   wire tx_incr_ended_duplicate_tlp;
+   wire [11:0] tx_num_outstanding_tlps;
+
+   wire rx_replay_timer_elapsed;
+   wire rx_replay_num_elapsed;
+
+   wire rx_detected_retry_progress;
+   wire rx_ended_retry_progress;
+
+   wire [11:0] rx_next_tlp_seq_num;
+   wire [11:0] rx_ack_nak_sequence_number_of_dllp; 
+
+   wire [15:0] rx_replay_timer;
+   wire [15:0] rx_acknak_timer;
+
+   wire rx_incr_detected_duplicate_tlp;
+   wire rx_incr_ended_duplicate_tlp;
+   wire [11:0] rx_num_outstanding_tlps;
+
+   wire tx_receiving_tlp_packets;
+   wire rx_receiving_tlp_packets;
+
+   assign tx_receiving_tlp_packets = (tx_current_tlp_pkt_valid ||
+                                      tx_detected_tlp_pkt_valid ||
+                                      tx_detected_null_tlp_pkt_valid ||
+                                      tx_detected_bad_tlp_pkt_valid ||
+                                      tx_ended_tlp_pkt_valid ||
+                                      tx_ended_null_tlp_pkt_valid ||
+                                      tx_ended_bad_tlp_pkt_valid); 
+
+   assign rx_receiving_tlp_packets = (rx_current_tlp_pkt_valid ||
+                                      rx_detected_tlp_pkt_valid ||
+                                      rx_detected_null_tlp_pkt_valid ||
+                                      rx_detected_bad_tlp_pkt_valid || 
+                                      rx_ended_tlp_pkt_valid ||
+                                      rx_ended_null_tlp_pkt_valid ||
+                                      rx_ended_bad_tlp_pkt_valid); 
+
+   /*********** Instantiation of Tx TLP and Rx DLLP  ************************/
+   qvl_pci_express_link_tx_rx_retry #(Constraints_Mode,
+                                        DOUBLE_DATA_RATE,
+                                        OVERRIDE_TIMER_VALUE,
+                                        REPLAY_TIMER_VALUE, 
+                                        ACKNAK_TIMER_VALUE,
+                                        PCI_EXPRESS_GEN2)
+
+      DLL_RETRY_TX_TLP_RX_DLLP(
+         .areset(areset),
+         .reset(reset),
+
+         .phy_status(phy_status),
+         .link_layer_checks_disable(link_layer_checks_disable),
+         .link_up(link_up),
+
+         .max_payload_size(max_payload_size),
+         .link_operating_width(link_operating_width),
+
+         .tx_link_clk(tx_link_clk),
+         .tx_level_select(tx_level_select),
+         .tx_valid_code(tx_valid_code),
+
+         .rx_link_clk(rx_link_clk),
+         .rx_level_select(rx_level_select),
+         .rx_valid_code(rx_valid_code),
+
+         .detected_acknak_seq_num(rx_detected_acknak_seq_num),
+         .ended_acknak_seq_num(rx_ended_acknak_seq_num),
+
+         .detected_dllp_ack(rx_detected_dllp_ack),
+         .ended_dllp_ack(rx_ended_dllp_ack),
+
+         .detected_dllp_nak(rx_detected_dllp_nak),
+         .ended_dllp_nak(rx_ended_dllp_nak),
+
+         .current_tlp_pkt_valid(tx_current_tlp_pkt_valid),
+
+         .detected_tlp_pkt_valid(tx_detected_tlp_pkt_valid),
+         .detected_null_tlp_pkt_valid(tx_detected_null_tlp_pkt_valid),
+         .detected_bad_tlp_pkt_valid(tx_detected_bad_tlp_pkt_valid),
+
+         .ended_tlp_pkt_valid(tx_ended_tlp_pkt_valid),
+         .ended_null_tlp_pkt_valid(tx_ended_null_tlp_pkt_valid),
+         .ended_bad_tlp_pkt_valid(tx_ended_bad_tlp_pkt_valid),
+
+         .detected_tlp_seq_num(tx_detected_tlp_seq_num),
+         .ended_tlp_seq_num(tx_ended_tlp_seq_num),
+
+         .receiving_tl_packets(rx_receiving_tlp_packets),
+  // PCI_EXPRESS_GEN2 code start
+         .current_speed_5gt(current_speed_5gt),
+  // PCI_EXPRESS_GEN2 code end
+         .replay_timer_elapsed(tx_replay_timer_elapsed),
+         .replay_num_elapsed(tx_replay_num_elapsed),
+
+         .detected_retry_progress(tx_detected_retry_progress),
+         .ended_retry_progress(tx_ended_retry_progress),
+
+         .next_tlp_seq(tx_next_tlp_seq_num),
+         .ackd_seq(rx_ack_nak_sequence_number_of_dllp), 
+
+         .replay_timer(tx_replay_timer),
+         .acknak_timer(rx_acknak_timer),
+
+         .incr_detected_duplicate_tlp(tx_incr_detected_duplicate_tlp),
+         .incr_ended_duplicate_tlp(tx_incr_ended_duplicate_tlp),
+         .num_outstanding_tlps(tx_num_outstanding_tlps),
+
+         .extended_sync_enable(extended_sync_enable),
+         .L0s_entry_supported(L0s_entry_supported),
+         .n_fts(rx_n_fts),
+         .enable_recovery_state(enable_recovery_state)
+         );
+   /**************************************************************************/
+
+   /************ Instantiation of Tx DLLP and Rx TLP   ***********************/
+   qvl_pci_express_link_tx_rx_retry #(Constraints_Mode,
+                                        DOUBLE_DATA_RATE,
+                                        OVERRIDE_TIMER_VALUE,
+                                        REPLAY_TIMER_VALUE, 
+                                        ACKNAK_TIMER_VALUE,
+                                        PCI_EXPRESS_GEN2,
+                                        1) /* Tx Dllp Rx TLP Side */
+      DLL_RETRY_TX_DLLP_RX_TLP(
+         .areset(areset),
+         .reset(reset),
+
+         .phy_status(phy_status),
+         .link_layer_checks_disable(link_layer_checks_disable),
+         .link_up(link_up),
+
+         .max_payload_size(max_payload_size),
+         .link_operating_width(link_operating_width),
+
+         .tx_link_clk(rx_link_clk),
+         .tx_level_select(rx_level_select),
+         .tx_valid_code(rx_valid_code),
+
+         .rx_link_clk(tx_link_clk),
+         .rx_level_select(tx_level_select),
+         .rx_valid_code(tx_valid_code),
+
+         .detected_acknak_seq_num(tx_detected_acknak_seq_num),
+         .ended_acknak_seq_num(tx_ended_acknak_seq_num),
+
+         .detected_dllp_ack(tx_detected_dllp_ack),
+         .ended_dllp_ack(tx_ended_dllp_ack),
+
+         .detected_dllp_nak(tx_detected_dllp_nak),
+         .ended_dllp_nak(tx_ended_dllp_nak),
+
+         .current_tlp_pkt_valid(rx_current_tlp_pkt_valid),
+
+         .detected_tlp_pkt_valid(rx_detected_tlp_pkt_valid),
+         .detected_null_tlp_pkt_valid(rx_detected_null_tlp_pkt_valid),
+         .detected_bad_tlp_pkt_valid(rx_detected_bad_tlp_pkt_valid),
+
+         .ended_tlp_pkt_valid(rx_ended_tlp_pkt_valid),
+         .ended_null_tlp_pkt_valid(rx_ended_null_tlp_pkt_valid),
+         .ended_bad_tlp_pkt_valid(rx_ended_bad_tlp_pkt_valid),
+
+         .detected_tlp_seq_num(rx_detected_tlp_seq_num),
+         .ended_tlp_seq_num(rx_ended_tlp_seq_num),
+
+         .receiving_tl_packets(tx_receiving_tlp_packets),
+  // PCI_EXPRESS_GEN2 code start
+         .current_speed_5gt(current_speed_5gt),
+  // PCI_EXPRESS_GEN2 code end
+         .replay_timer_elapsed(rx_replay_timer_elapsed),
+         .replay_num_elapsed(rx_replay_num_elapsed),
+
+         .detected_retry_progress(rx_detected_retry_progress),
+         .ended_retry_progress(rx_ended_retry_progress),
+
+         .next_tlp_seq(rx_next_tlp_seq_num),
+         .ackd_seq(tx_ack_nak_sequence_number_of_dllp), 
+
+         .replay_timer(rx_replay_timer),
+         .acknak_timer(tx_acknak_timer),
+
+         .incr_detected_duplicate_tlp(rx_incr_detected_duplicate_tlp),
+         .incr_ended_duplicate_tlp(rx_incr_ended_duplicate_tlp),
+         .num_outstanding_tlps(rx_num_outstanding_tlps),
+
+         .extended_sync_enable(extended_sync_enable),
+         .L0s_entry_supported(L0s_entry_supported),
+         .n_fts(tx_n_fts),
+         .enable_recovery_state(enable_recovery_state)
+         );
+   /**************************************************************************/
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_link_retry_mgmt.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_link_retry_mgmt.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_link_retry_mgmt
+`include "zi_cw_pci_express_link_retry_mgmt.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule
+
+`qvlmodule qvl_pci_express_link_tx_rx_retry(areset,
+                                          reset,
+
+                                          phy_status,
+                                          link_layer_checks_disable,
+                                          link_up,
+
+                                          max_payload_size,
+                                          link_operating_width,
+
+                                          tx_link_clk,
+                                          tx_level_select,
+                                          tx_valid_code,
+
+                                          rx_link_clk,
+                                          rx_level_select,
+                                          rx_valid_code,
+
+                                          detected_acknak_seq_num,
+                                          ended_acknak_seq_num,
+
+                                          detected_dllp_ack,
+                                          ended_dllp_ack,
+
+                                          detected_dllp_nak,
+                                          ended_dllp_nak,
+
+                                          current_tlp_pkt_valid,
+
+                                          detected_tlp_pkt_valid,
+                                          detected_null_tlp_pkt_valid,
+                                          detected_bad_tlp_pkt_valid,
+
+                                          ended_tlp_pkt_valid,
+                                          ended_null_tlp_pkt_valid,
+                                          ended_bad_tlp_pkt_valid,
+
+                                          detected_tlp_seq_num,
+                                          ended_tlp_seq_num,
+
+                                          receiving_tl_packets,
+  // PCI_EXPRESS_GEN2 code start
+                                          current_speed_5gt,
+  // PCI_EXPRESS_GEN2 code end
+                                          replay_timer_elapsed,
+                                          replay_num_elapsed,
+
+                                          detected_retry_progress,
+                                          ended_retry_progress,
+
+                                          next_tlp_seq,
+                                          ackd_seq,
+
+                                          replay_timer,
+                                          acknak_timer,
+
+                                          incr_detected_duplicate_tlp,
+                                          incr_ended_duplicate_tlp,
+                                          num_outstanding_tlps,
+
+                                          extended_sync_enable,
+                                          L0s_entry_supported,
+                                          n_fts,
+                                          enable_recovery_state
+                                         );
+   parameter Constraints_Mode = 0;
+   parameter DOUBLE_DATA_RATE = 0;
+   parameter OVERRIDE_TIMER_VALUE = 0;
+   parameter REPLAY_TIMER_VALUE = 711;
+   parameter ACKNAK_TIMER_VALUE = 237;
+   // PCI_EXPRESS_GEN2 code start
+   parameter PCI_EXPRESS_GEN2 = 0;
+   // PCI_EXPRESS_GEN2 code end
+   parameter TX_DLLP_RX_TLP_SIDE = 0;
+
+   input areset;
+   input reset;
+
+   input phy_status;
+   input link_layer_checks_disable; 
+   input link_up;
+
+   input [2:0] max_payload_size;
+   input [5:0] link_operating_width;
+
+   input tx_link_clk;
+   input tx_level_select;
+   input tx_valid_code;
+
+   input rx_link_clk;
+   input rx_level_select;
+   input rx_valid_code;
+
+   input [11:0] detected_acknak_seq_num;
+   input [11:0] ended_acknak_seq_num;
+
+   input detected_dllp_ack;
+   input ended_dllp_ack;
+
+   input detected_dllp_nak;
+   input ended_dllp_nak;
+
+   input current_tlp_pkt_valid;
+
+   input detected_tlp_pkt_valid;
+   input detected_null_tlp_pkt_valid;
+   input detected_bad_tlp_pkt_valid;
+
+   input ended_tlp_pkt_valid;
+   input ended_null_tlp_pkt_valid;
+   input ended_bad_tlp_pkt_valid;
+
+   input extended_sync_enable;
+   input L0s_entry_supported;
+   input [7:0] n_fts;
+   input enable_recovery_state;
+
+   input [11:0] detected_tlp_seq_num;
+   input [11:0] ended_tlp_seq_num;
+
+   input receiving_tl_packets;
+   // PCI_EXPRESS_GEN2 code start
+   input current_speed_5gt;
+   // PCI_EXPRESS_GEN2 code end
+   output replay_timer_elapsed;
+   output replay_num_elapsed;
+
+   output detected_retry_progress;
+   output ended_retry_progress;
+
+   output [11:0] next_tlp_seq;
+   output [11:0] ackd_seq;
+
+   output [15:0] replay_timer;
+   output [15:0] acknak_timer;
+
+   output incr_detected_duplicate_tlp;
+   output incr_ended_duplicate_tlp;
+   output [11:0] num_outstanding_tlps;
+
+   reg replay_timer_elapsed;
+   reg replay_num_elapsed;
+
+   wire detected_retry_progress;
+   wire ended_retry_progress;
+
+   wire [11:0] next_tlp_seq;
+   wire [11:0] ackd_seq;
+
+   // Count the number of outstanding TLPs/Duplicate TLPs
+   wire incr_detected_duplicate_tlp;
+   wire incr_ended_duplicate_tlp;
+   wire [11:0] num_outstanding_tlps;
+   /******************** TLP Retry Management ********************************/
+   // Parameters for Retry State
+   parameter ZI_LINK_DOWN_STATE = 0;
+   parameter ZI_LINK_UP_STATE = 1;
+   parameter ZI_INCR_TLP_STATE = 2;
+   parameter ZI_NULL_TLP_STATE = 3;
+   parameter ZI_RETRY_REPLAY_NUM_STATE = 4;
+   parameter ZI_RETRY_AFTER_NAK_STATE = 5; 
+   parameter ZI_RETRY_NULL_STATE = 6;
+   parameter ZI_RETRY_WAIT_STATE = 7;
+
+   reg [11:0] next_tlp_seq_temp;
+   reg [11:0] next_tlp_seq_ended_temp;
+   reg [11:0] next_tlp_seq_posedge;
+   reg [11:0] next_tlp_seq_negedge;
+
+   wire [11:0] last_retry_tlp_seq;
+   reg [11:0] last_retry_tlp_seq_temp;
+   reg [11:0] last_retry_tlp_seq_posedge;
+   reg [11:0] last_retry_tlp_seq_negedge;
+
+   wire [11:0] next_rcv_seq;
+   reg [11:0] next_rcv_seq_temp;
+   reg [11:0] next_rcv_seq_ended_temp;
+   reg [11:0] next_rcv_seq_posedge;
+   reg [11:0] next_rcv_seq_negedge;
+
+   wire [1:0] replay_num;
+   reg [1:0] replay_num_temp;
+   reg [1:0] replay_num_posedge;
+   reg [1:0] replay_num_negedge;
+
+   wire [15:0] replay_timer;
+   reg [15:0] replay_timer_temp;
+   reg [15:0] replay_timer_posedge;
+   reg [15:0] replay_timer_negedge;
+
+   wire replay_timer_is_running;
+   reg replay_timer_is_running_temp;
+   reg replay_timer_is_running_posedge;
+   reg replay_timer_is_running_negedge;
+
+   wire retry_progress;
+   reg retry_progress_posedge;
+   reg retry_progress_negedge;
+   reg retry_progress_temp;
+
+   reg [11:0] ackd_seq_temp;
+   reg [11:0] ackd_seq_ended_temp;
+   reg [11:0] ackd_seq_posedge;
+   reg [11:0] ackd_seq_negedge;
+
+   wire [15:0] replay_timer_value;
+   wire [15:0] acknak_timer_value;
+
+   reg retry_scheduled;
+   reg r_retry_scheduled_posedge;
+   reg r_retry_scheduled_negedge;
+   wire r_retry_scheduled;
+
+   reg rr_retry_scheduled_posedge;
+   reg rr_retry_scheduled_negedge;
+   wire rr_retry_scheduled;
+
+   wire [2:0] present_retry_state;
+   reg [2:0] next_retry_state;
+   reg [2:0] present_retry_state_posedge;
+   reg [2:0] present_retry_state_negedge;
+
+   wire retry_due_to_replay_timer;
+   reg retry_due_to_replay_timer_temp;
+   reg retry_due_to_replay_timer_posedge;
+   reg retry_due_to_replay_timer_negedge;
+
+   wire retry_due_to_nak;
+   reg retry_due_to_nak_temp;
+   reg retry_due_to_nak_posedge;
+   reg retry_due_to_nak_negedge;
+
+   wire [15:0] acknak_timer;
+   reg [15:0] acknak_timer_temp;
+   reg [15:0] acknak_timer_posedge;
+   reg [15:0] acknak_timer_negedge;
+
+   wire acknak_timer_is_running;
+   reg acknak_timer_is_running_temp;
+   reg acknak_timer_is_running_posedge;
+   reg acknak_timer_is_running_negedge;
+
+   wire fire_acknak_seq_number_mismatch;
+   reg acknak_timer_expired;
+
+   wire r_ended_dllp_ack;
+   reg r_ended_dllp_ack_posedge;
+   reg r_ended_dllp_ack_negedge;
+
+   wire r_ended_dllp_nak;
+   reg r_ended_dllp_nak_posedge;
+   reg r_ended_dllp_nak_negedge;
+
+   wire r_detected_dllp_ack;
+   reg r_detected_dllp_ack_posedge;
+   reg r_detected_dllp_ack_negedge;
+
+   wire r_detected_dllp_nak;
+   reg r_detected_dllp_nak_posedge;
+   reg r_detected_dllp_nak_negedge;
+
+   wire acknak_seen;
+
+   wire [11:0] next_tlp_seq_minus_1;
+   wire [11:0] next_rcv_seq_minus_1;
+
+   // NAK Scheduled Flag
+   wire nak_scheduled;
+   reg nak_scheduled_temp;
+   reg nak_scheduled_posedge;
+   reg nak_scheduled_negedge;
+
+   // Duplicate TLP
+   reg detected_duplicate_tlp;
+   reg ended_duplicate_tlp;
+
+   // duplicate ack scheduled flag
+   wire duplicate_ack_scheduled;
+   reg duplicate_ack_scheduled_temp;
+   reg duplicate_ack_scheduled_posedge;
+   reg duplicate_ack_scheduled_negedge;
+
+   reg valid_detected_acknak_seq_num;
+   reg valid_ended_acknak_seq_num;
+
+   reg fire_no_nak_dllp_for_tlp;
+   reg fire_no_ack_dllp_for_bad_tlp;
+   reg fire_tlp_seq_num_after_link_up_error;
+   reg fire_expected_tlp_seq_num_error; 
+   reg fire_tlp_seq_num_after_null_tlp_error;
+
+   // Used for Fire display
+   wire [11:0] decoded_tlp_seq_num;
+   wire [11:0] decoded_acknak_seq_number;
+
+   reg [11:0] expected_tlp_seq_num;
+
+   reg [255:0] present_retry_state_string;
+   reg [255:0] next_retry_state_string;
+
+   // L0s adjustment
+
+   wire [15:0] tx_L0s_adjustment;
+   wire [15:0] rx_L0s_adjustment;
+
+  /***************************************************************************/
+
+`protected
+
+    MTI!#!B}<D_#'YO}5Q+'s,veXBws;l3;ADB?pNY;~\7;[v#_=z=j?pZ75$s31+e;[HY}_nTo?KW>
+    >T[v*~>HG7fk'XT{\K_.,=#_rz[1]{3.Q5<{^Oj=7YQ\J}O-m,<+_%XX;ZHa>Qso13DG\?C5G+Q~
+    X5Nc]Rsjc;B#7^rAo5!^xXt^2{[R>QY5oD{+lv1BGwZ@&~XHp-SO<$3#{>T?[v{GTeJ&$D$>{Ta3
+    }k7o2EV^V7JvB*+uJhj?vax*Y]EnZJcmaXDBvDH'DXr+Q'~<t-OKJUB*Ts?2D!=sln$<1_KoQ03w
+    }?7zBjalp*|tc{j<-{5C+~_@QC$k>OCV*3>BDT^u'A<,p_1nXo3<~;*{r<[Q'!pT3$k<*}rxX1u5
+    ^We17YekUu}DWe@v=]HY#~]s'kouY'a>U#<1*taE-v.#<YGO[71DrDnm-z3UE^\Kz<C>B~-G+J5+
+    R3p_D?G=vGU%fouRV7k}=D{_kIwUx!TY?^BT><E]JlvY_UzBQUOOR-$-wBJ1k'Yo]p?j_z!u}fBe
+    x7eeQWs7@OmzG>_Sj'+Ac?TQXap<r7R+RGQ<{oGaABIaKC}TmvV?OBYRJ|R!a,\7li>Ho7[#YCRl
+    R]oxnX,j(G1HeH+3ZLhPkH3Ek^@WI{E#nnD'D\@I.QnslHwH$^TT'7G?{7ap}\+gzBRa--][I3rT
+    v5Z@VJVlG;Cs-vX78_2t\]lu?{oi\v+Oo5n]o'/=5=kj\+Er2\-Oe=TL/AG{uzWavD?@uwUWu?[Z
+    k,aD=Bxrsq{+R~:UV#B&(1v#,*K,_jr#55sT-'V_E$2GG$?v=m<|4bCD@2%1+-xa\DuE1{#~{PH\
+    a*p5GA{Q$p*~aKH*1mDQk>pekzCn<H=^BjkaHQD,]]O%iOoU[IJDX5Qa~rK5\Ek+<^OKWX'GJnev
+    v?A~=-}2B>;7;jo=k+R#QsX;mD=\YwH~k$?RKO5uEV\V>_lR>=I$UDlrTBk@2$G]^[AxWw-3ZCnU
+    h*'r@ju2eODYRVa>YnHQ^'eavXo]>xOKrvWEQ1OHzw\i5K_@ArjV{[dl}UKZB>Y
+`endprotected
+  /*********************  Retry Management ***********************************/
+   assign detected_retry_progress = (retry_progress_temp && detected_tlp_pkt_valid);
+   assign ended_retry_progress = (retry_progress_temp && ended_tlp_pkt_valid); 
+  /***************************************************************************/
+   assign next_tlp_seq = (tx_level_select) ? next_tlp_seq_posedge :
+                                             next_tlp_seq_negedge;
+
+   assign next_rcv_seq = (tx_level_select) ? next_rcv_seq_posedge :
+                                             next_rcv_seq_negedge;
+
+   assign last_retry_tlp_seq = (tx_level_select) ? last_retry_tlp_seq_posedge :
+                                                   last_retry_tlp_seq_negedge;
+
+   assign replay_timer = (tx_level_select) ? replay_timer_posedge :
+                                             replay_timer_negedge;
+   assign replay_num = (tx_level_select) ? replay_num_posedge :
+                                           replay_num_negedge;
+   assign replay_timer_is_running = (tx_level_select) ? 
+                                        replay_timer_is_running_posedge :
+                                        replay_timer_is_running_negedge;
+   assign present_retry_state = (tx_level_select) ? 
+                                                 present_retry_state_posedge :
+                                                 present_retry_state_negedge;
+   assign retry_due_to_replay_timer = (tx_level_select) ? 
+                                           retry_due_to_replay_timer_posedge :
+                                           retry_due_to_replay_timer_negedge;
+   assign nak_scheduled = (tx_level_select) ? nak_scheduled_posedge :
+                                              nak_scheduled_negedge;
+   assign duplicate_ack_scheduled = (tx_level_select) ? 
+                                    duplicate_ack_scheduled_posedge :
+                                    duplicate_ack_scheduled_negedge;
+
+   assign ackd_seq = (rx_level_select) ? ackd_seq_posedge : 
+                                         ackd_seq_negedge;
+   assign retry_due_to_nak = (rx_level_select) ? retry_due_to_nak_posedge :
+                                                 retry_due_to_nak_negedge;
+   assign acknak_timer = (rx_level_select) ? acknak_timer_posedge :
+                                             acknak_timer_negedge;
+   assign acknak_timer_is_running = (rx_level_select) ? 
+                                        acknak_timer_is_running_posedge :
+                                        acknak_timer_is_running_negedge;
+
+   assign r_ended_dllp_ack = (rx_level_select) ?
+                                        r_ended_dllp_ack_posedge :
+                                        r_ended_dllp_ack_negedge;
+   assign r_ended_dllp_nak = (rx_level_select) ?
+                                        r_ended_dllp_nak_posedge :
+                                        r_ended_dllp_nak_negedge;
+   assign r_detected_dllp_ack = (rx_level_select) ?
+                                        r_detected_dllp_ack_posedge :
+                                        r_detected_dllp_ack_negedge;
+   assign r_detected_dllp_nak = (rx_level_select) ?
+                                        r_detected_dllp_nak_posedge :
+                                        r_detected_dllp_nak_negedge;
+
+   assign acknak_seen = (r_ended_dllp_ack || r_detected_dllp_ack) || 
+                        (r_ended_dllp_nak || r_detected_dllp_nak);
+
+   assign retry_progress = (tx_level_select) ? retry_progress_posedge :
+                                               retry_progress_negedge;
+   assign r_retry_scheduled = (tx_level_select) ? r_retry_scheduled_posedge :
+                                                  r_retry_scheduled_negedge;
+
+   assign rr_retry_scheduled = (tx_level_select) ? rr_retry_scheduled_posedge :
+                                                   rr_retry_scheduled_negedge;
+   assign fire_acknak_seq_number_mismatch = 
+                      (detected_dllp_ack && 
+                       !valid_detected_acknak_seq_num) ||
+                      (ended_dllp_ack && 
+                       !valid_ended_acknak_seq_num);
+
+   // Include rx_L0s_adjustment factor to replay timer.
+
+   assign replay_timer_value = (OVERRIDE_TIMER_VALUE) ?
+                                      REPLAY_TIMER_VALUE :
+           ((acknak_timer_value << 1) + acknak_timer_value + 
+            ((PCI_EXPRESS_GEN2 === 0)? rx_L0s_adjustment: 0));
+
+   // Add Tx_L0s_Adjustment factor to the AckNak_Timer. This is the time
+   // required by the transmitter to exit the L0s state. Add this factor only
+   // if L0s transition is enabled. Here tx_n_fts is the value of the n_fts 
+   // field of the transmitted TS1/TS2 ordered set. One full FTS ordered set
+   // can be transmitted before transmitting tx_n_fts FTS sequences and one SKP
+   // ordered set must be transmitted before moving into L0 state. Hence the
+   // number of symbol times required for the transmitter to transit from 
+   // L0s to L0 state is (tx_n_fts + 2) * 4.
+
+   assign tx_L0s_adjustment = (L0s_entry_supported === 1'b1) ? 
+           ((extended_sync_enable) ? (4097 * 4) : ((n_fts + 2) * 4)) : 16'b0;
+
+   // Receiver should always supports L0s state transition.
+
+   assign rx_L0s_adjustment = 
+           (extended_sync_enable) ? (4097 * 4) : ((n_fts + 2) * 4);
+
+   assign acknak_timer_value = (OVERRIDE_TIMER_VALUE) ?
+                                  ACKNAK_TIMER_VALUE : 
+          (GetAckNakTimerValue(max_payload_size,link_operating_width) + 
+           ((PCI_EXPRESS_GEN2 === 0)? tx_L0s_adjustment : 0));
+
+   assign decoded_acknak_seq_number = 
+                                     (detected_dllp_ack || detected_dllp_nak) ?
+                                              detected_acknak_seq_num :
+                                              ended_acknak_seq_num;
+   assign decoded_tlp_seq_num = (detected_tlp_pkt_valid) ?
+                                              detected_tlp_seq_num :
+                                              ended_tlp_seq_num;
+
+   assign num_outstanding_tlps = (present_retry_state == ZI_RETRY_WAIT_STATE || 
+                                  retry_progress) ? 
+                                   ((last_retry_tlp_seq >= ackd_seq) ? 
+                                    (last_retry_tlp_seq-ackd_seq) :
+                                    (4096-ackd_seq+last_retry_tlp_seq)) :
+                                   ((next_rcv_seq_minus_1 >= ackd_seq) ? 
+                                    (next_rcv_seq_minus_1-ackd_seq) :
+                                    (4096-ackd_seq+next_tlp_seq_minus_1));
+                                   //((next_tlp_seq_minus_1 >= ackd_seq) ? // Fix 
+                                   // (next_tlp_seq_minus_1-ackd_seq) :
+                                   // (4096-ackd_seq+next_tlp_seq_minus_1));
+   assign next_tlp_seq_minus_1 = (next_tlp_seq-1);
+   assign next_rcv_seq_minus_1 = (next_rcv_seq-1);
+   assign incr_detected_duplicate_tlp = (detected_tlp_pkt_valid && 
+                                         detected_duplicate_tlp); 
+   assign incr_ended_duplicate_tlp = (ended_tlp_pkt_valid && 
+                                      ended_duplicate_tlp); 
+`protected
+
+    MTI!#+eB2ODV_,x+ls%l=2G{}DO9Y$B!w(+1iT!njiboV'}'NL-'5]G2*j,V!@B8#S,J\AfI]#~O
+    ~BApk1Y?pYk4B!K3OJu?gKTQACArQg=_oiFD#*A]6T,RU=AU$WGiK$oi1l3AlRzr7YDj1BlT#)j>
+    A>7Y3^rG$@oZse*wVnwB}Burn^fks3_I#GC?\5p=v{#%,DW,#T^[]^T{}Bum1{KV$KT[<rEOir?V
+    5{<mE3^7iHE'>nIal/5HXwWRT<wY\YxD{_.QvxDiaIG5r@W~5>ljwUTB?T~e+Tkx[>^=R,@^i7o|
+    'R5Q]~<13ez$5+W3p3WnVJVJna\O;\mp_l]B]7]C,T2X=AVJ^ZOvOx{CX7Gp+Q5o]U}@u7[<J<}I
+    OK}mjQGw=lsj#zVac_u*GV2HnIQox>Q>CeX<*A{v@<rn#,K{;>RYwQRo!_<v!DUJ;eG~!aQC5E*[
+    omYjlBars&%B,r'BTHR[1[@_n\?_!5{VvKmh#_5oos3C*C2j{}]@J\-7lBiB=[3nElzR]}XzW$Y[
+    p@\A8Cj\J~wV;GT_]$B3Xa^Z$^_-E>_IO^CR#exO]!YXemRp$V*XYlIYlp>!aeIAns3-[\mm,|k7
+    BH[;+v5<I!1~}i]#@YBTIZ=@HB*K\p3vm!=}>$52Txv0@+1}A_VTRHKTV,3G=eOxXC};*IBWG!vm
+    7;*u[XZOy1B[rJ*BBXT[e=+{kJz3IS!a<7~=>u_krD"{VOm';X[jQA^\H[zJ'<-v!>{QnD>B~+]v
+    +xJ7~2aG>pj*@*7iR=RlEJXD=7**pPp~jz]B$*~TT\KHXz3e37Y=AWxT'BU'H$\*Y+42]*XjGC>o
+    xk'OrI2CrjHZUAG,TU!>_RAi'H+}3[XB,#_kOC@RiAaN>-H,+R_-MUriHRG$U<7oD')$YWxY=j^9
+    _Vo<X5!T+zT'Fp#'I!R!Bl\]z<D}7}CziTTG7iaR3A\A7"}l>I,5nzV3-35<R*U_?Y?]U=R~T3|e
+    IX?koA?sA]kCz]+1RE=I1,5oWalnXfRlnE~XwT^<wnZav#77$mZ'kIosou\A~*>Q'TlE2]e\B_UD
+    o?hGX@5~IBQeBa{C51-YBu1-=YRYHZ]lj1z3Am>[ow?@U_7,TVwY}Z-__!2\=j3R_+O<VH=pnxKa
+    ws^KXjU&kGa1*a<-S!aCzkCuGnYwD1'>+}+@xzXC*jz{o&4Y7,5C!*;\5>$o$!!JU@5;1n<{$-__
+    H$\*R5=5p1<1lCDpUrnaRYOjO#T#[zU#r-,\x>,yvA{C/GJR*R\'\Q[K>I=5<$zWvjmTn8[RwCHn
+    oj;GnIRWI[X$aDBHZ'Ox~jGQ>ouV<-d}UmnqD,~k_nQ-^7z-JDTpl#dE!7\Q_a]GA=5n-lz+Y2RE
+    eHTz'r'-G~RDnuov5^QDBj@=!'u6|xYC}Z_a5IO$*OT5V,O>v?psR8kv;5?aS1^>'$kT>a^Izwrx
+    ^uERZOY7'W8]3^I"1ksJC#Ej>p\I~al~[*wU'QWxVI?E0}'?}WA]^<]*evJ2es;@Wnn@k~+r#b1;
+    T{BEn[rxv*pmD_|Q!=w]apw1a2U~[Bsv_D<~>}I%7~e<Ihle$Lk5Vz<ToOMAaQuG|nD?3>j[$O1=
+    [lGVr4QmvT^!15*^uX5R-1"=+~p=mBQc}jr[#}laAsAIuow@+V2Oe~I=lkKKzDkDm{$JvuaDUX}o
+    7o,r'?rn]>joX}o$c:BCsR=d1RQ?n1pKL5T3[Dcji5?3R'WFx_5$}Z*1+-K?'JyY?+?=wvkpo#DU
+    nF+TK7-sAp!=\lHGo!x?E!k1lrKw]'XRjDVAZ}o*~o]rA+I=Q]R>3m,u{wVQ'Ak=oe'?!KN!GlI_
+    Uw#hsmXzRsvHLC'nV{sn^C]Y{iI,WCKX#$#5A2Rs7A-&@xU<BAEr,'*xw5]-d<Ej#%Jp{pWYx2;s
+    i#MmwGv(L?$[_=mDkXw,;TsE{\1E-$$Z<EH2H[-'JtR%Ue3^I~XzD*1~J5!52Cs7DuCQAEKzEWQY
+    \Yo@x-ZZQwU!GxHxvp_?[C$3$eGx7IX57\_vj1^A|E_=rc}j>^9JnK=X|{1_[jH7^|O3!?O1^w,=
+    lvB,O~sC]=CUYmK>7Ekw'D5CaTnw+1yY-\aKG-5Rz+[Dn'kp!w?aG?Yiv;$l^#^Hr5wx{^~h{<2C
+    gk1$n5i{K{HD*!pOO7gK=_sz7a,-RmK*{7Os\7*I#Yv'[3]},o;dks<^]Js?7A;Ez3QBjel}Q2_-
+    -5@?kBJ}7#uaD@[ZUAAalJ+sUC*k27a7Q'ABZDkYalJpQR]-<,K3Z5@2{}I;2-7@<IT=1l21sOQC
+    R[IQ.Z+o2$H2rp]XZke==aYBZ;n$5?AvRi-<#Lp5QrJUBK]!+m2\1anG!]2rQ=x-BiO@K]7H@nTQ
+    '7,p#AkG#s!THX]p2HE-r22H;xZ=pQXz{r?wQ*_pa_V@X2VO=Az{xDG$nVv5$<vGR]jZA7YEAC=V
+    k#j}5D~AEj=ADe3OE{?G_<E!srEr!u{v#!a\1U^QHC=v]>3Qj$Z{Io%Jl{Y]BwVR>2Y5peu2<_\C
+    !Xl{R#;CwCQK'AZ-<z#l=!${vR24'=!{xuBVrBE$=3z[zl=UwIQ$~D_oX[+}]?v<j~sGXROQUT*!
+    [iv~~5-<Bm-eWli#IrTulwIvCpY2^=2^hYnmrX-W^D6Vj5-iC$sT_T^$_>DYh];eR)\$iw,+!Waa
+    ]kR)Di+C#$n+Aok@=_sBuBU=a<VOB1,~b-X3D;.X1JQ^@nuo]Hex#]1}CVW2XZlv{AG,pzeGXz[3
+    ABeR!l\a5UKuQ;^[kzx*4#TY]Br+BfnR=ZO[$J~1arJH!BI'nj5JZ+7aIas'3R\xVlrCGU~-rvZH
+    \27uopVu3!'zTo{$iu_Xl22Cs<$HBTk]i7TTamk[kv/&^HD#zX2jR2B[Zw=aUp^[A1,@OS$HRsXX
+    lLl3AE;1,^$O~$+Y<^3[]7~je,han^@BR7C^-aOI]=rP@^$}i=_sk,@?<R\p=Op(MO3\W1!$+o"e
+    [=Z1;K-oD?@<7l\d?QEi1A+[1HU+uX!$\CL{R~KmG_U>'O#ev#C(&,DaeHaXBwloe-aIW~XulOiW
+    GLX=ZGPrI<aB[KY55#,}f}H87Ba>S#AB;=u*zI;spa,C2vp~rjko-'2l@>OGJ:v'?}?\@Kf1R_>X
+    +$#v!*Q?vO#iUWBTD#J+pJVb[3ZCV1WWG=\-\Bj23Dk<1\!?Yp*mpO+#oa-;5um'CH@Beae<~'V#
+    hE+<vVJmrG+!$QWz+ZlI\vzkDj<'C~6B$rwsiQO1HQI2vHUtiD1nm}ek\TrTp?<Rn>jE1?{1&*'3
+    BOTU]n(7;7^^Xynr?T1>!~WV'nE&-^iR_eTj*k$w6eu-XBrzxRxexjmZ3}=_V=lnB,aUG!o&>+Tp
+    ~<^5&2Y?Z}7-u!A]nXTsBJTEa,oZeCi'~*{J2x>{^'ZpuUBV#B3AeE5^;2-X,?]=DiI?[@5XDJ'G
+    s)dY']pl\HmR<Y~01>U5-|[]TO;wmUxjH{e2mH]r\u6I1<[+,x@,=#2YDuCk<,>t_'eBG<2T9,J]
+    @^n$1s9.k<\usYDwCEW!g7x}ilxRB3HKBkH>#j5m_iUz~\CVl_{s@]'QJ1fG]1Q>U[iq(?Y'?l}*
+    IkUX@Uj7v4yQ~Bpjma,5Wu;4zvzH-n!]lTn[r.J_I]^!>oICmmuCHJE,Iv6O~7OCG,AW\V!=;B3:
+    owul'LCpa17={jm<!s$>1uu'@H3_7[<Cw'Er'}EYeCxvkX37kK|js{</K],5j{<,/m'{UXX*{xo+
+    G^aD}QP8[zxC^\'i_@{e<T3X\YRs>DBJ|QpiD3<V,(JG$[Hz<w,*nQxG3{^7ml[2E',Z$Omh-ARI
+    jUD2oYZr}erT^'*r{o1'I@sJ_=sWQ*H-kQTT5$^D(s>pAi+*}"^C?ktrJCXrU2$\T$i?YnryK1Cw
+    5G@AeWHZ}+!!C?Ip}ICX4w'ipv]DRrQJ1e<n~uA5_aYVBxo,Dz<eAB_;#jT],KpBJaB5]9;=Zr*2
+    *>,#Kmo'G}=Hm-G*6{TrBaH],oKA~<>-As.5UupDJuHQlKz=vQz7p?svV_5?XU5Wsk>X_H$)sW$T
+    lX}Q5;<7E$[u3R3;jHA^_;}QzUT5A*]=\T}=|e]?[iA_iewzDp_\p3}Qafc&\CjUouC@1W[YH<]J
+    k1lC4E_{35_Ee<[[EvA!3Pwl]XBXC#v++C=7YpO@$<VZnm|V1Tx'Rs=DC{xlH\wTz=W*Ao'oYJ2+
+    $W+{BYBbVe^pWD?5a}*!^HZ[!w;<\[~#}Wj2$svvl'Qe\,k{'{jVSoV7kaCe,'oUO\C$u2+xz{Qn
+    ~uO-,l$7]LYJ{_%ZxJ]W>I]sse?UX___<V1,_iQsu$u^1X{$Y@sDi=T,A+W8|(/!DRGsk~U})YEX
+    JRis^]ARKj'3l@[$iy]}I~ipVn7GD?++]mpsZ[mnvi#RKvol@<3<a>1pm$+e<reAeJe#[z^Q']^x
+    meRjDO7m}vDUXu8'>w$$CQl>]#ujiHIm,DrBAuU$EiJeV+1J<C^(m*IXMzC\T2B>#cS^TUVYxD$f
+    QkTDNv=z*ei-~z$<^\x^H[:Tl?Q>'x3_U@@Ckwe1?Uos=\\s]Z~?BWC}I?<a>;OYZ__JB@KsHQ+5
+    !<Y)2U@j[#y6nvA[5Bwe2AB29_x<[@lw@#SVl^v#wCs4UoC^vTV?jeaOUV7{Q!)S~a7[s];+<szQ
+    '?{ZHCYrv=QWLo5pezoKWf3'<zHjIT-<$7TG*$Veu~kTsYonwVt7E>Vv=[r2R\iUn{CR'sw.qK=#
+    xQmA*!]R]$=nz$:$aOw~AO5\>VaEC$Ixar_\peu>l',m[,B1T=TwVl=H',rnUICHYvB1aK>hj<\m
+    W-}\nYojszx^#==z?$*X'=,aR7\_{B$,'r?xne}]Vi_>J+$z+*={NZpjwDx@;>B~W^>H^Qu5E\zu
+    sY{rllT[jp3}}C^C;nBpC>ET2#>'=r},;KzO>@w<;gaHowTx1>mC12$\OK6m5's]+oBW'z2v-HRi
+    orlBw[u5uwZ\m7~~{-!B[\Ti,7vB5Qp<Tv*OzXs_$vH:|F3pVnTHV<voJmGC!WYnAkIWT]w'Eo6Q
+    @K[v3WowUe>?a]ssyW7@#VCnKYDx-z2Q@aw7!5pX2'HCI[7}Z0Z^C;e+EaWoRr[AT!Ow25ZD2Kaa
+    Jwkow~0xH;a_B+Zs$]U7w3pRwXJOv^De=mJ1DW?iB*xA\x$js2YA-~Hs2HJxjrnE{Eu^,!\l*Uw{
+    XE3VzE+A$C3E1siAE52xvZG4owa>v2Rr[<OHV-rTkUaY5sIpOz\3ji-Jn]lYEo+}K|t?--+8]5XD
+    'G@YU^*1O;!v4]!zHgyK>ak2N/CWAm+G<xr1s@I2W_Bs*Jb*X}2uT+\=al'C2>'a[5KE;ozBp[=J
+    Irz]rKIZ]w!oT\{7$Vm[$XaB#-=+enV1*<+9,T{{z$-]?=v!B$K^F%Iz!>fW{nE'$#lM)&X*2*U>
+    <+p.^uzG-}HE^nB5eilppsi~QU*XSo,K7Y#vV,BTzl3o\r]#]#>E\*U,R[3Wze_v*(-7nsO}_=\U
+    }mkE1VV5,I}eD\T-A[jl[Vh[vO]=Z^IJxmD=x!$xB53eCHj7QGoSCHD}?SXo'sI=wnWEBC$u}v|=
+    jYH0#O;;2E;B'O^VIOa,GZjs_WBT,iVzjmKz@8@OTH*op{wDj$S7v;GrQueO,CaFvT+n!*rkeo?~
+    RT[G=!'ZP'2Dj;pmlR7KpGo5xv7H+3Do$C1^\8!aew_<Ro2*sv~D7GeC*{''2aHpz}BZ3AaECB5*
+    vG[k~!2'=oeHUQW7;7v],C{*A~^C}+W-<}vkjm'-I?GgJ$j1Q'pZD'5n|GHWn'wpJjBQ7|-xWX1o
+    rp[9G^n#[(EripzXEX^Ql;j+O151_7MBuC^poU^}HE!2]o2;OIk\Yeu@rp}axnT-5l+p,Z#zXXCH
+    };I;z-K3A$uRkz1*AZ'7U{DvXQ7LNJnGr_F~]KQ@BGCp<$kD#-TaVrec=onX^zvQ$]uUxR7vHB2B
+    7~*Vfg1x-JXE<ao1YzBx^zoen^z"[BmZVQIAP,$gI]E=1C$WY7jpG1rnZl!a$ABDC{>'5DXeI{KR
+    I<jD_{TXl8rT=H_2KKUvxjR?GYWR@H5k7<R;o3B}T~)mouRBTv\El{r*u5*k=5?2O#?$+3GuovDL
+    3}G?[OvrW_<>,3jU@^m2Mh~$j~s}ZDRO7WoB3Q;p*UH+uC-_z{So'av]'$,5\,H@lAEs7K[\C]p}
+    R{}rWjD>_{meBwXYBTKWnmItpk>G$I!w-p+ai=;>.&Hjp<Rnz=.XzWGWoVZ_n-]$,jV0lrOvDZeu
+    pm$]G>Q{>lup^?=+^kBn*J3xVOm<LI[o]BI]1l>~wpp[pb<[GRVzl]vGrQ-eZ^<5!a'oQ1@AI1#^
+    QmB=2uImmA.QYlo#([Y@A$+{jHYpeTOQ2-+o<-XB1H17}[o<p[Ar$T=D5Kow?!DGarRBp~C<JQl5
+    *:OT>ZeV$DY$_C<{Am}=[WV~v!~TB2;1\3_}Iv>DDTaU\?mXJZ?[R:)(,{H<h@EUQ3h'@2!a[aVC
+    AUK[mYQEi';OBH{NRC_rp+vrs7nQ~$DU7;J#CKB_d@a\uQ0vjDGQZT3>}XGk]Bm-[1{om@3c?wX#
+    5OR2lx5W}2U@R=j}XVK=[7~TjU2#%o}x;VK5>97x?l>DUJpW*?'@T#CTt>7GssIR\4}VYoU5-{Br
+    urwVaZjI]vO3EZlk1{HG]_G_wB*#x=pB<r_HV-@1,x/B\aC'k>5(DXoIJe]xv$TU\AoVZ7'Tp}G7
+    E_@'oD<OrBiv3OHjRejlW]'{m^zG\i2z"]~j}!UjwjlWrUXvsI]G->+Vz"uvRXQHAJUG$^vKQ1Bw
+    U\7<5$riXA\O7xnnL^nAWO!BH+=BkD\ZG[7@^jCJ=RkIA{=IX],='u[Z#D51J<HHk^*m{31;O'-n
+    T}vBlO>*a5o;1,7]_^;e7vzl!JVZZBmnr[=+{Or33VC=aWEH_@llBu$X{E>Rnj2p^kvWDI*2T$aH
+    e,\>]Y=35A=U1YwECus-]!rG2Q[xjaIQrXX{DQ}j}?z$z4X7O5Vjp{o3pX*io,3_7EusXI?$~B{E
+    7AETQ;Vel_H_5~,!jX|_D?QuVkDA-'K^_ZD@>\!YTw#^\kJ=up7lBW<xnK,v3QWg!azDYaH~{*Ql
+    VCuJ+e3pxmjRfdT^n\57@]rv{[2U$p~{Q=$]JKJH+}b_+rv6Y@V+[Z>1G3xlTp#@Ce?Yrmp{.~ja
+    nQzi>>w+{5$j}cEj#3B\>!Al=u@tVoDx{7Wz,Us}p7G['OIG^-]I#nx}KIu^VOu\A_r1>+5G#Y[{
+    En=CzeTBAn<UvB!Dp@]WVoj;+-YQ(B*5QZQ_RmaCGzG;,BxxGW1s25OjWze7_^C[sY[C#U|QazQW
+    eGQ+$VT$?'+ax<29xJC1iEJ;eD}XG~nR5x'x-<\[Y}TVjiJ*i';-$~_T\'2AI#I>e3Qzs!J}LX^i
+    EHr}_JD=o~_=z*]?!Ap_YsU~r/'-aBD^<E^=#}x?1[YA>3L~=\u,Kvjo{OH+*^>rR]_]--v=lQ~c
+    J{AT7Wjuv>n{[a=5;\DA=#Enl_~;b_]l*k$J{p!w2@*GjC$5,l;,[KEXR@z]I55~7?jjlDDOJ/Oj
+    pC=V-V}@KoM'r-Ho%JnYDUw@*yl+vRKD2rT$BXs!!R^GHR@_\_cvKnWZhSMwoj1XXle_W~~oDjQY
+    5YQVr^*u*ijoWZTn,J5elE3~_{-Dw3Q2lV3H}?vzOiHK],T*kX!X[lwNZC+QI@Qneo#JMHED-e1}
+    7IXrn,(Gn<\[-J+<v'*,!CDD2]Q]*RvN?Qk~-sQ7oi'Rn]p>nCoDenx1>[u{6bJxDDIKGI?}*pr{
+    Jp0]$n@}Y<Va1QQQ3@D)2'7rDiA!J5#?,+YJZ*]R7=TV]\#Ewo\uspX=v<7pvpjzj2[nm^e-6C<-
+    Gaxn'Il<K8om7~F$<}lEz*ml{n17^=plcEI[K=~wI*3TTII3!}Ew>&ow,~}IR@kC<*-qj$\G'Tl}
+    uvua[uC2wV3ERwK$CXJx%xw>ZmzrjOWr$BeCiwIeX[QvI^XVpVEwuA$u]oBTzv@TvQT'xIYJJj${
+    Vk<]auxK[QG,<V=[VyE*n>-Co>TDQ5BB#Y2AgBooaM,?JK;x~E_EkKel*3Y{Djjkp@^>I?7l!jXq
+    3{<1k\CDvH-~!^{*VnCs7==;OW+K7[^-Vlwzvu_*R-w]Uwlx>\\'%+XAE8^JxnXBHxs;OzoG_k~+
+    T~A,UJ7={@k}1155IQ]@Ux7'E;;w@vH_5I!j}2#E_u$=1[X\XD[_QseXJJT-~k;G@IR'xJ_*[;mn
+    =Eupa+Ej,{R1zY1}=\-wKzIIijJa=VZ}G}%Y1QaYOjx;HxC~|-&p^^T,<w<]iJ\z!OlWRVUsR?3j
+    !1^JA;{J<Knhjp!3^YZ?]5m1@RX<Rk5nkxiCDB$k~Qw[]X2~-,HlKV>srY>JDs[_*_ml#*i]cmHA
+    wDjJnJCmvDnD'eD_vB@aD<]}pA>vr^U3>5?j~WGADglkE!An5OBCBDGAB$W*EYoSk1_<{zl^Hl^[
+    V?_mOr$T@5Qk=szo1_<7+w<?=E~Twx;5*Ez1($5I[o^o]e2C2VjevrODUD=nl=,^B~}^~YX~Q7~~
+    <<oZnKs;$1(y+<J*IIsk[-=+^<YXHB^{mO#pqj2{+~Y'@-HA><\VWs=~nizk3XsCpXT$QorYr}7'
+    D^@mkKE<$no#vA-=iT}[+=He=a7rZz?upUYZrQp<DIG[1G^T*v<p#PlvE+~*+RDza'H=W3G[aB"'
+    lvvfz]C[;aYiEv;zoOXRDAV'ujE3:wj71r]lCW*l\~C'w\oT$*\!]C,2TI>Yrl=HQ's=l'F^^=Tm
+    =EOaU\GGYD=z=H-+DCY_ro2p$XXl2Hr!o2=iB^2rXQ^lj7sX'}}ZR!mO'z[Axw-I$Jz_oG{yvE<X
+    uBH<5}kwOC+D+z{rn+eBj?nR^sCUH5i_rUA7W>X}~*&]ZO+0,+Z=1K5lW$x2K5Aa{7?}?e,}\J1@
+    OllsT^nKIR~zC2R*u}lwwp{5mAGhrJs;AR]JTVi;_VXx]YZAB2T^puExXjXvOmeBcooD$w}VO[9c
+    Vsl^Ew'rCp<,+[?{CCD=mxO'}-+IHXYT@H-7*aXJLJQz{KV#D#o<oZ-IZmv\?V"#-_Ga_kn~-m+%
+    s^,Cj@+pqCz5#e7~~*{\zkUxAJY#@i]7]Y'm+fA_DT=jIWp{@X(BTQ-3smr-XeI,QT{E_@C;.;1z
+    @Dj>W>XUG<\#75aKjD,CzY~*?+XwX*HXR31Tzs'w+~A[n9RK,^QUJpm+G_\s3T5e>ZkUCE/;5u>+
+    r->o}sOpE+-ln^Q@vmuG@{D\@oimAR;[w]Y-[jTDaA<O!vuK|5O;3{Gruo<-WD\~ayjs+KvHKDUo
+    }lOJ!vH*w{iCl}T*{T'n57Ow7GRC#3;^mGRD@r\*~1wx=Bxz~<hE[n?2_<u.RH7kzjBm3}pYW5W>
+    ]+*;weEsC-RQ=WIO2EjX}C#}QA!p_7jAW{}WZe,!3w~G+rOG5e$i^~^2v_!o;v1uHe3k}DpwlI@T
+    [njO*KHs=s'[l-7-,+rIR=o$OY7IETB]-QC{\GXZm^C@_X^xDs^kxiuWVnr^j7HKc{sCXXeOT2nl
+    Hns]#Aro!rY5??,^EdKlJuT7ezj{2I>Iv\*nGHpAKWulU@r#7<=@[-U1J;@U]-1v<vI$YlOEz<+]
+    AQ;]1O\?oYnIl^^7Bp.ee52__VX,{H~9KY>>B3EoIAj3mHm~kR_5-AGo\mUBT[o$K[GmX<umKHxO
+    ^<e!\ozxT{Q[UB_z3,,VuGGn\o~3GA1[j\VXZ]Rv!Up$@1A\?xj,[wC!AIOG$[j3?^l,B+D^\jE=
+    V=k<?\p{YzoemYr-BXH^'Zr;2v{jg6f+oDXmC<r7]>e27'l9;s>7<EksA}W]uH*i&\JlvrapQ
+`endprotected
+   wire detected_bad_seq_num = (detected_tlp_pkt_valid &&
+                          ((detected_tlp_seq_num[11] == ackd_seq[11] &&
+                            detected_tlp_seq_num[10:0] > ackd_seq[10:0]) ||
+                           (detected_tlp_seq_num[11] != ackd_seq[11] &&
+                            detected_tlp_seq_num[10:0] < ackd_seq[10:0])) &&
+                          ((detected_tlp_seq_num[11] == next_tlp_seq[11] &&
+                            detected_tlp_seq_num[10:0] < next_tlp_seq[10:0]) ||
+                           (detected_tlp_seq_num[11] != next_tlp_seq[11] &&
+                            detected_tlp_seq_num[10:0] > next_tlp_seq[10:0])));
+   wire ended_bad_seq_num = (ended_tlp_pkt_valid &&
+                          ((ended_tlp_seq_num[11] == ackd_seq[11] &&
+                            ended_tlp_seq_num[10:0] > ackd_seq[10:0]) ||
+                           (ended_tlp_seq_num[11] != ackd_seq[11] &&
+                            ended_tlp_seq_num[10:0] < ackd_seq[10:0])) &&
+                          ((ended_tlp_seq_num[11] == next_tlp_seq[11] &&
+                            ended_tlp_seq_num[10:0] < next_tlp_seq[10:0]) ||
+                           (ended_tlp_seq_num[11] != next_tlp_seq[11] &&
+                            ended_tlp_seq_num[10:0] > next_tlp_seq[10:0])));
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+
+`include "qvl_pci_express_link_retry_mgmt_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_link_tx_rx_retry.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_link_tx_rx_retry.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_link_tx_rx_retry
+`include "zi_cw_pci_express_link_tx_rx_retry.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule

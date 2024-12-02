@@ -1,0 +1,259 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_value_assertions (
+                                 zivar, 
+                                 clock,
+                                 reset, 
+                                 areset,
+                                 value, 
+                                 val,
+	                         active,
+                                 is_not, 
+                                 used, 
+                                 used_cond, 
+                                 is_not_check,
+                 	         value_fire,
+                                 values_checked,
+                                 values_covered,
+                                 values_covered_bitmap,
+                                 all_values_covered,
+                                 support, 
+                                 fire_count
+                               );
+   
+   
+   
+
+   
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   // Instantiation dependant parameters
+   //      WIDTH is the number of bits in the checked register
+   //	SETWIDTH is the number of bits in largest set value
+   //	SETCOUNT is the number of set values to compare
+
+  parameter WIDTH = 4;	  
+  parameter SETWIDTH = 4; 
+  parameter SETCOUNT = 4; 
+
+  parameter TOTALSETWIDTH_TMP = (SETWIDTH*SETCOUNT); 
+  parameter TOTALSETWIDTH = (TOTALSETWIDTH_TMP ? TOTALSETWIDTH_TMP : 1); 
+
+  parameter VALUEX = 0; 
+  parameter VALUEZ = 0; 
+
+  parameter VALX_AND_VALZ_SPECIFIED = VALUEX && VALUEZ; 
+   
+  parameter BIT_VEC_WLOG2 = 1; 
+  parameter CW_FOR_FPGA = 0;
+  parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIT_VEC_WLOG2 : 63;
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input clock;     
+  input reset;     
+  input areset;    
+  input active;    
+  input [WIDTH-1:0] zivar;     
+  input used;      
+  input used_cond; 
+   
+  input [TOTALSETWIDTH - 1:0] val;   
+
+  input value; 
+
+  input is_not_check; 
+
+  input	is_not; 
+
+  parameter VALUE_ON = 0; 
+  parameter IS_NOT_ON = 0; 
+
+  output value_fire;
+  output [STAT_CNT_WIDTH-1:0] values_checked;
+  output [BIT_CNT_WIDTH:0] values_covered;
+  output [SETCOUNT-1:0] values_covered_bitmap;
+  output all_values_covered;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+  reg value_fire;
+
+  reg [STAT_CNT_WIDTH-1:0] values_checked;
+  reg [BIT_CNT_WIDTH:0] values_covered;
+  wire all_values_covered;
+
+
+   
+  reg [SETCOUNT-1:0] value_hit;
+
+  integer i;
+
+  reg last_active;
+  reg force_checking;
+  reg [WIDTH-1:0] last_var;
+  reg [TOTALSETWIDTH - 1:0] last_val;
+  reg [SETCOUNT-1:0] values_covered_bitmap_r;
+  wire [SETCOUNT-1:0] values_covered_bitmap = values_covered_bitmap_r;
+
+`ifdef ZI_FOR_SEARCH
+  wire flag_xz;
+`endif
+
+
+`ifdef QVL_ASSERT_ON
+  wire value_fire_combo;
+  wire value_value_fire_combo;
+  wire value_is_not_fire_combo;
+  wire zivar_not_xz;
+  wire [SETCOUNT-1 : 0] value_hit_combo;
+`endif
+ 
+  assign all_values_covered = &values_covered_bitmap_r;
+
+`ifdef QVL_ASSERT_ON
+  assign zivar_not_xz = ((zivar^zivar) === {WIDTH{1'b0}}) ? 1 : 0;
+
+  assign value_hit_combo = (SETCOUNT == 1 && !VALUEX && !VALUEZ) ? 
+                           (zivar === val) : (get_hit(zivar,val));
+  assign value_is_not_fire_combo = ((areset === 1'b0) &&
+                                      (reset === 1'b0) &&
+                                      ((active === 1'b1 && zivar_not_xz) &&
+                                      (is_not &&
+                                      (value_hit_combo != {SETCOUNT{1'b0}}))));
+  
+  assign value_value_fire_combo = ((areset === 1'b0) &&
+                                           (reset === 1'b0) &&
+                                           ((active === 1'b1 && zivar_not_xz) &&
+                                           (~is_not && 
+                                       (value_hit_combo == {SETCOUNT{1'b0}}))));
+  assign value_fire_combo = value_value_fire_combo ||
+                            value_is_not_fire_combo;
+`endif
+
+`protected
+
+    MTI!#A\wol3,m:Os<!R3ve}7;p5W=Zz_Vzd>ji2[5[i7KKa=ml{}a-IB+Q-h5u\znxnOAa'a~jEr
+    ]+Rs2+x#{X+2vWKv\C>Y]pzuN%-^okYv{3Ld)#[?z-'W$l,io~X*W+rXDln=;E#\D&mY;^U$]\0!
+    }7$7bY$2sR!x]HDia*mX7t;7Tu^pTDlmB1Iu}~_RTZCjWn[uwZ$;XniT$~eJU\|3<@v^VKe]MTvo
+    B{{w<4p<GCfC2AQjHTX\=!BRQ<{\>Rpl;BUbY:6qe[#$BXl_}vm+FTIalqGZAkQ#j@$zKAWj^*bz
+    #7\ov#?$-z]sWu*w]\zp_v\kA}2N3[HVRY--yo|~,-IBaV-7a+aK{IYTa$joCTRsrrG{\JuZ+XB7
+    J5pu+{3VCW<[Q\>I2Z<UqO1o$*oD@Cgv2}'rlpIn}],YGSVOOAP~YH{I\rJ$pxABAp{}V-D10$[X
+    QrC7+*\QG+TJ*-IGYx\D*1fVj?u[\w*sKnlp7KnV$[=7-XVK[kO}?X<3*'sFyK=BR[rR@Q5C!FV}
+    lK7?Os-+z3]uC^CN}=#u]1Y[KR-Z1+5opzn<$?B$E'[o)I>p!I;=o*xan3\^p5D2JX<,7[[yyeXC
+    @li1[Da+V=y7ER3r#eEyQHYs\l7\e3-n>X{+#H=w|,}_Q]3IxOW[_loJ+~w,Q"v3K+YUZzRv?+yK
+    v72[uvuRvY1kw<JY@^]%g!sY7VKm$DWzJwsG@\lKW_&isrIxH@Y>s<~i-{U\,={X]RKrTWpwRaa)
+    1A1}l#ne>o{rpAx#z5[Esuw!!X5?unVj5B,pk}p~'{nCwC{BBGaU/8odflkX#r7W}k-Amvk<p:zC
+    ;-v*_@Ez+=^UUD1!T-@sp;Y[,}ulZlJU<$@a'ep]@GCKzwjuZWevwwl21OxUQlN|jdEs2+l+~K,D
+    -z7c1]7OT,u_nTTpp[BJIV|".w}#1>A-}Fd;}TXWA-uzmEQluzCO_xu#VxpxrOx?GvC*]#l$oqo~
+    $QY{xK~RB=lz{HT'Z$RO@p;Qij/G{uVR*xaH<Y=N)I;2X,Gpz!_Y}O^,E7V^uA*!K!\$J/!AT^sB
+    K$_3puj~G,l2wE{5pT5WA!3U5J*{~T{p*x_!7pE@@TE+O7,l}5ScfaVEZo@TBE2r<CO[BF?H]uns
+    ?}/QWx[7_XV~vT8-.1u,D1?BjMl+<>>{!-ueWEUU,=iv#~h'>\*7x1-ue*[+H1O}%lDV;C;$Tq}x
+    $+[,i>zi2\wTH{B#JoN1{3;2'vB{v2Q;TU~DTXvjx}]wnp-*?D1_AvXLZ>ZkzC[_Bs='iovYnTMI
+    |m[pI]Aj2I+s-I\~K1az^o@e}E'#*KOJ~wza>I21rB}[1MbeVQkz+IHHDpzjvoOG-mX2*\]QTa5$
+    _EuzQvjI5$UEDpuj?!;;[r\Z}1ESQA!J;D<]p@sz\OzlZ*sXa}z@Dx{FA.>Sw>2?R7w]%'RT~rkE
+    \%1aWZY@__(jIl>W\\v~<x?2D'!#v-ChB5EUJXE[ZrB!$TZkG;V,b)*z^_sv7J)tjVk,tBw1eQ!*
+    ~I}W]NH}avU<O\m7D*{E77)HUD~jlr3bK*;Q,~'+AC'nC2'#!Viu;D+jCG-OulmQQI;QH[EAalrW
+    hQX+^Ye27*=RllBDBoU~Ums}Gx'a@=@ls];~xrs>E{skuBkGY=k7#X[Y?j\5HGuu7&1aQY{Y*p{&
+    l^eV'\j77E_RI2_~_#{p\K1eC$-[_$Q7\E?oDUrDC7pGWXm~vA;pE5O2JOGwgzK_*UxBxNv>TrT]
+    Z{%D-jk~{e1Y\rXACH^fCQOWVRH~*lwR>{Qa!ooAz_\ReO$Wez=sGa,#'2zQE~~;r~2Cpxu\]rV_
+    y_>$;'<}^+=r~5H\nj1nXG$\D{QKe,iEU'*K=#>C;Kv@-sZ<HCeOsVx<#mA=vO,YC\k;@=Q@vVP>
+    UnTT{V=HoDUCQRrHE_$1AJ,rQHBBK7'XG>RF]Gsx#D<2hGJlE|yO}j!'Q-~4rY<#TGIIsnZQ!wE*
+    E<GjaDs[7jGOA**Y*TrKjO^>U1*KpXG@o.,o~'k=RZ=@+lI'XkU,$KsZXzQMHA@^?DZmZX7eNV_s
+    [K=Ak]oOp?]#Gi^=]s]K'IWr]XaDV=wO;WOkUT{{TQBVUCFwD+\}+}u2_k*ZC<K_$oR$2~WTCR;C
+    D>\"=jT<\iDGe?UHlkEYmBiuO~lr}11^Rk1ns2u7bK5<;\35^@+U_NJDGU@o2nP,;{u,a~3a]U$J
+    }G*VvmJ3wY_3CUw#-;amzD<E@WC2l~n**OB[rJroDRY-H3XR_olBU<DnjI=;,HOg~H*KlBp]]mlA
+    n}Ia>UCkv3_er{a'jX]UCr@Zwsl!EmnA!v-uajp~3(ITU+z[#JwzJ1ROIJ,DXOLf'WjBO5N\Vils
+    OGW1aEXCr^\,Wvi~\*unE{He5wQ~rB@AX!\1{-sBsHZ7-GB3-,$~VJTp-wUR=[AWIwZ=~+'Rip^Q
+    w{,iRB3\!B=(2+=n'.O'3$l{Do}5G<(VD!Cjaj^}=iX#1^'ji^[v{o11,,@\oQIOp{u?{,TTT!s"
+    ]m*!1YK,C[
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+   // Instance for equality check
+   //
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_value_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (value_value_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_value_check"),
+                          .msg            ({msg," The value does not equal any of the specified values."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_value_is_not_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (value_is_not_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_value_is_not_check"),
+                          .msg            ({msg," The value equals one of the specified values."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_value_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (value_value_fire_combo)));
+        M_qvl_value_is_not_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (value_is_not_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+   // Instance for inequality check
+   //
+`endif
+
+`include "qvl_value_cover.svh"
+
+`qvlendmodule //qvl_value_assertions

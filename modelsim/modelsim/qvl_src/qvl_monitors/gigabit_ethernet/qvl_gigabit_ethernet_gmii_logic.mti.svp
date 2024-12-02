@@ -1,0 +1,372 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation            
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Gigabit Ethernet GMII Monitor.
+ *
+ * DESCRIPTION   This monitor checks the 1 Gigabit Etherent frames for
+ *               alignment related violations and malformed packets by 
+ *               observing the GMII (1 Gigabit Media Independent I/F).
+ *               This module internally instantiates two link monitors,
+ *               one each for the Tx link and the Rx link respectively. 
+ *               
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *               802.3ae Amendment: Media Access Control (MAC) Parameters, 
+ *               Physical Layers, and Management Parameters for 10 Gb/s 
+ *               Operation, 2002.
+ *
+ * INPUTS        areset - asynchronous reset (active high)
+ *               reset  - synchronous reset (active high)
+ *               tx_clk - transmit interface clock
+ *               txd    - transmit data (8-bit SDR)
+ *               tx_en  - transmit enable 
+ *               tx_er  - transmit error
+ *               rx_clk - receive interface clock
+ *               rxd    - receive data (8-bit SDR)
+ *               rx_dv  - receive data valid
+ *               rx_er  - receive error
+ *               col    - collision detect
+ *               crs    - carrier sense
+ *
+ *
+ * MONITOR INSTANTIATION
+ *                  
+ *                                  + +
+ *                                  | |
+ *                                  | |
+ *                  +---------------+-+----------------+
+ *                  |    LLC - Logical Link Control    |
+ *                  +----------------------------------+
+ *                  |      MAC Control (optional)      |  L
+ *                  +----------------------------------+  I
+ *                  |    MAC - Media Access Control    |  N
+ *                  +----------------------------------+  K
+ *                  |   RS - Reconciliation Sublayer   |
+ *                  |                                  |  L
+ *                  |        +---------------+         |  A
+ *                  |        | GMII MONITOR  |         |  Y
+ *                  |        +------+-+------+         |  E
+ *                  |               | |                |  R
+ *                  +---------------+-+----------------+
+ *                                  | |
+ *                                  | | GMII
+ *                                  | |
+ *                  +---------------+-+----------------+  P
+ *                  |               | |                |  H
+ *                  |        +------+-+------+         |  Y
+ *                  |        | GMII MONITOR  |         | 
+ *                  |        +---------------+         |  L
+ *                  |                                  |  A
+ *                  |  PCS - Physical Coding Sublayer  |  Y
+ *                  +----------------------------------+  E
+ *                  | PMA - Physical Medium Attachment |  R
+ *                  +---------------+-+----------------+
+ *                                  | |
+ *                                  | |
+ *                                  + +
+ *
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+ `ifdef QVL_SV_COVERGROUP_OFF
+  //DO nothing
+ `else
+  `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+   // Do nothing
+  `else
+  `define QVL_MW_FINAL_COVER
+  `endif 
+`endif
+
+`qvlmodule qvl_gigabit_ethernet_gmii_logic (areset,
+                                            reset,
+                                            tx_clk,
+                                            txd,
+                                            tx_en,
+                                            tx_er,
+                                            rx_clk,
+                                            rxd,
+                                            rx_dv,
+                                            rx_er,
+                                            col,
+                                            crs
+                                           );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis.
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate as to which side of the GMII link
+  // the monitor is instantiated. This parameter, along with the Constraints
+  // Mode parameter is used in constraining the correct side in case of the
+  // formal analysis.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  // Set this parameter to the desired length of Jumbo frames. The default
+  // length of Jumbo frames is taken to be 9K bytes (9126 bytes).
+
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved 
+  // values in fields. By default, these checks will be performed.
+
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+
+  // Set this parameter to 1 if the monitor is instantiated on a Half 
+  // Duplex link. The default value of 1 indicates that the monitor is 
+  // instantiated on a full duplex interface.
+
+  parameter HALF_DUPLEX = 0;
+  wire [31:0] pw_HALF_DUPLEX = HALF_DUPLEX;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  parameter SLOT_TIME = 512;
+  wire [31:0] pw_SLOT_TIME = SLOT_TIME;
+
+  parameter JAM_SIZE = 32;
+  wire [31:0] pw_JAM_SIZE = JAM_SIZE ;
+
+  parameter BURST_LIMIT = 65536;
+  wire [31:0] pw_BURST_LIMIT = BURST_LIMIT ;
+  
+  parameter ZI_CONSTRAINT_MAC_SIDE = (Constraints_Mode == 1 &&
+                                      MAC_SIDE == 1);
+  parameter ZI_CONSTRAINT_PHY_SIDE = (Constraints_Mode == 1 &&
+                                      MAC_SIDE == 0);
+
+  
+  parameter ZI_PREAMBLE_FIELD = 8'h55;
+  parameter ZI_SFD_FIELD = 8'hD5;
+
+  input areset;
+  input reset;
+  input tx_clk;
+  input [7:0] txd;
+  input tx_en;
+  input tx_er;
+  input rx_clk;
+  input [7:0] rxd;
+  input rx_dv;
+  input rx_er;
+  input col;
+  input crs;
+
+  wire [1:0] tx_ctrl;
+  wire [1:0] rx_ctrl;
+  wire tx_interface_idle;
+  wire rx_interface_idle;
+
+  // Internal variables
+  reg r_crs;
+  reg r_col;
+  reg r_tx_en;
+  reg r_rx_dv;
+
+  // Wires for check enables
+  wire tx_en_asserted_when_crs_asserted_violation;
+  wire tx_en_asserted_when_col_asserted_violation;
+  wire col_asserted_when_crs_deasserted_violation;
+  wire tx_and_rx_interface_active_violation;
+  wire crs_deasserted_when_col_asserted;
+  wire reserved_values_on_tx_interface;
+  wire reserved_values_on_rx_interface;
+  wire carrier_extn_on_tx_not_following_frame;
+  wire carrier_extn_on_rx_not_following_frame;
+  wire tx_en_asserted_starting_with_non_preamble;
+  wire rx_dv_asserted_starting_with_non_preamble_or_sfd;
+  wire tx_er_asserted_during_frame;
+  wire rx_er_asserted_during_frame;
+  wire tx_extension_error;
+  wire rx_extension_error;
+
+  // Wires for fire signals
+  wire FIRE_GIGABIT_ETHERNET_GMII_TX_ASSERTED_WHEN_CARRIER_SENSED;
+  wire FIRE_GIGABIT_ETHERNET_GMII_TX_ASSERTED_WHEN_COLLISION_DETECTED;
+  wire FIRE_GIGABIT_ETHERNET_GMII_COLLISION_DETECTED_WITHOUT_CARRIER;
+  wire FIRE_GIGABIT_ETHERNET_GMII_CRS_DEASSERTED_DURING_COLLISION;
+  wire FIRE_GIGABIT_ETHERNET_GMII_TX_INTERFACE_ACTIVE_WHEN_RX_ACTIVE;
+  wire FIRE_GIGABIT_ETHERNET_GMII_RX_INTERFACE_ACTIVE_WHEN_TX_ACTIVE;
+  wire FIRE_GIGABIT_ETHERNET_GMII_RESERVED_VALUES_ON_TX_INTERFACE;
+  wire FIRE_GIGABIT_ETHERNET_GMII_RESERVED_VALUES_ON_RX_INTERFACE;
+  wire FIRE_GIGABIT_ETHERNET_GMII_CAR_EXTN_ON_TX_WITHOUT_FRAME;
+  wire FIRE_GIGABIT_ETHERNET_GMII_CAR_EXTN_ON_RX_WITHOUT_FRAME;
+  wire FIRE_GIGABIT_ETHERNET_GMII_TX_START_WITH_NON_PREAMBLE;
+  wire FIRE_GIGABIT_ETHERNET_GMII_RX_START_WITH_NON_PREAMBLE_OR_SFD;
+
+`protected
+
+    MTI!#Ivxl*}DkI,In}!Jx,2Gzj]K=I__VO^n2No?]p=#ouEaIqI3[RB*BW-Ua$R;V_p^X^|ro=E}
+    5I$mrE-r74XEA5"YB5BB-~D!9$;3R2o$K3od}22X:@Y[[xRUQ]}Q]5K,5uX3?zG<-DxY!~G^rnY@
+    {aa[]2+r}r2pI<BBO$r#j=Bl,~5DITN|,D-2N1jnemjaBkX1ilmwG)}}H2?X7sln^n=CxQK[Bp<j
+    '}wXI7CNC/rV-oY+m\hm]C@I5-Z2EjHM?sVUuR\*sDpuVi]VIWY_:aT^Iokx1"X[Jpvp"s*v*+IC
+    \As#a<De]5wKJFexRRl[3eR=Z[HoeO!]KopK1RD^l}^;C~b^>Y[/(?'+AVI*~GGOz7$Q\_w+=C'i
+    VT$p@Aj{J{Y-79.Q]GlI+<mx*Bp]]WW?R[T,sYw?t}'z1P"KC^7[\[Ei{7T'QpGNFpEk]11Br&zR
+    u{xp*pImA;i[-rYX;$|QrCeU_Yz[Jolxdso!2[k-*YX_BuD_i(SH+-}IX~sq,wT[jG}pp?$25A;E
+    UG\kO2{X=^Ro;7D@On+-VaWn'mp$T'D*^YszgHC3[GX+Q]eA!9<,pOe5*,3RoBiUl@^>l3[]$a~j
+    @Qt1@@I1~Y--w@*Yo;?}~}r%e>x;PoK'2L_r-7#]u$N/r>Ce#<m;[?eH1W,o+Y^Y%BC?D'+ml]x{
+    W7[pAOoj_zGa->=;aGB7jOYpO~}+>HHssB|][s7N5^_eWReQ}RZa\IuzGUmOMAz!mV#'Xc!+TkXH
+    H7TrO$t3o]$ATZ0boiaEJpQE
+`endprotected
+  assign tx_ctrl = {tx_en, tx_er};
+  assign rx_ctrl = {rx_dv, rx_er};
+  reg check_carrier_extend_tx;
+  reg check_carrier_extend_rx;
+`protected
+
+    MTI!#w['[)tT,pCz7K^JXV'9DGB,{jlr>{7<}~A{0N"#Ij$}MRB!WBT\s'Z$OEi}[QVBiNQO?Z;{
+    {EK}A$R8TRD$}!a#gup'@j9R2WI}\QUmTR!JViTVuDI^_>${=iKvReu}p7[aTzGGX2e92r;nqCKp
+    x'L+oT7_TnK|z$A$E#]-X<*=J[#p]\!p<To=y)Lg'C=B7?p{n}?Tr*}7oJ>{-5kVzj#}7wp?o?'K
+    mx}+}]THFJD+Az?W$U{pA^;I#rXLqmesTGO3x{=,u}l?;%:&#IiO3rB_fIHpQV-o\p3EIW_Y]X{T
+    }CUC<loQ^E!GpI+o!{'+2i<A~*srOYKKTx_+JZV+I!$$r\iZuY;;R%NZ<35lH{+LIuma+GXK/5wZ
+    #n*me'~[;pUBUY>*!$~asOCGlk1!UyQt'BXOG?'j}z+nZGQDDX_Y,#xB7i$j/OaW]CR<=ke[^]CJ
+    ?S@Eiwn]a$tZQirpWK3P,0_/Vq},G-6p@]WL|}?F}rjvErjsQ*1_pxr;@s?]GOGRe\IelQ7<1l}1
+    -H}]+^IG)rsT;vQ{vKl,]x#,$(UXET)W]X_2wvkRU_1j3xB7i*CRG<lEwpTiXYm}i-E2EeKAY]
+`endprotected
+  assign tx_interface_idle = (tx_en === 1'b0 && tx_er === 1'b0);
+  assign rx_interface_idle = (rx_dv === 1'b0 && (rx_er === 1'b0 ||
+    (rx_er === 1'b1 && rxd === 8'b0)));
+
+  // Check assigns
+  // Note that all these checks are active only in half duplex mode.
+  
+ 
+  assign tx_en_asserted_when_crs_asserted_violation = (HALF_DUPLEX == 1 &&
+    (tx_en === 1'b1 && r_tx_en === 1'b0 && r_crs === 1'b1));
+
+  assign tx_en_asserted_when_col_asserted_violation = (HALF_DUPLEX == 1 &&
+    (tx_en === 1'b1 && r_tx_en === 1'b0 && r_col === 1'b1));
+
+  assign col_asserted_when_crs_deasserted_violation = (HALF_DUPLEX == 1 &&
+    (col === 1'b1 && r_col === 1'b0 && crs === 1'b0));
+
+  assign crs_deasserted_when_col_asserted = (HALF_DUPLEX == 1 &&
+    (crs === 1'b0 && r_crs === 1'b1 && col === 1'b1));
+
+  assign tx_and_rx_interface_active_violation = (HALF_DUPLEX == 1 &&
+    (tx_interface_idle == 1'b0 && rx_interface_idle == 1'b0));
+
+  assign reserved_values_on_tx_interface = 
+    (tx_en === 1'b0 && tx_er === 1'b1 && txd !== 8'h0F && txd !== 8'h1F && GMII_TX_MONITOR.MAC_MONITOR.packet_col_check_gmii !== 1'b0);
+
+  assign reserved_values_on_rx_interface = 
+    (rx_dv === 1'b0 && rx_er === 1'b1 && rxd !== 8'h00 && rxd !== 8'h0E &&
+     rxd !== 8'h0F && rxd !== 8'h1F);
+
+  assign carrier_extn_on_tx_not_following_frame = 
+    (tx_en === 1'b0 && tx_er === 1'b1 && (txd === 8'h0F || txd === 8'h1F) &&
+     r_tx_en === 1'b0 && check_carrier_extend_tx === 1'b1 );
+  
+  assign carrier_extn_on_rx_not_following_frame = 
+    (rx_dv === 1'b0 && rx_er === 1'b1 && (rxd === 8'h0F || rxd === 8'h1F) &&
+     r_rx_dv === 1'b0 && check_carrier_extend_rx === 1'b1);
+
+  assign tx_en_asserted_starting_with_non_preamble = 
+    (tx_en === 1'b1 && r_tx_en === 1'b0 && tx_er === 1'b0 && txd !== ZI_PREAMBLE_FIELD);
+
+  assign rx_dv_asserted_starting_with_non_preamble_or_sfd = 
+    (rx_dv === 1'b1 && r_rx_dv === 1'b0 && rx_er === 1'b0 && rxd !== ZI_PREAMBLE_FIELD &&
+     rxd !== ZI_SFD_FIELD);
+
+  assign tx_er_asserted_during_frame = (tx_en === 1'b1 && tx_er === 1'b1); //Transmit Error Propogation
+  assign rx_er_asserted_during_frame = (rx_dv === 1'b1 && rx_er === 1'b1); //Data reception Error
+  assign tx_extension_error          = (HALF_DUPLEX === 1 && tx_en === 1'b0 && tx_er ===1'b1 && txd === 8'h1f);// TX Extension Error 
+  assign rx_extension_error          = (HALF_DUPLEX === 1 && rx_dv === 1'b0 && rx_er ===1'b1 && rxd === 8'h1f ); //RX Extension Error 
+  
+
+  // Tx and Rx link monitor instantiations
+ 
+  qvl_gigabit_ethernet_gmii_link_monitor
+    #(.Constraints_Mode(Constraints_Mode),                       // Used to mark checks as constraints
+      .MAC_SIDE(MAC_SIDE),                                       // Configures location of monitor instance
+      .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),         // Specifies Jumbo frame length
+      .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE), // Enables/Disables reserved value checking
+      .TX_INTERFACE(1),                                          // Indicates the direction of data - TX I/F
+      .HALF_DUPLEX(HALF_DUPLEX),                                 // Configures GMII as Half/Full duplex
+      .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),// Configuring MAc to count tagged data in min size
+      .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED),// Configures GMII to support Reserved Frame               
+      .SLOT_TIME(SLOT_TIME),                                               
+      .JAM_SIZE(JAM_SIZE),                                               
+      .BURST_LIMIT(BURST_LIMIT)                                               
+     )
+      GMII_TX_MONITOR
+          (.areset(areset),
+           .reset(reset),
+           .clk(tx_clk),
+           .data(txd),
+           .ctrl(tx_ctrl),
+           .col(col),
+           .crs(crs)
+          );
+ 
+  qvl_gigabit_ethernet_gmii_link_monitor
+    #(.Constraints_Mode(Constraints_Mode),                       // Used to mark checks as constraints
+      .MAC_SIDE(MAC_SIDE),                                       // Configures location of monitor instance
+      .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),         // Specifies Jumbo frame length
+      .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE), // Enables/Disables reserved value checking
+      .TX_INTERFACE(0),                                          // Indicates the direction of data - RX I/F
+      .HALF_DUPLEX(HALF_DUPLEX),                                 // Configures GMII as Half/Full duplex
+      .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),// Configuring MAc to count tagged data in min size
+      .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED),// Configures GMII to support Reserved Frame               
+      .SLOT_TIME(SLOT_TIME),                                               
+      .JAM_SIZE(JAM_SIZE),                                               
+      .BURST_LIMIT(BURST_LIMIT)                                               
+      )
+      GMII_RX_MONITOR                                              
+          (.areset(areset),
+           .reset(reset),
+           .clk(rx_clk),
+           .data(rxd),
+           .ctrl(rx_ctrl),
+           .col(col),
+           .crs(crs)
+          );
+  
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+
+`include "qvl_gigabit_ethernet_gmii_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_gmii_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_gmii_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_gmii_monitor
+`include "zi_cw_gigabit_ethernet_gmii_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_gigabit_ethernet_gmii_logic

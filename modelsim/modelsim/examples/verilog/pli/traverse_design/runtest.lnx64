@@ -1,0 +1,26 @@
+#Copyright 1991-2009 Mentor Graphics Corporation
+#
+#All Rights Reserved.
+#
+#THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY INFORMATION WHICH IS THE PROPERTY OF 
+#MENTOR GRAPHICS CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE TERMS.
+
+# PLI Test Compilation and Execution Script for 64-bit Linux
+
+# NOTE: The environment variable MTI_HOME must be set to point to your
+#       modeltech installation directory before invoking this script.
+#       Example: setenv MTI_HOME /usr/local/modeltech
+
+# GCC compilation (-g for debug symbols)
+gcc -c -fpic -I$MTI_HOME/include pli_test.c
+ld -shared -Bsymbolic -E --allow-shlib-undefined -o pli_test.sl pli_test.o
+
+# CC compilation
+# cc -c -I$MTI_HOME/include pli_test.c
+# ld -shared -E -o pli_test.sl pli_test.o
+
+rm -rf work
+vlib work
+vlog -novopt prim.v dff.v top.v
+
+vsim -novopt -c -do vsim.do top -pli pli_test.sl

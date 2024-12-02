@@ -1,0 +1,946 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_req_ack_assertions (
+                              clock, 
+                              areset, 
+                              reset, 
+                              active,
+                              req, 
+                              ack, 
+                              single_req, 
+                              single_ack, 
+                              req_until_ack, 
+                              max_check, 
+                              min_check, 
+		              ack_deassert_to_req_deassert, 
+                              max_ack_check,
+                              ack_assert_to_req_deassert_check,
+                              req_deassert_to_ack_deassert_check,
+                              ack_until_req_deassert,
+                              ack_assert_to_req_deassert_min,
+                              ack_assert_to_req_deassert_max,
+                              req_deassert_to_ack_deassert_min,
+                              req_deassert_to_ack_deassert_max,
+                              ack_deassert_to_req_deassert_min,
+                              ack_deassert_to_req_deassert_max,
+                              single_req_fire, single_ack_fire,
+                              req_until_ack_fire, max_fire, min_fire, 
+                              ack_deassert_to_req_deassert_fire, 
+                              max_ack_fire, 
+                              ack_assert_to_req_deassert_fire,
+                              req_deassert_to_ack_deassert_fire,
+                              ack_until_req_deassert_fire,
+                              requests,
+                              acknowledgments,
+                              requests_and_acknowledgments,
+                              fastest_acknowledgment,
+                              slowest_acknowledgment,
+                              current_unacknowledged_requests,
+		              min_cycles_between_request_count,
+                              request_for_max_cycles_count,
+                              ack_for_max_cycles_count,
+                              min_cycles_between_ack_asrt_to_req_dsrt,
+                              max_cycles_between_ack_asrt_to_req_dsrt,
+                              min_cycles_between_req_dsrt_to_ack_dsrt,
+                              max_cycles_between_req_dsrt_to_ack_dsrt,
+                              min_cycles_between_ack_dsrt_to_req_dsrt,
+                              max_cycles_between_ack_dsrt_to_req_dsrt,
+                              number_of_cycles_req_ack_deasserted_together,
+			      support,
+			      fire_count
+                             );
+
+
+
+
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION: ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  // Parameter Declarations
+
+  parameter ACK_ASSERT_TO_REQ_DEASSERT_MIN_SPECIFIED = 0; 
+
+  parameter ACK_ASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED = 0; 
+
+  parameter ACK_UNTIL_REQ_DEASSERT_SPECIFIED = 0;
+
+  parameter ACK_ASSERT_TO_REQ_DEASSERT_SPECIFIED = (ACK_ASSERT_TO_REQ_DEASSERT_MIN_SPECIFIED || ACK_ASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED);
+
+  parameter REQ_DEASSERT_TO_ACK_DEASSERT_MIN_SPECIFIED = 0; 
+
+  parameter REQ_DEASSERT_TO_ACK_DEASSERT_MAX_SPECIFIED = 0; 
+
+  parameter REQ_DEASSERT_TO_ACK_DEASSERT_SPECIFIED = (REQ_DEASSERT_TO_ACK_DEASSERT_MIN_SPECIFIED || REQ_DEASSERT_TO_ACK_DEASSERT_MAX_SPECIFIED);
+
+  parameter ACK_TO_REQ_REQ_TO_ACK_DEASSERT_SPECIFIED = (ACK_ASSERT_TO_REQ_DEASSERT_SPECIFIED || REQ_DEASSERT_TO_ACK_DEASSERT_SPECIFIED); 
+
+  parameter CW_FOR_FPGA = 0;
+  parameter STATS1_WIDTH = CW_FOR_FPGA ? 32 : 64;
+
+  // Input port declarations
+ 
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input clock; 
+  input areset; 
+  input reset; 
+  input active; 
+  input req; 
+  input ack; 
+
+  input single_req;      
+
+  input single_ack;      
+
+  input req_until_ack;   
+
+  input max_check;       
+
+  input min_check;       
+
+  input ack_deassert_to_req_deassert;  
+
+  input max_ack_check;    
+
+  input ack_assert_to_req_deassert_check; 
+
+  input req_deassert_to_ack_deassert_check; 
+
+  input ack_until_req_deassert; 
+
+  parameter MIN = 0; 
+
+  parameter MAX = MIN; 
+
+  parameter DEASSERT = 0; 
+
+  parameter DEASSERT_PARAMETER_SPECIFIED = 0; 
+
+  parameter ACK_DEASSERT_TO_REQ_DEASSERT_MIN_SPECIFIED = 0; 
+
+  parameter ACK_DEASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED = 0; 
+
+  parameter CHECK_DEASSERT_OPTIONS = (ACK_DEASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED && DEASSERT_PARAMETER_SPECIFIED); 
+
+  parameter ACK_DEASSERT_TO_REQ_DEASSERT_SPECIFIED = (ACK_DEASSERT_TO_REQ_DEASSERT_MIN_SPECIFIED || ACK_DEASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED);
+
+  parameter DEASSERT_SPECIFIED = (DEASSERT_PARAMETER_SPECIFIED || ACK_DEASSERT_TO_REQ_DEASSERT_SPECIFIED);
+
+  parameter NEW_REQ_AFTER_ACK = 0; 
+
+  parameter CHECK_NEW_REQ_AFTER_ACK = (NEW_REQ_AFTER_ACK && DEASSERT_SPECIFIED); 
+
+  parameter NO_SIMULTANEOUS_REQ_ACK = 0; 
+
+  parameter NO_SIMULTANEOUS_REQ_ACK_SPECIFIED = 0; 
+
+  parameter MAX_CNT = (MAX > MIN) ? MAX : MIN;
+
+  parameter MAX_ACK = 1; 
+
+  parameter MAX_ACK_SPECIFIED = 0; 
+
+  parameter CHECK_DEASSERT_AND_OTHER_OPTIONS = (DEASSERT_SPECIFIED && (ACK_TO_REQ_REQ_TO_ACK_DEASSERT_SPECIFIED || ACK_UNTIL_REQ_DEASSERT_SPECIFIED)); 
+
+  parameter REQ_UNTIL_ACK_SPECIFIED = 0;
+
+  parameter CHECK_REQ_UNTIL_ACK_WITH_OTHER_OPTIONS = ((ACK_TO_REQ_REQ_TO_ACK_DEASSERT_SPECIFIED || ACK_UNTIL_REQ_DEASSERT_SPECIFIED) && !REQ_UNTIL_ACK_SPECIFIED); 
+
+  parameter NEW_REQ_AFTER_ACK_SPECIFIED = 0; 
+
+  parameter CHECK_NEW_REQ_AFTER_ACK_WITH_OTHER_OPTIONS = (NEW_REQ_AFTER_ACK_SPECIFIED && (ACK_ASSERT_TO_REQ_DEASSERT_SPECIFIED || REQ_DEASSERT_TO_ACK_DEASSERT_SPECIFIED)); 
+
+  parameter ACK_DEASSERT_TO_REQ_DEASSERT_CNT_WIDTH_MIN = 1; 
+
+  parameter ACK_DEASSERT_TO_REQ_DEASSERT_CNT_WIDTH_MAX = 1; 
+
+  parameter ACK_TO_REQ_CNT_WIDTH_MIN = 1; 
+
+  parameter ACK_TO_REQ_CNT_WIDTH_MAX = 1; 
+
+  parameter REQ_TO_ACK_DEASSERT_CNT_WIDTH_MIN = 1; 
+
+  parameter REQ_TO_ACK_DEASSERT_CNT_WIDTH_MAX = 1; 
+
+  input [ACK_DEASSERT_TO_REQ_DEASSERT_CNT_WIDTH_MIN-1:0] ack_deassert_to_req_deassert_min; 
+
+  input [ACK_DEASSERT_TO_REQ_DEASSERT_CNT_WIDTH_MAX-1:0] ack_deassert_to_req_deassert_max; 
+
+  input [ACK_TO_REQ_CNT_WIDTH_MIN-1:0] ack_assert_to_req_deassert_min; 
+
+  input [ACK_TO_REQ_CNT_WIDTH_MAX-1:0] ack_assert_to_req_deassert_max; 
+
+  input [REQ_TO_ACK_DEASSERT_CNT_WIDTH_MIN-1:0] req_deassert_to_ack_deassert_min; 
+
+  input [REQ_TO_ACK_DEASSERT_CNT_WIDTH_MAX-1:0] req_deassert_to_ack_deassert_max; 
+
+  parameter ACK_TO_REQ_CNT_WIDTH = (ACK_ASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED)?ACK_TO_REQ_CNT_WIDTH_MAX:ACK_TO_REQ_CNT_WIDTH_MIN;
+
+  parameter REQ_TO_ACK_DEASSERT_CNT_WIDTH = (REQ_DEASSERT_TO_ACK_DEASSERT_MAX_SPECIFIED)?REQ_TO_ACK_DEASSERT_CNT_WIDTH_MAX:REQ_TO_ACK_DEASSERT_CNT_WIDTH_MIN;
+
+  parameter SINGLE_REQ_ON           = 0; 
+  parameter SINGLE_ACK_ON           = 0; 
+  parameter REQ_UNTIL_ACK_ON        = 0; 
+  parameter MAX_CHECK_ON            = 0; 
+  parameter MIN_CHECK_ON            = 0; 
+  parameter ACK_D_TO_REQ_D_ON       = 0; 
+  parameter MAX_ACK_CHECK_ON        = 0; 
+  parameter ACK_A_TO_REQ_D_CHECK_ON = 0; 
+  parameter REQ_D_TO_ACK_D_CHECK_ON = 0; 
+  parameter ACK_UNTIL_REQ_D_ON      = 0; 
+
+  wire [31:0] ack_deassert_to_req_deassert_max_cycles = (ACK_DEASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED)?ack_deassert_to_req_deassert_max:DEASSERT; 
+
+  output single_req_fire;
+  output single_ack_fire;
+  output req_until_ack_fire;
+  output max_fire;
+  output min_fire;
+  output ack_deassert_to_req_deassert_fire;
+  output max_ack_fire;
+  output ack_assert_to_req_deassert_fire;
+  output req_deassert_to_ack_deassert_fire;
+  output ack_until_req_deassert_fire;
+
+  output [STAT_CNT_WIDTH-1:0] requests;
+  output [STAT_CNT_WIDTH-1:0] acknowledgments;
+  output [STAT_CNT_WIDTH-1:0] requests_and_acknowledgments;
+  output [STATS1_WIDTH-1:0] fastest_acknowledgment;
+  output [STATS1_WIDTH-1:0] slowest_acknowledgment;
+  output current_unacknowledged_requests;
+  output [STAT_CNT_WIDTH-1:0] min_cycles_between_request_count;   
+  output [STAT_CNT_WIDTH-1:0] request_for_max_cycles_count;   
+  output [STAT_CNT_WIDTH-1:0] ack_for_max_cycles_count;   
+  output [STATS1_WIDTH-1:0] min_cycles_between_ack_asrt_to_req_dsrt;
+  output [STATS1_WIDTH-1:0] max_cycles_between_ack_asrt_to_req_dsrt;
+  output [STATS1_WIDTH-1:0] min_cycles_between_req_dsrt_to_ack_dsrt;
+  output [STATS1_WIDTH-1:0] max_cycles_between_req_dsrt_to_ack_dsrt;
+  output [STATS1_WIDTH-1:0] min_cycles_between_ack_dsrt_to_req_dsrt;
+  output [STATS1_WIDTH-1:0] max_cycles_between_ack_dsrt_to_req_dsrt; 
+  output [STAT_CNT_WIDTH-1:0] number_of_cycles_req_ack_deasserted_together;
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [3:0] fire_count_tmp;
+
+  reg single_req_fire;
+  reg single_ack_fire;
+  reg req_until_ack_fire; 
+  reg max_fire;
+  reg min_fire;
+  reg ack_deassert_to_req_deassert_fire;
+  reg max_ack_fire;
+  reg ack_assert_to_req_deassert_fire;
+  reg req_deassert_to_ack_deassert_fire;
+  reg ack_until_req_deassert_fire;
+
+  reg [STAT_CNT_WIDTH-1:0] requests;
+  reg [STAT_CNT_WIDTH-1:0] acknowledgments;
+  wire [STAT_CNT_WIDTH-1:0] requests_and_acknowledgments;
+  reg [STATS1_WIDTH-1:0] fastest_acknowledgment;
+  reg [STATS1_WIDTH-1:0] slowest_acknowledgment;
+  reg current_unacknowledged_requests;
+  reg [STAT_CNT_WIDTH-1:0] min_cycles_between_request_count;   
+  reg [STAT_CNT_WIDTH-1:0] request_for_max_cycles_count;
+  reg [STAT_CNT_WIDTH-1:0] ack_for_max_cycles_count;
+  reg [STATS1_WIDTH-1:0] min_cycles_between_ack_asrt_to_req_dsrt;
+  reg [STATS1_WIDTH-1:0] max_cycles_between_ack_asrt_to_req_dsrt;
+  reg [STATS1_WIDTH-1:0] min_cycles_between_req_dsrt_to_ack_dsrt;
+  reg [STATS1_WIDTH-1:0] max_cycles_between_req_dsrt_to_ack_dsrt;
+  reg [STATS1_WIDTH-1:0] min_cycles_between_ack_dsrt_to_req_dsrt;
+  reg [STATS1_WIDTH-1:0] max_cycles_between_ack_dsrt_to_req_dsrt;
+  reg [STAT_CNT_WIDTH-1:0] number_of_cycles_req_ack_deasserted_together;
+
+
+  // Internal registers
+
+  reg acknowledged;
+  reg req_deasserted;
+  reg ack_asrt_to_req_dsrt_flag;
+  reg req_dsrt_to_ack_dsrt_flag;
+  reg ack_dsrt_to_req_dsrt_flag;
+
+  // These two registered signals are used in the updation of
+  // number_of_cycles_req_ack_deasserted_together statistics.
+
+  reg r_req;
+  reg r_ack;
+  
+
+  // Declaration for combo fire signals;
+
+  wire single_req_fire_combo;
+  wire single_ack_fire_combo;
+  wire req_until_ack_fire_combo;
+  wire max_fire_combo;
+  wire min_fire_combo;
+  wire ack_assert_to_req_deassert_fire_combo_1;
+  wire ack_assert_to_req_deassert_fire_combo_2;
+  wire ack_deassert_to_req_deassert_fire_combo_1;
+  wire ack_deassert_to_req_deassert_fire_combo_2;
+  wire max_ack_fire_combo;
+  wire req_deassert_to_ack_deassert_fire_combo_1;
+  wire req_deassert_to_ack_deassert_fire_combo_2;
+  wire ack_until_req_deassert_fire_combo;
+
+
+  parameter SMALLSIZE = 31;
+
+  reg [31:0] req_cnt;
+  reg [31:0] ack_cnt;
+  reg [31:0] deassert_req_cnt;
+
+  reg req_reg;
+  reg ack_reg;
+  reg req_until_ack_no_more_firings;
+  reg min_req_no_more_firings;
+  reg waiting_for_req_to_drop;
+  reg deassert_req_no_more_firings;
+  reg [STAT_CNT_WIDTH-1:0] request_for_max_cycles_within_range_count;
+  reg [STAT_CNT_WIDTH-1:0] ack_for_max_cycles_within_range_count;
+  reg [STAT_CNT_WIDTH-1:0] min_cycles_between_request_in_range_count;
+  reg fastest_acknowledgment_not_set;
+  reg [31:0] ack_assert_to_req_deassert_cnt;
+  reg [31:0] req_deassert_to_ack_deassert_cnt; 
+
+  integer min_within_range;
+  integer max_within_range;
+
+  wire [31:0] max_cnt_w = MAX_CNT;
+  wire [31:0] max_ack_w = MAX_ACK;
+  wire [31:0] max_w = MAX;
+  wire [31:0] min_w = MIN;
+
+
+  wire [31:0] req_cnt_int;
+  wire req_cnt_eq_MAXminus1;
+  wire req_cnt_gt_MAXwithinrange;
+  wire req_cnt_lt_MIN;
+  wire req_cnt_eq_MAX;
+  wire req_cnt_gt_MAX;
+  wire req_cnt_eq_MIN;
+  wire [31:0] ack_cnt_int;
+  wire ack_cnt_eq_MAX_ACKminus1;   
+  wire ack_cnt_gt_MAX_ACKminus1;
+  wire ack_cnt_ge_MAX_ACKminus1;
+  wire ack_cnt_eq_MAX_ACK;   
+  wire ack_cnt_gt_MAX_ACK;
+  wire ack_cnt_ge_MAX_ACK;
+  wire ack_cnt_gt_MAX_ACKwithinrange;   
+
+  wire posedge_req;
+  wire posedge_ack;
+  wire negedge_ack;
+  wire new_req;
+
+  wire new_ack;
+
+  wire xz_detected_req_ack;
+  wire xz_detected_ack_asrt_to_req_dsrt;
+  wire xz_detected_req_dsrt_to_ack_dsrt;
+  wire xz_detected_ack_dsrt_to_req_dsrt;
+
+
+`protected
+
+    MTI!#pJ5ine}HJ+XE\W3T%'-TC"k-5aD;3a]Dirq~N"u11<F|9>vnKHVNw5zRF3Ar2_1AZVEDRmI
+    <{{_+,sVeujAGu,mV~J*,'6:Z1[Q]X=1Z<*}'<!=QaIki{riFo*1DE+=Z{5w73G[~n7UZT\z]-'T
+    -S7D[ZCo}iDAKE9gxH[[8U<pQ1-<?%qU]Vwn{sTk}pn)|E~B$r+_!LDvJ5GUX=kTe]\I[k5'!,<j
+    J-D;mo=_BoICJDCs>XdEa-akrEkk+H^uQ*<0^@]*Hwa<yQsRV@]>XkTp3e?<}>5\*>wwpw+a#.*>
+    -BQ'3m5#<5kw<GGB!<lxV1z_m{msAxxOEWoC3OxrpU,jJ[o$wBFus<@]3jBuv?@gk'<}B!bE#^^F
+    >w{;sx\KcKCX'pp!]x,-KoC\*9:QZX#z-=e[,uX@$#U}1Ri^@U5OH7ZIJa}7#YWmw;OsFxV*iul1
+    OQ@*1uronDe~C1C_A%qsi[A=xEG73X{vnn[BHuIIrz_FvWvKIZ]?$w[Q4UEOCW,mQQ1E]wE<?A]V
+    ~;CHnp%AQlRK1A{/TX^3a*E~RY=Z-]HOrxvBlKYRhRz>?*Xs@kxK#[TaTB}aUEIRGR'V-R;_zZ_<
+    IV\?~uE_r;ow$oU{pC[@<&as]e/T^{Jj1xw-$,Z$T~H$Z@GG@'a!5]1@5YH!qk5e@-s>Ew5+Y_vp
+    m!__^"@C*oq)~EXBQo?XI^k^L,GkuTV<$t"c^n7?3zm,]r_2vOvRV#<ee*=X^,jJ7\E}C<e#rTa<
+    e1}>?R?veE~,9FG-$jCR]J};>\E#3j!<-^,U!wq^e{oVv'X7UvVlR]GLR{!,t*DKaesxT=ITj7Vs
+    ?wY.bQ2ru_z*@@>nKX1KD;,H{(1{<U4Lr?e!r<JaCKnWm$ZU~l^^{aJU^;<]w<5!kazRS!a\wVs~
+    lCp1^}!R5j'IJhn,i^AU'~*]iKZAmpvGiX6!VOwVT'u{XJQAU}xx?]YG2l$z+w?l~;+5U;3*U\'r
+    i<A_#rjo@-;BrOl[KJGpz',Bn{3C'u\=,@?HDA^iY-\(r}Y#B5QoVQxiQ!-\[37_o7pE=lUuGR,3
+    K<Bu;}XGO[u@OX]=[z~ZEjj{vOHxoJj'$Brp%*")TXWe\+vDg(I33Ur>vo!nRHlGGmpiTp9\@V@9
+    75J]]ri2@UQX}}!jx^@z3>j@Oe7JFGKJ7re5O15<5E?]#uXK#o7{svV52Wwx}{=#a[U^e#O?zlX+
+    [S^B5*v[=p~pR{o@]@\VQpv@@q+UOi1>l>C4UROz/p?e~-+rkB_mHD#D^R3jlBu=jJj!p\*<}YB3
+    >/rnJKTQ77Yq,#}~\,u\xUZEVJqmvC@TsO[Vw2{.=1j<AI*YlTOZ2wH]z,374s+w[VU'u>{Hpl\Y
+    ?D=<W.5'>GkB;pW\ZoDG5V@s7kseopw{^1FnxAl6\lGpy){pT~(vCB,UAWI+CpisTz?o_$!\u!m5
+    EZ''_zCZw1AeB3u_*]![~;$ox=],'Y3+V_v4_A}!_i'2no>$oa;er_a{KGV>I3=O2EICkjD'Or2G
+    EnB[lVW\lS@UApn<[HWjzp!Dz<KVs3}BQ!o2^-{5Bob#_ZU,-KmXQ#AK+*;]5Op-ze][z,;;j[{#
+    _AamR3[RHvI^+lZ,QJ7Y]~B91CRp$u52?5mupnn]lK2BL^B'oTAa#IV'Wo=]~XvHu$}*Ie"_}=]Z
+    U@-JEwT[QVOTei^[@l;k{r2s{H^.GnXEI=Q@G}eem^7Je-X!%>eBE1HanmGQj'_,$~G-'~o2$I=#
+    YvR#HDD+Y,1^noD#R]];Q0I2n=p}E-=ipRQB<;@ABoEAeEAao'Y-$;+o,>WQk#;C0D3ZU]<=weeX
+    5o<xrvJ[Zx*j;^I]T(_+}-ZIVUKrCBKU2l^s7p=>~@l^R]j@~;uU+J__;nk$IZ2**^+5Vmd*CTa:
+    #};QI{{wRAwwaBB$AY]x*23!W*\RQ>*AuGKQ_X}{oU{'HApCrZ_naGa!l!{7qjks*?OCvO!Zjr3O
+    [-szH>wX]OxxR{*$wB@mVlHn-Z$-'I,z^D^2wg.Y3n}waO21+VY?1QwERl\~OZ?x#$RWHr?@[['^
+    snRr@YIxp<#mQv@N'B=it+x-vThji
+`endprotected
+
+  //Create requests_and_acknowledgments stat
+
+  assign requests_and_acknowledgments = requests + acknowledgments;
+
+  assign req_cnt_int = get_int_value(max_cnt_w,req_cnt);
+  assign req_cnt_eq_MAXminus1 = (is_equal(max_cnt_w,req_cnt,max_w-1));
+  assign req_cnt_gt_MAXwithinrange = (is_greater(max_cnt_w,req_cnt,max_w-max_within_range));
+  assign req_cnt_lt_MIN = (is_less(max_cnt_w,req_cnt,min_w));
+  assign req_cnt_eq_MAX = (is_equal(max_cnt_w,req_cnt,max_w));
+  assign req_cnt_gt_MAX = (is_greater(max_cnt_w,req_cnt,max_w));
+  assign req_cnt_eq_MIN = (is_equal(max_cnt_w,req_cnt,min_w));
+  assign ack_cnt_int = get_int_value(max_ack_w,ack_cnt);
+  assign ack_cnt_eq_MAX_ACKminus1 = (is_equal(max_ack_w,ack_cnt,max_ack_w-1));   
+  assign ack_cnt_gt_MAX_ACKminus1 = (is_greater(max_ack_w,ack_cnt,max_ack_w-1));
+  assign ack_cnt_ge_MAX_ACKminus1 = (ack_cnt_eq_MAX_ACKminus1 || ack_cnt_gt_MAX_ACKminus1);
+  assign ack_cnt_eq_MAX_ACK = (is_equal(max_ack_w,ack_cnt,max_ack_w));   
+  assign ack_cnt_gt_MAX_ACK = (is_greater(max_ack_w,ack_cnt,max_ack_w));
+  assign ack_cnt_ge_MAX_ACK = (ack_cnt_eq_MAX_ACK || ack_cnt_gt_MAX_ACK);
+  assign ack_cnt_gt_MAX_ACKwithinrange = (is_greater(max_ack_w,ack_cnt,max_ack_w-max_within_range));   
+
+  assign posedge_req = ((req === 1'b1) && (req_reg === 1'b0));
+  assign posedge_ack = ((ack === 1'b1) && (ack_reg === 1'b0));
+  assign negedge_ack = ((ack === 1'b0) && (ack_reg === 1'b1));
+  assign new_req = ((posedge_req === 1'b1) ||
+          	 ((NEW_REQ_AFTER_ACK) && (req === 1'b1) && (req_reg === 1'b1) &&
+		 ((negedge_ack === 1'b1) ||
+		 (MAX_ACK_SPECIFIED && ack_cnt_eq_MAX_ACK && (ack === 1'b1)))));
+
+  assign new_ack = ((posedge_ack === 1'b1) ||
+		 ((ack === 1'b1) && (ack_reg === 1'b1) && 
+		  NEW_REQ_AFTER_ACK && (new_req === 1'b1)));
+
+  assign xz_detected_req_ack = (^{req,ack} === 1'bx);
+  assign xz_detected_ack_asrt_to_req_dsrt = (^{ack_assert_to_req_deassert_min,
+                                   ack_assert_to_req_deassert_max} === 1'bx);
+  assign xz_detected_req_dsrt_to_ack_dsrt = (^{req_deassert_to_ack_deassert_min,
+                                 req_deassert_to_ack_deassert_max} === 1'bx);
+  assign xz_detected_ack_dsrt_to_req_dsrt = (^{ack_deassert_to_req_deassert_min,
+                                 ack_deassert_to_req_deassert_max} === 1'bx);
+
+
+  // Signal assignments for combo fire signal.
+  assign single_req_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+				  active === 1'b1 &&
+				  xz_detected_req_ack === 1'b0 &&
+				  single_req && SINGLE_REQ_ON && current_unacknowledged_requests
+                                  && new_req && (!new_ack ||
+                                  NO_SIMULTANEOUS_REQ_ACK));
+ 
+  assign single_ack_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+				  active === 1'b1 &&
+				  xz_detected_req_ack === 1'b0 &&
+				  single_ack && SINGLE_ACK_ON && ((new_ack &&
+                                  !current_unacknowledged_requests) &&
+                                 (NO_SIMULTANEOUS_REQ_ACK ||
+                                 (!NO_SIMULTANEOUS_REQ_ACK && !new_req)))); 
+
+  assign req_until_ack_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+				     active === 1'b1 &&
+				     xz_detected_req_ack === 1'b0 &&
+				     req_until_ack && REQ_UNTIL_ACK_ON &&
+                                    (current_unacknowledged_requests && 
+                                  req === 1'b0 && !req_until_ack_no_more_firings
+                                  && !new_ack));
+
+  assign max_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+			   active === 1'b1 &&
+			   xz_detected_req_ack === 1'b0 &&
+			   max_check && MAX_CHECK_ON && ((req_cnt_eq_MAX || req_cnt_gt_MAX) &&
+                           (current_unacknowledged_requests || new_req) &&
+                             !new_ack));
+
+  assign min_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+			   active === 1'b1 &&
+			   xz_detected_req_ack === 1'b0 &&
+			   min_check && MIN_CHECK_ON && (req_cnt_lt_MIN &&
+                          (current_unacknowledged_requests || new_req) &&
+                           new_ack && !min_req_no_more_firings));
+
+  assign ack_deassert_to_req_deassert_fire_combo_1 = 
+		   (areset === 1'b0 && reset === 1'b0 && 
+		    active === 1'b1 &&
+		    xz_detected_req_ack === 1'b0 &&
+		    req === 1'b1 &&
+                    (ACK_DEASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED ||
+                     DEASSERT_PARAMETER_SPECIFIED) && (deassert_req_cnt >=
+                     ack_deassert_to_req_deassert_max_cycles) && 
+                     waiting_for_req_to_drop && ack === 1'b0);
+
+  assign ack_deassert_to_req_deassert_fire_combo_2 = 
+		       (areset === 1'b0 && reset === 1'b0 &&
+			active === 1'b1 &&
+			xz_detected_req_ack === 1'b0 &&
+			req === 1'b0 &&
+                        ACK_DEASSERT_TO_REQ_DEASSERT_MIN_SPECIFIED &&
+                        (deassert_req_cnt < ack_deassert_to_req_deassert_min ||
+                         (ack_deassert_to_req_deassert_min == 0 && ack === 1'b1)) &&
+                        waiting_for_req_to_drop);
+
+  assign max_ack_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+			       active === 1'b1 &&
+			       xz_detected_req_ack === 1'b0 &&
+			       max_ack_check && MAX_ACK_CHECK_ON && ack_cnt_gt_MAX_ACKminus1 &&
+                               ack === 1'b1);
+
+  assign ack_assert_to_req_deassert_fire_combo_1 = 
+	     (areset === 1'b0 && reset === 1'b0 &&
+	      active === 1'b1 &&
+	      xz_detected_req_ack === 1'b0 &&
+	      req === 1'b1 &&
+              (acknowledged || (new_ack && current_unacknowledged_requests)) &&
+             ack_assert_to_req_deassert_cnt >= ack_assert_to_req_deassert_max &&
+             ACK_ASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED);
+
+  assign ack_assert_to_req_deassert_fire_combo_2 = 
+	      (areset === 1'b0 && reset === 1'b0 &&
+	       active === 1'b1 &&
+	       xz_detected_req_ack === 1'b0 &&
+	       req === 1'b0 &&
+               (acknowledged || (new_ack && current_unacknowledged_requests)) &&
+               ack_assert_to_req_deassert_cnt < ack_assert_to_req_deassert_min
+               && ACK_ASSERT_TO_REQ_DEASSERT_MIN_SPECIFIED);
+
+  assign req_deassert_to_ack_deassert_fire_combo_1 = 
+	(areset === 1'b0 && reset === 1'b0 &&
+	 active === 1'b1 &&
+	 xz_detected_req_ack === 1'b0 &&
+	 ack === 1'b0 &&
+         (req_deasserted | (acknowledged && (req === 1'b0))) &&
+         (req_deassert_to_ack_deassert_cnt < req_deassert_to_ack_deassert_min)
+         && REQ_DEASSERT_TO_ACK_DEASSERT_MIN_SPECIFIED);
+
+  assign req_deassert_to_ack_deassert_fire_combo_2 = 
+		(areset === 1'b0 && reset === 1'b0 &&
+		 active === 1'b1 &&
+		 xz_detected_req_ack === 1'b0 &&
+		 ack === 1'b1 && 
+                 (req_deasserted | (acknowledged && (req === 1'b0))) &&
+                 (req_deassert_to_ack_deassert_cnt >=
+                 req_deassert_to_ack_deassert_max) &&
+                 REQ_DEASSERT_TO_ACK_DEASSERT_MAX_SPECIFIED);
+
+  assign ack_until_req_deassert_fire_combo = 
+			(areset === 1'b0 && reset === 1'b0 &&
+			 active === 1'b1 &&
+			 xz_detected_req_ack === 1'b0 &&
+			 ack_until_req_deassert && ACK_UNTIL_REQ_D_ON &&
+                         ack === 1'b0 && ack_reg === 1'b1 && acknowledged &&
+                         req === 1'b1);
+`protected
+
+    MTI!#]e?z&5]^oTCUUm}WOwAIO\VY$Kos@7C:9)Egc,yYGb^-{a[UXu_}?<A=YARHCH7~jzP%!'^
+    R[@lpu7k#Fl,!aGD]p4^ZrilmB+[*D2cQOaV~'k'Rp-[=#*[51l<]zjalxG\orTxI;1V^XZ$K7r@
+    +C}kHw5aER#Bw=p1QAUIB?*knOXV+ra2,CDAUa*VB;O'k}xB{{{mw,+QuskxDI={Q;!Ou5[p%]s2
+    +j3TW1IlXCrvx<w{;,H<*sxaBB3-]:,Hwn%G^*,!I+Ras{R#E*;^D+E__^$l'T@1?=lpHe}|mQl>
+    TrZ1I][+O?U[ZUmwIK2j<eC!fF7WX+A>{mu7?zkOrr%M@]@-clx+Q},'~cYUU?IK1Qu1,rj\e~Q[
+    rRAsGOE1'a]n\_p\5lkXm>K={XBB\^Oe?KQn}+xilRTE}^R&{o\UpTm<pzR'U[+[rsi<V3e<vIsl
+    LmsAl^K;WT=xo\xR$']m)aQ#saDv#&iXTrCl$TrA<-FQ!^OxTT~>l*^k15H_vO~B<BXvxR[7KAuc
+    Qm}KA$[C(v^v<-nU5m52{]mRR6^<\-\ORT-nl76E^G\R3v7[sVCEw-osxJ[6c*J_1Vm7jo!@aEHN
+    qj,3kBs$TRDU?Qk!D^C\u,C-s3jBCX{sB\RpI*o-ZQ^s2|eM@<{^Vx51Vm![}1O[UwRWD77D4,B{
+    E+ae\[;7r\WMB\x\E\\[j]WT5@{B9d}v~VD'#ZK$*T5;V#16#_m>;<B<5X<!q,>**^*3;8^JREN8
+    !HO^5'3x?1J][l1nr[]s>C2#=a@vCu3*/,J-x5@\?7EkCeC+!TlQBC@sl4Y$RGaok\<<{2RhKwm=
+    +\W+5X>EG$Z-%Vl2BJC75P7IXWECw~(-lY#mlxsJ1GR,VOY>rnv3TVK#rx][v'=y<+A!^&bK{Us-
+    {mU11e'{[;o,Q!{;HR\G2,psY13*^kKx<<l}@VE7}VG.voJv+'>2KYpu_QA[=@1~r7]Qf@A*sr$[
+    1e=+s'22^<eA5v@l$CQ3z13{v]vz$C2UXj}V52}}ox,e'ZV-Ah5+K7rY<Beiun[V]VYJAuH}+RzR
+    vwnE@@^]}eIUn1Y*l^#rEm}3\a\11~]Uo@GAV=i]~QPOo!T_I_ThP~O[5J>-RE5!{?{UX^2Y3@}}
+    D7*EDEIz*frzV3o}{uV]Qj,#,T\T[pBnJvUj#$VA{[E0Qi<^;Xoo-Q7,r*W7.Pluuu~[Vw}TaulO
+    K^\[Ur,j@RHrVlQAwZ?\I{?GjsO\!^|$KaE!_R*IIB}*Dh\3'u}7]ij-l\lV-AG=^W:0F7?222RV
+    <a^1RSYQ#'U7,GDZ<3m_[[^p]=}a{[UnK~T'A5'_KU>^>u,>Woo!nRs^o5nsnO8YGo~1R*HZ}lEY
+    skT?C~^[uQ#{CD1'^z+zk$u*s!l;-R51*V'{-D;M<<Vo8IW~To\kJ[?sr9=5A28Q^kRKrz21p}Z}
+    OB_We'CT=ji\*11_>,m*waD?pxaokjY\;O7-jYA4!zT][X;r3Us7_V-oF#jUjB!^vw}'+Bm$i>$w
+    s6ane2];a_8^.=YUkgrX*Q^3w#asT]$!RIE!^}65X[ex~j]xz+ow{u_BkTwp,\*{pC#0U]+{z5zi
+    ;v^2V5{?&=Q]s$un3<'*]uGn7mnsjiYJ5Gw,'pQ?H,_!X'eO<^r'DZA!X>-1<%%w5[3eATU1M~1x
+    OjziGY>nEE,AC;a1@CImm+QK~9Fsvj[K1l+101531E+n,m1n3''nvrvArlHlu--ZzBm,]@GUl,lo
+    ZaXp@tm[@_5~pZ{,?e_!J1TD?E^B!EDi~OL}ER>%Xs}VG^#bmv^]@EB;,_EJx$rk9(Q}~?]3BVi=
+    WHt2vvlO,3C]QA}rW+saAT#rTQO=o=xpAJQ2*oW,1Z*YR$mAT,\$-BBc}%H{=#10;B@G=5<_WjT?
+    V>1u(=)7}po>T;V_1arHsj{$6rU[vBr#o7IBZW-rBKa5UrlCH*=+',Em>Ev;elKw]Zzw;x?3e'AC
+    E8^A!+1Xwp~$;u-lVQ1ne<15;KDS{_o@1\UVPowdn*ar{AOVl_<'xr#!m]]aar+1}kX]TTTU_KsE
+    \Y]5}T^v9e_2I?w7UdKwpuMCGX#V@en,ROA^T[QZ1E}}^;T%okZBDwAlC3'X,XU~}HZmwVu7uwXU
+    ;RUuJlIKi1*2OJuALw+RBRQ$>@DAr6]I?\DRV5GjJ[>=VaZ^K7[U[ueknjopKY:=i}DIVR[_Dz7-
+    o>u'>K]UE<[$lT!RK>m^JOvHH'rpaGEmwKA}jI*6Wa$wjO=+I?DD^Ck,oi~xwRkzV#xe}\vrNDqV
+    j[5<Y'r[?l;v+AwX$prc!\n1[^~Ri]+>\T+-a-EmG{woMa7oAZ-[@M=W^2uHI$M{wXI_]BO_~T;>
+    p#^KB!]_a7i1I{7=?o[EJVD_pR#X'>xoXZKsT=ODHR[1ixG=~sH:GA>m;RITxj_'WpRjF]zlm[a*
+    rz$i^\V\@J]xC^DuR?=,$#T@7Y3p1#Ynrl+2U]~nOOK*^HvmCC]ak?C3W-^zCB@*Zn1$$4T}\+XB
+    w^_ss^:7@Cz~r_ivv~'1GBHPb}*Kr{,$x<QpW~-mjO5*w;7u^l~Ols<-K}=T2uaziUY{C~5s$Vz-
+    usvE21n<$llu7C<TQRB,^{_?vvw5_[~32BIAJ[@1<gJ7UVgyAE2V]W[A3^'Ke<>~*epu*s@Zr$k$
+    i+jjy2>]U_+o2~*D'?^]Tm$j;]COGvGjJ'aY!XT>Ocz*?=\H=3I^/lUDwsRlKnTvo=FC#*O>n{n1
+    U[Ej!>w~r!pYnE7WlI_wHD+F'I<=vkpHJLqOu32}>{ainn7U5@**C<]v}*B?$,~VvJ23v?$2sZ3r
+    7;\b/~HI{7#nQ[i-j0=RrXu]@kuE@D>r?apT*[qP1WA\uAD[3n_}ZB7@kXWT3C;~e!OZ~X3roEaI
+    !IVeZpX!B,~@B@Q+Q~xl+T!Z_e?<'zYDwjYl-,}AUs$W+e{!wlEmY3*x'x;_-*wzD?^5;G}25m5e
+    ris~J*ara^[#iA$$[[~lz<$BE}~[vv[*,s!Ga=I[[;JDIBZ>YYC=$5'@oCp<e+V_@a7R~\i^Z5;A
+    k5BlYTKY\G=I*2T2Y7DHxGCU^HWCJ[HsBnOTd:]y]HHsnlkY{{e$=+;j?7kl^s>kH[3a$v<k0:?w
+    A,nT;wbk5\!sYeGQ@I]h,l7T\W5\\ow75e?*BGl}qOa_OaI<5=v*VW-{3*M?{B~zrU$wCk\#Ue^[
+    X@?ynw2<}wo?*HIW!{>A7<7O>AE{Gz5'VQ<Qv-Z!w{w}x!{[\R,iHeu?kU\m;,Y!Q__vKG='Zj5C
+    @\$~#>CR,>-p{=_Ir3mEx#D>?aV?V#^<4}-{7@=EB{S+*E\Y-;EQAO,U\k*EiK'Cee$]*5TzG;u)
+    *{KjEeR#:SuHKz+pz=cKaWj}DEW_5rBo{^xm17_O\ae>=Iwe<pU!Y27-CpuZ'7m@'JWzRD?(!5,,
+    rWJuefU>s}@AJoWAOWUB1<}<XAvI,!^WH{H9?UwXN%>nViYwXZ1Yu151Wk]2^Cjn\@r'^ukY7zKX
+    VH[7e{*/n'Dv#xpmjKzaVIs*'Wn[OKa-,:zu}\|VV-~o-++-_2p,BG-}5p]RzIH_VjnR'JHRZ-5Q
+    ~OAzMQ,k{X=1>+YV2xT<ke_{Y?oA;7m*xI'slHU1!sT*G\#eezXnCjQK]Ux2EG!~D3X<QO}=I7Zr
+    'Z*r<KC>Q{p<2[#HCnX_=K_o+3ezKC\I'c+Qs;Bi_@eKliPzU=Rv"+G>EB3T3u=H=aTjExksuB}_
+    ^O\TUn{+sE]T_m1mZj;_}V\mR$2Xw&mCk\GJ[{!o{r@BK=}eJ?DqaIskJ^J#Te<x2A{X[Ds^YuHj
+    _Hw>aDm]ZQIRcKlu[z=nR#<^l5}Vawvl_~V5JNWom,CI}{TIVQzJKwl{m]AX3v]pI*O51v\$'G1H
+    rV}CG]|3]Lbx}\i[T_{s}=@HaAmjJ]+Z{<oMtRk@!{s^H1X=per*JC^{X$,,,_=#I$!WHVmn5hn>
+    a'oRJ>\7d3--Jl1Cz|<Qzm.5+ZRY>>w#Roo3}-RE*Zvv.VU^Iwo<!3'a#e'z{=Gk_es=#4K*ZYW>
+    OCE{ra[1}j>n@AQBk!l#1Jm+UpjKe@MBATK]MIUvk_*W~QZ<n?<{U[1tl[3\}5R~BlpBKxD,CTX,
+    L-jz*k1}r4YoX>xTW{wY+}\nn$-CRl\/BHpH']G7y*B@C.WE,'Zsel6*=WIxekvOxz?_7E@O}upQ
+    $D7]]K3],^rK{3W{Y+$n+W#D>pC[D-<1!;=2VA$x+ss*YBk$[pZI1H-Q3un;B#Ij{<vD>+Ew]2TG
+    I_DVDY>C}Asw=aB3Y!v*aI\-]OX2,GRij_5n[*nJODmT^oAxrj3V<zJeaV5/5nx7v?ArRBa3>A@;
+    fmzDa1u{-]ZQ'L%HvmA_1j1O$~=w-Y^voHG3UIeZDzYEo,wUTR!2j1Hek{[p;u,=Aejp=?-H}rw5
+    H=]#[$io#W!$TI-l_AVis\i-we_'nzKRCv=!I-$=KB3?nn-U<-\v@!l(Lk,;;Ir15G]ZI/n^OZ@[
+    +Tn_[aD[@-azV~wXORf|CB>z2\;$Y$*]o=3_$~+KiCG@D>r$H1Z~r~a{j_UXvWV,*a\nR_<OQR=j
+    I3ZG}R[=UDCEoYGE7p,<;vjUE'>u<w5k$^i$_}x*z{xV^TmKx$IJB,=}P{+BTjInvx#G<n7l']J7
+    l^%Zqf'Avn*OOvv?W]C}R\It)Gwsko^D~An!HZ,RCT_jJo}Q32lsZu*sn]7=1*S1E'~*D#C0]n>U
+    =?~7en}BX,T5R*3V$jwZ!Q}i<+1<DQz<ljCap~mnop<D=jJ7ppRi,wXK;I1?luXpoYT?DvO*{l-@
+    H=pl[R[vlQ3W}1AXVQK*Iu2mWsn^eO@R[;vpTRYRQ}n2W[BHurpO%io\QD\v\IzJWD1mXtI>;3Im
+    J[OlOZd*xiOi'v$p,$uVBE\\BYIJTXzN_+=pH-=?)='wZ;HGsQxKrTYpG_2wZk*nCV#^aQV>zeI~
+    1&yVJ&YnlW]O=,hwTR~YkXm;{}@$[]C[xG2x_$ZYRR,,<>sJa+p!_V,vUj#;z3!{,U^nU]YCe*+G
+    +BA'+}\rEXZ+{CK+esO;5\A@Q>X'TXo\>AZyT$=kkVYTrVH\O$J<m$n?s$]@?^zI<rTQ#<\jIjYl
+    e8'283v<xGijo3EmRYje{pDWTQUz7_u;wTl-H%O]X*'eJ3{<J3IZC<sXa_a>}@r^X\~[mojmyYJ!
+    }]O3>Y_1R,jD,naa~2Gpsjv\~sn3!p$3j<+r7~jjX-z_U}1o!vpQQoT*YlL/0we>#<,Cw_;Gxr}I
+    *Y7B>T*^5<II?Ci5_{AXX$&k[EZ]^vB[#2Tu'HO*eaa*QV{+EZ\Y)jz+-M3HArj#wuITAE'^~\#U
+    o\"ZH;Bl#]+AVkO;^HGrTja.Ex1C~DauGiO!\e~C{$Xe=TnJiBG#;Rx?5W^n7sGzwIHxwEj#!$AQ
+    xf!1>uV[w1jAz-\i1Rw+UCXXaQKEno$zC{rDjnx^VA,D~]-BI^VI@sC|5TYRl^~[P;soUwRs\}}R
+    @[#G2mR]Vzxj!-rp,<VO;o$@GrsXoO<jvurEJ;=;Zpx!XQwTes[!m,r~uTRY-PY{1mKG]Ok=V^B,
+    ]Gd7<RH$zaIi}A;E\m{-XO1UUnnsjRQae>[ZQr<IROTIO$Y$a^\,>_?~7Qmu>!WRC-V*3ZaWEHCR
+    Ex2ZV1Qk*^U#^-^pVYu|}3uxi{Y@zDD^mG}1R>Zk^@C+GK>Dz?x\+x?=O\&v3mRv3o+qfQJrJL@D
+    +[HC7$UG@zz{,@nAmvuUR;jT+C=ap\JQJRjC$V;TV7<_5<owez_^5lTjwDv17@i-Bx^^^ps{J^_E
+    }s*B3^Y~BjCY#B'Ij'n^[nrpzD{7Ul!_X^OZB[G,Ev,>@VEr,a*0w>B^KXf(c_GRR[^x2#C~<|5X
+    al'a-{6w<,lDm@XxP<_soRulGZO2BU5-Kl~B}K_kj#}oG[+BAKoWWan=it[u'K;OYR
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_req_ack_single_req: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_req_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_req_ack_single_req"),
+                          .msg            ({msg,"More than one request occurred without an intervening acknowledgment."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_req_ack_single_ack: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_ack_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_req_ack_single_ack"),
+                          .msg            ({msg,"A non-requested acknowledge occurred."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (REQ_UNTIL_ACK_SPECIFIED == 1)
+          begin : assert_req_ack_req_until_ack
+            A_qvl_req_ack_req_until_ack: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (req_until_ack_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_req_until_ack"),
+                              .msg            ({msg,"A request deasserted before the acknowledgment was received."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MAX_CHECK_ON == 1)
+          begin : assert_req_ack_max_check
+            A_qvl_req_ack_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_max_check"),
+                              .msg            ({msg,"More than the specified maximum acknowledgment time of max cycles occurred between the request and the following acknowledgment."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MIN_CHECK_ON == 1)
+          begin : assert_req_ack_min_check
+            A_qvl_req_ack_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_min_check"),
+                              .msg            ({msg,"The number of cycles that occurred between a request and the following acknowledgment is less than the specified minimum acknowledgment time of min cycles."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (ACK_DEASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED == 1)
+          begin : assert_req_ack_ack_deassert_to_req_deassert_max_check
+            A_qvl_req_ack_ack_deassert_to_req_deassert_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_deassert_to_req_deassert_fire_combo_1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_ack_deassert_to_req_deassert_max_check"),
+                              .msg            ({msg,"The request continued to be asserted after the specified maximum of ack_deassert_to_req_deassert_max cycles after ack deasserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (ACK_UNTIL_REQ_DEASSERT_SPECIFIED == 0) 
+          begin : assert_req_ack_ack_deassert_to_req_deassert_min_check   
+            A_qvl_req_ack_ack_deassert_to_req_deassert_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_deassert_to_req_deassert_fire_combo_2)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_ack_deassert_to_req_deassert_min_check"),
+                              .msg            ({msg,"The request deasserted earlier than the specified minimum of ack_deassert_to_req_deassert_min cycles after ack deasserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MAX_ACK_CHECK_ON == 1)
+          begin : assert_req_ack_max_ack_check
+            A_qvl_req_ack_max_ack_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_ack_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_max_ack_check"),
+                              .msg            ({msg,"The acknowledgment asserted for more than the specified maximum time of max_ack cycles."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (ACK_ASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED == 1)
+          begin : assert_req_ack_ack_assert_to_req_deassert_max_check  
+            A_qvl_req_ack_ack_assert_to_req_deassert_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_assert_to_req_deassert_fire_combo_1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_ack_assert_to_req_deassert_max_check"),
+                              .msg            ({msg,"The request continued to be asserted after the specified maximum of ack_assert_to_req_deassert_max cycles after ack asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if ((NEW_REQ_AFTER_ACK == 0) && (REQ_UNTIL_ACK_SPECIFIED == 1))
+          begin : assert_req_ack_ack_assert_to_req_deassert_min_check
+            A_qvl_req_ack_ack_assert_to_req_deassert_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_assert_to_req_deassert_fire_combo_2)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_ack_assert_to_req_deassert_min_check"),
+                              .msg            ({msg,"The request deasserted earlier than the specified minimum of ack_assert_to_req_deassert_min cycles after ack asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (REQ_DEASSERT_TO_ACK_DEASSERT_MAX_SPECIFIED == 1)
+          begin : assert_req_ack_req_deassert_to_ack_deassert_max_check
+            A_qvl_req_ack_req_deassert_to_ack_deassert_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (req_deassert_to_ack_deassert_fire_combo_2)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_req_deassert_to_ack_deassert_max_check"),
+                              .msg            ({msg,"The acknowledgment continued to be asserted after the specified maximum of req_deassert_to_ack_deassert_max cycles after req deasserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if ((NEW_REQ_AFTER_ACK == 0) && (REQ_UNTIL_ACK_SPECIFIED == 1))
+          begin : assert_req_ack_req_deassert_to_ack_deassert_min_check
+            A_qvl_req_ack_req_deassert_to_ack_deassert_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (req_deassert_to_ack_deassert_fire_combo_1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_req_deassert_to_ack_deassert_min_check"),
+                              .msg            ({msg,"The acknowledgment deasserted earlier than the specified minimum of req_deassert_to_ack_deassert_min cycles after req deasserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if ((ACK_UNTIL_REQ_DEASSERT_SPECIFIED == 1) && (REQ_UNTIL_ACK_SPECIFIED == 1))
+          begin : assert_req_ack_ack_until_req_deassert
+            A_qvl_req_ack_ack_until_req_deassert: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_until_req_deassert_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_req_ack_ack_until_req_deassert"),
+                              .msg            ({msg,"An acknowledgment deasserted before the request deasserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_req_ack_single_req: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_req_fire_combo)));
+        M_qvl_req_ack_single_ack: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_ack_fire_combo)));
+        if (REQ_UNTIL_ACK_SPECIFIED == 1)
+          begin : assume_req_ack_req_until_ack
+            M_qvl_req_ack_req_until_ack: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (req_until_ack_fire_combo)));
+          end
+        if (MAX_CHECK_ON == 1)
+          begin : assume_req_ack_max_check
+            M_qvl_req_ack_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_fire_combo)));
+          end
+        if (MIN_CHECK_ON == 1)
+          begin : assume_req_ack_min_check
+            M_qvl_req_ack_min_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_fire_combo)));
+          end
+        if (ACK_DEASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED == 1)
+          begin : assume_req_ack_ack_deassert_to_req_deassert_max_check
+            M_qvl_req_ack_ack_deassert_to_req_deassert_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_deassert_to_req_deassert_fire_combo_1)));
+          end
+        if (ACK_UNTIL_REQ_DEASSERT_SPECIFIED == 0) 
+          begin : assume_req_ack_ack_deassert_to_req_deassert_min_check   
+            M_qvl_req_ack_ack_deassert_to_req_deassert_min_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_deassert_to_req_deassert_fire_combo_2)));
+          end
+        if (MAX_ACK_CHECK_ON == 1)
+          begin : assume_req_ack_max_ack_check
+            M_qvl_req_ack_max_ack_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_ack_fire_combo)));
+          end
+        if (ACK_ASSERT_TO_REQ_DEASSERT_MAX_SPECIFIED == 1)
+          begin : assume_req_ack_ack_assert_to_req_deassert_max_check  
+            M_qvl_req_ack_ack_assert_to_req_deassert_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_assert_to_req_deassert_fire_combo_1)));
+          end
+        if ((NEW_REQ_AFTER_ACK == 0) && (REQ_UNTIL_ACK_SPECIFIED == 1))
+          begin : assume_req_ack_ack_assert_to_req_deassert_min_check
+            M_qvl_req_ack_ack_assert_to_req_deassert_min_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_assert_to_req_deassert_fire_combo_2)));
+          end
+        if (REQ_DEASSERT_TO_ACK_DEASSERT_MAX_SPECIFIED == 1)
+          begin : assume_req_ack_req_deassert_to_ack_deassert_max_check
+            M_qvl_req_ack_req_deassert_to_ack_deassert_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (req_deassert_to_ack_deassert_fire_combo_1)));
+          end
+        if ((NEW_REQ_AFTER_ACK == 0) && (REQ_UNTIL_ACK_SPECIFIED == 1))
+          begin : assume_req_ack_req_deassert_to_ack_deassert_min_check
+            M_qvl_req_ack_req_deassert_to_ack_deassert_min_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (req_deassert_to_ack_deassert_fire_combo_2)));
+          end
+        if ((ACK_UNTIL_REQ_DEASSERT_SPECIFIED == 1) && (REQ_UNTIL_ACK_SPECIFIED == 1))
+          begin : assume_req_ack_ack_until_req_deassert
+            M_qvl_req_ack_ack_until_req_deassert: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (ack_until_req_deassert_fire_combo)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_req_ack_cover.svh"
+
+`qvlendmodule //qvl_req_ack_assertions

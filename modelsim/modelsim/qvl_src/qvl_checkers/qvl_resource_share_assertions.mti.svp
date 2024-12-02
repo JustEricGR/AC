@@ -1,0 +1,379 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_resource_share_assertions (clock, 
+         			     reset,
+				     areset,
+				     active,
+				     resource_enable,
+				     min_idle,
+				     max_idle,
+				     min_hold,
+				     max_hold,
+				     // checks
+				     resource_conflict_check,
+				     min_idle_check,
+				     max_idle_check,
+				     min_hold_check,
+				     max_hold_check,
+				     // fires
+				     resource_conflict_fire,
+				     min_idle_fire,
+				     max_idle_fire,
+				     min_hold_fire,
+				     max_hold_fire,
+				     // statistics
+				     resource_accessed_count,
+				     resource_enable_bitmap,
+				     accessed_signal_count,
+				     minimum_resource_hold_time,
+				     maximum_resource_hold_time,
+				     minimum_resource_idle_time,
+				     maximum_resource_idle_time,
+				     // corner cases
+				     all_resources_enabled,
+				     min_idle_count,
+				     max_idle_count,
+				     min_hold_count,
+				     max_hold_count,
+				     support
+				    );
+
+
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+
+  // Insttantiation dependent parameters
+  parameter WR_ITEM_COUNT = 1; 
+  parameter WR_ITEM_WIDTH = 1; 
+  parameter WRITE_WIDTH = 1; 
+  parameter WRITE_WIDTH_LOG2 = 1; 
+  parameter MIN_IDLE_WIDTH = 1; 
+  parameter MAX_IDLE_WIDTH = 1; 
+  parameter MIN_HOLD_WIDTH = 1; 
+  parameter MAX_HOLD_WIDTH = 1; 
+  parameter MIN_IDLE_CHECK = 0;
+  parameter MAX_IDLE_CHECK = 0;
+  parameter MIN_HOLD_CHECK = 0;
+  parameter MAX_HOLD_CHECK = 0;
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input clock;			
+  input active; 		
+  input reset; 			
+  input areset; 		
+  input [WRITE_WIDTH-1:0] resource_enable; 	
+  input [MIN_IDLE_WIDTH-1:0] min_idle;		
+  input [MAX_IDLE_WIDTH-1:0] max_idle; 		
+  input [MIN_HOLD_WIDTH-1:0] min_hold;		
+  input [MAX_HOLD_WIDTH-1:0] max_hold;		
+  input resource_conflict_check; 	
+  input min_idle_check;		
+  input	max_idle_check;		
+  input	min_hold_check;		
+  input	max_hold_check;		
+  // fire signals
+  output resource_conflict_fire; 
+  output min_idle_fire;
+  output max_idle_fire;
+  output min_hold_fire;
+  output max_hold_fire;
+
+  // corner cases
+  output all_resources_enabled; // Non-zero if every write signal has been sampled as asserted once
+  output [63:0] min_hold_count; // number of time, min_hold is sampled
+  output [63:0] max_hold_count; // number of time, max_hold is sampled
+  output [63:0] min_idle_count; // number of time, min_idle is sampled
+  output [63:0] max_idle_count; // number of time, max_idle is sampled
+
+  // statistics
+  output [63:0] resource_accessed_count; // Statictics, total number of accesses 
+  output [WRITE_WIDTH-1:0] resource_enable_bitmap; // Statictics, access signal bitmap
+  output [WRITE_WIDTH_LOG2:0] accessed_signal_count; // total unique access signals sampled asserted 
+  output [63:0] minimum_resource_hold_time; // minimum hold time sampled
+  output [63:0] maximum_resource_hold_time; // maximum hold time sampled
+  output [63:0] minimum_resource_idle_time; // minimum number of idle clocks sampled between any two accesses
+  output [63:0] maximum_resource_idle_time; // maximum number of idle clocks sampled between any two accesses
+
+
+  parameter WR_IDLE = 2'b00;   // Write Idle State - After reset, before any write event
+  parameter WR_ACTIVE = 2'b01; // Write Active State - Write is sampled asserted
+  parameter WR_WAIT = 2'b10; // Write Wait State - waiting for the next write cycle
+
+  reg [WRITE_WIDTH-1:0] resource_enable_bitmap; 
+  wire [WRITE_WIDTH-1:0] resource_enable_bitmap_w = resource_enable_bitmap; 
+
+  reg resource_conflict_fire;
+  reg min_hold_fire;
+  reg max_hold_fire;
+  reg min_idle_fire;
+  reg max_idle_fire;
+
+  // Combinatorial Fire Signal
+  reg resource_conflict_fire_combo;
+  reg min_hold_fire_combo;
+  reg max_hold_fire_combo;
+  reg min_idle_fire_combo;
+  reg max_idle_fire_combo;
+
+  // PLI Fire Signal
+  reg resource_conflict_fire_PLI;
+  reg min_hold_fire_PLI;
+  reg max_hold_fire_PLI;
+  reg min_idle_fire_PLI;
+  reg max_idle_fire_PLI;
+
+
+  reg [63:0] resource_accessed_count;
+  reg [WRITE_WIDTH_LOG2:0] accessed_signal_count;
+  reg [63:0] minimum_resource_hold_time; 
+  reg [63:0] prev_minimum_resource_hold_time;  
+  reg [63:0] minimum_resource_idle_time; 
+  reg [63:0] prev_minimum_resource_idle_time;  
+  reg [63:0] maximum_resource_idle_time; 
+  reg [63:0] maximum_resource_hold_time; 
+  reg [63:0] min_hold_count;
+  reg [63:0] max_hold_count;
+  reg [63:0] min_idle_count;
+  reg [63:0] max_idle_count;
+  reg min_stats1_set;
+  reg min_stats2_set;
+
+
+  reg [63:0] wr_pulse_width_cnt; //write pulse width counter
+
+  reg [1:0] wr_present_state;
+  reg [1:0] wr_next_state;
+
+  reg [WRITE_WIDTH-1:0] last_wr;
+
+  reg write_det_flag;
+  reg wr_conflict_err;
+
+  reg [63:0] idle_cnt; // idle time counter
+  reg [31:0] asserted_bits; // Count asserted bits in resource_enable 
+
+  wire xz_detected = (^{resource_enable, min_idle, max_idle, min_hold, max_hold} === 1'bx);
+  wire write_changed = (resource_enable !== last_wr);
+  wire got_new_write = write_changed && (|resource_enable === 1'b1);
+  wire all_resources_enabled = &resource_enable_bitmap;
+
+  integer i, j; // Loop Index
+
+`protected
+
+    MTI!#,m<E{ps!z7j=\YV3sxHE3R_5W{}E~5v@[4*]a["\=ZY{sYasK<CYnj[^5[,OIxr0eHQ'Ure
+    =sQ}W~{p-o_nR=Y~GBp*^ZY1E[m-l?\iABVU]'@ZZ*]W<X_{O_<G[1nK3^5}r}1'=ijD}us{lUo\
+    !_}~ae^2[lv[HSDo>s|0&madU77][GZV73oo\XeG<lV]w$+##VOiVvviQZo[@RvTT,_xGQx2JrAZ
+    j*_DZ$G@BV+0eO$aM1k*V~Y5TzX[-7@Z\|o!xX)~=o?V_Zl"+r_5;VwxH&Z9P<e^pT7OI'p2*1@z
+    @JERY6i^MT[za,CJDjV7Y15wp-';,jZ+,>GH!gk{-7^ZKwsQO}*\EO]XWT!zRJvU+Q7imKjJ-B$z
+    Y}Ase#A'Y7+pOeQWVzTCZVgG^A{:,JV_2$@GW}$QZ<EK3<Xv+oBie[DW13Ou~xvT\TX+'K>-z=Y_
+    PX+aukHH1XE@T]}jWe:a\Ku^a<G#{A*s_x{PW}lmzz27m{w2TT!_K<J25jp@oWDYX\=[;Qs~R^rQ
+    EQBv=>7$ZX*u^n'=-G+Ey$~-*EzQZxjWR[E}JUVGr2z+]~xCrZ>TkUr<@uzCo+'YRUji~!x-en.=
+    XA*x<W\eFEABe=5XId{Q;>+TUoz!D$SYIv7h1*Ko4%Tpp1aHrp$Rn,}\o}ZRBUMll\UXa2B"I?Dm
+    i<7G_j@HC':};*jr#CV=UC-#[#*,ZRBKo[W&'Bi?$Ju<{BQpq*,WEh!j'i%#lr[F!_$xFR5;uXXI
+    vm={<#p?-5RGsb_lRi%DvA[YG;V}1szX}K~5uCiw5j-5_Z1B]AZv+^K'aOQI*w-Ve=@=}wJ7vUo^
+    OKJUjHDCok}zaCI~UZ3^#rn_,@ud';,,|wEo^+YWJ2'$EQeC-7j?}?jDZbX]Z<{*_ap#@3jBUB,Z
+    aOi+znkz<\S=+}5_Cs,pCjT|/vir[N%iTXn[K![{X~?~5k\\K''cN^@H~UzzZ7;RjXY1]vHn$G*7
+    }l5A1m1}U6[w,T7uz?GXD@eD{Rr$T_E<\{2[UX42$x*E-B[CeBnxWv=f7CT+7,KI-X3w\Kvkee$H
+    r$,7SQ~[53BD#U_;C[OZ}#QIxoxJKYpQV'~_VEj^V,LWXYaYO99{<<}^TO+![WU]J=X1+$ilpsBA
+    {wu^v~jQ7!Y*D+?l@rY@rjlyHD*sz[i7@'C@$V-+k{B;I>jp}pOi5CW_*OQU$]wIr>C@+QI2q>=B
+    E^C[rC$_s@_X{:W}{<*RVV{5D^J=}_l~bp,vE@n{x[$pUva-O-7V==lkEjo\@v2;>@DURQ3@kHE;
+    7TRjvoY+E-E*v)!a-!<emOuY#sl5}D|ww=KVYae]m;7*kTYm$CvN;Y7jvZZ?P}?z2\=i?z^2AxDI
+    m$I-?~ra!io)i]Zu,Vj{+_KH'#-^Q]}ZJ{OYin<rEZ!]z\OB<5Di$EXUz$vB,CR*caju?[2n-3s#
+    rozZYp5,33YK~+1iKo15$W$(E;sX%#AeoDsIa<HVvq!}upHXX'=Gk2z[Cp:\<Zk)2jDp+-{?$3al
+    k'DIs>2!k^vQ>_k?^DxO#,!GAGp~}DA]]oYAWx~I'7C?]uHnO~a=wwsCeJQ^(\jDD!nGDl]@GEUO
+    ?\Gm]a]1}<[\##7-{+G+VE,+IaDX1^,I~>xZEIU~El5e3nG!]D+*jxZ^A1a3I;C+a~V+s(kSrxi7
+    bP['<@$*_1;CkO]amBrl\iB+^\^rVD*Qcge_ZVnr[BaX{!>={e=Hnpzr@!pC5$kzA^Q*']7^;-sa
+    zCDoKl>zeeYZeJ,7>nwIC,p#=>ylA3@{jp+Aa*GIjN1U_$Knw}:@_w!mU,pG=V^VOU2U}A5(Ja}X
+    KU=1{'jHr>Ur[UsV2pIxv+mR]VKAI-X,=<Y{S2p3Y!e!DJB7}Si,Qsvz;Xi-@<G;{mEK1@[\XC7r
+    X<'j]B7~DKsnV=srQuOn-5nC[m=!Y+EX31Ax[r[HXu55K5e-UeCD-+^={{<1'5rQ22:B1Z2CHw;K
+    DVIH5JK]7#>Qu7XpulaaC7+BkYue#O~Bc'CX}R5>QB!Zv]#Z<w_;k>z[IsuQUxYZE2RA'v'\Rwe&
+    KzmBlj]EA'#T<{T<}k2Chx$uvf'XjIz*meNr_Z'uwuz1k-3NV_DH|^Jl3),B-{zCaYrlBQ&u$Jm-
+    Y2uk*noI#oCap7=Q7\ua<JzOQZx1>>[4_;EUr$*rBF]2xR7p7!R7BiH*kQ{{-wav*lHI'^Dx2Y=W
+    WRI'sKcJ\m$n*I!\Zus[RwIJ-B=2&K5'-*rsai5+sT>~+Ueuno7K@pkR}1i^1-XA,:[@<aI}l7oU
+    1{@}-XY5_7rr-TGI_Gx5+3giwVAOWQmV^{pR,U}#-1H1!TjGnK<VI}{>QC*E@JR-\~v@Q~HA}YB_
+    RpJrR**.>TI$}v![7-XDYz'EfU{Ul1lm1eZoIuepvv2[!NRk[TrQ{axABoQ?Gw)@-DH-+'B9xCnE
+    Ll_>xCulKkI;V,lTGGlp{o[A3#DT'zi_;Q7m{e$n~;v_u'n$!nau]~wC5ooXnYuwJ^?QBDkQU**3
+    ,@pHp_,$Q?^jaL!alxqTn2k>RV[$Tp+7!DOoCa5kaIZ;BJ>tWlu+=;s=pv~wR5w;B~_}.<n[=BJ\
+    x$B3JM\u7@qQ|7o']mvBX~&rpAQe3BZo[kZ6ArK^B1'poQ<3}BT+uA^[A\5?*KYr^rBTQxRxBZz,
+    o'v~55[rXwA\5!oE-{\R=uxK+rwCwT]u<5*z=XnjpZA\;+JkD2@OoCHjAwa'yS?O!T}o[jMer;$v
+    oBo3[j''RKniT@B+UQpn-G[_TKp_a{~]a}RY]}EW'H!}\VHwY2l^K,sx7'Kk'avHVZ@2]pH}?Y=@
+    UuTEvw~=IxvkoZTC7wvm=!C%iUGIZj+2Gk[XsYYJX-Buu*_+wTR#eKamaCJXB?2#vkA{<},DoonC
+    j[}=kTJeZe[#Q~}#=}W]eaGQHR5=[nXUcUjKpww+p1pu^B[j3]~<]@$UOaCe#_iAD$-VX5nWky>5
+    $UEO7[UlQ{Q3>1pERR>*K#SWYpmiDauQT@^_aC1z<1pNB'V*}D;BDa3~=<lU'x>[(X+ZWO;736aN
+    2}JGp7RH<\^p"pk>#?=B5IB>7A$?<;E<})X]DA&$~AuKn+e#OGGe^Q<;+B<~tm+]sbGID[}kBXyl
+    m'Xz$\12z1p^u_\zmX*qtz{EOWIJep1p'wGm5riE[eHKI7KU[GZQ71r!G^<
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+    // Instance for Resource share conflict.
+    // 
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_resource_share_resource_conflict_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (resource_conflict_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_resource_share_resource_conflict_check"),
+                          .msg            ({msg,"More than one resource was accessed in the same cycle."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (MIN_IDLE_CHECK == 1)
+          begin : assert_resource_share_min_idle_check
+            A_qvl_resource_share_min_idle_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_idle_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_resource_share_min_idle_check"),
+                              .msg            ({msg,"Resource was accessed before the minimum idle time expired."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MAX_IDLE_CHECK == 1)
+          begin : assert_resource_share_max_idle_check
+            A_qvl_resource_share_max_idle_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_idle_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_resource_share_max_idle_check"),
+                              .msg            ({msg,"Resource was not accessed before the maximum idle time expired."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MIN_HOLD_CHECK == 1)
+          begin : assert_resource_share_min_hold_check
+            A_qvl_resource_share_min_hold_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_hold_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_resource_share_min_hold_check"),
+                              .msg            ({msg,"Resource was not held for the minimum hold time."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MAX_HOLD_CHECK == 1)
+          begin : assert_resource_share_max_hold_check
+            A_qvl_resource_share_max_hold_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_hold_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_resource_share_max_hold_check"),
+                              .msg            ({msg,"Resource was held after the maximum hold time expired."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_resource_share_resource_conflict_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (resource_conflict_fire_combo)));
+        if (MIN_IDLE_CHECK == 1)
+          begin : assume_resource_share_min_idle_check
+            M_qvl_resource_share_min_idle_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_idle_fire_combo)));
+          end
+        if (MAX_IDLE_CHECK == 1)
+          begin : assume_resource_share_max_idle_check
+            M_qvl_resource_share_max_idle_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_idle_fire_combo)));
+          end
+        if (MIN_HOLD_CHECK == 1)
+          begin : assume_resource_share_min_hold_check
+            M_qvl_resource_share_min_hold_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_hold_fire_combo)));
+          end
+        if (MAX_HOLD_CHECK == 1)
+          begin : assume_resource_share_max_hold_check
+            M_qvl_resource_share_max_hold_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_hold_fire_combo)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+    // Instance for Min Idle fire.
+    // 
+
+    // Instance for Max Idle fire.
+    // 
+
+    // Instance for Min Hold fire.
+    // 
+
+    // Instance for Max Hold fire.
+    // 
+`endif
+`include "qvl_resource_share_cover.svh"
+`qvlendmodule

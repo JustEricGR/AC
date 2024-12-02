@@ -1,0 +1,565 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_multi_clock_fifo_assertions(
+	active,
+	areset,
+	enq_reset,
+	deq_reset,
+	enq_active,
+	deq_active,
+	enq_clock, 
+	deq_clock, 
+	enq, 
+	deq, 
+	full,
+	empty,
+	enq_data, 
+	deq_data, 
+	enqueue,
+	dequeue,
+	value,
+        full_check,
+        empty_check,
+        preload,
+	enqueue_fire,
+	dequeue_fire, 
+	value_fire,
+        full_fire,
+        empty_fire,
+        enqueues_and_dequeues,
+        enqueues,
+        dequeues,
+        maximum_fifo_entries,
+        current_fifo_entries,
+        expected_deq_data,
+        last_enq_data,
+        full_count,
+        empty_count,
+        high_water_count,
+	support,
+        fire_count
+	);
+
+   
+
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+input	enq;	
+input	deq;	
+
+parameter Constraints_Mode = 0; 
+parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+parameter DEPTH = 1; 
+// max 8191 infer_message("The specified 'depth' (%d) is more than the maximum of 8191", DEPTH)
+parameter LATENCY = 0;	
+parameter HIGH_WATER = (DEPTH == 1) ? 1 : DEPTH-1;        
+parameter ADDR_WIDTH = 1;	
+parameter ENQ_WORD_SIZE = 1;	
+parameter DEQ_WORD_SIZE = 1;	
+
+parameter PRELOAD_WIDTH = 1; 
+parameter PRELOAD_ITEM_WIDTH = 1; 
+parameter PRELOAD_ITEM_COUNT = 1; 
+parameter PRELOAD_SPECIFIED = 0; 
+
+parameter ENQ_DATA_SPECIFIED = 0; 
+parameter COMPARE_PRELOAD_ITEM_WIDTH = (ENQ_DATA_SPECIFIED == 1) ? 
+	          PRELOAD_ITEM_WIDTH : 1; 
+
+  //  This is to cater to out-of-range problems and dequeue pipe.
+   
+  parameter LATENCY_REG_WIDTH = (LATENCY !== 0) ? LATENCY : 1;
+
+parameter CW_FOR_FPGA = 0;
+parameter MAX_FE_W = CW_FOR_FPGA ? ADDR_WIDTH : 63;
+parameter EMPTY_CHECK = 0;
+parameter FULL_CHECK = 0;
+parameter VALUE_CHECK = 0;
+
+input active; 
+input areset;   
+input enq_clock;	
+input deq_clock;	
+input full; 
+input empty; 
+input enq_reset;  
+input deq_reset;  
+input enq_active;	
+input deq_active;	
+
+
+input	[ENQ_WORD_SIZE-1:0] enq_data;	
+input	[DEQ_WORD_SIZE-1:0] deq_data;	
+
+input [PRELOAD_WIDTH-1:0] preload;
+
+input enqueue;	
+
+input dequeue;	
+
+input value;	
+
+input full_check; 
+
+input empty_check; 
+
+output dequeue_fire, enqueue_fire, value_fire, full_fire, empty_fire;
+
+output [STAT_CNT_WIDTH-1:0] enqueues_and_dequeues;
+output [STAT_CNT_WIDTH-1:0] enqueues;
+output [STAT_CNT_WIDTH-1:0] dequeues;
+output [MAX_FE_W:0] maximum_fifo_entries;
+output [MAX_FE_W:0] current_fifo_entries;
+output [ENQ_WORD_SIZE-1:0] expected_deq_data;
+output [ENQ_WORD_SIZE-1:0] last_enq_data;
+output [STAT_CNT_WIDTH-1:0] full_count;
+output [STAT_CNT_WIDTH-1:0] empty_count;
+output [STAT_CNT_WIDTH-1:0] high_water_count;
+
+output [STAT_CNT_WIDTH-1:0] fire_count;
+reg [STAT_CNT_WIDTH-1:0] enq_fire_count;
+reg [STAT_CNT_WIDTH-1:0] deq_fire_count;
+reg [2:0] enq_fire_count_tmp;
+reg [2:0] deq_fire_count_tmp;
+
+`ifdef ZI_CW_FOR_FPGA
+wire [STAT_CNT_WIDTH-1:0] fire_count = 
+     ((enq_fire_count + deq_fire_count) >= {1'b1,{STAT_CNT_WIDTH{1'b0}}}) ?
+        {STAT_CNT_WIDTH{1'b1}} : (enq_fire_count + deq_fire_count);
+`endif
+
+reg enqueue_fire, dequeue_fire, value_fire, full_fire, empty_fire;
+
+reg [ENQ_WORD_SIZE-1:0] expected_deq_data;
+reg [STAT_CNT_WIDTH-1:0] enqueues_and_dequeues;
+
+reg [STAT_CNT_WIDTH-1:0] enqueues;
+reg [STAT_CNT_WIDTH-1:0] dequeues;
+reg [MAX_FE_W:0] maximum_fifo_entries;
+reg [MAX_FE_W:0] current_fifo_entries;
+reg [ENQ_WORD_SIZE-1:0] last_enq_data;
+reg [STAT_CNT_WIDTH-1:0]    full_count;
+reg [STAT_CNT_WIDTH-1:0]    empty_count;
+reg [STAT_CNT_WIDTH-1:0]    high_water_count;
+reg [63:0]    enq_count;
+reg [STAT_CNT_WIDTH-1:0]    deq_count;
+reg [STAT_CNT_WIDTH-1:0]    full_within_range_count;
+reg [STAT_CNT_WIDTH-1:0]    empty_within_range_count;
+integer       within_range_enq;
+integer       within_range_deq;
+
+
+reg [ADDR_WIDTH:0] enq_ptr, deq_ptr;
+reg [ENQ_WORD_SIZE-1:0] fifo[DEPTH-1:0];
+reg [ENQ_WORD_SIZE-1:0] latency_pipe [LATENCY_REG_WIDTH:0];
+//reg [7:0] latency_pipe [6:1];
+reg [LATENCY_REG_WIDTH:1] valid_pipe;
+reg fifo_full, fifo_empty, unstable_fifo, deq_fired;
+reg preload_reg;
+reg [31:0] preload_deq_cnt;
+reg [PRELOAD_WIDTH-1:0] preload_data;
+reg [PRELOAD_WIDTH-1:0] preload_deq_data;
+
+integer index;
+
+
+integer i;
+reg [PRELOAD_WIDTH-1:0] preload_word;
+
+//wire enq_areset = ((areset !== 1'b0) || (deq_reset !== 1'b0)) ? 1'b1 : 1'b0;
+//wire deq_areset = ((areset !== 1'b0) || (enq_reset !== 1'b0)) ? 1'b1 : 1'b0;
+
+reg r_enq_reset;
+reg r_deq_reset;
+reg reset_r_enq_reset;
+reg reset_r_deq_reset;
+
+`ifdef ZI_FOR_SEARCH
+wire xz_detected = (^enq === 1'bx) || (^deq === 1'bx);
+`endif
+
+`ifdef QVL_ASSERT_ON 
+wire qvl_xz_detected = (^enq === 1'bx) || (^deq === 1'bx);
+`endif //QVL_ASSERT_ON
+
+`ifdef QVL_ASSERT_ON
+  wire qvl_multi_clock_fifo_enqueue_fire_combo;
+  wire qvl_multi_clock_fifo_dequeue_fire_combo;
+  wire qvl_multi_clock_fifo_value_fire_combo;
+  wire qvl_multi_clock_fifo_full_fire_combo1;
+  wire qvl_multi_clock_fifo_full_fire_combo2;
+  wire qvl_multi_clock_fifo_empty_fire_combo1;
+  wire qvl_multi_clock_fifo_empty_fire_combo2;
+  wire [ENQ_WORD_SIZE-1:0]  qvl_expected_deq_data;
+  
+`endif
+
+`protected
+
+    MTI!#x#5KoZzj5J]@Q1w=~HZ~Io[+zx?<Rs'p=;QzH5?'vmCR~|v+@D~X1BbT->ueDWA~=m[U1;X
+    }c#R;~y2[@BQ~{$^AzOG2I$aTjipQmjRle]D)Dn1p;vRi13'A^Gp@#=_=$Ys*nY/RAGkmDYo{{<?
+    eE7<L/ioijs?UQ,?[7{aV<b!<H^Ep{Z|:1na2oBVXj[]D9I2H>DnvG]WYQJ5l]kvJmx'3u'V3r'x
+    ekDpK$R7VB>=x2FQ_jxu-WHWC{J\1!>I~*,fEkx<GV+?^/Y3;WoaCzWs[2R}$ixl7EkA]u}wK<^m
+    rri<por2-zUYT!,$ri1@-ky{UxQXUTCHB+Yar!$w{W]H+zpBB~QJOk[lwAzB^n3=}<>T57i2=u,G
+    5]s>C!n,mTZC@]WLWnU=5W5vaXusR_^T5Z;?KLa>RKoHI1N9KTr[I'VAmEoJj=r},@*AxnYA2lY!
+    Q+'\[sG$,o,^,IViYrA;DzpKJXQa}@D\7JD3E_H^.'r?[{^kT'BDeR1Q2rnRBfPkRne'+*TlexCp
+    v<kJUY]xJ{BoJXJ-CO7]UYm,VVi?s;ujv{*uz'D>oO\pZ_Dz*Y\sCk]CY_i[QWBRe*j4a+^XEk3n
+    -X_^}K*@?lIeO5;[RwUsMIUE3H_rQ_o#^{XB~7lQ_^l,Xp2AsZv!V\KWwN3DYY*5OkxZ-X2*WXW\
+    VxC>W1I?T{n-UZ>Ow\U]wWYn\T!}JZ,V3!Arkvs5ABR7p!QwJrOUR{!p\2x[OuQ->uxBaAUln[/X
+    j\C[U2@B^plWIsXUYiQ;s*x.axIKr[U}7nRke#BRY#7nkQ[@kO!vl+[2Rk*}jm!skQR]s^V}VK;x
+    m^]@7;J-}5ksZ^{C;G1G(rA\2O1eJ^iK;;ow]O~Uuo3;[[Vnx~1+\_v)+U1;<7RxTz-DG>]oSV(g
+    i[oG^A<-s"IAC\BOZ{vD]Hv$'io3-H_Xs[Bzm$_o-WWY-_^%i]VV*]IRekOWU5elO{z!#oa@N]G1
+    +qD-D-y#'Ci}mE<m_Hr*Jw[3VzATsJR[?-W'Z\v5Q{s=HlVSDjQ3<}aZix[I*Xo'jVd?7jU4#V@,
+    aVXOF\<Q@R<QR!,IrKrzO_EU{Zn_1A\AGAEu_7XZoK>@Ou1j$Ia!D<R2nravQU&HrZC0I,j#ps3z
+    _zTj!Gv=8CiX!7$$;#[M('l#mWCsvTDBv${2=Cn@2XU'-Z\7-u=]*NLX=a':2<T7i>Y-rpAQ5!I'
+    {O{o7\##1OC+FlCOn3{TO%Xo#_\'RG=&ip[GQB$]I~_wC^-e3}>z,'?'[\3ui1xj^?rr1Fxn1[RO
+    Z?+5-1PI@RHv~^xzXsGO3jRJ'iuf7]{'m7eu*}>+p$G7OkTK{G@~mUu[k_],!G*j_Ol3/B_Gk{G{
+    vYvVDXoO**2sCxmsjVuv*'D<77VT^07?<]j+UHIW7Il\wKtT_j}U}Hu^EG3xXZp1?_@\n724D_s>
+    [>Xn'rGuiealp[!Osx7QBQ]E~-^p+T3r,Q{-Kx]\kz{vH*mHE<5vxi7CBQJ{lmTrXnlX?'V5C\?=
+    0'M*v~UE7YsznO^1XKp,Vrsej${-]mm5EHxg7[p~HV;]H5KpXYUrYmZ#?nzHil?X6t$v@wB{@]}w
+    {C$W~a9RIrv5GORWG*o5P'J@aH<*CIIQ'r]~l|U{~{i\U@AQ{D=emT,>r5@rZ,wUwUY=1mJL-7m'
+    e2ViV=V<oZOQ{&p#I3ptG${uvGQvH5;a*kur?GpBy25#3z]7~v=jwPsv^Q1X;AQJ\v}#[{z:'QnK
+    $[WUxR+H$e[iRAslW1ko=RC}];zXU<*e*D;]r>u$wx\$De<XI3;BU7U7GKp2,H'B@eDR}[<=yUGQ
+    eqmRIEBlVZ>w+v'_#jI'|^@j=[}RJ}^IHixQ#'nCwc]ZRe\rAEm^\?_Dxn8Bm\D3=zEeDT_/x5VU
+    -\RJjijlAlj=~jApHXu-@n{*,u3TR~\Y\='$#IOR:#pVaz5\#^1m[opQ@DU7rH-Z5^lzQ1{We(nG
+    'VoVxz_^QnV\KDj<7-O^uvIW+Il\EOs*1oGZQO1G+Eg71BuBzAI:EIX_x'j^jC~\zA[QV!mE}Yu$
+    ?X=nw{{}jiInIH*['>Ap3C>75]*a!nHG@nO2ue##Ip!<-IdK5>,pJAvjrx<:Q7]a7lI7)g+s=^3I
+    J'_Rv\^W>X11kJ[&eZa$}@DvDV@3zT<7zokm>jseoH,2xOav!+<5m5En{O_{}*kJJ^YiKe;Cr]={
+    Lop\}GXDV=ps,}R}]t6=U3+;T,x<D!VRBOw1{,*i1#]O3TU\;ojh[W3^QU-zH'[=T}{l2n2[3z+e
+    i\*Kpj,~7Uw,jnEv3EC~mDGiQ,x]Ev}QjwAl-Yj\R_$^O3Dl*u_r$uEx'[;33\u?eB{15ps^\JC=
+    QIGH)=]J#9P\YWj=m>$IRa]M_]#3Hw-QtdA^-{=]5@9aexlBEHs[@]U;r]}~D5kKn+]9Jp~R=DoG
+    $_{J}x~T;el+epU~CX}iE5?UiI@UEOHD**mz0v+-H@G2olY5e]#w,b#=CkH{![*lVkpmH\DDi'@E
+    J2=D#u5KCAIkZ^up-R"vnGAE2C'W^C5:z!'YQO[ws_p1c:v\'pk1#UiGrl>CKo9[w{D*e)vr\=["
+    =B3ZV\I'J}B-5kpURU>$#svmjX+AGK~uEW!*o>ZIvK;3nQ^Zr=$}xCWCujA;{B1AlHB{=T]]>[w[
+    c7aOem1pu9iC("\lUk1To{I1K>lrHZ9CcYjl^lB#I2<>2n73~{ri1_evCeK';zZU-FC@aZecC#rT
+    2\pGK5>^eI3wKInr3]Y{reQUR'xAUBK<tn^IiOJ]KnjI7X=o3!B+J:W]\aQHViqTjE,HA@<E+V,$
+    Ue~R]j-x{W<x^uly_52\nj_?<*Rm#^ZO'k\w%l:_TUZ\><Aj<Re.xYr~jlm]ae-Z(+<z2wCHC{5n
+    l2a$rB5e5p3-~/eI<ERE7+s*wE1sV{UT_kPR*p\kEeua}H}->HWdxo^zK5X2Va=Zo->^}I_;$slV
+    cq%X,J-<\;GuXv5LoGA?;X^@jorX>Yl3'soG?o\G$,1n>GAXBAX!R#QHYkoQ\i,ie_\Y4!1@_<o[
+    nU=aw*WpeEavjxloKJUpwE<7!\;Aw2lUxm\<~>1VGn,ZCYD=UI3_]$';<Hx+[4x#A]rC!Cqr[BV&
+    [=YG<j}]Rx=5B{J$*!,l#j2]lwo1"3sDOQ55OqNnD$3{=jR$>HIT,J~m]Y}VD!C%o~vTYspI7Il2
+    *W_xiD7vmz3@:=J-^V}}\kX+>*V1mc1Ri>s{>5)nRk_u1=*IxwR,[p\UAW>sEnwj^~1VUzZxu-uT
+    ]x}Hj^Qp2l*RZ>]]rQJ{H;aw1!}\C=j>$[I[J-?}#Kk'TW$!*Q'f1#uTQ~'TLRAr_5,_Yl!AnDuU
+    llLja{Dv2j{'TAu_k*z3^]7Hp+\V2$@=?A3noDG\wO{BW=^4e7D;fYTJY]vN>e{DDT{u<Amj_25#
+    nl,Zo_Ve^]T]l@A{++[U/<A*zLCpj''1w?~Gp<vmD_D3x<_h}\eXBzQeJxa}v5ZxqEx3[d7QJ?&l
+    G#,m.C5,rvu['UVG{Ixm]L0jD}B!DEJz5ITJ[=CAe*UTxJ@<-<uu<e2m<H^V#pVElJ[1@vU5>l[}
+    #'9iT]<po_tUr!X'3xBf2xB$ueB2,x-jK$5$BEQQI$$2Z_s22lv@!{!!@<IG}\;EI[kDe2A$G?W_
+    ^1wX;GV@l7jAcI!^aI{$mwzUH}#\]Aoz^'$?'*A7Rork^fpQ;3>*Z~JpxlQi>\I\A#W^,72s5,A]
+    Ona'#lDk{C3]@_*jT;8Y]Tsl~>C$>3pYi2]=QR$^2p'21l+>AeV@<<3HIm{@ap>X'*vI*~e[>m-n
+    >e~O!1;X,+$]Hlr<v@^C#~?\jTmO~+js'=YeG@3OVH~VYTRIR;WjAVO:-ro1xa_!N-$]5y$r51TE
+    ]2CKr@I]ak!_TQ;o@s7nQCpev!O]^=o@Q$U6}YEj51iTlm+m^*A}rvH+E<3nj~R^H{*pQj_'5_>+
+    ]+CDsrnCtI*+X(p#XBErEusvX@=1=1Kp~?CDTZO-''$GJOe;*p6Hnps?ll15B~_%VE{I<[<k~7\~
+    KCo_5[^Gvvw~\jemDTvile72qOu[Q=,mEu>jaT]Y?72]I^-{^C3]l-za$[$~+'Ep'{x]+RUV=e?l
+    ;*,,G>[vl;XZJj{G*5pz}4k11m-Y2<?[RWkCxw8'1E]FcJ}vUIYVjl{3_LGifkSaDQm=Ra=gW\EI
+    ^0OTUjx#e=p~-!zDQ7tQW-@S[$[H;n+<*};Dps~oITnvReZG}*KC1mIn1H\pjRvZzapY=JZK~E$G
+    =O]]I2JoImjiwrwCCm!TyuUnj[;,;$+5pnaED/[iz7!5u$ZOO1C>{;QIeUW}[R$J+7cD-*pW>l}3
+    lj\w7k;vTrw2C~2'X<XCd$5?m>jAwCIzn~H;T^;\{G?5w+DI}YH5w7@Y?r-}Go$zJ/;{<2r#T~IJ
+    +!xBQa{$2AYK\Cnz'nsR'u$CeT)u7'II!*@)e\e#8wCkAvWB-X+=5:5aX<zaKXin+mX5J,9*>2E^
+    <{pHE1KK}O+kz7Rz+BBn}D,I1}H>w!Y'<!2n\Bp{p,]5#*inIm3s$XpCk;Usz5CxkA<#G{U2-,,G
+    w\k6,]X=i$u'sJrk=ZrC\HAQ{<_UZ-Ave=GVP$wJ_RmaHg?G3-I5upBsn\;QlA+YD^A5upQ{uZn*
+    m\BDs1}enXV2-;V1a^E_p!lZ+!LXIkmYvelA1k>Qw3aG>I2Y'3Quov1pL,u2A'*vj]*+=rG~_C]{
+    ;s<,epo1O}E0UrU{>X25Kp];~<pj&iAY{+Q!<>}Q3QeIz?Q{*,?Hwa=k}BzQzw,^+U9{CYe\rnmi
+    lip~<+\,U]{U=pT1$k_D+wYA={w^Brwh*;z*rpEG%9R}_^'TR^Y>riBa~HE?lx"'$C>\C^+n^9dw
+    Hm5qMZl<I#>]3ouGI,TH^=<I+7!J[@IKE,^x,V,W<C*jZ#C[<>]*mBXGTYmej7kv;w5$R6G-r__Q
+    ^1J{VWUs~\le$*P^Bu=AIu_]U]EB!{zT-5<vR{eEUr{-1!@3[1B9Se,opjEkDBaSueRH\jOTf'K5
+    @!zlE4C^I#Y~3-rKeV~lWH2_WjBa*XprXO@QU>$,-?je\]>[mu~.*wnrtKw_[Yv;R_}2}'n$Q$B3
+    Ae-mYJ}YW'I$</v+~{AD!va7Xur]Ik~',9LY?[G^R^V+9*?[x$<$H5?~$3pR*okm3s=OC2<XW&C5
+    kpOe=VzY-W?+ppV;JK[?VzhJ1m[v=@v;$*+wO{22nav7H$kAI}x~rQ~=r;pfp[5U7DOUF2T$rZrT
+    'cUB-llb;Y$7J]oml^KxUOUTG#;s!YHzjB[~11-~15#!7}#!^X*^T}u@g\^B7's1r1\'}\]_u<^z
+    @}R>=vUX#KVZZh8QanERD<eI#u+I{@>CB=Y_QsxjW_XZjADEI5+z_@G>Rw+B,pErKx$|+YnpkDuZ
+    $u<@JQ!e#TE^UwVTr=vRsp{r$X'YlIXJl!7=f*Q>++}~;7B-}~,3T_JUI,x@7WRAVRzxpi$$@>D!
+    WzkEeAY1VI]<*rVT'RTTksa7_"hjW{#VHRrr?\Q[WRHgAUH<nGXHz'#[p1]35i-VCOzn~eaT0J\+
+    #Xz,RrV=Zn7Us<>J]<U<_l#U1v!XCE$<Q1r?;@-{W~Cpa]raJHlw]]0mQze<CwGB=UC~+ZHR{I_e
+    mZ$new>O1[$LKVeW1?R~rUuuVBXUQG;A|=Q7^pX-x[hSe~{s;<'+=-Z[.SGZ+-Ha=
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+  
+  assign qvl_expected_deq_data =  ( ((~qvl_xz_detected) && (areset === 1'b0) && 
+                    (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)) && 
+                    (~((deq_active !== 1'b1) || (active !== 1'b1) ))) === 1'b1)?
+                    (((value ==1'b1) && (unstable_fifo ==1'b0) && 
+                      (deq_fired == 1'b0))?
+                     ((preload_reg === 1'b1)? 
+                      ((LATENCY) ? (latency_pipe[LATENCY_REG_WIDTH]) :                                    ((preload_deq_cnt === PRELOAD_ITEM_COUNT)? 
+                        preload[PRELOAD_ITEM_WIDTH-1 :0] : 
+                        preload_deq_data[PRELOAD_ITEM_WIDTH -1:0])):
+                      ((LATENCY)? latency_pipe[LATENCY_REG_WIDTH] : 
+                       fifo[deq_ptr[ADDR_WIDTH-1:0]])): {ENQ_WORD_SIZE{1'bx}}):
+                       {ENQ_WORD_SIZE{1'bx}}; 
+ 
+  assign qvl_multi_clock_fifo_enqueue_fire_combo = ((~qvl_xz_detected) &&
+                       (~(areset !== 1'b0)) && (~(enq_reset !== 1'b0 || 
+                        r_deq_reset !== 1'b0)) && 
+                       (~((enq_active !== 1'b1) || (active !== 1'b1))) &&
+                        (enq == 1'b1) && 
+                       ((preload_reg === 1'b0 && fifo_full === 1'b1) ||
+                        (preload_reg === 1'b1 && PRELOAD_ITEM_COUNT === DEPTH))
+                       && (enqueue == 1'b1));
+
+  assign qvl_multi_clock_fifo_full_fire_combo1 = (~qvl_xz_detected) &&
+                     (areset === 1'b0) &&
+                     (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)) &&
+                     (~((enq_active !== 1'b1) || (active !== 1'b1))) &&
+                     full_check && (full === 1'b1 && ((preload_reg === 1'b0 &&
+                     fifo_full === 1'b0) || 
+                     (preload_reg === 1'b1 && PRELOAD_ITEM_COUNT !== DEPTH)));
+
+  assign qvl_multi_clock_fifo_full_fire_combo2 = ((~qvl_xz_detected) &&
+                    (areset === 1'b0) &&
+                     (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)) &&
+                     (~((enq_active !== 1'b1) || (active !== 1'b1))) &&
+                     full_check && (full === 1'b0 && ((preload_reg === 1'b0 &&
+                     fifo_full === 1'b1) ||
+                     (preload_reg === 1'b1 && PRELOAD_ITEM_COUNT === DEPTH)))); 
+  
+  assign qvl_multi_clock_fifo_dequeue_fire_combo = (~qvl_xz_detected) &&
+                    (areset === 1'b0) &&
+                    (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)) &&
+                    (~((deq_active !== 1'b1) || (active !== 1'b1))) &&
+                     (deq == 1'b1) && 
+                    ((fifo_empty == 1'b1 && preload_reg === 1'b0) ||
+                     (preload_reg === 1'b1 && preload_deq_cnt === 0)) && 
+                    (dequeue == 1'b1); 
+
+  assign qvl_multi_clock_fifo_value_fire_combo = (~qvl_xz_detected) &&
+                  (areset === 1'b0) && (~(deq_reset !== 1'b0 || 
+                  r_enq_reset !== 1'b0)) && (~((deq_active !== 1'b1) || 
+                  (active !== 1'b1))) && ((value == 1'b1) && 
+                  (unstable_fifo == 1'b0) && (deq_fired == 1'b0)) && 
+                  ( ((LATENCY === 0) && (((preload_reg === 1'b0 && 
+                  (deq == 1'b1) && fifo_empty == 1'b0) 
+                  && (deq_data !== fifo[deq_ptr[ADDR_WIDTH-1:0]])) ||
+                  (preload_reg === 1'b1 && (preload_deq_cnt ===
+                  PRELOAD_ITEM_COUNT)  && deq == 1'b1 && (preload_deq_cnt > 0)
+                  && deq_data !== preload[PRELOAD_ITEM_WIDTH-1:0]) ||
+                  (preload_reg === 1'b1 && 
+                  (preload_deq_cnt < PRELOAD_ITEM_COUNT)
+                  && deq == 1'b1 && (preload_deq_cnt > 0) &&
+                  deq_data !== preload_deq_data[PRELOAD_ITEM_WIDTH-1:0]))) ||
+                  ((LATENCY !== 0) && (valid_pipe[LATENCY_REG_WIDTH] == 1'b1)
+                  && (deq_data !== qvl_expected_deq_data)));   
+
+  assign qvl_multi_clock_fifo_empty_fire_combo1 =  (~qvl_xz_detected) &&
+                  (areset === 1'b0) &&
+                  (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)) &&
+                  (~((deq_active !== 1'b1) || (active !== 1'b1))) &&
+                  empty_check && (empty === 1'b1 && ((preload_reg === 1'b0 && 
+                   fifo_empty ===1'b0) ||
+                   (preload_reg === 1'b1 && preload_deq_cnt > 0)));
+
+
+  assign qvl_multi_clock_fifo_empty_fire_combo2 =  (~qvl_xz_detected) &&
+                 (areset === 1'b0) &&
+                  (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)) &&
+                  (~((deq_active !== 1'b1) || (active !== 1'b1))) &&
+                  empty_check && (empty === 1'b0 && ((preload_reg === 1'b0 && 
+                   fifo_empty === 1'b1) || 
+                   (preload_reg === 1'b1 && preload_deq_cnt === 0)));
+`endif
+
+`ifdef QVL_ASSERT_ON
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_multi_clock_fifo_enqueu_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (enq_clock),
+                      .reset_n   (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (qvl_multi_clock_fifo_enqueue_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_multi_clock_fifo_enqueu_check"),
+                          .msg            ({msg,"An enqueue occurred while the FIFO was full."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_multi_clock_fifo_dequeue_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (deq_clock),
+                      .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (qvl_multi_clock_fifo_dequeue_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_multi_clock_fifo_dequeue_check"),
+                          .msg            ({msg,"A dequeue occurred while the FIFO was empty."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (VALUE_CHECK == 1)
+          begin : assert_multi_clock_fifo_valu_check
+            A_qvl_multi_clock_fifo_valu_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (deq_clock),
+                          .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_value_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multi_clock_fifo_valu_check"),
+                              .msg            ({msg,"Dequeued FIFO value did not equal the corresponding enqueued value."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (FULL_CHECK == 1)
+          begin : assert_multi_clock_fifo_full_when_fifo_not_full_check
+            A_qvl_multi_clock_fifo_full_when_fifo_not_full_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (enq_clock),
+                          .reset_n   (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_full_fire_combo1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multi_clock_fifo_full_when_fifo_not_full_check"),
+                              .msg            ({msg,"The FIFO was not full when the full signal was asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (FULL_CHECK == 1)
+          begin : assert_multi_clock_fifo_not_full_when_fifo_full_check
+            A_qvl_multi_clock_fifo_not_full_when_fifo_full_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (enq_clock),
+                          .reset_n   (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_full_fire_combo2)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multi_clock_fifo_not_full_when_fifo_full_check"),
+                              .msg            ({msg,"The full signal was not asserted when the FIFO was full. "}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (EMPTY_CHECK == 1)
+          begin : assert_multi_clock_fifo_empty_when_fifo_not_empty_check
+            A_qvl_multi_clock_fifo_empty_when_fifo_not_empty_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (deq_clock),
+                          .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_empty_fire_combo1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multi_clock_fifo_empty_when_fifo_not_empty_check"),
+                              .msg            ({msg,"The FIFO was not empty when the empty signal was asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (EMPTY_CHECK == 1)
+          begin : assert_multi_clock_fifo_not_empty_when_fifo_empty_check
+            A_qvl_multi_clock_fifo_not_empty_when_fifo_empty_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (deq_clock),
+                          .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_empty_fire_combo2)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multi_clock_fifo_not_empty_when_fifo_empty_check"),
+                              .msg            ({msg,"The empty signal was not asserted when the FIFO was empty."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_multi_clock_fifo_enqueu_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (enq_clock),
+                      .reset_n   (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (qvl_multi_clock_fifo_enqueue_fire_combo)));
+        M_qvl_multi_clock_fifo_dequeue_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (deq_clock),
+                      .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (qvl_multi_clock_fifo_dequeue_fire_combo)));
+        if (VALUE_CHECK == 1)
+          begin : assume_multi_clock_fifo_valu_check
+            M_qvl_multi_clock_fifo_valu_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (deq_clock),
+                          .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_value_fire_combo)));
+          end
+        if (FULL_CHECK == 1)
+          begin : assume_multi_clock_fifo_full_when_fifo_not_full_check
+            M_qvl_multi_clock_fifo_full_when_fifo_not_full_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (enq_clock),
+                          .reset_n   (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_full_fire_combo1)));
+          end
+        if (FULL_CHECK == 1)
+          begin : assume_multi_clock_fifo_not_full_when_fifo_full_check
+            M_qvl_multi_clock_fifo_not_full_when_fifo_full_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (enq_clock),
+                          .reset_n   (~(enq_reset !== 1'b0 || r_deq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_full_fire_combo2)));
+          end
+        if (EMPTY_CHECK == 1)
+          begin : assume_multi_clock_fifo_empty_when_fifo_not_empty_check
+            M_qvl_multi_clock_fifo_empty_when_fifo_not_empty_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (deq_clock),
+                          .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_empty_fire_combo1)));
+          end
+        if (EMPTY_CHECK == 1)
+          begin : assume_multi_clock_fifo_not_empty_when_fifo_empty_check
+            M_qvl_multi_clock_fifo_not_empty_when_fifo_empty_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (deq_clock),
+                          .reset_n   (~(deq_reset !== 1'b0 || r_enq_reset !== 1'b0)),
+                          .enable    (1'b1),
+                          .test_expr (qvl_multi_clock_fifo_empty_fire_combo2)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+ 
+
+
+
+ 
+`endif //QVL_ASSERT_ON
+`include "qvl_multi_clock_fifo_cover.svh"
+`qvlendmodule

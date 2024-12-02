@@ -1,0 +1,557 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_encoder_8b10b_assertions ( clock,
+                                     areset,
+                                     reset,
+                                     active,
+                                     in_8b,
+                                     out_10b,
+                                     k_in,
+                                     rd,
+                                     force_rd_enable,
+                                     force_rd,
+                                     reserved_k_codes,
+                                     used,
+                                     used_cond,
+                                     encode_check,
+                                     k_code_check,
+                                     reserved_k_code_check,
+                                     disparity_check,
+                                     encode_fire,
+                                     k_code_fire,
+                                     reserved_k_code_fire,
+                                     disparity_fire,
+                                     expected_out_10b,
+                                     expected_rd,
+                                     all_k_codes_checked,
+                                     all_data_codes_checked,
+                                     encode_count,
+                                     data_code_count,
+                                     k_code_count,
+                                     force_rd_count,
+                                     rd_toggle_count,
+                                     support,
+                                     fire_count
+                                   );
+
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter SUPPORT_WIDTH = 1; 
+
+  parameter WIDTH_8B = 8; 
+
+  parameter WIDTH_10B = 10; 
+
+  parameter POSITIVE_INITIAL_RD = 0; 
+
+  parameter CASCADE = 0; 
+
+  parameter NUM_8B_BYTES = (WIDTH_8B >> 3);
+
+  parameter MULTI_BYTE = (NUM_8B_BYTES > 1) ? 1 : 0;
+
+  parameter WIDTH_D_K = 1; 
+
+  parameter RD_SPECIFIED = 0; 
+
+  parameter FORCE_RD_ENABLE_SPECIFIED = 0; 
+
+  parameter FORCE_RD_SPECIFIED = 0; 
+
+  parameter RSVD_K_SPECIFIED = 0; 
+
+  // These parameters decide the widths during multi or single bytes.
+
+  parameter CORRECT_RD_WIDTH = (CASCADE == 1) ? 1 : NUM_8B_BYTES;
+
+  parameter CORRECT_FORCE_RD = (FORCE_RD_SPECIFIED ==0) ?  1 : NUM_8B_BYTES;
+
+  parameter CORRECT_FORCE_RD_ENABLE = (FORCE_RD_ENABLE_SPECIFIED == 0) ? 1 :
+                                       NUM_8B_BYTES;
+
+  parameter WIDTH_FORCE_RD = 1; 
+
+  parameter WIDTH_FORCE_RD_ENABLE = 1; 
+
+  parameter WIDTH_RD = CORRECT_RD_WIDTH; 
+
+  parameter NUM_10B_SYMBS = ((WIDTH_10B >> 3)-(NUM_8B_BYTES >> 2)); 
+
+  parameter CORRECT_WIDTH_8B = (NUM_8B_BYTES << 3); 
+
+  parameter CORRECT_WIDTH_10B = (NUM_8B_BYTES == NUM_10B_SYMBS) ?
+                                ((NUM_10B_SYMBS << 3)+(NUM_10B_SYMBS <<1)) :
+                                WIDTH_10B; 
+
+  parameter RSVD_VAL_WIDTH = 8;  
+
+  parameter RSVD_VAL_COUNT = 1;  
+
+  // The parameter declared below will decide the total port width for the
+  // reserved control codes list.
+
+  parameter TOTAL_RSVD_VAL_WIDTH = ( RSVD_VAL_WIDTH * RSVD_VAL_COUNT );
+
+  parameter LSB = (NUM_8B_BYTES > 1) ? 10 : 0; // To avoid illegal part select.
+
+  parameter DISPARITY_CHECK = 0;
+
+  // Inputs from the encoder.
+
+  input clock; 
+  input areset; 
+  input reset; 
+  input active; 
+
+  input [WIDTH_8B-1:0] in_8b;
+  input [WIDTH_10B-1:0] out_10b;
+  input [WIDTH_D_K-1:0] k_in;
+  input [WIDTH_RD-1:0] rd; 
+  input [WIDTH_FORCE_RD_ENABLE-1:0] force_rd_enable; 
+  input [WIDTH_FORCE_RD-1:0] force_rd; 
+
+  // Input from the directive list.
+
+  input [TOTAL_RSVD_VAL_WIDTH-1:0] reserved_k_codes; 
+
+  input used; 
+  input used_cond; 
+
+  // Check input ports.
+
+  input encode_check;  
+
+  input k_code_check;  
+
+  input reserved_k_code_check; 
+
+  input disparity_check; 
+
+  input [SUPPORT_WIDTH-1:0] support; 
+
+  // Fire signals.
+
+  output encode_fire; // Asserted when 10B data from encoder doesn't match the
+                      // expected 10B data.
+  output k_code_fire; // Asserted when one or more byte(s) in the 8B data
+                      // is(are) invalid control code(s).
+  output reserved_k_code_fire; // Asserted when an input control code is
+                               // reserved.
+  output disparity_fire; // Asserted when current running disparity does not
+                         // match the expected running disparity.
+
+  // Outputs.
+
+  output [WIDTH_10B-1:0] expected_out_10b; // Expected 10b data.
+  output [WIDTH_RD-1:0] expected_rd; // Expected running disparity.
+
+  // Corner case signals.
+
+  output all_k_codes_checked; // One when all the k_codes are encoded.
+                              // (reserved control codes not required).
+  output all_data_codes_checked; // One when all the data codes are checked.
+
+  // Statistics signal.
+
+  // Number of values encoded.
+  output [STAT_CNT_WIDTH-1:0] encode_count;
+  
+  // Holds the total count of data codes that are encoded.
+  output [STAT_CNT_WIDTH-1:0] data_code_count;
+
+  // Holds the total count of valid control codes that are encoded.
+  output [STAT_CNT_WIDTH-1:0] k_code_count;
+
+  // Holds the total count of number of times rd has been forced.
+  output [STAT_CNT_WIDTH-1:0] force_rd_count;
+
+  // Holds the total count of the rd toggles.
+  output [STAT_CNT_WIDTH-1:0] rd_toggle_count;
+
+  // Fire count for FPGA
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+
+  // Output declarations.
+
+  reg [WIDTH_10B-1:0] expected_out_10b;
+  reg [WIDTH_RD-1:0] expected_rd;
+
+`ifdef QVL_COVER_ON
+  wire all_data_codes_checked;
+  wire all_k_codes_checked;
+`endif
+
+  // Reg for fire signals.
+
+  reg encode_fire;
+  reg k_code_fire;
+  reg reserved_k_code_fire;
+  reg disparity_fire;
+
+
+  // Reg for statistics.
+
+`ifdef QVL_COVER_ON
+  reg [STAT_CNT_WIDTH-1:0] encode_count;
+  reg [STAT_CNT_WIDTH-1:0] data_code_count;
+  reg [STAT_CNT_WIDTH-1:0] k_code_count;
+  reg [STAT_CNT_WIDTH-1:0] force_rd_count;
+  reg [STAT_CNT_WIDTH-1:0] rd_toggle_count;
+`endif
+`ifdef ZI_CW_FOR_FPGA
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+`endif
+
+  // Reg for corner cases.
+`ifdef QVL_COVER_ON
+  reg [255:0] all_data_codes_checked_internal; // Bitmap will be set to one
+                        // whenever the corresponding bit positions are encoded.
+  reg [11:0] all_k_codes_checked_internal; // Bitmap will be set to one whenever
+                        // the corresponding bit positions are encoded.
+`endif
+
+  // Internal signals for this checker.
+
+  // Registers for the task.
+
+  reg rd_out;
+  reg [8:0] data_8b_in;
+  reg [9:0] data_10b_out;
+  reg illegal_k;
+
+  // rd passed into the task through this variable,
+  // every time the task is called.
+
+  reg next_rd_for_encoding;
+
+  // Registered rd.
+
+  reg [WIDTH_RD-1:0] current_rd; // The registered rd.
+  reg [WIDTH_RD-1:0] next_rd; // The latched rd.
+
+  // Temporary counters.
+
+`ifdef QVL_COVER_ON
+  reg [NUM_8B_BYTES-1:0] k_code_count_temp;
+  reg [NUM_8B_BYTES-1:0] data_code_count_temp;
+  reg [NUM_8B_BYTES-1:0] rd_toggle_count_temp;
+`endif
+`ifdef ZI_CW_FOR_FPGA
+  reg [2:0] fire_count_temp;
+`endif
+
+  // Temporary registers to store the input and output.
+
+  reg [WIDTH_8B-1:0] data_8b_temp;
+  reg [WIDTH_10B-1:0] encoded_10b;
+
+  reg [WIDTH_8B-1:0] data_8b_temp_two;
+  reg [WIDTH_8B-1:0] data_8b_temp_three;
+  reg [WIDTH_10B-1:0] data_10b_temp;
+  reg [WIDTH_10B-1:0] encoded_10b_temp;
+
+  reg [TOTAL_RSVD_VAL_WIDTH-1:0] reserved_val;
+  reg [TOTAL_RSVD_VAL_WIDTH-1:0] reserved_val_temp;
+  reg [TOTAL_RSVD_VAL_WIDTH-1:0] reserved_val_temp_two;
+  reg first_clock;
+
+  // Registers to store firing bitmap.
+
+  reg [NUM_8B_BYTES-1:0] encode_fire_bitmap;
+  reg [NUM_8B_BYTES-1:0] k_code_fire_bitmap;
+  reg [NUM_8B_BYTES-1:0] reserved_k_code_fire_bitmap;
+  reg [WIDTH_RD-1:0] disparity_fire_bitmap;
+
+  reg [WIDTH_RD-1:0] r_current_rd_in; // Registered version of current rd used
+                                      // for encoding. i.e., current_rd_in.
+  wire [WIDTH_RD-1:0] current_rd_in; // rd used for current encoding. (muxed).
+
+  // These registers are used for avoid warnings in spc.
+
+  reg dummy1;
+  reg dummy2;
+
+  // Internal signals.
+
+  integer i;
+  integer j;
+  integer k;
+  integer l;
+  integer m;
+  integer n;
+
+  wire is_used;
+
+  wire xz_detected;
+
+`protected
+
+    MTI!#v=pAGWR+e$,ZX<$KeR+#aTsXjvBawjVE}m{V['?aXllrAaQJ'#5!=WpVd*J_]}xRCGAR]x*
+    '*NHXzfx?\m)Y?5;~=7U72J}vjp!o7$'I#X\F"KXwRTRuu2wW=VxW*rQ=H;'Jvsw<x<RzknHTU1-
+    W2W|C[EkF3O*O2$l2\wKC6S~U>-M[eY>C7DEsQZ[eW\UcEAE_0o-@]NsJmApTvk/
+`endprotected
+
+`protected
+
+    MTI!#:IWX-w}rWI&!VsIuVu\>ov>TUV3Wn7)}3+ON9kV5$p\>[2UTUvm$o~}7X}I1[2pE2-'$w(o
+    -YVvK;[7nO^ToUK[3j-GY]o{9A];u&1~TR=7+$iXs*(=\N|Hx-Txk+52oBv+YR!^ClKQ2*,I5dsV
+    Vr[}^<*\vXN,u,-Yn78")^Z>,=AVBtUn3n#_j{jAKKZ{*J,p3]HwKv'rkxJRJ~>EHaU$?n]!1xpI
+    Dw_{ZEA$kBBo@Y(h[?+2CaT=iCKpmtWDnA<{AoHEUU+RX5$!<vdVNvw-QyuaB!BT@=z<m#5#5T+A
+    2!wC3[wo2WDr#[w<w}In>Jm|^\!a}v3viC~a_{OW\-B@>vBiwznRC}Zz"]ol#GW;TeO[_CYEmDG]
+    ie~*e[+'KToAmR{R{E?D'~sU-0!$v1Gs<<irwuW,2j1KQ$yYkG@}KU,=eQpZ}eTlO>Tvj2jf$s2$
+    ]XCJe'1r~^lCYKu}#Un;,5K,7sZX>'iErR_*z=k7^+YCZUWn>wL_E\HI=;WrJjaus!2|<VUW1R5G
+    !1?lX}W+@z$~a]DTH_~[z2[zlvBv\YX?vAsVrjz?]YH]7kl-T[IK1J5s<7AJSG(!C;<Q{*^K-I~V
+    ,$jY!URJG=v=5}n5IrEh?pviQ^TV=Gs!j51;Ela_FH_W-Vl]]?wU$-ol_$O-XzH],x']'V2Z\UOX
+    C]<]A>A!Ws*J?sz1wYpnAiQ7\'Xz\G:-U3IjA_z$z!TkT!I1x1C:OnAD/>p{BC_3B(<XHn,TG1i]
+    *R@G]u,=wRXrT~]D1<~5pJeX7v8n>=EV'\<xDCnBV{<npUOKHHY]_YEp5H;$W,a3h,aQ,1*}*KV}
+    XA1sJ!rAQt5n<^QQ<}irs7^VB;\<3oQG]-cwQ}YkEC'K>]HC7Ol2=;;*~o1wU[a[2J,}7O]%3L3<
+    QlTYl51XUKdvnrnVKTn$,#_{H!UeD{Rxie+7!2RnBY@va_{E3mIpsHrpwp]7]r}$mYr=mTVI7nm^
+    ~-_U^UIe;px3s7rC$@r]Xz1cB1VDiwR^x1{*Y<WKn]reZrwRCpmak5p7D]{uwwj15OOEG1DA\W'2
+    io?JxE5n&\n3-K{nI5^Tw}vu53-K#lW^n,@-A7UU;7h0R'^_^?j^c,=wZ|7;+,;[X?<^[$GBi#]1
+    'QS>a*vVKB1<Q,Z@zWK\P+IlO@_\nTzCoX]~BQKn+6KRn5e\VY4@\u]o}j\+^QjGRp?-X7]\rK;[
+    C*xve2_Yev]!{J{?a-Zgg#}QBX,i3QR=2v#n3xA+waCr+*1T>}<js|\,^}|7=TDJGT_7GjU,c_m-
+    r~5v[_~{17>B{S{e[}0TG;WvOKG[p,;W-uCD!ZTom@>@n7~B>{,so}QGoBaP$=<IL{=ZVIeku!R7
+    3llj!$mVo9]\'3Ne}C</DC5\DIV=|$nTJ*Zvsx*Q^LG,$5aAo1o#Ei[T^[G]RDGU}@wTmEbQZDEk
+    YDA_VOVonnrqTpB@,WU{$QD,RCGiqvDFkv1@ser,k]Ux^o]idmr[T_zk@^+1izo{nh]omxs_!^/h
+    \>A}]Q1Y]<voaO%X^~EZV>!#}Vrsxs*OeT'u1oaleX2>zKWCQQT>]HoO@@E/sJ\+=ZjlC*<vBwDA
+    'u;m]{!u[RVIC]_<~BRnb15W{-=aGA7*@^XA'>DukE@T157n~l132yp$HO?}Dn[#j!3=vz=!dckI
+    ps1k=;Y-B1d1qZB#7l;^z<=l7\=2x?=v]anK2)oY1iWAevipDi~x\eRZQ$@ovv'&o?T'~XJ]A=h*
+    \{uCK!@s~o!=+n*Q\Qk5@'plD@7/v~-k-r{*ViA[iB1B2O#ku]K3xa1!3vz27T}+!=~CfDOAl[_n
+    ^@ea]_Q_V@U*,U=2jp#7me}]?;l]#knTQ_z~@7BVG,WQKiOr[UnW\zoB$z*@GVJUG=<zk?}7}KYI
+    ZKR#OHY#2=r\kT,;-G<UuBCXmYb!Qu[g1lZx[O^#i+=DAe!n2p#~}i,w'(IizHTTUQg#GA[mQjsb
+    L-[A5nOATRVux,>ABYk+?DH7E\uKBU<]}B$B+*Z[?l}BXr1}e*+W?a{$VGD{'vQep<-W,#TBnur@
+    w(lA]Z'A4$3<K$WU,9NsmV<8^ZY57iJrUoBzman@-Y5=HTZjs~aCLE9TGf3YE[uamHk$3[~_[-R$
+    JO=;wu\l,RjKR]aU-+i^n<TjV~JpT\(p_V?y&*Wj^8}r-2NKX@7*z<~rEk-Or\Iv~s2GQ}3U-Dz7
+    5_GoI?^XvIwQnl+a_HIoBxvr,^<vsvW,r;x_Ye!YWwmu\OQD!>#Ww\\"'DR$o)2XjiQQA}u,!B{p
+    T5twX!~I~~*dAo<$juGi7_2,~{o@/^;I[9v2D[\yDOzsF6p<OvlA,?p#G1R[<n}av-_wZTIWI-$]
+    T\g>w'2+}Ds=XHCI?Zn2=C5D}@}x0_p#HC5nK[I2_e~OKU=oxw]j+p>R#q+wI#?UXHp]+puR>K}J
+    2RBX1w6iw>];V2xC#x?vu;aB$O2[3HJi1YrEv#3mEDx6c6n7<-t<>v@h{[k2b5YWr]K<xj-esxE2
+    XrOV??55C\X>Ki5'ovOI=^i^,CDkB<eTAf|D~JvU*VT&Z5p,2<v{JY>>-pG?R{T2Q[Ya-^K]&ne]
+    HC'uZVYXjUAB3|Ia2@rsWBi]}}Fs!a^?,}U,^V!fi=7ilej*DQ{VEml#.poV*1Y@x__[EQ_}R{zX
+    #>55j?})p}!T\5U=XEC~DYvBW_Aj;=#KOs}KLAH'vgvHI5z~vH@$G~%]%lfXjsG<($|.qI_IGpV!
+    GkUlV?XI#Y>mKECB3\JXBHv$X+.EjJlpX{]ooXo'o7xV'so^wl7{Y3@s8<D${:]D~CKAYij~+Y7;
+    \;n{Ds[2\Gi15+,I{WtwvQwm^r{K^XVo(@^oU8}O>19D_=^W=ZK$*Z@Ww;<{REVK][x~E!@az!3s
+    R^s}'RY$U15A7l2XXYk3,rwIA+*;U1j]QvT_ZoDK,VUG}$UiR<kr@3Xq',T2m*JJBF,^a}!e@QD<
+    \~jCsrgaCJlDnC!#,>^]+-{4kDjK*#s5GKez$;VU[>UTQ?x~UlnmGe}Y.Q#~Zp}pvCK=5Hliul~v
+    Qsn7UO7JGE_$p^I~><E^WQx+QiY=<(P{pjB3Y!VrD]*+{YmeDUR7X2sKsj<$$k5xW2mw'1$^v[{8
+    #<r#wlVIKjI$Z-Ao,<xnC+JD*TTT9=YnChKO;=Esla*GB\+]v!e^mB3j!_?G?II]A[?X+jv3'l4u
+    $Tr@D}sDD:V@ormC~WUG{e;elQGWx#eOraN5E7A|k<2B$XVH!T~v$1@$XH1Uc$3{R7iwx,OY#P8}
+    3']CB>-J[ie*+x#3s7jKQs!@oI{a*C7Q,loDaDHrwR2!__e{w!*@^EB$WvJ7iRa|lQ#,Tr!s@na3
+    R=?leJn$zi~KeFBnD2%k}VBc7G1~Yn7U;vGBHIK3d[D}myw*D2Wrua>\w~~${[Dc~QupUaeaZ$mw
+    mrW_S~\YmH>^Y#]zzoXe*IEK2]?]3CEV}w}e1[Dj#RD]ZYYk^#UI[Hee'!n>Z:DXRk$i]Y)<,-HU
+    Y;2e\uWG7QZv7C55sIi157;AeoR]eKv]#Xj@XH37Kp!e-W~J$<;C,e7%'U~3=w}T1\m=1{G'mIrr
+    C*KeZ'?}_IC2^m@Zvi}>q!>jT&KeeI@7zuj^1?j@Ij[m]K.O2n?~[Dw=H~l4OZO;uR!!=-W1RO}!
+    TYAoU*EUXjDpa+XaQ{jG*UHvaHlUJl}um^<a<R?~<TeGOW~1o,dxrr_15m,]@o~2_3Bvmj*Q$?J%
+    :pU7OrQJsYHyw1<[$;+R,e\p,U*[GBAp7C>[P/u[C^l>OxWzX7I^}j<_^HQYj-#OeI~]-@^Ou^lR
+    E5J*V_']\IRZ@z_Y=_[>{WswYsyxa;z[_ODB231n>ZnAU-_ezRs'Xsv,]D~H=;aBI[*jD,DuEwks
+    V~K+5rj57u*KU1jVi;jXTau2A7ZM7$_Z}G+OEe++O*@-_-*v5i@_12,V^iTmL<>Y[\~3R^DzE2+{
+    !vv7[~,2]a]a_efX\-~VCv5\Y=zi{uDpU'arl=2K*']D^^{4-nupQGC!p~@v$}!KGiX]JE2mXv|{
+    ]pJl!Tv7#~ue3r+sJxv!G^wD{!7?j@X;Dnz>'VC1aTjPW_7n7+u-'#>vzXvITBulDJ=<HTe$h&f*
+    rx]|AsYkoU>Aw]?*oru<?{pEw5~C#xT7BXXRlZ2kIJzBT^_Dl\WKI5wH}m<mA>wxQ~A?Zl'\C~'T
+    eE}pY9zI\x[oo+k{'p9[r@$-z,e}]V?u{_o*s~]mnTaBR0*$nQC_RiaA1D=Tv+'Oj'OEVRxQ{W.g
+    W*'?lC]@CCa<C?o+REoW#n}D,mm\7<KkMuo:]W!]A+vX=HU{/{EB_aTo*m<D{:?\'nJGs;\7@2$X
+    ]r*O2m3=Be_jExj?,uZp#{<+n'12w@sWHO*,}i1;@~f5;Gu:C+~Xr^7j'V7CynBHwu{-HGA+arGE
+    ikUpX}X+-~{AKl,<Xw^jTv#lJk7w*DF_jWsC_3Ax\+x@xe</YH^Y='O]x2{_^-Gov#<#7jrDm\}#
+    Y$IZD[<TpEIjLwXsIJY@v{aEXZjzXCQ<B\*Q]*;vK7VX=I*p$1C1>A'n\02ooZfQ7WQ*pATb,Op!
+    a{!\YVE5eQ#TXCD}TYK@^<^^8ARo$VpEm{=YX>E1Qs~+,'KsnBU<-_~!Hp?>XnOsU1!aCQl{3_jw
+    2O]UseX1o[_oTu++Z=U-o{7;@ua5HbiI$1Q=kV_^O]9\qklvluDQOoVBI_gQ!3V[i>knEi*AD-kU
+    XUuHC?2p_\B:[~A;oxwK@\W1t>+>5BUe@x1Olv]VwCr$#D>IwsrEwmznrZR=KGU*@=K,C<=_vIzK
+    <d(7s*Zo{aB^Rx?iY{JYQX,hQ=~aEsOAU$WQUo-v7WD22TeJGH{!Dv{-2Ci5c&EHzDWEkue?_G*n
+    E2^a-s]n=HeH_,f0*]JD1~[QYG_nv;}3*COC7>7IC?D5B^{JlIe:#I>w'^;>yS=#^kB5vHNz_osw
+    AzX,J\r1Axr)H[UB^-+?p@+WYkDwIz[iDVz]=3']SPw{JD5sk>{[VD?o!?5W_xbDaIBKzr^ol[z+
+    |l>;>NKpeT'>vB@*,Ax-m_1UIuT5I#VQBsQv[TQDpu7zrzO$K@Je;>5J[!*OUQZDw\XaQ\BvIV=n
+    ;Ie}IR--W>v;a]*ljrDHXK'JsWZvkXD5<-D]rK#1,?iX37#{X_YAV~*#2'x3{l\~GIj-=u5E};-I
+    Z=[~}IWBIwsUr$ljlar*T?>jnEs_~'5k~kYER_15o}v21R?x{}@tHBU}F8B3O^RAm\sK@;Mn$jYJ
+    pJ!V1!7E]mZyz%vCuH?E3GxxRIBZo;9$J{Iv?Q'1jVGw<'^3XGIa}eIQa3e{xa]D7i$sx5z1le[T
+    OrJ1@*,3w<Gmv2+lXGpB>ji}1'!\,Q~PX[7]%#8ZrJ{o-E2g<X;I%Esv{5IoTmVUTo@z\c(8Y\2x
+    LG=+'z5VvVXnj]<!k>zB;T>@2-Q;E'a{X=\JjlCU1JIav:~1uC,<auHxjT'B>UZ+I'$$Hw#,$\\]
+    qBWOO~a}C$v?+kAT[9jUXkl5-_}O?7R3UGrKI^rs\5]+vK#B'3u]Z-+<Y^yMs@e$w-v_*A7Alp^r
+    F1j>1vT3T;HVQ!7#7#V]>oC^onT7X<I_oO<zwmD2jlK}w@\IKWY?_j5X3kOr!^[<1{Bz\1UD1Q;=
+    17<J^1l*W>_oezRDs#={_Qz[p3<u@j2Z+?$e2oQsW_z[lCjB$kQa@!VCU!w-a*O{@kr^=Q5=e,n7
+    J!1>}v-UssBa\E?{vCAzWY\^J7K~wvj>3'*aT8@qC_EEzsYIA$>#rlA'IDl57JOw7~Y5V8BXA<eu
+    *$aIv^;GITYlw]vI1'\$j]&aN~D<Z6.HQ5WUe]\ia^lsk!?SRsA'uv1AYG<'cdl3{_$?VvDG7mTz
+    Z7dB!EV7KIWz2E^A_}ER}GB}$7!IHsO^]eO[,<1r!@*eYDB~*H{}CEs5s>3r;a!G;XlxO=7k*$iU
+    }AHse*-bG_WW;U$}vHa^~HTm)\!;B{5}STp]w('QIi1kT+=DxJUROkYl@2'ipC:sB~\wE-,Gxx*Y
+    J7$pE_O=mpJ(7[1e!Bk_r=EGk+3O*KB;j5wxA(o{+[Hjl#7vr{W{_#DHjQr%2zm+'7UJ}!x>AYIJ
+    pjT,]]iJPEioT7HVem7zVr}~l;[*'&<wJj}v+Vu73kb$YD*&~xDohQD><a73eS'Xppu>VmX-uu,A
+    Brr!Q+@+4_Ts>rswVKo\#zIlmU]+I]Q;DC'YiGAzpI*]Z?1X-=7XzGZKIjQGEnL']XWnEo3~xVIn
+    +>ka}>pv[H\m^}oVKpUXBWU{n33%>{>V3aQ*\IUoN57']'lJT=u{jk*>aPAUEkpQow.CixrV=z<x
+    3}^?x{OrI@VT+_>{oUUk-aW}V~5#w<2wUz7lu5_eVs#sWw~5OUp{$Q[*Ax<zI1*a^$VQ\i5PCi^,
+    il_IpB>Ql;p@:^,Ksn]Xm!,{]B[!k7CH-#EJjB!Wu,_C@};V3j;;GB0$?Es;1QaB5[ePD2a$e;aa
+    1AGH|!D^s>R-sXwKxO#^$}O[-dlB+Wj2<!+$\X>[k{GupEs=EEPP]@vi>sn+HrumZQR[[TaJYmaY
+    wH!1MG_k?Z>W#\J7#]Eik\wD,GQWkjM+ozVZzr]3I?~p2s--OGU0\iQXxZzKB=TG}w--e'2R~7jm
+    T}~>T{Wrie<7*\~@i{QWlB?ve5_$V<s!5g5Y6[l#@GA^pIVZ[@+J]RLDQ#Iso<}3CoU]ZaznH<Ov
+    j{nr=zQzZD1T,[_*}~=RHw!8QH~?=T[kq57ka}D+uVkY~RWxEJDr-l,#57kY2HT1E\3WXrmlEs@a
+    e+E>sxB?2L]-5wfe_O_}-A>}Ens\ZVmGejOI3~_'5#J{G-7{l5}*se>Q]]pDR~V|#>sXu-a}g!Bn
+    xNj-nr3=n5ZU@C!Gz}KAx;OA@'n}!a@]<l#B+*:@CZE#\X!DK-_V_sm=~G,xUBs<_n1^IzuInQ[#
+    oB7;>wj[Q}@([[KDz=,aLj5@{|5T]a2{GjVWs@^pEDjip#D32]#aYvb,DZE-RCX![IHBou#f&Gm-
+    E0olQJ=^#{KrUC*Y<_vyvmBZ1#'k%eu$+_=^eL<9O!aBO^$!.,m[Y7sEI2]+nK{Hlhun<GS%s&<w
+    <u\+nCL&OG+H'ml,=>e{ZsxEe'iA,_]WIK33rDZB,{1pUQ-p1W1VUUzIi7;A~C$51@,YT+OK;]uQ
+    v;z_~=*[EZa7Y^{a_iewn{,kKIaj[?D*r{I@,Q?QTXXuw+>3'_#>oWQWOz5n$V@^n*Vv7B\Hi7Jr
+    UT>;0VV&^AlxVCVY~rp?G*eon1vjD>+Q0#U-B[e2W<7ri%/x=sW!DxkX7J<}VQ[viQ->1;@*;v+=
+    MK,+\-Ta^i*woIHzasU^jvUr<vEO<a[,rOO_[V*DQryoRJlj~x+T+}p$NNTAs#yOpn;oeG{YnCr{
+    e7nGEDDhmTK@D\KJ=Vp;h{7=jlnaG=$}C_3BHr_?X[lk!,px-RE\$bR@e@&Q1~H1O*$7S9[B_!Cu
+    X{,5\EAGDHCY=e1_@;-I-awzTX'k{?^@YrNYsK+^KBClCkps$;3}V5+'#<JAO}lwj*a[m@}9WE;R
+    eGQT6A{OEGE}#sW,[h93,+56OvuO<{oTG#jm|\>u[Bijuo^]^5*WO]Ixo[p?2m}#z\[r~Q['O#E'
+    7R'#B^;-]uR7$J}u[PHz.U^B]HAHvr22WL-w\siRDX1'i<j\#],=<l]pXR1HjoGl+];-^r~XTmka
+    Hl[2llp,wI2HenDG^U$JVoT'3C?1uZ7w$=rp}u]#W77~j>W7u-+7G#:}eT=bBW2;71?']B7J70vm
+    KT~jkCY\?vI?ueo7Zn>slrmQWpoQw[dj\soriO+urpmZVm]%g2>7wG?I5g}=[;oJ;@O%2jAlffg@
+    5W3$\+5N7i,?H'j2V*D7(G2H?&vJpBGkITTI_#G}Yzw{\H?5~<rnuWuYJ3yGpxU7g-G]B~n]>==j
+    IIW2>-DoID<>]!aRVL^{xlmH~=Cp^1W+[BBHv77zHDT+aGpxe=x|2a*r5}mG?'V,1^*?}=Ek_j*U
+    OuBHx~,+Bz$ie7'v+]u*s^a#oJ]BA^,2\U*u@AQ3[31zx3I=A'v-hV\,r^[xr^\nK~\mQH\~A/[E
+    +${CE~Y,,,-a[==#r$,o1En5*A^25DhZVWY\2$}L1Z<[VBZp7}amp{pD]'K~QVHY3w&!-B{px~~D
+    R#pxn<7WBe!7veA_KjnoxBp}[eI=DH[XCCnM_ja#$*Tjw[{@Gn+]DHZ\=T\B*ZA7W-x<D~^DAj5p
+    viI$^kVKuD@BwI{CjW<!wVB<D-zr|eDs]h#+ODPiR<+r]2#3IUTeT!I,7OVQYsEX,p=^^J@t_NQ$
+    @GVNI~p*}lJ{q*W-a>Gvx'j5K#E^*iXTavfCfC2>[\wvDekA=uXZY?>\omI@B@{AsYK;Y+pBHZa&
+    X{@pNB-7Z}r!#1{^3&*u{_lzzOYo^]J\Z<K{!H*3*!KGsYEkuYGN>nt[mnO.Vi1r0j_ABkQ~3;5}
+    {$rmK5AK@B>~TQB7w[!,TsS7HYpXT!1~V^u0eo'm.;C<<i5]<V6"*?CA*6pjTo/YB!?}]!ZUa{zz
+    =!lwaCZEjuT\E]prEi7}jGJexa<xD<ZQUvX,o1DV+<T-(?*jI!Y3eCo?kw=\GYwX1Sw<B'Q_ZmsR
+    O!5$Q_n*k{em!Z]XWmbbInxY?^U3@O1[EI]BI5s3vG,D"T\D+S]@,oR3['$,-X9>T,;~E*'O_/RO
+    o5[,1[yAE}U_3nQHEu?xEp5$xZ'GG?n3<{ZKBU3vs,,oKeGVzC!H<p[']ms}>{#oY3eI-=IV_J':
+    ^GpD7!VV73p]-e+A,Cl{${ercGk7W1kpTSMr2JJXAAe5H!'LeKa3\i{$aTTjOu!T5Ju5<\]]Bq+Q
+    mZdpwWoVeUxR!@T<^jx$R_#5De<};!v1k]+tV*#GQN'?7HC!JHvs*lo7Q]',!a5Z<rID]]'llJ}a
+    -u'!C3XXO'\pW-_~$$]!QenDA?z_Io~_E2u>aUr<a-W*wZ771Z7\<nr<_kG#e]J\ulzw\'IM9^$o
+    XnO[Z{<T_}]-5W$[w9{GJKy1!1QVmAI$E{#X<HzHXG+CpVR7JAxY@[?GI[x<<'aQWG-j;*GG!xsl
+    232~]HopUljM=u+VWC27WY?1xLDCO$/z+j[z!~ALG\Wo}TH35L~jWaVZI?ke*A#lBu7s{jxl~RjH
+    T@W_UEtz]3*$wa<oDHxV!{vAxv+zQ},5^vAN*_lOmCH{QQAuRwE!NUYGl^DVB\Xpxw$kp\DX$#}\
+    kD,vnl2![PGiY@*m=-UvA\?r7@[*{uAaYj@UuRxDUY({D'lVOD2swAQupRJEuw@P7.y]H2,|$]n[
+    M*<=EWG!w
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_encoder_8b10b_encode_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (encode_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_encoder_8b10b_encode_check"),
+                          .msg            ({msg,"Encoder output 10-bit symbol did not match encoded value of corresponding 8-bit input byte."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_encoder_8b10b_k_code_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (k_code_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_encoder_8b10b_k_code_check"),
+                          .msg            ({msg,"Encoder input K bit was asserted, but the corresponding 10-bit output symbol was not an encoded special character."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (RSVD_K_SPECIFIED == 1)
+          begin : assert_encoder_8b10b_reserved_k_code_check
+            A_qvl_encoder_8b10b_reserved_k_code_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (reserved_k_code_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_encoder_8b10b_reserved_k_code_check"),
+                              .msg            ({msg,"Encoder input K bit was asserted, but the corresponding 8-bit input byte was a reserved special control character."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (DISPARITY_CHECK == 1)
+          begin : assert_encoder_8b10b_disparity_check
+            A_qvl_encoder_8b10b_disparity_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (disparity_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_encoder_8b10b_disparity_check"),
+                              .msg            ({msg,"Running disparity was not correct."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_encoder_8b10b_encode_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (encode_fire_combo)));
+        M_qvl_encoder_8b10b_k_code_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (k_code_fire_combo)));
+        if (RSVD_K_SPECIFIED == 1)
+          begin : assume_encoder_8b10b_reserved_k_code_check
+            M_qvl_encoder_8b10b_reserved_k_code_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (reserved_k_code_fire_combo)));
+          end
+        if (DISPARITY_CHECK == 1)
+          begin : assume_encoder_8b10b_disparity_check
+            M_qvl_encoder_8b10b_disparity_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (disparity_fire_combo)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+`endif
+
+`include "qvl_encoder_8b10b_cover.svh"
+
+`qvlendmodule // qvl_eightb_tenb_encoder_checker.

@@ -1,0 +1,163 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+ 
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_xproduct_bit_coverage_assertions (
+                                                 active,
+                                                 clock,
+                                                 reset,
+                                                 areset,
+                                                 var1,
+                                                 var2,
+                                                 xbit,
+                                                 xpd_covered_fire,
+                                                 matrix_covered,
+                                                 coverage_matrix_bitmap,
+                                                 support
+                                                 );
+   
+
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = " QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+
+  parameter     MAX_BMAP_WIDTH = {19{1'b1}}; 
+  parameter	WIDTH1 = 1; 
+  parameter	WIDTH2 = 1; 
+  parameter     VAR1_ITEM_WIDTH = 1; 
+  parameter     VAR1_ITEM_COUNT = 1; 
+  parameter     VAR2_ITEM_WIDTH = 1; 
+  parameter     VAR2_ITEM_COUNT = 1; 
+  parameter	WIDTH3 = (WIDTH1 * WIDTH2); 
+  parameter	FUNC_W1 = (WIDTH1 == 1) ? 1: WIDTH1-1; 
+  parameter	WIDTH4 = (WIDTH1 == 1) ? 1 : (FUNC_W1)*(FUNC_W1); 
+  parameter	VAR1_IS_SPECIFIED = 0; 
+  parameter	VAR2_IS_SPECIFIED = 0; 
+  parameter	BOTH_VAR1_VAR2_SPECIFIED  = VAR1_IS_SPECIFIED && VAR2_IS_SPECIFIED; 
+  parameter	BTMAP_WIDTH = BOTH_VAR1_VAR2_SPECIFIED ? WIDTH3 : WIDTH4; 
+
+  parameter SUPPORT_WIDTH = 1; 
+  //parameter     
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input	 clock;    
+  input	 reset;    
+  input	 areset;   
+  input	 active;   
+  input [WIDTH1-1:0]  var1; 
+  input [WIDTH2-1:0]  var2; 
+  input xbit; 
+  output xpd_covered_fire;
+  output matrix_covered;
+  output[BTMAP_WIDTH-1:0] coverage_matrix_bitmap;
+  
+  reg forced_first_cov;
+  reg [WIDTH1-1:0]  old_var1; 
+  reg [WIDTH2-1:0]  old_var2; 
+  reg [63:0] values_checked;
+  reg xpd_covered_fire;
+  wire matrix_covered;
+  reg [BTMAP_WIDTH-1:0] coverage_matrix_bitmap;
+  reg [BTMAP_WIDTH-1:0] tmp_coverage_matrix_bitmap;
+  reg [BTMAP_WIDTH-1:0] mask_bitmap;
+  
+`ifdef QVL_ASSERT_ON
+  wire xpd_covered_fire_combo;
+`endif
+
+
+  assign matrix_covered = (coverage_matrix_bitmap == {BTMAP_WIDTH{1'b1}});
+
+`ifdef QVL_ASSERT_ON
+ assign xpd_covered_fire_combo =  ((active === 1'b1) && (reset === 1'b0)) &&
+                                  (xbit === 1'b1) && 
+                                  ((((BOTH_VAR1_VAR2_SPECIFIED ? cur_xpd_bitmap(var1,var2) : cur_cov_bmap(var1)) | coverage_matrix_bitmap)) === {BTMAP_WIDTH{1'b1}});
+`endif
+`protected
+
+    MTI!#s*mx1xaAEXYmmrxl3Y[w^j,7ul'_a$[OFf:V""kQN1D?^peEpZr'C'{~k+D3AVI$i?oo\[~
+    <zIk]}2<@BQ~{$^AzOG2I$aTjipQmjRle]D)Dn1p;vRi13'A^Gp@#=_=$Ys*nY/RAGkmDYo{{<?e
+    E7<L/ioijs?UQ,?[7{aV<b!<H^Ep-Z|:1na27{>HvvCZ2aVJX,->HaA?=7wpkVQ[aXB[CE#3?OJ_
+    CUaj/?D?]>zi-:r}D+xk5U$"FD#u-Zo$IBWpO}CX2Ao#om-G[Cs@'vo+,n>Bu(#<<jGmU7gQPKli
+    }CD+?5x<l'p;-+'n-z;2=l~paBw;o]BA2k'wa=Q+?ylnJmPEL\~<v^lQ7Kol;^H$*0,t~<^E@H57
+    Y+>kloi@}WI#Z>xH|I#-V*jxDBJ_p'~1*p)RiG2![v{:[NaA~GPgR~DwS5k~O"%#,n!}Z@V{l}Bj
+    Y277e;+'JmXNQk'Z7;Gi7En1GOxu7K]v<-$CYUDu=O[WkRYnRO[*~Da5Ua![lW^7>lr<2Q>@T[Gi
+    %iXnr&U'T[[{3<&[Y^VO*7*/ax-xvkX@3O^l7n$Q\#7;sEmew,>r}u}1UGXvAv;K<nV~YzkEQ5T'
+    Ca~KFs7{Q^Raxn'*]gEW[krG$x}U*D-Qp~!wBl$>V>'IWVL3rBR/&69WQe#=[_Zl#*-axW[X'#[-
+    aC--{{re[#52I>v:zr[[ilD_sXw^4}sipT$X-x;,ksZe1DE^#VR^B{Y7DSKX@Dk-@K=VOmUp{a@'
+    @Y@X~vYJzK@\V'BrwX&NyRf~*~[>D'~~*]k}\ZWeYv-${*OijI@,~o5$T~ZG?rT})lwD{,fvul;y
+    ?1227mpD$DYlN<VXJJ]@7<$;}rH1?27^>_V_<U>{T{=+<!_Okf[W\pZACI~U;Wzl,K(25+o!X~A[
+    *Z~FBuw=[?eCkUOHlD}w,F@TOW@*,RB21;Z7~;^-VojOH+5O1?vEe=A\QijD!2|OwJHeOY[HCC;?
+    $Y-e[m>$rOK,jQ>s#wWCu'{p~Yn~'3R<QU]ao{R]1~X]Z!^NZ+A@'VUo,K\=J'VT!^nlOC2,\2T*
+    'ZDGU7#r7<Y<lkZ?k.UoVl2TUB07zvIoXB!CsGCe>zo$EJOVr!zin}!@-<HTCjw-5r[jTU}+sk*J
+    es1r_?2Lp]vTg_T-CD9GG~}l*,@;\m~nOuB<*AGQ2!,srxYV'@{<}KHR;ZZB/p*DrNC12'vA,3Q\
+    C!{Ci#jiRK~,x\-'S["<IizQnaCGYEp0#[B~O!_v?$E'x@w'$z5n_KCvVGQ@\s-v!}si%iE[!EYV
+    J@*#T*EZlRpxY(~w5exXE-rCvT=#7s[\7_B\ImWI1~n7<'5'aTr^T_Wro;Wo+K5s;U81}TujDeZA
+    QprPOHujDRa=*Qv~+'ZEHIA3Z5z<ns37[W~Cye+EV#XYVx[?7KlEvww5T
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_xproduct_bit_coverage_covered_chk: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (xpd_covered_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_xproduct_bit_coverage_covered_chk"),
+                          .msg            ({msg,"All bits of the coverage matrix were covered."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_xproduct_bit_coverage_covered_chk: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (xpd_covered_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+`endif
+
+`include "qvl_xproduct_bit_coverage_cover.svh"
+
+`qvlendmodule
+

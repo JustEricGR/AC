@@ -1,0 +1,389 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of the Questa Verification Library (QVL).
+*
+* DESCRIPTION This monitor checks the PCI Express interface for compliance
+*             with PCI Express Base specification - Power management 
+*             specifications.
+*
+* REFERENCES  PCI Express Base Specification, Revision 1.0, July 22 2002.
+*             PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*             PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+* USAGE       This sub-module is instantiated in the top level PCI Express
+*             monitor module.
+*
+**************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_express_power_management_monitor (
+                                    reset,
+                                    areset,
+                                    tx_clk,
+                                    tx_level_select,
+                                    xmtd_pm_active_state_nak_tlp,
+                                    xmtd_pm_pme_tlp,
+                                    xmtd_pme_turn_off_tlp,
+                                    xmtd_pme_to_ack_tlp,
+                                    xmtd_tlp,
+				    xmtd_idle_os,
+                                    tx_dllp_pm_enter_l1_detected,
+                                    tx_dllp_pm_enter_l1_ended,
+                                    tx_dllp_pm_enter_l23_detected,
+                                    tx_dllp_pm_enter_l23_ended,
+                                    tx_dllp_pm_active_req_l1_detected,
+                                    tx_dllp_pm_active_req_l1_ended,
+                                    tx_dllp_pm_request_ack_detected,
+                                    tx_dllp_pm_request_ack_ended,
+                                    tx_detected_dllp_pkt_valid,
+                                    tx_ended_dllp_pkt_valid,
+                                    tx_num_outstanding_tlps,
+
+                                    rx_clk,
+                                    rx_level_select,
+                                    rcvd_pm_active_state_nak_tlp,
+                                    rcvd_pm_pme_tlp,
+                                    rcvd_pme_turn_off_tlp,
+                                    rcvd_pme_to_ack_tlp,
+                                    rcvd_tlp,
+				    rcvd_idle_os,
+                                    rx_dllp_pm_enter_l1_detected,   
+                                    rx_dllp_pm_enter_l1_ended,   
+                                    rx_dllp_pm_enter_l23_detected,
+                                    rx_dllp_pm_enter_l23_ended, 
+                                    rx_dllp_pm_active_req_l1_detected,
+                                    rx_dllp_pm_active_req_l1_ended, 
+                                    rx_dllp_pm_request_ack_detected, 
+                                    rx_dllp_pm_request_ack_ended,
+                                    rx_detected_dllp_pkt_valid,
+                                    rx_ended_dllp_pkt_valid,
+                                    rx_num_outstanding_tlps,
+				    pm_checks_disable,
+
+				    xmtd_pm_enter_command_flag,
+				    rcvd_pm_enter_command_flag
+                                    );
+
+  // Parameter declarartions
+
+  parameter Constraints_Mode = 0;
+  parameter PCI_EXPRESS_DEVICE_TYPE = 0;
+  parameter DOUBLE_DATA_RATE = 0;
+  parameter MAX_LINK_WIDTH = 1;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // PCI_EXPRESS_GEN2 code start
+  parameter PCI_EXPRESS_GEN2 = 0;
+  wire [31:0] pw_PCI_EXPRESS_GEN2 = PCI_EXPRESS_GEN2;
+  // PCI_EXPRESS_GEN2 code end
+
+  // Input port declarartions
+
+  input reset;
+  input areset;
+  input tx_clk;
+  input tx_level_select;
+
+  input xmtd_pm_active_state_nak_tlp;
+  input xmtd_pm_pme_tlp;
+  input xmtd_pme_turn_off_tlp;
+  input xmtd_pme_to_ack_tlp;
+  input xmtd_tlp;
+  input [MAX_LINK_WIDTH - 1:0] xmtd_idle_os;
+  input tx_dllp_pm_enter_l1_detected;
+  input tx_dllp_pm_enter_l1_ended;
+  input tx_dllp_pm_enter_l23_detected;
+  input tx_dllp_pm_enter_l23_ended;
+  input tx_dllp_pm_active_req_l1_detected;
+  input tx_dllp_pm_active_req_l1_ended;
+  input tx_dllp_pm_request_ack_detected;
+  input tx_dllp_pm_request_ack_ended;
+  input tx_detected_dllp_pkt_valid;
+  input tx_ended_dllp_pkt_valid;
+  input [11:0] tx_num_outstanding_tlps;
+
+  input rx_clk;
+  input rx_level_select;
+  input rcvd_pm_active_state_nak_tlp;
+  input rcvd_pm_pme_tlp; 
+  input rcvd_pme_turn_off_tlp;
+  input rcvd_pme_to_ack_tlp; 
+  input rcvd_tlp; 
+  input [MAX_LINK_WIDTH - 1:0] rcvd_idle_os;
+  input rx_dllp_pm_enter_l1_detected; 
+  input rx_dllp_pm_enter_l1_ended; 
+  input rx_dllp_pm_enter_l23_detected; 
+  input rx_dllp_pm_enter_l23_ended; 
+  input rx_dllp_pm_active_req_l1_detected;
+  input rx_dllp_pm_active_req_l1_ended; 
+  input rx_dllp_pm_request_ack_detected;
+  input rx_dllp_pm_request_ack_ended;
+  input rx_detected_dllp_pkt_valid;
+  input rx_ended_dllp_pkt_valid;
+  input [11:0] rx_num_outstanding_tlps;
+  input pm_checks_disable;
+
+  output [2:0] xmtd_pm_enter_command_flag;
+  output [2:0] rcvd_pm_enter_command_flag;
+  
+  // Register declarations 
+
+  reg [2:0] rcvd_pm_enter_command_flag_posedge;
+  reg [2:0] rcvd_pm_enter_command_flag_negedge;
+  reg rcvd_pme_turn_off_flag_posedge;
+  reg rcvd_pme_turn_off_flag_negedge;
+  reg rcvd_pme_to_ack_flag_posedge;
+  reg rcvd_pme_to_ack_flag_negedge;
+  reg rcvd_pm_request_ack_flag_posedge;
+  reg rcvd_pm_request_ack_flag_negedge;
+  reg r_rcvd_pm_active_state_nak_posedge;
+  reg r_rcvd_pm_active_state_nak_negedge;
+  reg r_rcvd_pme_to_ack_tlp_posedge;
+  reg r_rcvd_pme_to_ack_tlp_negedge;
+
+  reg [2:0] xmtd_pm_enter_command_flag_posedge;
+  reg [2:0] xmtd_pm_enter_command_flag_negedge;
+  reg xmtd_pme_turn_off_flag_posedge;
+  reg xmtd_pme_turn_off_flag_negedge;
+  reg xmtd_pm_request_ack_flag_posedge;
+  reg xmtd_pm_request_ack_flag_negedge;
+  reg xmtd_pme_to_ack_flag_posedge;
+  reg xmtd_pme_to_ack_flag_negedge;
+  reg r_xmtd_pm_active_state_nak_posedge;
+  reg r_xmtd_pm_active_state_nak_negedge;
+  reg r_xmtd_pme_to_ack_tlp_posedge;
+  reg r_xmtd_pme_to_ack_tlp_negedge;
+
+  reg r_xmtd_idle_os_posedge;
+  reg r_xmtd_idle_os_negedge;
+  reg r_rcvd_idle_os_posedge;
+  reg r_rcvd_idle_os_negedge;
+
+  wire r_xmtd_idle_os;
+  wire r_rcvd_idle_os;
+
+  // Wire declarations
+
+  wire [2:0] rcvd_pm_enter_command_flag;
+  wire rcvd_pme_turn_off_flag;
+  wire rcvd_pme_to_ack_flag;
+  wire rcvd_pm_request_ack_flag;
+  wire r_rcvd_pm_active_state_nak;
+  wire r_rcvd_pme_to_ack_tlp;
+
+  wire [2:0] xmtd_pm_enter_command_flag;
+  wire xmtd_pme_turn_off_flag;
+  wire xmtd_pme_to_ack_flag;
+  wire xmtd_pm_request_ack_flag;
+  wire r_xmtd_pm_active_state_nak;
+  wire r_xmtd_pme_to_ack_tlp;
+
+  wire rcvd_pm_enter_l1_dllp;
+  wire rcvd_pm_enter_l23_dllp;
+  wire rcvd_pm_active_req_l1_dllp;
+  wire rcvd_pm_request_ack_dllp;
+
+  wire xmtd_pm_enter_l1_dllp;
+  wire xmtd_pm_enter_l23_dllp;
+  wire xmtd_pm_active_req_l1_dllp;
+  wire xmtd_pm_request_ack_dllp;
+
+  wire [2:0] xmtd_pm_enter_command;
+  wire [2:0] rcvd_pm_enter_command;
+
+  wire downstream_port;
+
+`protected
+
+    MTI!#?[D]ka3^KX@XvvpkEU$T>},v"se}+i'P"N("}3J[to^ji\.]B{@CT12GB5}|1r@_~=ZQUX\
+    rEC_?,PXR]Wm$>X'2VYm-UroTI<[T,_]VZW|=(^k-Vi1?BP[U;7ZQ$2q7,{*=kn?\1_{Te}E7ksG
+    Ho+T\5TOsDl{kplsA1mRvAV=S1OjoXp*ZaXy\Gx^AEZ,DmE+evs#XE}ioBxw[!Vvpa$mO_BD+5Uo
+    #e3@+7Vq=A;RKn1[H7kA97BA^?]<B=\=Wm7X<s<n7OXm#DJZjs?+_RZWK_~x@r!{Cq{ap*5pnC^j
+    7QJ'jKDs[BxZt+1>~jxw5?v!}B=+-1{Uzw>*C0n5}@h+UYnUskmv@*jB(?rlo*+2B-1I@,2e1tI-
+    2pA1e1^QvW18UHv+URa$SHX[+e[U#I#u\U'?aGW}$m=+{rI#K/A<7[6x^x$^-r_p3]Q|7KY_)wem
+    #0
+`endprotected
+  //---------------------------------------------------------------
+  // Multiplexers
+  //---------------------------------------------------------------
+
+  assign xmtd_pm_enter_command_flag = (tx_level_select) ?
+                xmtd_pm_enter_command_flag_posedge :
+                xmtd_pm_enter_command_flag_negedge;
+
+  assign xmtd_pme_turn_off_flag = (tx_level_select) ?
+            xmtd_pme_turn_off_flag_posedge :
+            xmtd_pme_turn_off_flag_negedge;
+
+  assign xmtd_pm_request_ack_flag = (tx_level_select) ?
+            xmtd_pm_request_ack_flag_posedge :
+            xmtd_pm_request_ack_flag_negedge;
+
+  assign xmtd_pme_to_ack_flag = (tx_level_select) ?
+            xmtd_pme_to_ack_flag_posedge :
+            xmtd_pme_to_ack_flag_negedge;
+
+  assign rcvd_pm_enter_command_flag = (rx_level_select) ?
+                rcvd_pm_enter_command_flag_posedge :
+                rcvd_pm_enter_command_flag_negedge;
+
+  assign rcvd_pme_turn_off_flag = (rx_level_select) ?
+            rcvd_pme_turn_off_flag_posedge :
+            rcvd_pme_turn_off_flag_negedge;
+
+  assign rcvd_pm_request_ack_flag = (rx_level_select) ?
+            rcvd_pm_request_ack_flag_posedge :
+            rcvd_pm_request_ack_flag_negedge;
+
+  assign rcvd_pme_to_ack_flag = (rx_level_select) ?
+            rcvd_pme_to_ack_flag_posedge :
+            rcvd_pme_to_ack_flag_negedge;
+
+  assign r_xmtd_pm_active_state_nak = (tx_level_select) ?
+            r_xmtd_pm_active_state_nak_posedge :
+            r_xmtd_pm_active_state_nak_negedge;
+
+  assign r_rcvd_pm_active_state_nak = (rx_level_select) ?
+            r_rcvd_pm_active_state_nak_posedge :
+            r_rcvd_pm_active_state_nak_negedge;
+
+  assign r_rcvd_pme_to_ack_tlp = (rx_level_select) ?
+	    r_rcvd_pme_to_ack_tlp_posedge :
+	    r_rcvd_pme_to_ack_tlp_negedge;
+
+  assign r_xmtd_pme_to_ack_tlp = (tx_level_select) ?
+	    r_xmtd_pme_to_ack_tlp_posedge :
+	    r_xmtd_pme_to_ack_tlp_negedge;
+
+  assign r_xmtd_idle_os = (tx_level_select) ?
+            r_xmtd_idle_os_posedge :
+            r_xmtd_idle_os_negedge;
+
+  assign r_rcvd_idle_os = (rx_level_select) ?
+            r_rcvd_idle_os_posedge :
+            r_rcvd_idle_os_negedge;
+
+  //----------------------------------------------------------------
+
+  assign rcvd_pm_enter_l1_dllp =
+       ((rx_detected_dllp_pkt_valid & rx_dllp_pm_enter_l1_detected) ||
+        (rx_ended_dllp_pkt_valid & rx_dllp_pm_enter_l1_ended));
+
+  assign rcvd_pm_enter_l23_dllp =
+       ((rx_detected_dllp_pkt_valid & rx_dllp_pm_enter_l23_detected) ||
+       (rx_ended_dllp_pkt_valid & rx_dllp_pm_enter_l23_ended));
+
+  assign rcvd_pm_active_req_l1_dllp =
+       ((rx_detected_dllp_pkt_valid & rx_dllp_pm_active_req_l1_detected) ||
+       (rx_ended_dllp_pkt_valid & rx_dllp_pm_active_req_l1_ended));
+
+  assign rcvd_pm_request_ack_dllp =
+       ((rx_detected_dllp_pkt_valid & rx_dllp_pm_request_ack_detected) ||
+       (rx_ended_dllp_pkt_valid & rx_dllp_pm_request_ack_ended));
+
+  assign xmtd_pm_enter_l1_dllp =
+       ((tx_detected_dllp_pkt_valid & tx_dllp_pm_enter_l1_detected) ||
+       (tx_ended_dllp_pkt_valid & tx_dllp_pm_enter_l1_ended));
+
+  assign xmtd_pm_enter_l23_dllp =
+       ((tx_detected_dllp_pkt_valid & tx_dllp_pm_enter_l23_detected) ||
+       (tx_ended_dllp_pkt_valid & tx_dllp_pm_enter_l23_ended));
+
+  assign xmtd_pm_active_req_l1_dllp =
+       ((tx_detected_dllp_pkt_valid & tx_dllp_pm_active_req_l1_detected) ||
+       (tx_ended_dllp_pkt_valid & tx_dllp_pm_active_req_l1_ended));
+
+  assign xmtd_pm_request_ack_dllp =
+       ((tx_detected_dllp_pkt_valid & tx_dllp_pm_request_ack_detected) ||
+       (tx_ended_dllp_pkt_valid & tx_dllp_pm_request_ack_ended));
+
+  assign xmtd_pm_enter_command =
+          {xmtd_pm_active_req_l1_dllp, xmtd_pm_enter_l23_dllp,
+           xmtd_pm_enter_l1_dllp};
+
+  assign rcvd_pm_enter_command =
+          {rcvd_pm_active_req_l1_dllp, rcvd_pm_enter_l23_dllp,
+           rcvd_pm_enter_l1_dllp};
+
+  assign downstream_port = (PCI_EXPRESS_DEVICE_TYPE === 4 ||
+                            PCI_EXPRESS_DEVICE_TYPE === 6);
+
+  //-------------------------------------------------------------------
+ 
+`protected
+
+    MTI!#}wHHQuC}#xKlOXznCwn\R;mK*oTpI?p[=#o*rFtJYK}GH~OIVpH#Tr@{+;$xh|O?@e#alp{
+    R#,.,N>wZXL]zm-wDQ3;UuaRLX>_=z1#UloV;#'OvlmW__I<uhIs#=K<BO$e{VTUY=E<T_YKD~3X
+    ,i[~{Tz}Q'u5V^\3_+l~,VRZe2VKK[<X'=#$w$]o;]1m][=ZGWa{3C{_<<xY$7^XwY*BQEfV,<Tm
+    {>an5wZ<'.M=WJ.G*-!@j[@~X~vl,?pO~rODUjz=ddTr{]j\!}73V}ieXEnCY;1k+W#R!J1x5rGz
+    R_YBe5pAookA{VV@{mjGR32Ul5cHE7o^>x-R^V#@,}7n[JrEGW[Djs@!Rup<{RDsYm+pDf*m;^l@
+    ,^WUluURk1i\r@7QO?XNkX[G-nG;mO2nRmBp?E[nr_-^?n;B!U;{#IU,BJUu(=XrV5qBB!@OiX;E
+    XCY+-WRzl,]k-rX4k_j}f:&Os3BYv}C['^AjC7T@Do>Yl2UIH=Ia]s@WVjuH\B@?Q;zRHD}qmajv
+    B1rlRr*Y\nZ-mXX]oaV5IvaBIwnQZl-;Grk1*+XC'Z=*Wr}'6xJvEHr;x[Xz1'w,>2*k@]$\]2HH
+    3b'[a*[Ra{7xTZV^}UT,~{\uVa+1jj;,ej5K'T5^i}]Q$B;V}2H$]VDu,II-x[$<mR7;B5+AwVoo
+    ;ea-vj!T_><V?5o!T[Z_ar'Hr!Ho2{$nU?-*E31mjHI]Ou7]BC!>EvZCxECH<En[H$R=avei\BAY
+    E7We52,2n]T+3\S}m\_Y;nQq?AKzECeYJ}AG3>!]:+l+AqL#avVbm$;upZ\]Z5]Asi7x!RpW[>Ou
+    *xZ!7+{,rR~D>pi}>V]'iQ~#(z}T<z$2+mEVo;a\n<Xuj{rZ[6pIexjVs1zE}oOzU^jX1^-aE\Gl
+    nW?a}7F,Y]sGo@Os*kj-U^Us#lpO!m'jD}>{{>weHT==Yx$knJ#+TOz'$p3^eHk8oU*o[n~oM^4o
+    CvRv+~Csm_Y--+QjenI+,,C1s;GOeCxK'UI(E-}u7JZw*,u@iI27LX^+-,-V*RIenQ-5YZpJ7=w\
+    $V,YsjvY#Kwv}O$GE"wr,#?>],K}{zAGp*lO,7&-C\7m5'G#j#-R"ae1Q]xOZCC7>IalQF=R]Yv\
+    xnUr{7~,wx'wnDRQJwE{rV3V?}|';e_'[mIGG!\x}@GljI_}U$~\YIERO!U#-~7p+jojT>@1}OBv
+    zok*;I'&;Ye]kv@@OYAZW-2;C$][12-pW^E,KS_UGTM5DJ1Us>?naQ#kS#skzL$oO_wvo$&AO{o]
+    l[7_^z]e<5Rrz57Ro5JeYXu=+]2H-2w>A<5h|n<CY@sUmKo<_1=X$:\=n>GR]Y^jCQg!A1w<\_+\
+    n;1~Y35;RpO_\KjP:Ka$]b~Xm^[EnXo1{]TGRv#Xj_5DTu7AQ-Nd'7Ao[i5JKITpQxEsK_unL]aV
+    n'O_BHw31\i>HK7QOI>[1Op!eh@qht5_D?7nQ,5$'iEr,*LYz@xB2W]0xa_X[]l_tDuXn{^jV5O_
+    [?a2pj}u-i7Tv*Zvo{5^$Do\]=]xD,Xw+_l=vn<w!gC2+_Wo-u3DQRBkZZn}r}]$,Tx}U_Z=!Q1_
+    <B2OGU^2~\RJ3JDiBUU[?eDJRBWE{w\{HCo@~pw$Z-\5X2x-n7}K$W-x=vr{\uHAn*1|,j5#6s@m
+    EUI3X]^wArY*IT1>Yl;Apx]x\r<'V3v>Br*nE[z,zr@B+OHRY=j$52^D,7\Ern{m2V1,$X^$7Jrv
+    X6[_'Z#wYQM|8aAWKAroI
+`endprotected
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_pci_express_power_management_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_power_management_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_power_management_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_power_management_monitor
+`include "zi_cw_pci_express_power_management_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule

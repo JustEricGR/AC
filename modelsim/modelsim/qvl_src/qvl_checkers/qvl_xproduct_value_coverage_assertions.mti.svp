@@ -1,0 +1,202 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+ 
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_xproduct_value_coverage_assertions(
+                                                   active,
+                                                   clock,
+                                                   reset,
+                                                   areset,
+                                                   var1,
+                                                   var2,
+                                                   val1,
+                                                   val2,
+                                                   xval,
+                                                   xpd_covered_fire,
+                                                   matrix_covered,
+                                                   coverage_matrix_bitmap,
+                                                   support
+                                                   );
+   
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = " QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+
+  parameter MAX_BMAP_WIDTH = {19{1'b1}}; 
+  parameter VAR1_WIDTH = 1; 
+  parameter VAR2_WIDTH = 1; 
+
+  parameter MIN1 = 1; 
+  parameter MIN1_IS_SPECIFIED = 0; 
+  parameter MAX1 = 1; 
+  parameter MAX1_IS_SPECIFIED = 0; 
+
+  parameter MIN2 = 1; 
+  parameter MIN2_IS_SPECIFIED = 1; 
+  parameter MAX2 = 1; 
+  parameter MAX2_IS_SPECIFIED = 1; 
+
+  parameter VAL1_ITEM_WIDTH = 1; 
+  parameter VAL1_ITEM_COUNT = 1; 
+  parameter VAL1_WIDTH = VAL1_ITEM_WIDTH*VAL1_ITEM_COUNT;      
+  parameter VAL1_IS_SPECIFIED = 0; 
+
+  parameter VAL2_ITEM_WIDTH = 1; 
+  parameter VAL2_ITEM_COUNT = 1; 
+  parameter VAL2_WIDTH = VAL2_ITEM_WIDTH*VAL2_ITEM_COUNT;      
+  parameter VAL2_IS_SPECIFIED = 0; 
+
+  parameter VAR1_MAX = MAX1_IS_SPECIFIED ? MAX1 : {VAR1_WIDTH{1'b1}};
+  parameter VAR1_MIN = MIN1_IS_SPECIFIED ? MIN1 : 0;
+  parameter BIT_VEC1_WIDTH = VAL1_IS_SPECIFIED ? VAL1_ITEM_COUNT :
+                             (VAR1_MAX - VAR1_MIN + 1);
+  parameter VAR2_MAX = MAX2_IS_SPECIFIED ? MAX2 : {VAR2_WIDTH{1'b1}};
+  parameter VAR2_MIN = MIN2_IS_SPECIFIED ? MIN2 : 0;
+  parameter BIT_VEC2_WIDTH = VAL2_IS_SPECIFIED ? VAL2_ITEM_COUNT :
+                             (VAR2_MAX - VAR2_MIN + 1);
+
+  parameter BITMAP_WIDTH = BIT_VEC1_WIDTH*BIT_VEC2_WIDTH; 
+
+  parameter SUPPORT_WIDTH = 1;          
+
+  input [SUPPORT_WIDTH-1:0]  support;   
+
+  input	 clock;    
+  input	 reset;    
+  input	 areset;   
+  input	 active;   
+  input [VAR1_WIDTH-1:0]  var1; 
+  input [VAR2_WIDTH-1:0]  var2; 
+  input [VAL1_WIDTH-1:0]  val1; 
+  input [VAL2_WIDTH-1:0]  val2; 
+  input xval;               
+  output xpd_covered_fire;
+  output matrix_covered;
+  output[BITMAP_WIDTH-1:0] coverage_matrix_bitmap;
+  
+  reg forced_first_cov;
+  reg [VAR1_WIDTH-1:0]  old_var1; 
+  reg [VAR2_WIDTH-1:0]  old_var2; 
+  reg [63:0] values_checked;
+  reg xpd_covered_fire;
+  wire matrix_covered;
+  reg [BITMAP_WIDTH-1:0] coverage_matrix_bitmap;
+  reg [BITMAP_WIDTH-1:0] tmp_coverage_matrix_bitmap;
+
+  reg [BIT_VEC1_WIDTH-1:0] var1_bit_vec;
+  reg [BIT_VEC2_WIDTH-1:0] var2_bit_vec;
+  reg [VAL1_WIDTH-1:0]  local_val1; 
+  reg [VAL2_WIDTH-1:0]  local_val2; 
+  integer i,j;
+
+`ifdef QVL_ASSERT_ON
+  wire xpd_covered_fire_combo;
+`endif
+
+
+  assign matrix_covered = (coverage_matrix_bitmap == {BITMAP_WIDTH{1'b1}});
+
+`ifdef QVL_ASSERT_ON
+ assign xpd_covered_fire_combo =  ((active === 1'b1) && (reset === 1'b0)) &&
+                                  ((var1 !== old_var1) || (var2 !== old_var2) || (!forced_first_cov)) &&
+                                  (xval === 1'b1) && 
+                                  (((cur_xpd_bitmap(var1_bit_vec,var2_bit_vec)| coverage_matrix_bitmap)) === {BITMAP_WIDTH{1'b1}});
+`endif
+`protected
+
+    MTI!#?+~XYp#jH_Aw5{~G3Y2U[2ZOQI{T'*^s=~QQ#r"?_\'Y^i+YaAH]A,iKC]C_7Cz5sjTVnHK
+    9EABWm{B-o_nR=Y~GBp*^ZY1E[m-l?\iABVU]'@ZZ*]W<X_{O_<G[1nK3^5}r}1'=ijD}us{lUo\
+    !_}~ae^2[lv[HSDo>s|0&madU77][GZV73oo\XeG<x+\w$?q-EsEa7X!<ei{I'3Al!TT=~}CXrkG
+    pmAumDrkQy1&}nQHL}bTA;BpdGIx;YplTgQs}BLGw<*zTII[rw=35!EwYvnNlT5uw\1*K1l\_DCi
+    }-SEue*OV'r\DTkBOv?\_e#I;IZE[C~H+;G$5~[K(ns@k,w-V!-Y2;9B^@Omwv3BR=JGCn{]3RTH
+    n^kBf3TIiaUl*aQ]!'^:1KYTu=\xJ=5H\l{2rvBZY,lUx0ZC;7aH~HAjavevwksHlzo?jrF[;T\&
+    8@YXw}%-'CB4Xwoit4}T3+}m\YhJ1e]TaexRTZm~nWuG~7v\2$-{sD>!Da1Uj[@@Oe>i>pr$RTx?
+    '&]m~>e!O1]juVkI@7w,UUF*#n3G3@Bl$J@^eG^/sw<<Nq]xrG6NiwY#qO_YJf'[l*w\U_B!]p*j
+    ~E0:eeK\ZzCne9uAx5BlRian{;s_~<3j!^E-JKa^\]u]Z-6X6KUK_O!~mmY<o72!?vG]#^@RDRi^
+    Ai57^1}QO[']ppnZ~xoR12O;l-[kV1'T+qE?!B/"_&;+-sq\<;aG3Bo|e*5YHDjk~&J1E2aV+v(#
+    Ca,2$#<_?}si\!,G,YQVHKB>N3lB7v23$j*jIr<5lTo-RR@^YB{Y]~'{Ta$<*Y;~e3H*#LM_=|4G
+    E}@G;T2ylW^rbHG;T\>+[L$\Ynjz+5Q$u$[lrTx;*Cvroi4V8pZGrt)^'7W>ruoBb1l!a,AK$R=7
+    w>Bp<'WU]vpD7G-eK%p#QJ55ZZT]1rjHRASZTBr@ns^"$o'C]ZV]VUH=i'l]uVY!F/eXT7X=o'}D
+    *^@z{lTvliA'1@ABA}mR*~xQBi0p<xeA,YVzK>V[u5<~s>\[Ujw,T\Z,Ii~_?YTpZwW[+3B'nv><
+    OT,^xo_I{pjmjouKll[*\jeAHCrilT],~>ppPlA,CM}RAU[GW~3GV[Wn>V~eBBEGU\J<sl#aEp,p
+    3Cw\wBzK--[xOVW5a>bDQ_2w=]CS+Bl]/]e;XJ_RO>*}Ia^V2xcUBrDSnD!_1\>R=1UX$pI'N[]J
+    DprKB#oep{$@[~CD2e[jD?1]YJpIK[RC]'}jmX{}un1U#@nQ]kwl1R~E'5RRXp'2U=Z3Ilzza)y$
+    r$V$>!UpOVXY_Ru1+w3{eaW=#BXw[~Zn5}}BozD^a!>^2_aO]#@RHjlw*ZsN2x7k*#<v@sVj=*m1
+    SH-al]]J@2*kQB^~$*3X,s+}$*-EE]BoWZl^uis@p5m5xG'TzPRpwGX-'U#Su[!E07k3VYFs_33d
+    m*tDiUX=iD2aInjICn<>rX=Qp[~}VD-W^x1EnvB#{B_'G!l|TC?Cp4mD#5Y-$Ou'ZYZ^{UCO>}Gv
+    n!eJ]r=ZBu#zAvn[lidn\nnv<nY
+`endprotected
+
+reg [VAR1_WIDTH-1:0] new_var1;
+reg [VAR2_WIDTH-1:0] new_var2;
+
+`protected
+
+    MTI!#0J'kxhOE<s-\vzi+7{~eEu3nmCVnGm=&^@A{NE3nmNkX@X<_v*![i!!TBj=U!Z1_Ym\<X,^
+    ^,^8oQN~H<mkrX=Rnm;JU_{~jpJ=@TDYsA["!>-Cqv;AvvOlij3up{^H@Yi
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_xproduct_value_coverage_covered_chk: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (xpd_covered_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_xproduct_value_coverage_covered_chk"),
+                          .msg            ({msg,"All bits of the coverage matrix were covered."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_xproduct_value_coverage_covered_chk: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (xpd_covered_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+`endif
+
+`include "qvl_xproduct_value_coverage_cover.svh"
+
+`qvlendmodule
+

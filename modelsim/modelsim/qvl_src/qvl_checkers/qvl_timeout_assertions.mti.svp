@@ -1,0 +1,236 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_timeout_assertions (clock,
+                              areset,
+                              reset,
+                              active,
+                              zivar,
+                              val,
+                              timeout,
+                              timeout_fire,
+                              values_checked,
+                              fastest_value_change,
+                              slowest_value_change,
+                              val_changed_at_max,
+			      support,
+			      fire_count
+                             );
+   
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   //Instantiation dependent parameters
+   //WIDTH is the number of bits in the checked register
+   parameter WIDTH = 2; 
+   parameter max_possible_val = `BIGGEST_INTEGER_32_BIT;
+   parameter SMALLSIZE = 31;
+   parameter VALWIDTH = 1; 
+
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   parameter CW_FOR_FPGA = 0;
+   parameter VAL_CHG_W = CW_FOR_FPGA ? 32 : 64;
+
+   input [VALWIDTH - 1:0] val; 
+   //Checker clock
+   input clock; 
+   //Checker synchronous Reset
+   input reset; 
+   //Checker asynchronous Reset
+   input areset; 
+   //Checked register value
+   input [WIDTH-1:0] zivar; 
+   input timeout; 
+   input active; 
+
+   output timeout_fire; //Fire signal asserted when violation is seen
+   output [STAT_CNT_WIDTH-1:0] values_checked; 
+   output [VAL_CHG_W-1:0] slowest_value_change; 
+   output [VAL_CHG_W-1:0] fastest_value_change;
+   output [STAT_CNT_WIDTH-1:0] val_changed_at_max;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+   
+
+   wire illegal_check = ((val < 1) || (val > max_possible_val));
+   wire var_changed; //Turns on when the value of zivar changes 
+   wire  val_changed;
+   wire val_set;
+   wire flag_xz = ((^{zivar,val}) === 1'bx);
+
+   reg [WIDTH-1:0] last_var; //Holds previous state value of checked register
+   reg [VALWIDTH-1:0] last_val;
+   reg timeout_fire; //Asserted when violation is found
+   reg fast_value_flag; 
+   reg last_areset;
+   reg last_reset;
+   reg last_active;
+   reg [STAT_CNT_WIDTH-1:0] values_checked; //Statistic, the total number of loads
+   reg [VAL_CHG_W-1:0] slowest_value_change; //Maximum cycles seen between value changes
+   reg [VAL_CHG_W-1:0] fastest_value_change; //Minimum cycles seen between value changes
+   reg [STAT_CNT_WIDTH-1:0] val_changed_at_max; /*Value changed exactly at the specified                                         clock cycle*/ 
+   reg [31:0] cycles_past; //Number of cycles since last zivar change
+   reg first_val;
+
+`protected
+
+    MTI!#l$Z}_xTk$[_oCxZU->X_rI#m@xm{RpGG|)lA]i|%n,kj=Z[G_uIZh=J\O\G1vYI^i=iz\Ru
+    a7@zG@.}12K|vO]xI#+#]2D*WBG}OriwxkTO[$[@T[{+UDU\a<uskD?~Us<v,?b\Gur~};eg}!xR
+    ~em_RxmVS{jAJcmOHB")o?oi~$W#CiC2T$\w@{pK!XYp'~Ke=u*1V]mn5U(.2YaQAwZ+iR##I|O5
+    EXo+B_s2JRjv-*^exClBmmnCGJgd}lRV+Y12Ou;[Xr}e{^sIp'BG&;{u\-Uam{H5*Ia@Xk}J<rZZ
+    !zmH^oCQnKO,nD@3K<a<EKU$O*rDW'xE^HU]i[2D*2v#pkrx^Y2C{NSz!J!4pZo?T<e5E!\,Dr\1
+    *@rW(],YrkUD[wX>Qz~zE1OO^CV3B[}W1aHOHjxH3+LJ<HrW]3#Y?R>Q}'vgvK!<rtOeY>(CQn[-
+    -]KMarH$~B3zyiRBCw$'uBwxK5;D\CHlUk\lReO@Aj$'TX_vQeBA^jn<e;|<XC@Ye-7Q+rzzR}K,
+    7I\TsJ-^m<C2\jl!RC_Ow,=QO;nT+Capk_}[T<UACjzX$Cj[w]=kTm*s3n7eCw-m]*i}uGl=IEB{
+    C,'3,vnDKGEQ{nmnE?Ar1=_ia;HvkssTGTl\aTRrZ$*#jDQRJp3<[D'o!RDxX7D&7!wYQHo*ODTv
+    iw<j}J~UYj{Kr-33R*=I=1AU7x>U(iEa3|x,!@?Ewuexn~}pXesN|^V=B^EQAQ1H1}7]-Ca[,"?6
+    OaWV]u~a7Eim@XZ?ueJx?[jR:,o@Gx@'2}xaEEC,[BT<'rBiKw{,$}7IJ$7a[(HsCG3CaRvK7,=x
+    \!O7-]:'_p3Rszi._1W~Rbz^iW1^a}e\_wlkB;En}\nz^uIvu*7#!p<wA^v^<m6Wl'$}r^epp'om
+    <^w#<'-YYV_u<[+^@z*!xJ3C'X'P-HXlY<*xLDJJ3E[D]r~Q7zxwV=uBCLQDOvF^P5Rr@>1ex"uB
+    2uA'#-es!a!XpQ{5C{)=mEn=3z^avC_,VD1lie@YA*jesY~*\E{\{^~-}>};x;TOue}DB]TN(j_;
+    >^!W#}VEW\'-]2_~QhB+BTOVR~GuW$CLGuemJlnvl<KCwp7A7@ElIZj<}m;79X7@k<DJ#~CAo<hK
+    p5\!x*=~_-71>3H}=k[$@<Op@2Z7J;BB3j}jKG,/Y-V#Y5=[_[[!H}[#sJT^|+Ya>CK-[9vt[,uI
+    K$@#z1aJeO5=KI]!DO!a(j*Vj=W*1ZoX\Qi3o[QO;=<n7;D<Tia{l]Cw^f3jQv_R7Go+Y\^w2rEJ
+    pR=plCBTTA^Ou#TnxaOxez5Euz3-!UY@KwIJ@Au}oijvl#VW\K7Qszxv-rRk$iwr_ZD{'ewUJ$sD
+    $Bu_Il|./pUz\@oe!naU+,mxHegC$}W1QV-<T@,a+~pb2Y[[}H3ZB@D<is~nk]]D+U7*7@*Oo$]Z
+    OQv@I@=oBvBJ1W@^Cr][,{BmQE,O{=AR]m_B^',-.H[xl5zo5lnrXka@#D;!7->Ri$K$<s}{D?72
+    IaC*,'*>=CoU?;]oOkCW_45~^IRX,^ke[^)pIjR2sl?_+}kB+Z7lm~sZrABU>B{s'3YYWW@A7-^]
+    {K'hlmsl6=$ael}DX&Qo3BCKs5~\C@Te~7VIE{H1,]HDeCK+A!,D\~HTViEnYk7W[#}>-CBW*pVK
+    eH}W-XCTeX>7$
+`endprotected
+  
+   assign var_changed = (zivar !== last_var);
+   assign  val_changed = (val !== last_val);
+   assign val_set = (last_areset || last_reset ||(~last_active));
+`protected
+
+    MTI!#+xx=6JQJX,x1G0<rHo}>oj&!lU+a}B^Fq/FF:Pa|DeK{|E>nriXQ$[[ku$JR;?7Ruq=I+R}
+    lN>U;_GB$o1?Q+=Zj-D_WnY\w[8ASlVVrrAf5Jr~{}+U['H1A'J#Yp>l'#Q@$~\2RD?!kww3Xa[^
+    [i-l['\Dpx,'R2~_[KHXl~Ca<=vYv-WK^n<J/R<J]I,GA~RSpZHmr'Q\Y>aI#RYKG$Uvop*srJw]
+    ;avix*Q-7Zr<v$HO@OCJ1!{xi5$x*x}'rOvQ;1'l->-;?r+73r;#aI#2<A<2\D3KyUx_IT]}TNj*
+    T$e5C{HrIwYUz*pzz?z~e=}?QEEu=r,V[=xrn#}qo$I*%A,IV[>mR=3C<MBU[+#'#a}j-O|wo@#'
+    Z3E|_Wpv<T3C2T2rkasYi}\3''A<_JI3Y-}]XV*eOvjQ~jj#lKmD2Qps523<Y>n2Z-e@BAHD^+H\
+    wH~Di7$ikD{]}3op_v~,^@2~brD1Z2a\~o.E~I@o]oKlr2nK^!!~-5Hij>raX5_,ZYwR~+3RXGD(
+    jCjaos1_]vmxD?Cu_kv'k$U-%E-emCJn^e;W]vAsK%=JJ>^IDAO?BI1!rB[=zE:-53=mAJ<^C^le
+    3{pPQo'uz^jw+UQl%HCV[>O@3}1[#H+BBy?5uRB~Bl!^i!:\{Wzs_vQj>zR1_[wEG'T,,buQ2K$G
+    @+2EnaTaQ*1>uX9Wz\ZoWvVDV}r_u3[vu\J7>*Q{,Z3x*IZnE''[Z!roN?Dp;jB*<b=w!VIDvAl_
+    o^2n3osu1>px2Ko!a7X7TYkE?TDUlE=5}ij<]wwC}^RHl5Hw3[9Z*'as\rDpGv#V<xJoVuB'C^O[
+    kU+y7lB;<Dru@zuI/!'-GbesuX,Zx*<{1p<UY{jOEuHrQx,01le7Vr>KY'wR3l-5@172&}2Jn9Yu
+    H*Tt.xCi~.leEJ\G~TZ_o\Z1Ha[nl1B2X7Q{1T[H]na<Z2W{n2E-o3LWpio3HYDa=G=CQR!9*]em
+    #UOUDI@Q5jBpx,e'nzeOeKQ2<{KuV'>x%])~{=AV*~_l~{{a*8\3J_jWwYlW[[8E2okz2BBe{l],
+    J$aaw&{5AUtTQ]-v!z>wnRzJXGJMil2^Ymo[6IvNZ],eEk~kI}z$$@e{TG7;'{}17IksE$;un5nx
+    1n17'p*UYZso7[}ADvS--J;['K~RXL,]we^=YHp>Ou_JKp/*Qvk[AmBGo-k^@Z5-Tw~#<{#rpAYj
+    -TJvB#>Ps>aDI"U_raYU[wXCQ$Z,}xO-_w\o}V[u_Xn_-]w<]$C7@oqn*1}:K{1xQ^{~p_!-sGZ_
+    eYIrY{E71ux17kReUDmOwzDTQr+e\__!K5<[of5u;202*Z\{ER!#E~KV7Q}UHKYzK}!#>;WOjiv*
+    U\zB*G2{|2w^m(wob!lZ3e5lRxJ+'ZQ;,_i}Umar@UGV+_+VZzB^JvBz3s<'Uzr+rZ1Aw*V27=3O
+    7b{lr>@H17G!xXiD~{zr]?;s{@m+_kl@[uLr~!}I3}UzX5v9DQl^ln3{5-[$aG?D'^J$\HlmBH[n
+    /=!Q,7WEk3Ua
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire timeout_fire_combo;
+  wire timeout_illegal_check_combo;
+
+  assign timeout_illegal_check_combo = ((areset === 1'b0 && reset === 1'b0)
+                                         && (active == 1'b1 && 
+                                         timeout === 1'b1 && 
+                                         (illegal_check === 1'b1)));
+
+
+  assign timeout_fire_combo = ((areset === 1'b0 && reset === 1'b0) &&
+                               (active == 1'b1) && (timeout === 1'b1) && 
+                               (((is_greater(cycles_past,val)) || 
+                               (is_equal(cycles_past,val))) && 
+                               (var_changed === 1'b0)) && 
+                               (illegal_check !== 1'b1)); 
+
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_timeout: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (timeout_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_timeout"),
+                          .msg            ({msg,"The value of test_expr remained the same for more than the specified maximum number of cycles"}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_timeout_illegal_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (timeout_illegal_check_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_timeout_illegal_check"),
+                          .msg            ({msg,"The value of val is illegal (less than 1 or too large)"}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_timeout: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (timeout_fire_combo)));
+        M_qvl_timeout_illegal_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (timeout_illegal_check_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_timeout_cover.svh"
+
+`qvlendmodule
+

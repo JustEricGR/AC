@@ -1,0 +1,385 @@
+                       Model Technology Technical Note
+			 Copyright 1991-2009 Mentor Graphics Corporation
+						All Rights Reserved.
+
+	This document contains information that is proprietary to 
+	Mentor Graphics Corporation. The original recipient of this 
+	document may duplicate this document in whole or in part for 
+	internal business purposes only, provided that this entire 
+	notice appears in all copies. In duplicating any part of this 
+	document, the recipient agrees to make every reasonable 
+	effort to prevent the unauthorized use and distribution of the 
+	proprietary information.
+
+	Trademarks that appear in Mentor Graphics product 
+	publications that are not owned by Mentor Graphics are 
+	trademarks of their respective owners.
+
+                      Verilog Procedural Interface (VPI)
+                      ==================================
+
+
+VPI IMPLEMENTATION
+==================
+
+  The ModelSim implementation of the Verilog VPI is based on the
+  IEEE standards:
+
+    IEEE Std 1364-2001
+    IEEE Std 1364-2005
+
+  The 2005 VPI Object Model is not fully backwards compatible with
+  the 2001 model. The simulator cannot fix this problem; as a result
+  there are two modes of operation, one for each model. The user is 
+  referred to the user documentation as to how to switch the 
+  object model compatibility. 2005 behavior is the default.
+  See the plicompatdefault and PliCompatDefault switches for the
+  command line and modelsim.ini files respectively.
+
+  Existing internal or third-party tools may not be compatible with the
+  2005 model.
+  It is impossible for us to predict whether a particular tool will have
+  problems - it mostly depends on how strong the VPI type checking is
+  within the tool.
+
+The following functions are fully implemented:
+---------------------------------------------
+
+  *  vpi_chk_error()
+
+  *  vpi_compare_objects()
+
+  *  vpi_flush()
+
+  *  vpi_free_object()
+
+  *  vpi_get_cb_info()
+
+  *  vpi_get_systf_info()
+
+  *  vpi_get_time()
+
+  *  vpi_get_userdata()
+
+  *  vpi_mcd_close()
+
+  *  vpi_mcd_flush()
+
+  *  vpi_mcd_name()
+
+  *  vpi_mcd_open()
+
+  *  vpi_mcd_printf()
+
+  *  vpi_mcd_vprintf()
+
+  *  vpi_printf()
+
+  *  vpi_put_data()
+
+  *  vpi_put_userdata()
+
+  *  vpi_register_systf()
+
+  *  vpi_vprintf()
+
+
+The following functions are partially implemented:
+-------------------------------------------------
+
+  *  vpi_iterate(), vpi_scan(), vpi_handle(), vpi_get(), vpi_get_str()
+     vpi_get_value(), vpi_put_value(), vpi_get_delays(), vpi_put_delays()
+
+     These are the primary functions by which the user can interact with
+     the post-elaboration simulation objects under the Object Model schema.
+     The relationship between these functions and the object model
+     is as follows:
+
+      vpi_handle() maps to the single arrow transitions on the diagram
+      vpi_iterate() maps to the double arrow transitions
+      vpi_scan() is the partner routine to vpi_iterate() that maps to the
+          double arrow transitions
+      vpi_get() maps to all the properties listed under objects that have
+          an integral, boolean or enumerated value
+      vpi_get_str() maps to all the listed properties that have a string value
+      vpi_get_value() is listed explicitly on the diagrams when valid
+      vpi_put_value() is listed explicitly on the diagrams when valid
+      vpi_get_delay() is listed explicitly on the diagrams when valid
+      vpi_put_delay() is listed explicitly on the diagrams when valid
+
+     An XML file is supplied that tabulates precisely which transitions
+     for these functions have been implemented. This file can be viewed
+     in a browser.
+
+     <installDirectory>/docs/supplemental/vpi_object_model_support.htm
+
+     (ModelSim users should note that this file also lists System Verilog
+     objects and features which are only available with the QuestaSim 
+     product license.)
+
+     The data in this file was auto-generated and should be assumed to be
+     accurate but optimistic. If a transition is listed as not implemented,
+     it will not yet succeed for any case. If a transition is listed as
+     implemented, there is at least one case where it works. The LRM may
+     however require further exclusions in some cases, or there may be 
+     internal exclusions within ModelSim.
+
+     Objects that can be found by iteration are not always successfully
+     passed as systf arguments. This applies to many categories of 
+     object type and is a work in progress. 
+
+     Other known limitations for these functions:
+
+     vpi_get_delays()
+
+       o Not truly implemented for MTM delays; the simulator knows only the
+         delay value currently being used, not all three values, so the same
+         value is returned for min, typ, and max.
+
+       o Not implemented for pulsere delays.
+
+     vpi_get_value()
+
+       o Due to lack of information in the simulator, the value of a gate or
+         switch instance passed as an argument to a systf cannot be obtained.
+
+     vpi_handle()
+       o vpiExpr            - implemented only for vpiPathTerm and vpiPrimTerm;
+                              returns a handle to a net only.
+       o vpiHighConn/       - return only nets and regs, but not reg bits;
+         vpiLowConn           not implemented for vectors.
+     
+     vpi_iterate()
+       o vpiDriver/         - collect only objects of type vpiPrimTerm
+         vpiLoad
+
+  *  vpi_control()
+
+     o Implemented for vpiStop, vpiFinish, and vpiSetInteractiveScope.
+
+     o Not implemented for vpiReset because ModelSim has no concept of reset.
+
+  *  vpi_get_data()
+
+     o vpi_get_data() calls must be made in exactly the same order as their
+       vpi_put_data() counterparts and they must get exactly the same
+       size of data that was saved by their vpi_put_data() counterparts.
+
+  *  vpi_get_vlog_info()
+
+     o -f <filename> arguments are not included in the argv list; only the
+       contents of the files are included.
+
+  *  vpi_handle_by_name()
+  *  vpi_handle_by_index()
+  *  vpi_handle_by_multi_index()
+    
+    These functions that search for objects within the design have some
+    common exclusions. They do not yet find vpiNamedEventArray objects.
+    They are also somewhat limited with respect to complex user-defined
+    types such as classes and structures. In particular, they do not find
+    named structure members.
+
+  *  vpi_register_cb()
+
+     o Fully implemented only for the following:
+       - cbAfterDelay
+       - cbAtStartOfSimTime
+       - cbEndOfCompile
+       - cbEndOfReset
+       - cbEndOfSimulation
+       - cbInteractiveScopeChange
+       - cbNextSimTime
+       - cbReadOnlySynch
+       - cbReadWriteSynch
+       - cbStartOfReset
+       - cbStartOfSimulation
+       - cbTchkViolation  (Verilog timing check violations only)
+
+     o Partially implemented for cbValueChange as follows:
+       - Value change callbacks on net part selects and vector nets are
+         always called on strength value changes even when the logic value
+         has not changed.
+       - Value change callbacks on net part selects and vector nets are
+         called each time a bit changes value/strength even when several
+         bits change in the same time step/delta.
+
+     o NOTE: For cbInteractiveScopeChange callbacks, the handle to the
+       scope object passed in the p_cb_data parameter is automatically
+       freed upon return from the callback function.
+
+     o NOTE: For cbTchkViolation callbacks, the handle to the timing
+       check object passed in the p_cb_data parameter is automatically
+       freed upon return from the callback function.
+
+     o NOTE: cbEndOfReset callbacks must be registered by functions called
+       from the vlog_startup_routines array because the simulator clears all
+       callback lists during a restart.  cbEndOfReset callbacks are called
+       just before cbEndOfCompile callbacks.
+
+     o Registration and callbacks occur in the following order:
+       - Execution of functions in the vlog_startup_routines array
+       - Execution of compiletf functions
+       - Execution of sizetf functions
+       - Execution of EndOfReset callbacks (only after a vsim restart)
+       - Execution of EndOfCompile callbacks
+       - Execution of StartOfSimulation callbacks (at first run at time zero)
+       - During a time step:
+         1) Execution of NextSimTime callbacks
+         2) Execution of AtStartOfSimTime callbacks
+         3) Execution of AfterDelay callbacks and normal processes
+            in some undetermined order
+         4) Execution of ReadWriteSynch callbacks
+         5) Execution of Non-Blocking Assignments
+         6) Execution of ReadOnlySynch callbacks
+       - Execution of StartOfReset callbacks (at time when vsim restart is
+         issued before reloading occurs or when quit -sim is used)
+       - Execution of EndOfSimulation callbacks (at $finish() or vsim quit)
+
+  *  vpi_remove_cb()
+
+     o Implemented only for the following:
+       - cbAfterDelay
+       - cbAtStartOfSimTime
+       - cbEndOfCompile
+       - cbEndOfReset
+       - cbEndOfSimulation
+       - cbInteractiveScopeChange
+       - cbNextSimTime
+       - cbReadOnlySynch
+       - cbReadWriteSynch
+       - cbStartOfReset
+       - cbStartOfSimulation
+       - cbTchkViolation
+       - cbValueChange
+
+The following functions have not yet been implemented:
+-----------------------------------------------------
+
+  *  vpi_handle_multi()
+
+
+VPI RESTART AND CHECKPOINT / RESTORE
+====================================
+
+  Because the simulator is capable of restarting, and saving and restoring
+  state, it is a good idea to code your VPI application to handle restarts and
+  checkpoints/restores.
+
+  For restarting, if your VPI application code allocates any memory, you should
+  register a cbStartOfReset callback and your callback function should free
+  any memory that your application code has allocated.  The callback function
+  should also reset global variables.
+
+  For checkpointing, you should register a cbStartOfSave or cbEndOfSave
+  callback.  This function should use vpi_put_data() to save the internal
+  state of your VPI application.  If the internal state includes handles to
+  any VPI objects then these handles must be saved because the simulator will
+  automatically save any internal information that corresponds to any VPI
+  object handles that have not been freed.
+
+  For restoring, you should register a cbStartOfRestart or cbEndOfRestart
+  callback.  This function should first free any memory allocated by your
+  application code and then call vpi_get_data() to restore the internal
+  state of your VPI application.  The vpi_get_data() calls must be in the
+  same order and for the same objects as the original vpi_put_data() calls.
+  You should also re-register any callbacks that you want to have in effect
+  during continued simulation since all callbacks except for cbStartOfRestart
+  and cbEndOfRestart are removed during a restore.  Note that any handles
+  to callbacks other than cbStartOfRestart and cbEndOfRestart that your code
+  has kept should be freed by your code during a restore.
+
+  Use of static local variables should be avoided.
+
+  Shared libraries are reloaded during restart unless vsim is specifically
+  told not to reload them.  (See the -keeploaded and -keeploadedrestart
+  options to vsim.)  If your VPI code registers callbacks and you are using
+  checkpoint/restore in combination with restart, then you must tell vsim
+  to not reload the shared libraries, because if they are reloaded into a
+  different location during restart then a subsequent warm restore will
+  restore function pointers that are no longer valid and the simulation
+  will most likely abort.
+
+  NOTE: Cold restores (vsim -restore) are not currently supported in the VPI.
+
+
+VPI DEBUGGING
+=============
+
+
+VPI Function Call and Error Message Tracing
+-------------------------------------------
+
+  The calling sequence of all VPI functions can be logged by using the
+  foreign interface tracing method.  Use either the "-trace_foreign 1"
+  option to vsim or set the environment variable MTI_COSIM_TRACE to 1
+  before invoking vsim.  The file "mti_trace" will be written upon
+  quitting simulation.
+
+  All WARNING / ERROR / INTERNAL messages generated by the VPI will appear
+  in the trace file (in case the VPI application does not print any
+  messages).
+
+
+VPI Memory Allocation Tracking
+------------------------------
+
+  Memory allocation/deallocation in the VPI can be tracked by turning
+  on the built-in VPI memory tracker.  Set the environment variable
+  MTI_VPI_DEBUG to 1 before invoking vsim on a design that contains VPI code.
+  Upon quitting simulation, a file named mti_vpi_debug_report is written in
+  the invocation directory.  This file lists objects that have been allocated
+  by calls to VPI functions but neither explicitly freed with calls to
+  vpi_free_object() nor implicitly freed by completing a scan on an iterator.
+  The data are from the most recent restart of the simulator.  This information
+  can help you track down memory leaks in your VPI code.
+
+  Example output:
+
+  VPI Debug Report
+  ================
+
+  Memory Allocated and Not Freed
+  ------------------------------
+  (Order is Last In - First Out)
+
+  Object of type vpiCallback(cbReadWriteSynch) allocated in vpi_register_cb
+  Object of type vpiNamedEvent allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiMemoryWord allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiPartSelect allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiPartSelect allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiTimeVar allocated in vpi_handle_by_name called from src/top.v (35)
+  Object of type vpiRealVar allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiIntegerVar allocated in vpi_handle_by_name called from src/top.v (35)
+  Object of type vpiReg allocated in vpi_handle_by_name called from src/top.v (35)
+  Object of type vpiNet allocated in vpi_handle_by_name called from src/top.v (35)
+  Object of type vpiRegBit allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiNetBit allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiReg allocated in vpi_scan called from src/top.v (35)
+  Object of type vpiNet allocated in vpi_handle_by_name called from src/top.v (35)
+
+
+VPI USAGE RECOMMENDATIONS
+=========================
+
+  * If the callback handle returned by either vpi_register_systf() or
+    vpi_register_cb() is not needed, it should be freed with vpi_free_object().
+
+  * The reference handle passed to vpi_iterate() must not be freed while
+    the iterator is being used.
+
+  * If vpi_scan() does not scan all objects for an iterator then the
+    iterator must be freed with a call to vpi_free_object().  Unfreed
+    iterators can consume a lot of memory.
+
+  * For cbInteractiveScopeChange callbacks, the handle to the scope
+    object passed in the p_cb_data parameter is automatically freed
+    upon return from the callback function.  Therefore, the handle to
+    the scope cannot be saved for use outside of the callback function
+    after the callback function has returned.
+
+  * For cbTchkViolation callbacks, the handle to the timing check
+    object passed in the p_cb_data parameter is automatically freed
+    upon return from the callback function.  Therefore, the handle to
+    the timing check cannot be saved for use outside of the callback
+    function after the callback function has returned.

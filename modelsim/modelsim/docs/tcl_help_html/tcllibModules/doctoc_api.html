@@ -1,0 +1,210 @@
+<! -- -*- tcl -*- doctools manpage
+   -->
+<html><head>
+<title>doctoc_api - Documentation tools </title>
+</head>
+<! -- Generated from file './modules/doctools/doctoc_api.man' by tcllib/doctools with format 'html'
+   -->
+<! -- Copyright &copy; 2003 Andreas Kupries &lt;andreas_kupries@users.sourceforge.net&gt;
+   -->
+<! -- CVS: $Id$ doctoc_api.n
+   -->
+
+<body>
+<h1> doctoc_api(n) 1.0 doctools &quot;Documentation tools&quot;</h1>
+<h2><a name="name">NAME</a></h2>
+<p>
+<p> doctoc_api - Interface specification for toc formatting code
+
+
+
+<h2><a name="description">DESCRIPTION</a></h2>
+<p>
+<p>
+
+
+This manpage specifies the interface between formatting engines for
+data in the <strong>doctoc</strong> format as specified in
+<strong>doctoc_fmt</strong>, and <strong>doctools::toc</strong>, the package for the
+generic handling of such data, as described in <strong>doctoc</strong>.
+
+<p>
+
+Each formatting engine has to implement the conversion of input in
+<strong>doctoc</strong> format to one particular output format as chosen by
+the author of the formatting engine.
+
+<h2><a name="interface">INTERFACE</a></h2>
+<p>
+
+Each formatting engine has to provide
+
+<ol>
+<li>
+
+Implementations of all the formatting commands as specified in
+
+<strong>doctoc_fmt</strong>, using the defined names, but prefixed with the
+string <strong>fmt_</strong>. The sole exceptions to this are the formatting
+commands <b class='cmd'>vset</b> and <b class='cmd'>include</b>. These two commands are
+processed by the generic layer and will never be seen by the
+formatting engine.
+
+<br><br>
+<li>
+and additionally implementations for
+
+<br><br>
+<dl>
+
+<dt><b class='cmd'>toc_numpasses</b><dd>
+
+This command is called immediately after the formatter is loaded and
+has to return the number of passes required by this formatter to
+process a manpage. This information has to be an integer number
+greater or equal to one.
+
+<br><br>
+<dt><b class='cmd'>toc_initialize</b><dd>
+
+This command is called at the beginning of every conversion run and is
+responsible for initializing the general state of the formatting
+engine.
+
+<br><br>
+<dt><b class='cmd'>toc_setup</b> <i class='arg'>n</i><dd>
+
+This command is called at the beginning of each pass over the input
+and is given the id of the current pass as its first argument. It is
+responsible for setting up the internal state of the formatting for
+this particular pass.
+
+<br><br>
+<dt><b class='cmd'>toc_postprocess</b> <i class='arg'>text</i><dd>
+
+This command is called immediately after the last pass, with the
+expansion result of that pass as argument, and can do any last-ditch
+modifications of the generated result.  Its result will be the final
+result of the conversion.
+
+<br><br>
+
+Most formats will use <em>identity</em> here.
+
+<br><br>
+<dt><b class='cmd'>toc_shutdown</b><dd>
+
+This command is called at the end of every conversion run and is
+responsible for cleaning up of all the state in the formatting engine.
+
+<br><br>
+<dt><b class='cmd'>fmt_plain_text</b> <i class='arg'>text</i><dd>
+
+This command is called for any plain text encountered by the processor
+in the input and can do any special processing required for plain
+text. Its result is the string written into the expansion.
+
+<br><br>
+
+Most formats will use <em>identity</em> here.
+
+<br><br>
+<dt><b class='cmd'>toc_listvariables</b><dd>
+
+The command is called after loading a formatting engine to determine
+which parameters are supported by that engine. The return value is a
+list containing the names of these parameters.
+
+<br><br>
+<dt><b class='cmd'>toc_varset</b> <i class='arg'>varname</i> <i class='arg'>text</i><dd>
+
+The command is called by the generic layer to set the value of an
+engine specific parameter. The parameter to change is specified by
+<i class='arg'>varname</i>, and the value to set is given in <i class='arg'>text</i>.
+
+<br><br>
+
+The command will throw an error if an unknown <i class='arg'>varname</i> is
+used. Only the names returned by <b class='cmd'>toc_listvariables</b> are
+considered known.
+
+</dl>
+</ol>
+
+<p>
+
+The tcl code of a formatting engine implementing all of the above can
+make the following assumptions about its environment
+
+<ol>
+<li>
+
+It has full access to its own safe interpreter.  In other words, the
+engine cannot damage the other parts of the processor, nor can it
+damage the filesystem.
+
+<br><br>
+<li>
+
+The surrounding system provides the engine with the following
+commands:
+
+<br><br>
+<dl>
+
+<dt>Doctools commands<dd>
+<dl>
+<dt><b class='cmd'>dt_format</b><dd>
+Returns the name of format loaded into the engine
+<br><br>
+<dt><b class='cmd'>dt_fmap</b> <i class='arg'>fname</i><dd>
+Returns the actual name to use in the output in place of the symbolic
+filename <i class='arg'>fname</i>.
+<br><br>
+<dt><b class='cmd'>dt_source</b> <i class='arg'>file</i><dd>
+This command allows the engine to load additional tcl code. The file
+being loaded has to be in the same directory as the file the format
+engine was loaded from. Any path specified for <i class='arg'>file</i> is ignored.
+</dl>
+
+<dt>Expander commands<dd>
+
+All of the commands below are methods of the expander object (without
+the prefix <strong>ex_</strong>) handling the input. Their arguments and
+results are described in <strong>expander(n)</strong>.
+
+
+<br><br>
+<dl>
+<dt><b class='cmd'>ex_cappend</b><dd>
+<dt><b class='cmd'>ex_cget</b><dd>
+<dt><b class='cmd'>ex_cis</b><dd>
+<dt><b class='cmd'>ex_cname</b><dd>
+<dt><b class='cmd'>ex_cpop</b><dd>
+<dt><b class='cmd'>ex_cpush</b><dd>
+<dt><b class='cmd'>ex_cset</b><dd>
+<dt><b class='cmd'>ex_lb</b><dd>
+<dt><b class='cmd'>ex_rb</b><dd>
+</dl>
+
+<dt>_toc_common.tcl commands<dd>
+
+Any engine loading (<b class='cmd'>dt_source</b>) the file &quot;<strong>_toc_common.tcl</strong>&quot; has
+default implementations of the <strong>toc_</strong> commands explicitly
+listed in this document and of <b class='cmd'>fmt_plaint_text</b>.
+
+</dl>
+</ol>
+
+
+
+<h2><a name="seealso">SEE ALSO</a></h2>
+<p>
+doctoc, doctoc_fmt
+<h2><a name="keywords">KEYWORDS</a></h2>
+<p>
+HTML, LaTeX, TMML, generic markup, markup, nroff, table of contents, toc
+<h2><a name="copyright">COPYRIGHT</a></h2>
+<p>
+Copyright &copy; 2003 Andreas Kupries &lt;andreas_kupries@users.sourceforge.net&gt;<br>
+</body></html>

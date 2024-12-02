@@ -1,0 +1,373 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_state_transition_assertions (
+                                            clock,
+                                            areset,
+                                            reset,
+                                            active,
+                                            zivar,
+                                            val,
+                                            next,
+                                            start,
+                                            cond,
+                                            match_by_cycle,
+                                            is_not,
+                                            state_transition_check,
+                                            is_not_check,
+                                            state_transition_fire,
+                                            cycles_checked,
+                                            number_of_transitions_covered,
+                                            transitions_covered_bitmap,
+                                            number_of_transitions_uncovered,
+                                            all_transitions_covered,
+                                            support,
+                                            fire_count
+                                            );
+
+
+
+   
+   
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+   
+   parameter		      VAR_WIDTH = 1; 
+   parameter		      VAL_WIDTH = 1; 
+   
+   parameter		      NEXT_WIDTH = 1; 
+   parameter		      NEXT_ITEM_WIDTH = 1; 
+   parameter		      NEXT_ITEM_COUNT = 1; 
+   parameter		      NEXT_IS_CONST = 0; 
+
+   parameter		      COND_WIDTH = 1; 
+   parameter		      COND_ITEM_WIDTH_TMP = 1; 
+   parameter		      COND_ITEM_COUNT_TMP = 1; 
+
+   parameter		      COND_SPECIFIED = 0; 
+   parameter		      COND_ITEM_WIDTH = COND_SPECIFIED ? COND_ITEM_WIDTH_TMP : 1; 
+   parameter		      COND_ITEM_COUNT = COND_SPECIFIED ? COND_ITEM_COUNT_TMP : NEXT_ITEM_COUNT; 
+
+   parameter BIT_VEC_WLOG2 = 1; 
+   parameter CW_FOR_FPGA = 0;
+   parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIT_VEC_WLOG2 : 63;
+  
+   parameter START_SPECIFIED = 0;
+   parameter COND_ENABLE = 0;
+   parameter IS_NOT_CHECK = 0;
+   
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   input [VAR_WIDTH-1:0]      zivar;    
+   input [VAL_WIDTH-1:0]      val;    
+   input [NEXT_WIDTH-1:0]     next;    
+   input		      start; 
+   input [COND_WIDTH-1:0]     cond;    
+
+   input		      match_by_cycle; 
+   input		      active; 
+   input		      clock;  
+   input		      reset;  
+   input		      areset;  
+   input		      state_transition_check;   
+   input		      is_not_check;   
+   input		      is_not; 
+   
+   output		      state_transition_fire;
+   output [STAT_CNT_WIDTH-1:0] cycles_checked;
+   output [BIT_CNT_WIDTH:0]	      number_of_transitions_covered;
+   output [NEXT_ITEM_COUNT-1:0] transitions_covered_bitmap;
+   output [BIT_CNT_WIDTH:0]	      number_of_transitions_uncovered;
+   output	              all_transitions_covered;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+   reg			      state_transition_fire;
+   reg [STAT_CNT_WIDTH-1:0]   cycles_checked;
+   reg [BIT_CNT_WIDTH:0]		      number_of_transitions_covered;
+   wire		              all_transitions_covered;
+   wire [NEXT_ITEM_COUNT-1:0]  transitions_covered_bitmap;
+   wire [BIT_CNT_WIDTH:0]		      number_of_transitions_uncovered; 
+   
+  reg r_start;
+
+  wire state_transition_fire_combo;
+
+  reg state_transition_fire_combo_1;
+  reg state_transition_fire_combo_2;
+  reg state_transition_fire_combo_3;
+
+
+//   reg [63:0]		      is_armed_count;
+   
+   integer		      rangeId;
+   
+   integer		      i;
+
+   
+`ifdef ZI_FOR_SEARCH
+   reg [NEXT_ITEM_WIDTH-1:0]  next_item;
+`else   
+   /*This parameter makes sure that the depth of next_mem memory is always
+   greater than 32. Since this memory hashed in the combinatorial block to
+   assert hit_tmp_combo signal, the tool might give incomplete sensitivity list
+   if the memory depth is less than 32.*/
+
+   parameter NEXT_MEM_DEPTH = NEXT_ITEM_COUNT <= 33 ? 33 : NEXT_ITEM_COUNT;
+   reg [NEXT_ITEM_WIDTH-1:0]  next_mem [NEXT_MEM_DEPTH-1:0];
+`endif
+   reg [NEXT_WIDTH-1:0]	      next_tmp;
+   reg [VAR_WIDTH-1:0]	      last_var;
+   reg			      is_armed;
+   reg			      first_check;
+
+   reg [NEXT_ITEM_COUNT-1:0]  transitions_used;
+   reg [BIT_VEC_WLOG2:0]      trans_count;
+
+   wire [NEXT_ITEM_COUNT-1:0] cond_real = (COND_SPECIFIED) ? cond : 
+					  ('d2 << COND_ITEM_COUNT)-1;
+
+   reg  [NEXT_ITEM_COUNT-1:0] prev_cond_real;
+   wire [VAR_WIDTH-1:0]	      val_real = val;
+
+`ifdef QVL_ASSERT_ON
+  wire state_transition_without_condition_combo;
+  wire state_transition_with_condition_combo;
+  wire is_not_combo;
+`endif // QVL_ASSERT_ON
+   
+  assign state_transition_fire_combo = state_transition_fire_combo_1 ||
+				     state_transition_fire_combo_2 ||
+				     state_transition_fire_combo_3;
+
+`ifdef QVL_COVER_ON
+   assign all_transitions_covered = &transitions_used;
+   assign transitions_covered_bitmap = transitions_used;
+   assign number_of_transitions_uncovered = NEXT_ITEM_COUNT - trans_count;
+`endif
+wire [31:0] next_item_count = NEXT_ITEM_COUNT;
+
+`protected
+
+    MTI!#3pxG,UzWsp_UC>oD#V*vKRH<{TIWK{a=[fuYpi/-C'i7;vTfe_'Q2Tl_e+zZ~,J3xVCKoBY
+    \5X=^_u@~HUQT=eXCvsK{+'q%-^okYv{3Ld)#[?z-'W$l,io~X*W+rXDln=;E#\D&mY;^U$]\0!}
+    7$7bY$2sR!x]HDia*mX7t;7Tu^pTDlmB1Iu}~_=uuCjw@BjO]sxV<_p[TeZAX~C5pokJJ+xB[meE
+    TZ=,x3^!H*oYiH{$A<[A#K*Yprm[_ElDu?U1w}_ZRTjOi;sCa$J2EQ^m#C7+$YlJD!1*}u{oGo\O
+    \VGx+E{_==5ZT*}<*!*D{xVVj0vmB@HpmBu,O,u]o*[,\J$+WzO<]3YCDj=g*^JTz!X+v]*GYw3^
+    *\OnWX*~>^i;w}A2#\ji,R>+2EV>Ir?uZo~]'-XG'AZ@RkvpuYU2mHUu&CzeC*NwI{-;=I!F[uaH
+    oiWl3}Ja}vj@l_=7D}zi#DKzsYjsJ+;l}2s>Q[Tpu}^O%2TmT3OIT.!w*nveT}<D?TrCp~TrDZo\
+    xk3NC}u>+Q_[;5'AdiB$u'r~pGpiQ?ell\A~GUH{xRGawYD]3io17'mUDzrD[<jArNNIu7G=#o?r
+    @}^kxIs^#GR#a[O=Yps=AQ$dHlF=3XJe?DoW&.a}@;h|5V#@H=D<IB\e^?Q'b&I!le{(m_E[I~j3
+    rIJC;=7HeRn;+G}H_7V3JUDsWr\iCiar'YYU'Z2$Q{_ATHZp7Ev1C=Jr$VRs;7rO-<X[N'KnW^Ik
+    ')X\AAWYU*"xZEXrA\VI~oTpKX$_ok+;Qr=1AI*^~W++G3eKD{U}3!w<CA>_u_BHwD#'1-1m=>Hp
+    XB#'Xo;f=ju{7-u_S|F=wBria'Zl+mXF<[j7I!5'$@GBxRJIKCWV'hE[ka~XjVO'*-I}R2*l^w|=
+    G<WG!_;W^ins$kB+^'EF!s_%,?ZX7~QWzEpuR9fxuojkAQ>o/Ee$K!\$wB{m!$3'p^am{;5[{YXZ
+    j?B$5KH'}m+Jo!+V]2jr^^:"O#o#nQIRo@YDj1O=l;o,$7V@[]>[}k!TJHEYIGX-)M$OBO'<x=^#
+    sopmAJ|V?@HoD>,z7
+`endprotected
+   // if X or Z specified in to, allow X or Z in zivar
+  wire	xz_detected = (^{zivar,val,next,cond}=== 1'bX);
+
+  wire set_is_armed = ((START_SPECIFIED == 1) ? (zivar === val_real && start):
+                       (zivar === val_real));
+  wire fire_cond =
+    (!((zivar === last_var) && (match_by_cycle !== 1'b1) &&
+     (first_check === 1'b0) && (is_armed === 1'b1)) && (is_armed === 1'b1));   
+
+  reg [64:0] hit_tmp_info;
+  wire [31:0] hit_idx_combo = hit_tmp_info[31:0];
+`ifdef QVL_COVER_ON
+  wire [31:0] hit_idx_stats_combo = hit_tmp_info[63:32];
+`endif
+  wire hit_tmp_combo = hit_tmp_info[64];
+
+`protected
+
+    MTI!#Il+zo<z=ICV,l\-IJ7[3s]jJisZB8i\U[:[~ri7/Zjir}@ZEljJIEvGi)?5Vw_HAC[!mRcu
+    rQA'^B5OI[\@,[=TDTsmU\\Qn2o7Z{J:*X+5reYo%Z=O{Da{?51j@Za;$EpAsV&@}G1o-E20FI?[
+    mk_Bs^eAv}1T^BBGi^~7E|kx57lh;[Urllo+TIkoYV,>+}K71?EWG1?'jX6kD<Q-<H=*a@E=1j#3
+    a1wA=]5F=>_pyie,v2_+5Z5-B5R@kFH<J7puHHNkUBGa[D23_RB5l5]1UwAV7xxnDQ{$aT>7B$z{
+    }Z}'Z}_oWO!_1UB&%eemo3YD@_!,j+=ZkLWnC]"a_-paQ<?i[X#p7B]9JU+e<O{BCekaw-<pI]I,
+    ^l#!BCR'IR,r$E~12UZ#lo!aZo{Ws-;T[_T{I}>{,1@VzUjIX]evW{3OVoZKnBZ}_@3e$lJr=#,!
+    pemvG-GA{[~~=?Am'E#=lA<}<DE^)-Op@B3$UBjiG=I[{flo!#|Za[]>>DjJ5QivDoWs|xcnTu@}
+    $RCE-p3M8SB25p<saO^X7Z,KJ>lG#~U1+}+w\x^sDaCVm2,slV}GZ[I5I7sI?jxY\VJCeD5R@IwA
+    GO\?Bm|],l'7;5TC},'>[$AQ2@Q}QZG5%_-}Xi7{\}u]n]~Ivw-\x/2C2!$~Yo]r@}v~s$anB'EE
+    aUAs*m2lK#{O_m$7k;5XWGW[wp5!5CuC?*X-zuQ]WI5kwXE<>m7xIp}ejwIU<kk5!U7"o;->GFp3
+    ~vR3JR=#vX2+J]/\rU#8{l_ut1P0EElQN*U,ALrC[~*U{p<>nHvwUVl@ji1nsnRW^oNXvVm~Rn7@
+    7YK~CRUKs~Exi[#e'+>pTl'\.%xi1}ee;-ErWB>Ov<5iXoOJv$_@==~TKR9UTj;Ya{B]~-]=oQD=
+    p+{=Mx^x>:j^;Z*1x>m[-m7;A*M#X{mpIWkavp>jrz@}\QOC~RQ7XQ[ua-2zGn~!_#<,ZarHH7^i
+    rA[{[GOxzAQtNO+I\#5#7DVu#|G5Y[O\_Bz~*z^Ok2kQ{]PCDsi.Ee!'DW@{[@mnl#luKR!ox\]C
+    WU$jB+^uTjQ[G')0!]xu7+!YNTrYO-}RENrzQKtU[_ijopz[eDa?\a'Li$QuRV?Ej^iHo;R\RAp3
+    GQ1+2Gk+57,[2\uJUI3EROkOKoKJ>'K{[k{l_s1[<n<^4la-!W'?#]ZlQO#r@Y$\GrZoJuGW5dxi
+    ujH1OQl<KpKsIX'@Q2Sf?xB1uX$rYo![^Q\sqK**W@UTZ;x_U=-'xjU~[@Uok>Eu]D,xvIR*@OaJ
+    amQ]*Oz{o'mI;,!=OC}'[b^AT-N'5GB?*$JF}XC#]Q\]k''*r-vV1aoKpQ#XG-AV><=K2x}'B-Gu
+    s7X>1AVpoAjYx7wA1sx3KDVEE7KD1uQ~g'G+_CNnXvGu[%PiX>~dd=iWB<,[WmIll!smBMp,']K<
+    5Jz;2JCRoJ#pD]8'-;zG1_#C2YE*;=VlrIpu1lO)71e'5[3zCD>Y]z_D'$k=;TAz#GB1G+v;JH^7
+    }TZ{&5}<o0QK}B\A{W;a~[Gj-nQKQkUr7U?Iz}iY~mOp7TQI{R1u7W_AZG^TIx[!BUeIuWzZ@k!$
+    u^E,C-$_aD$Q1\?xE1QuE<A^z1Y1eK7}]l]*k2>\@o*vY?'s3H<C+~iD=G?<Qm$+zuW\-]Tz'r\I
+    -]^V{-n-{l{DA^/wj3_K{+Kp!XTm_Vx5OVVT$DwlERoEKTOO<;KF}a5#A]DW_\WE-7;o:#TBD_^<
+    >E1v*n1{O}(?CrVza}==2@rD]-Q7'WknQmXQ[KZ,vaE=Ta$5Vw^0ueX>yE1<J'UXH2p]p74a,*!#
+    \3XVzT@15YKj>Y[sl$KI7kwoG,J3H>-Q;$Cz=i>E("1IoO+A$k1!K\+j_~ch3w_^=oG#^?KRr*;I
+    E2\;RxAXDB#lkTrJK'o^v+>{=T=zBs2JpQs]%2$*^3]l7NaI!uU_1e}T{^Q+xI;B~[{EwC^Z5*Q@
+    ,{.I'=,eIU#Ue$[e?ao4-eW+O7*kJ$33wn2U%hW*-Zbf-XDQ[OXo{e<~]w\Q2sAp'Ic*w@A~s-z'
+    nulvB!KC'?!Ex=\_^;D\=$[]{I*RWC+c#n^RY'=A571~a\wEv[D~C22=oz~eAnBlk5VDs>G'6uD,
+    T]@C]COJ=OrO]^kj$D{ID?DJ<[rBETvBk\!ovE?3+~,@}E{@uA,ZUomQ[GRO'![=sPViH2Z1/UjW
+    B{5J\0tqi[u~}ap]TO2Un{n;+BC2g,zWo^Tv_w{XHQ]O<vuE>VY{_G#Q,7B-VvK[Oh/S][5JErUJ
+    Dz<u?wlG^@@?rh7_>[=sD\YHjjMK]{^ei!{<AGr]E]G#R'K_K^{D2w;TaQ#pllI{}nk\]xX(v2\W
+    I!pV}VXa]E_l?$IVmU1'pzea2vuIIO~G<rW>se_*2xU!(gjo?J!a<[@G+-eG['X^EsBrC5%-R/#X
+    }XCCB,#QK]U7,ihQGZ-!_KQ64^JEsW*RY^aKB]?G;e5-7~Av:^a\_<<^oO^!>D^k[]qs'=Um]E[a
+    \_?!EqL)i}Dl:$8VB!~5n-{@OI{d5Va_5\*W_7#p>E~][]+#mz}^H$#aE\H]k5!l-R-l*<A^kU,u
+    vIJ'wxwn5W]+K'3$Av{5G"Do@!]]]BEn>Qn&^zv#N^Ilx|OuQQ7ZYj3X$onHn?DuJV7>UrA]Am3-
+    p_G=G>_\?<ko[$XGJna<aGDe#lT'u;ppi2UY'!R=wlknaK9aI#avk$kKTx+u='7=ZG$iD+{zW_nD
+    /kYTX2-fixol;I+\mOV*\]]sI^CJlD,}xRnwwD1XzVvX+p}XR$3@VkJ-ZTUJ]I!=zQZ~7XC,p*GG
+    =imz2$se_o!p1ov^N35]W;'A'1eV@1AV_aY+!-Ou'w,5H*wal}TOl"=XsaQwTYzQ~l&]BW_mYm58
+    v^psO5+pZ7YIxC-@MpZ~s_BlsUpjJsuA2!'x7$@>lBHHmx+J=VHmo\Vpz]~1sJ=!_Q[3XW>7uiGs
+    iD7plXj!=v1H3In2@trGpsRrJWA,+?$D+Dk+<>7r=WAx~KE~,*ux<_J$liP;s7=@C5~[};$Q?<'.
+    C#{+iHXk*s75Z[orx'nk?1H\9zDT;XX^\ma_BiXa3G~w,!RmU}\[2,in'{<TUKsv~Q]=eE,-2\UD
+    j{I_Czcd7@7l7;TJV_a+I*usAr!Op-!>6351D[i7,s~oa.+X{!ew>RoB@<\va]5KBVJ1wszBs[o?
+    [Ar;2zFv2zJ3-\!j<
+`endprotected
+`ifdef QVL_ASSERT_ON
+
+  wire qvl_fire_enable_rd = (((areset === 1'b0) && (reset === 1'b0) && 
+                              (active === 1'b1)) === 1'b1);
+  assign state_transition_without_condition_combo = ((
+       (state_transition_fire_combo_1 === 1'b1) && 
+       (state_transition_fire_combo_2 != 1'b1) && 
+       (state_transition_fire_combo_3 != 1'b1)) && 
+       qvl_fire_enable_rd) && (active === 1'b1 && xz_detected === 1'b0);
+  assign state_transition_with_condition_combo = ((
+       (state_transition_fire_combo_2 === 1'b1)  && 
+       (state_transition_fire_combo_1 != 1'b1) && 
+       (state_transition_fire_combo_3 != 1'b1)) && 
+       qvl_fire_enable_rd) && (active === 1'b1 && xz_detected === 1'b0);
+  assign is_not_combo = (((state_transition_fire_combo_3 === 1'b1) && 
+       (state_transition_fire_combo_1 != 1'b1) && 
+       (state_transition_fire_combo_2 != 1'b1)) && 
+       qvl_fire_enable_rd) && (active === 1'b1 && xz_detected === 1'b0);
+`endif
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        if (IS_NOT_CHECK == 0)
+          begin : assert_state_transition_check
+            A_qvl_state_transition_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (state_transition_without_condition_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_state_transition_check"),
+                              .msg            ({msg,"Value of the expression was not a specified next value."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if ((IS_NOT_CHECK == 0) && (COND_ENABLE == 1))
+          begin : assert_state_transition_with_condition_check 
+            A_qvl_state_transition_with_condition_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (state_transition_with_condition_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_state_transition_with_condition_check"),
+                              .msg            ({msg,"Value of the expression was a specified next value, but the next value's condition signal was not asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (IS_NOT_CHECK == 1)
+          begin : assert_state_transition_is_not_check
+            A_qvl_state_transition_is_not_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (is_not_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_state_transition_is_not_check"),
+                              .msg            ({msg,"Value of the expression was a specified next value."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        if (IS_NOT_CHECK == 0)
+          begin : assume_state_transition_check
+            M_qvl_state_transition_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (state_transition_without_condition_combo)));
+          end
+        if ((IS_NOT_CHECK == 0) && (COND_ENABLE == 1))
+          begin : assume_state_transition_with_condition_check 
+            M_qvl_state_transition_with_condition_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (state_transition_with_condition_combo)));
+          end
+        if (IS_NOT_CHECK == 1)
+          begin : assume_state_transition_is_not_check
+            M_qvl_state_transition_is_not_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (is_not_combo)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_state_transition_cover.svh"
+
+`qvlendmodule

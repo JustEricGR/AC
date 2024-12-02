@@ -1,0 +1,597 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation             
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+ * PURPOSE      This file is part of 0-In CheckerWare
+ *
+ * DESCRIPTION  This monitor checks the PCI Local Bus Protocol
+ *
+ * REFERENCE    PCI Local Bus Specification Rev. 2.2, Dec. 18, 1998
+ * 
+ * INPUTS      The input signals that constitute the PCI monitor interface are:
+ *
+ *    pci_clk_in       - PCI Clock (CLK) input to the PCI Compliant Device
+ *    pci_rst_in_n     - PCI Reset (RST#) input to the PCI Compliant Device
+ *
+ *    pci_ad_in        - PCI multiplexed Address and Data (AD) bus input
+ *			 to the PCI Compliant Device, minimum 32 bits wide
+ *			 (default), maximum 64 bits wide, see parameter
+ *			 section below
+ *    pci_ad_out       - PCI multiplexed Address and Data (AD) bus output
+ *			 from the PCI Compliant Device, minimum 32 bits wide
+ *			 (default), maximum 64 bits wide, see parameter
+ *			 section below
+ *    pci_ad_en_n      - Enable signal from the PCI compliant device to the
+ *			 AD buffers
+ *
+ *    pci_cbe_in_n     - PCI multiplexed Bus Command and Byte Enables
+ *			 (C/BE#) bus input to the PCI Compliant Device,
+ *			 minimum 4 bits wide (default), maximum 8 bits wide,
+ *			 see parameter section below
+ *    pci_cbe_out_n    - PCI multiplexed Bus Command and Byte Enables
+ *                       (C/BE#) bus output from the PCI Compliant Device
+ *			 minimum 4 bits wide (default), maximum 8 bits wide,
+ *			 see parameter section below
+ *    pci_cbe_en_n     - Enable signal from the PCI compliant device to the
+ *			 C/BE# buffers
+ *
+ *    pci_par_in       - PCI parity (PAR) input for pci_ad_in[31:0] and
+ *			 pci_cbe_in_n[3:0] to the PCI compliant device
+ *    pci_par_out      - PCI parity (PAR) output for pci_ad_out[31:0]
+ *  			 and pci_cbe_out_n[3:0] from the PCI compliant device
+ *    pci_par_en_n     - Enable signal from the  PCI compliant device to the
+ *			 PAR buffer
+ *
+ *    pci_frame_in_n   - PCI Cycle Frame (FRAME#) input to the PCI Compliant
+ *			 Device
+ *    pci_frame_out_n  - PCI Cycle Frame (FRAME#) output from the PCI Compliant
+ *			 Device
+ *    pci_frame_en_n   - Enable signal from the PCI Compliant Device to the
+ *			 FRAME# buffer
+ *
+ *    pci_irdy_in_n    - PCI Initiator Ready (IRDY#) input to the PCI Compliant
+ *			 Device	
+ *    pci_irdy_out_n   - PCI Initiator Ready (IRDY#) output from the PCI
+ *			 Compliant Device
+ *    pci_irdy_en_n    - Enable signal from the PCI Compliant Device to the
+ *              	 IRDY# buffer
+ *
+ *    pci_trdy_in_n    - PCI Target Ready (TRDY#) input to the PCI Compliant
+ *                       Device
+ *    pci_trdy_out_n   - PCI Target Ready (TRDY#) output from the PCI Compliant
+ *                         Device
+ *    pci_trdy_en_n    - Enable signal from the PCI Compliant Device to the
+ *			 TRDY# buffer
+ *
+ *    pci_stop_in_n    - PCI Stop (STOP#) input to the PCI Compliant Device
+ *    pci_stop_out_n   - PCI Stop (STOP#) output from the  PCI Compliant Device
+ *    pci_stop_en_n    - Enable signal from the PCI Compliant Device to the
+ *                       STOP# buffer
+ *
+ *    pci_lock_in_n    - PCI lock (LOCK#) input to the PCI Compliant Device
+ *
+ *    pci_idsel_in     - PCI Initialization Device Select (IDSEL) input to the
+ *			 PCI Compliant Device
+ *
+ *    pci_devsel_in_n  - PCI Device Select (DEVSEL#) input to the PCI Compliant
+ *			 Device
+ *    pci_devsel_out_n - PCI Device Select (DEVSEL#) output from the PCI
+ *			 Compliant Device
+ *    pci_devsel_en_n  - Enable signal from the PCI Compliant Device to the
+ *                       DEVSEL# buffer
+ *
+ *    pci_req_out_n    - PCI Request (REQ#) output from the PCI Compliant
+ *			 Device
+ *
+ *    pci_gnt_in_n     - PCI Grant (GNT#) input to the PCI Compliant Device
+ *
+ *    pci_perr_in_n    - PCI Parity Error (PERR#) input to the PCI Compliant
+ *              	 Device
+ *    pci_perr_out_n   - PCI Parity Error (PERR#) output from the PCI Compliant
+ *                       Device
+ *    pci_perr_en_n    - Enable signal from the PCI Compliant Device to the
+ *                       PERR# buffer
+ *
+ *    pci_serr_out_n   - PCI System Error (SERR#) output to the PCI Compliant
+ *                       Device
+ *
+ *    pci_req64_in_n   - PCI Request 64-bit Transfer (REQ64#) input to the  PCI
+ *			 Compliant Device
+ *    pci_req64_out_n  - PCI Request 64-bit Transfer (REQ64#) output from the
+ *	          	 PCI Compliant Device
+ *    pci_req64_en_n   - Enable signal from the PCI Compliant Device to the
+ *                       REQ64# buffer
+ *
+ *    pci_ack64_in_n   - PCI Acknowledge 64-bit Transfer (ACK64#) input to the
+ *			 PCI Compliant Device
+ *    pci_ack64_out_n  - PCI Acknowledge 64-bit Transfer (ACK64#) output from
+ *			 the PCI Compliant Device
+ *    pci_ack64_en_n   - Enable signal from the PCI Compliant Device to the
+ *                       ACK64# buffer
+ *
+ *    pci_par64_in     - PCI Parity Upper DWORD (PAR64) input for
+ *			 pci_ad_in[63:32] and pci_cbe_in_n[7:4] to the PCI
+ *			 Compliant Device
+ *    pci_par64_out    - PCI Parity Upper DWORD (PAR64) output for
+ *			 pci_ad_out[63:32] and pci_cbe_out_n[7:4] from the PCI
+ *			 Compliant Device
+ *    pci_par64_en_n   - Enable signal from the PCI Compliant Device to the
+ *                         PAR64 buffer
+ *
+ * Note:  The Enable signals (*_en_n) above are active low signals.  When
+ *       asserted (i.e., low), the pci monitor samples the corresponding "out"
+ *       signal (e.g., pci_frame_out_n).  When deasserted (i.e., high), the pci
+ *       monitor samples the corresponding "in" signal (e.g., pci_frame_in_n).
+ *
+ *
+ * The following parameters help to configure the PCI monitor:
+ *
+ *  1. Bit64Mode (default 0) : Set this parameter to 1, if the target design is
+ *			     a 64-bit capable device.
+ *
+ *  2. Contraints_Mode (default 0) : Set this parameter to 1, if the checks in
+ *				   the monitor are to be used as contraints to
+ *               			   0-In Search.
+ *
+ * The parameters should be specified in the order in which they are listed 
+ * above.
+ *
+ * USAGE        The monitor should be instantiated within the target design.
+ *
+ *                 +--------------------------+
+ *                 |                          |
+ *                 |   PCI Compliant Device   |
+ *                 |                          |
+ *                 |          +-------------+ |
+ *                 |          | pci monitor | |
+ *                 |          +-------------+ |
+ *                 +--------------------------+
+ *                            /|\
+ *                             |
+ *                            \|/  PCI Local Bus
+ *               <===================================>
+ *                             
+ *                             
+ * Last Modified : 22nd June 2004
+ ******************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_logic (
+  pci_ad_en_n, 
+  pci_cbe_en_n,
+  pci_frame_en_n,
+  pci_irdy_en_n,
+  pci_trdy_en_n,
+  pci_devsel_en_n,
+  pci_stop_en_n,
+  pci_perr_en_n,
+  pci_par_en_n,
+  pci_par64_en_n,
+  pci_req64_en_n,
+  pci_ack64_en_n,
+
+  pci_rst_in_n,
+  pci_clk_in,
+  pci_gnt_in_n,
+  pci_idsel_in,
+  pci_ad_in,
+  pci_cbe_in_n,
+  pci_frame_in_n,
+  pci_irdy_in_n,
+  pci_trdy_in_n,
+  pci_devsel_in_n,
+  pci_stop_in_n,
+  pci_lock_in_n,
+  pci_perr_in_n,
+  pci_par_in,
+  pci_par64_in,
+  pci_req64_in_n,
+  pci_ack64_in_n,
+
+  pci_req_out_n,
+  pci_ad_out,
+  pci_cbe_out_n,
+  pci_frame_out_n,
+  pci_irdy_out_n,
+  pci_trdy_out_n,
+  pci_devsel_out_n,
+  pci_stop_out_n,
+  pci_perr_out_n,
+  pci_serr_out_n,
+  pci_par_out,
+  pci_par64_out,
+  pci_req64_out_n,
+  pci_ack64_out_n
+  );
+
+  parameter Bit64Mode = 0;
+  wire [31:0] pw_Bit64Mode = Bit64Mode;
+  parameter Constraints_Mode = 0; // 0in constraint
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+  parameter ParityErrorResponse = 1;
+  wire [31:0] pw_ParityErrorResponse = ParityErrorResponse;
+  parameter SELF_CONFIG = 0;
+  wire [31:0] pw_SELF_CONFIG = SELF_CONFIG;
+  parameter SystemErrorResponse = 1;
+  wire [31:0] pw_SystemErrorResponse = SystemErrorResponse;
+
+  parameter ADB = Bit64Mode ? 64:32;
+  wire [31:0] pw_ADB = Bit64Mode;
+  parameter CBE = Bit64Mode ? 8:4;
+  wire [31:0] pw_CBE = CBE;
+
+  input pci_ad_en_n;
+  input	pci_cbe_en_n;
+  input	pci_frame_en_n;
+  input	pci_irdy_en_n;
+  input	pci_trdy_en_n;
+  input	pci_devsel_en_n;
+  input	pci_stop_en_n;
+  input	pci_perr_en_n;
+  input	pci_par_en_n;
+  input	pci_par64_en_n;
+  input pci_req64_en_n;
+  input pci_ack64_en_n;
+
+  input	pci_req_out_n;
+  input [ADB-1:0] pci_ad_out;
+  input [CBE-1:0] pci_cbe_out_n;
+  input	pci_frame_out_n;
+  input	pci_irdy_out_n;
+  input	pci_trdy_out_n;
+  input	pci_devsel_out_n;
+  input	pci_stop_out_n;
+  input	pci_perr_out_n;
+  input	pci_serr_out_n;
+  input	pci_par_out;
+  input	pci_par64_out;
+  input	pci_req64_out_n;
+  input	pci_ack64_out_n;
+
+  input	pci_rst_in_n;
+  input	pci_clk_in;
+  input	pci_gnt_in_n;
+  input	pci_idsel_in;
+  input [ADB-1:0] pci_ad_in;
+  input [CBE-1:0] pci_cbe_in_n;
+  input	pci_frame_in_n;
+  input	pci_irdy_in_n;
+  input	pci_trdy_in_n;
+  input	pci_devsel_in_n;
+  input	pci_stop_in_n;
+  input	pci_lock_in_n;
+  input	pci_perr_in_n;
+  input	pci_par_in;
+  input	pci_par64_in;
+  input	pci_req64_in_n;
+  input	pci_ack64_in_n;
+
+`protected
+
+    MTI!#C1[^eQOW{HHw<e3RHVHu'>W~D<]~!XH>[%Hj&P~{{a2'~O}p@wE@jZ$Z{O/m=lH'6H{o!~5
+    WCDBe[rxT5pm3~~=[Ua^2[rp?ZerO+,YuJsC##]?+m?$KX4,IaRpV?]c:=?DZ[NG^&]#RJ=G;'EI
+    ]z1uD#pev-G?Cie;G}9,:TR-x-I{U-\{s0a[#*,viOPLlFICXUz}!@.7g+>!eH<QKCa[T7VOJ3Xp
+    nF=AKk5\z#s[Z[U]2;=G<XoCOTU\JpvQ>B+Qs@k5]C,E<a#s?rPl-BO?]r2*e{{z[YB1OiGQUT;[
+    pDYvYkuVt|D3~+*>v<,s#$UoKv{$X~[#2{?YllBlr#_XDG[iAmx5,vI=]A)=sHQ{AC!C2+wasI>b
+    'X!B*Bm{x|Gs#;s@2#[Oe+#S=UDiB[Om*^Qv~'#p#jl#9/ljxr$.!},X\<-r/Zr\Aj!+rR;Ojp@7
+    xQ@Z-O>}o?{]~uE#zl$oU3z,}2S<R\uv\~[Kj!;6xGJXEAazD\z^Dlei\am\QZoKU'-p*Kx;q\,_
+    lZv[>B~Epx'[+9Gw{,Ka=[ETCIFmL{Q#Te!Drj@AvI2^!I'[<;pK^5$Xv7_QoY;[sAQ=D@^'>UAu
+    ~DYOl^p{m$XR;@$wk1C>B5Y%xC_xTx{QCRi=_*3~wr5T}K2Q#B8^oA~XeHvOI~HII~v#a+*rD@_$
+    BXkxDe,Z'Ol_D3\=>~EOwn^Tv{EmBruKn<T7$B^GVa^RZVl-S7^}<l57Ol<_>JC{CE~zrY{*X}Bl
+    Tijs#OUKY]3[RNE<UA2[2Gl|=eT_yo3RoY#oK1']>WVrpY}Al>YX\e@2!oJ&C'r13=X+0.1!Ql*;
+    1D?5aT_E<B;R[;]KO{rOixD#*AI-AC=;;l3|D+J\b%u1;$naX!IH{}GSz!Es3>\xO7
+`endprotected
+
+//For SDI Support
+
+ wire mas_sdi_req64_n_asserted_out;
+ wire mas_sdi_dac;
+ wire mas_sdi_data_transfer;
+ wire [3:0] mas_sdi_next_state;      
+ wire [3:0] mas_sdi_present_state;
+ wire [3:0] mas_sdi_cmd;
+ wire [31:0] mas_sdi_low_addr;
+ wire [31:0] mas_sdi_high_addr;
+
+ wire tar_sdi_req64_n_asserted_out;
+ wire tar_sdi_dac;
+ wire tar_sdi_data_transfer;
+ wire [3:0] tar_sdi_next_state;      
+ wire [3:0] tar_sdi_present_state;
+ wire [3:0] tar_sdi_cmd;
+ wire [31:0] tar_sdi_low_addr;
+ wire [31:0] tar_sdi_high_addr;
+
+ reg muxed_sdi_req64_n_asserted_out;
+ reg muxed_sdi_dac;
+ reg muxed_sdi_data_transfer;
+ reg [3:0] muxed_sdi_next_state;      
+ reg [3:0] muxed_sdi_present_state;
+ reg [3:0] muxed_sdi_cmd;
+ reg [31:0] muxed_sdi_low_addr;
+ reg [31:0] muxed_sdi_high_addr;
+
+ wire device_mode_1, device_mode_2;
+
+`ifdef ZI_SDI
+
+ reg fibre_created;
+ integer fiberHandle;
+ integer transactionHandle;
+ integer transactionHandleChild;
+ reg parent_open;
+ reg child_open;
+
+ reg [9*8:1] cf_state_name;
+ reg [12*8:1] command_name;
+
+ parameter ZI_IDLE_STATE          = 0;
+ parameter ZI_ADDR_STATE          = 1;
+ parameter ZI_ADDR_MEDIUM_STATE   = 2;
+ parameter ZI_ADDR_SLOW_STATE     = 3;
+ parameter ZI_ADDR_BRIDGE_STATE   = 4;
+ parameter ZI_WAIT_STATE          = 5;
+ parameter ZI_DATA_STATE          = 6;
+ parameter ZI_EXIT_STATE          = 7;
+ parameter ZI_RETRY_STATE         = 8;
+ parameter ZI_DISCONNECT_AB_STATE = 9;
+ parameter ZI_DISCONNECT_C_STATE  = 10;
+ parameter ZI_TARGET_ABORT_STATE  = 11;
+ parameter ZI_MASTER_ABORT_STATE  = 12;
+ parameter ZI_DUAL_ADDR_STATE     = 13;
+ parameter ZI_UNKNOWN_STATE       = 14;
+
+
+ parameter ZI_INTERRUPT_ACKNOWLEDGE_CYCLE  = 0;
+ parameter ZI_SPECIAL_CYCLE      = 1;
+ parameter ZI_READ_IO_CYCLE      = 2;
+ parameter ZI_WRITE_IO_CYCLE     = 3;
+ parameter ZI_RESERVED4          = 4;
+ parameter ZI_RESERVED5          = 5;
+ parameter ZI_READ_ACCESS_CYCLE  = 6;
+ parameter ZI_WRITE_ACCESS_CYCLE = 7;
+ parameter ZI_RESERVED8          = 8;
+ parameter ZI_RESERVED9          = 9;
+ parameter ZI_READ_CONFIG_CYCLE  = 10;
+ parameter ZI_WRITE_CONFIG_CYCLE = 11;
+ parameter ZI_MEM_RDMULT_CYCLE   = 12;
+ parameter ZI_DUAL_ADDR_CYCLE    = 13;
+ parameter ZI_MEM_RDLINE_CYCLE   = 14;
+ parameter ZI_MEM_WINV_CYCLE     = 15;
+
+ wire [ADB-1:0] sdi_pci_ad;
+ reg [ADB-1:0] r_sdi_pci_ad;
+
+ reg sdi_dual_bit_set;
+ reg [7:0] sdi_data_transfers;
+ reg [7:0] sdi_wait_states;
+
+`endif
+ 
+  
+qvl_pci_sub_monitor #(Bit64Mode, 0, ParityErrorResponse, 
+                        SystemErrorResponse,0 /*No Flipping*/,
+			SELF_CONFIG) checker_mon (
+                        .pci_ad_en_n (pci_ad_en_n),
+                        .pci_cbe_en_n (pci_cbe_en_n),
+                        .pci_frame_en_n (pci_frame_en_n),
+                        .pci_irdy_en_n (pci_irdy_en_n),
+                        .pci_trdy_en_n (pci_trdy_en_n),
+                        .pci_devsel_en_n (pci_devsel_en_n),
+                        .pci_stop_en_n (pci_stop_en_n),
+                        .pci_perr_en_n (pci_perr_en_n),
+                        .pci_par_en_n (pci_par_en_n),
+                        .pci_par64_en_n (pci_par64_en_n),
+                        .pci_req64_en_n (pci_req64_en_n),
+                        .pci_ack64_en_n (pci_ack64_en_n),
+ 
+                        .pci_rst_in_n (pci_rst_in_n),
+                        .pci_clk_in (pci_clk_in),
+                        .pci_gnt_in_n (pci_gnt_in_n),
+                        .pci_idsel_in (pci_idsel_in),
+                        .pci_ad_in (pci_ad_in),
+                        .pci_cbe_in_n (pci_cbe_in_n),
+                        .pci_frame_in_n (pci_frame_in_n),
+                        .pci_irdy_in_n (pci_irdy_in_n),
+                        .pci_trdy_in_n (pci_trdy_in_n),
+                        .pci_devsel_in_n (pci_devsel_in_n),
+                        .pci_stop_in_n (pci_stop_in_n),
+                        .pci_lock_in_n (pci_lock_in_n),
+                        .pci_perr_in_n (pci_perr_in_n),
+                        .pci_par_in (pci_par_in),
+                        .pci_par64_in (pci_par64_in),
+                        .pci_req64_in_n (pci_req64_in_n),
+                        .pci_ack64_in_n (pci_ack64_in_n),
+ 
+                        .pci_req_out_n (pci_req_out_n),
+                        .pci_ad_out (pci_ad_out),
+                        .pci_cbe_out_n (pci_cbe_out_n),
+                        .pci_frame_out_n (pci_frame_out_n),
+                        .pci_irdy_out_n (pci_irdy_out_n),
+                        .pci_trdy_out_n (pci_trdy_out_n),
+                        .pci_devsel_out_n (pci_devsel_out_n),
+                        .pci_stop_out_n (pci_stop_out_n),
+                        .pci_perr_out_n (pci_perr_out_n),
+                        .pci_serr_out_n (pci_serr_out_n),
+                        .pci_par_out (pci_par_out),
+                        .pci_par64_out (pci_par64_out),
+                        .pci_req64_out_n (pci_req64_out_n),
+                        .pci_ack64_out_n (pci_ack64_out_n),
+                        .sdi_req64_n_asserted_out (mas_sdi_req64_n_asserted_out),
+                        .sdi_dac (mas_sdi_dac),
+                        .sdi_data_transfer (mas_sdi_data_transfer),
+                        .sdi_next_state (mas_sdi_next_state),
+                        .sdi_present_state (mas_sdi_present_state),
+                        .sdi_cmd (mas_sdi_cmd),
+                        .sdi_low_addr (mas_sdi_low_addr),
+                        .sdi_high_addr (mas_sdi_high_addr),
+			.sdi_device_mode (device_mode_1)
+                       );
+
+qvl_pci_sub_monitor #(Bit64Mode, Constraints_Mode, ParityErrorResponse,
+                        SystemErrorResponse,1/*Flip signals*/,
+			SELF_CONFIG) constraint_mon (
+                        .pci_ad_en_n (pci_ad_en_n),
+                        .pci_cbe_en_n (pci_cbe_en_n),
+                        .pci_frame_en_n (pci_frame_en_n),
+                        .pci_irdy_en_n (pci_irdy_en_n),  
+                        .pci_trdy_en_n (pci_trdy_en_n), 
+                        .pci_devsel_en_n (pci_devsel_en_n),
+                        .pci_stop_en_n (pci_stop_en_n),   
+                        .pci_perr_en_n (pci_perr_en_n), 
+                        .pci_par_en_n (pci_par_en_n),  
+                        .pci_par64_en_n (pci_par64_en_n),
+                        .pci_req64_en_n (pci_req64_en_n), 
+                        .pci_ack64_en_n (pci_ack64_en_n), 
+ 
+                        .pci_rst_in_n (pci_rst_in_n),   
+                        .pci_clk_in (pci_clk_in),   
+                        .pci_gnt_in_n (pci_gnt_in_n),
+                        .pci_idsel_in (pci_idsel_in), 
+                        .pci_ad_in (pci_ad_in),    
+                        .pci_cbe_in_n (pci_cbe_in_n),   
+                        .pci_frame_in_n (pci_frame_in_n),
+                        .pci_irdy_in_n (pci_irdy_in_n),  
+                        .pci_trdy_in_n (pci_trdy_in_n), 
+                        .pci_devsel_in_n (pci_devsel_in_n),
+                        .pci_stop_in_n (pci_stop_in_n),   
+                        .pci_lock_in_n (pci_lock_in_n), 
+                        .pci_perr_in_n (pci_perr_in_n),  
+                        .pci_par_in (pci_par_in),    
+                        .pci_par64_in (pci_par64_in),
+                        .pci_req64_in_n (pci_req64_in_n),
+                        .pci_ack64_in_n (pci_ack64_in_n), 
+ 
+                        .pci_req_out_n (pci_req_out_n),  
+                        .pci_ad_out (pci_ad_out),    
+                        .pci_cbe_out_n (pci_cbe_out_n),    
+                        .pci_frame_out_n (pci_frame_out_n),
+                        .pci_irdy_out_n (pci_irdy_out_n),  
+                        .pci_trdy_out_n (pci_trdy_out_n), 
+                        .pci_devsel_out_n (pci_devsel_out_n),
+                        .pci_stop_out_n (pci_stop_out_n),   
+                        .pci_perr_out_n (pci_perr_out_n), 
+                        .pci_serr_out_n (pci_serr_out_n), 
+                        .pci_par_out (pci_par_out),    
+                        .pci_par64_out (pci_par64_out),
+                        .pci_req64_out_n (pci_req64_out_n),
+                        .pci_ack64_out_n (pci_ack64_out_n),
+                        .sdi_req64_n_asserted_out (tar_sdi_req64_n_asserted_out),
+                        .sdi_dac (tar_sdi_dac),
+                        .sdi_data_transfer (tar_sdi_data_transfer),
+                        .sdi_next_state (tar_sdi_next_state),
+                        .sdi_present_state (tar_sdi_present_state),
+                        .sdi_cmd (tar_sdi_cmd),
+                        .sdi_low_addr (tar_sdi_low_addr),
+                        .sdi_high_addr (tar_sdi_high_addr),
+			.sdi_device_mode (device_mode_2)
+                       );
+
+
+`protected
+
+    MTI!#?YV<C>}ZI^V-]'B=$/Ep>!UDp=5kR\|[yD,G[(QU[[l?l*"HT5[Iq:,3^IWUe;arH\T1+C7
+    {2u<7i[2=-{mjR!X''1>7'BY(iY+]7\;?A[e@bn>H7V,u5P2'\*[^'+~wREG;X!~a'D>xW3*awCR
+    KpR9dOK}[UwZTFp?WIc%-'*<P*In?7\Q3@UmnsA<#[*0ZhGCA$3x'~'Q]?Noxkar,$]Q!Y'2s]e"
+    e@H7p-lVN_zXYw{=;>|$p;ZGW$BQ'?VslrG*HA2=a~_zVm=5xOD{V,~7Zx}]rnk=I\{t*Drp7?51
+    ylZ*m#U!l7R?Wx-nOo#Oal!,7,pr35e?@}]3uKYK]4*QpR&<5B<aY~GlOVsXwUf-V7#ZoBr!];+Q
+    zxuBl$k1iYvJ&eDUTB5Y=!rixR<I3K'l<Y3<=s<IO@]ZY$Awl~{e34[;7XPkXuBemW[Tp3oB~TuR
+    WEOJD[W!_5*elKVP5#3~''2Jz{;\O,!rY-7*,;3QY$\'vaV#YzKa{_#wazHvDl#*{^e}?'HV?{@#
+    wEI^:ci=nvlOX^JUr;uGl^>xiR^:7sl;eQi2H}rBu5jeQ,Ci;vWG4C8'iJJza7B}$75%<ouY@<lU
+    DK}lua2BQ>uX=,5]'~}X]=lA-^D$]I#p^X;e!$2<%,@ADpDRTVK$B._'-7u$@HN/r>Ce#<K;[?E<
+    VJ=Yl;]kN.QTwuZtEUOzjE+Hw\S^uK!s{Q-^B1~{w}uRJjO5]si-7^[1J7D;+7xysio+q3>xAHl2
+    <nIZk5,?}B<11v#z$2B2YYlx~\#jwQ\7Ql=?TrA]$?U\zFvkx1G5]k![
+`endprotected
+//For SDI Support
+
+`ifdef ZI_SDI //1
+
+  assign sdi_pci_ad = pci_ad_en_n ? pci_ad_in : pci_ad_out;
+`endif
+
+ `protected
+
+    MTI!#O]Q1wE2#!Qx!<=CQ=W'QU>V^KsA]8}7W[6{ju[f\{1{j/!azHlHmRsQEp[Y[]^-V!=m;kG0
+    j?=\@olu__277*B]~<*+{5UvG{VZ]A1p^R1>?IIx?ViKGlu<N[*[iImY5i>zIF]I*Xg]epKIxw})
+    |\vp$T7?paBap,J,^G<}VK{{pk=HT1HKH'lQ;D@{@!zs{+{]=U'a-Ml#{\XsX}>O7AR~\>y*nV=H
+    Te].'Bnxf2D}\j!HOiC*GvM3w7=|v\zpG3I@rnQAkasvO\A}+,2TQ<_Ql[5oYX->CZ7{hWV\p3vU
+    >;\+m~{C1V{T],=2ZIH~HlO}3u1XJ?e'w1]Y^uTKBzz^u!rW,KslnzlTT~>WG\R@B}uJ~zU~p$AE
+    2_H'eaGC~1zODRVIe_UE!^~eQoNtw=u],~v>3'$E}K]<pY$>}BeQ_w*k.++Q2D,r'1G7k~Sr'\{C
+    poAW-YO]ek1zJH!5~aB3,,]En^*Ir?7IGDGx';R_]s;>eJXa7mBZz;rd1_xiQ+Zw]}\lnYUDCliC
+    [$n{l{5<3rC$@Y$lru<;+XwI'1UUG<QsN~w;BcVmeDqgzJVJBvrl/'CZVHpxB-E*-j@m2wz1z/;=
+    7xerlwT7k~/2O@UTo{aR[\?KYlBkaQ}nvsuOuQ^V7lE"lI@*QOB#IJw2&i->es!>^']J#5lYx4R+
+    T{5IvIpbTAKs{zaZv$+7v?W\x!Jl1?aowonsK97_?7,Q;]$;s{>GV<[smm\Ca1'k3XHo726+-3UN
+    puT?nEYi^sl1!j^m3Oxm.!X$Yl+{7UEO<=OH+?riUO1W[[-l;2Yso^7ZpZC'Q_'uY[kv~BXp-e-\
+    IfkG3oBV?Wywop*v,5\Yu<][$pi&k.!TwonU<V~l_mN.3{3]Q>~B2'v=C2rJ)a{]2-53u=5?1]nT
+    xkw$<kxG2lD[uex2o-Uej2*X3@A-G;j;E#}]V>sXaVOxAVUC_re]e\>]^=RDuQil~-{e<yoa3HQk
+    IkB?B?y$x#Yn7v'fTX>~F]m_UlT-rY*{pX{D''ls\5x7<SlJziT+<;Re[R[@,@<E$7C]?zkQ#@'Z
+    Q\to7COuE[]y_!aaIO-5I'?<zQ,sp6r=a^2GC7fZ<$$>rzRj5<;Bnz<_P.s-s;{Bk@UV{G~-X]jz
+    U?p2KoC27_-7^}L,?QzJC>QWxiEsEj}$*$W=AZ>CvujjCiI?=ThLZO+;snCJ*O[277{KOk~!IOZ$
+    ExlG5Ykr,]5pZ$!-CGw?=[X$rpe[h[,5],=[R!wBGdEn;'rmO_]lqHwQp^J'xZ7Bx'GJ@.Z[ja.{
+    oikPB[[i]VjnGp]\jKjvXnQ3xwB['B@~Ly!BBlC-a5#}?Yi7G%{=kZ^[Ts~]\pDUz]0xKCk$O}5,
+    X~rLv]WuB]ji$@5a6EvExCs2J=Cz^lumQKXYO>=CuYW;[{GBux5l~+=CiC,UaQ{+Y!<V?ovO>AoZ
+    x[@vkRiQHAnn{JlDQ2Ue3CD=O;1H,Aw_w}{{[xW1lj\^zEJz_=C~ev5J?p$$~~Gr3u5]u82I{pOG
+    K!x<,R},e7WD[!%#O]nU}p=,s3pfo~I@l!l'Y{3r[TQOA7rsI!Q]}UaCe=\5~U'_o1Uzi-Bn[|Gw
+    >=DBl~o<u$[T,!$ur;<Uj@Cs<^T}{*5lTeW}7T|b{RBmQ-xu}+zkWX[pXE_Iw-K^j;C$$[/pu-E!
+    Vr#fH5~@}a-x*IABkA'Gs[Vlew<$:IvHlC^!2&*Kn#z[vI!DUox9%]p5i'*AE(~xTVFOYpB-G2Y7
+    }*[2z[I51e!fBAKAW$C7H_;<Y;[eN!vWH3G*XEW[HAR@7~-l^Qx}5sBU~]JGZ=Hu*'@!=~Trj@+r
+    [hxwT;m$1?';1wB3e1:!n5zlWpsJE{!Ca''jZv>QXDp2UsT:n>}u=WJX}<mGjWOndaIZ+GI,iG,\
+    1lEQ~e'@'OuE;Z='_lW]YC!{K]IG$e@lpLY9s{E^*3<#gknJ\W{OCkn;Tsv^u>wK[$k;m)xQ5}K{
+    [JX,A'K$<aXVYR5l@meE=Ej\=Q$~=15)Eu;z;n<p[n}mmCsnQ]rO4QHAnBux>]7C,'TTv^cE,Tx#
+    wVk3[p$IpoQx=^eBR{AmGH7g{{,krC_[-51$jJQ!aTA#]mU}@ve3^$enA$j]VE>]Tp1o#=j7Az-l
+    Y/Y-<JtVG_sdOp}nlTO]KE1?'NIVzsRJp1oR?rXXIAH>}GUCk3dG?V@B3lCK7zlu}GuD>Ba^D@}_
+    WWRGKD~O7r1OxrITn]zW$\QbHv-_=X-X2su-'?T'euHkZXw#p#sT:2A*ZYZ}pR'3A(=>~v\#}KF"
+    }XG~T.zRW3\+3kJ<RH<$[k5!JE_I~Ins+^Co[J2+Ix}Ro!V\CWu[ve-s'@',V1TXs5[[Ko;Tmu=a
+    T[Xn};=Q3\>Rku>V{@IW^11^G>va!31nR]pBu[2l~[eE<>>-Ku1>pun5><2T_AR2x\7w^$xd7eH$
+    Ow[Kw*?~s{l]XTvIqWXWGz~HKd?T'm&r3KUr~ImI{]e_v~U-GvzpAe1[Dv!kv[O]XQzo-!xZ$B@o
+    JCo,Z$R}=aCp#;B;jV}q||?Q*Tt6jl,}[!a@*Da}2>pjT5Y5n-!$>w+X~RriW$Ep?SBKz$0DOs^Z
+    _W#k5E~2lm^o@1uGsesv*3m7}ZpXDo2\X\#{wBnUwuV+Do$pm[5$s}HiEjw7aYvBZX<m5C~AjCJ.
+    ~{KQRGE+]_al3_]l=nx;\iwk7Om1B~wVnj7?jOHTG7xXEHaZ!rWr=sC-15$5lMsip~HDI\C^uxU7
+    K#rZ1aRiRA~{\]}ev~,=}BY^HeI;2pvviKTe[kG2poL+p=u&>v={w&aTAY1ADRHR2]5^e5}rXv\Y
+    Cs2EjDziRD%{IzsfKplA=,7CSb7w{7D-VBr$7,X>>=i}RKx'Q1$[^D$DGCDv,#~O!*^@wuYoAEjr
+    ;O-X[DfqceRlX^{BZW'|Prj\n^-z?
+`endprotected
+
+
+
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_monitor
+`include "zi_cw_pci_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_pci_monitor

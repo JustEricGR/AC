@@ -1,0 +1,189 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_decoder_assertions(
+                               active,       // activation condition
+                               clock,        // clock signal
+                               reset,        // synchronous reset signal
+                               areset,       // asynchronous reset signal
+                               in,           // input data to the decoder
+                               out,          // data output from the decoder
+                               msb,          // Most Significant Bit encoding
+                               used,         // whether the data needs to be checked for 'used_cond' 
+                               used_cond,    // the 'used_cond'
+                               decode_check, // check for decoded data
+                               decode_fire,  // 'fire' signal when there is decode mismatch 
+                               decode_count,  // count for 'number of times' data is encoded
+                               decodes_checked,
+                               decodes_checked_bitmap,
+                               all_decodes_checked,
+			       support,
+                               fire_count
+                           );
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   input active; 
+   // help "Activation condition"
+   input clock; 
+   // help "Posedge clock signal name"
+   input reset; 
+   // help "Active high synchronous reset signal name"
+   input areset; 
+   // help "Active high asynchronous reset signal name"
+
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   parameter INWIDTH = 1; 
+   parameter CHKWIDTH = (1 << INWIDTH);
+   parameter OUTWIDTH = 2; 
+
+   parameter BIT_VEC_WLOG2 = 1; 
+   parameter CW_FOR_FPGA = 0;
+   parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIT_VEC_WLOG2 : 63;
+
+   input [INWIDTH-1:0] in; 
+   input [OUTWIDTH-1:0] out; 
+   input msb; 
+
+   input used; 
+   input used_cond; 
+
+   input decode_check; 
+
+   output decode_fire;
+   reg decode_fire;
+   output [STAT_CNT_WIDTH-1:0] decode_count;
+   reg [STAT_CNT_WIDTH-1:0] decode_count;
+
+   output [BIT_CNT_WIDTH:0] decodes_checked;
+   reg [BIT_CNT_WIDTH:0] decodes_checked;
+   output [OUTWIDTH-1:0] decodes_checked_bitmap;
+   reg [OUTWIDTH-1:0] all_decode_checked_stats;
+   wire [OUTWIDTH-1:0] decodes_checked_bitmap = all_decode_checked_stats;
+   output all_decodes_checked;
+   wire all_decodes_checked = &all_decode_checked_stats;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+
+   reg [CHKWIDTH-1:0] decoded_data;
+
+   
+   always @(in or msb)
+     begin
+       decoded_data = decoded_value(in);
+     end
+
+
+   //wire [CHKWIDTH-1:0] decoded_data = decoded_value(in);
+
+
+   wire [OUTWIDTH-1:0] sliced_decoded_data = decoded_data[CHKWIDTH-1:0];
+
+   wire xz_detected = ((^in) === 1'bx) || ((^out) === 1'bx);
+
+   wire is_used = ((used === 1'b0) || ((used === 1'b1) && (used_cond === 1'b1)));
+
+   integer i;
+`protected
+
+    MTI!#;DQ5rrCpEV;Z.vv+mTG^WlVl>nvCE>Gj[G#w2NY;rE73*zJ7dw}!H*!!5[3YV'[7[{_Hu7>
+    Cvf?n~B<RQnvwsx;V-[Vj@?yRQ[k!E*$p{DD'vz20*VX*C@D[[H-oGj#A,-^~|Rue*JG1sC=V=X,
+    <$fbk_'B[DCET_Zxk'XfBe;~Nl?{X=~Qs$Vo\/;jK;xwj^H{m^#,,7{5#a5IBJ7+E_slX{W-vHe)
+    Fuz]7!Q@p7K7?w,JJ>_+,T{v^/ln}Yka=Y#<aK|w<|I3n7=i\C\+'uKIez5{p}[KDXso=BZUA#j3
+    3s$}s@C_ea\75~rrA[LK>$C$BHAQkJ2U5~Y{[A_73DvsJl!>1]*^WHYCvr#HL#}Gn1vZmC5@T./-
+    }=oev!UjVWvQM3hzm=+'G<zjIa1!=A{$+=zoawpu\Hn5v=iHjxv>\<~e{BAG;j2\+3XkD!QA=#$@
+    x[iX=?~GX'UW,*3?Qx21i\AaUB[\EIiGlR;'}w'!_wal[1OeA!;L7z+,<Ts[]Al's@$$g.+7?orX
+    7v*H@}CKC+t]5YAW=+mC+K#Dn<#B2$XOx1*rUAUeV=Zk_'l{D$uOkvQ[_-OR:_jRU@oQ[fiv!{Ni
+    [1xRYTn=[OX(#OInUr{vuUQCY~Eki\i!EQuaRXuY{Bap2_\Tz{-B%,\RvCYw>$s_oY5^T_aA3JD5
+    @h$mJ;F[volUHG]e'1VCokZma_*uDJVY'XJYXu3w=DZs'=_-EQ,P73{RKDa*Gw,YN][U$[*]UR?j
+    T/h[ZRl~XoJD9]x=Q*lzuG|dY,77B{=W5?e\Urx@U*5B_~Z;|1]Bsp[{^^,-2RW$[5T[GRpVp7'A
+    <;j]n{'Jn.}nQX$w[u\Der#'~##<W\T}ke5fOvIUC]TxuIr2vBzG_G3jEXZsUI~xbE!-v]7;G"Yk
+    ak$ZV\Y+empaeeD{IKI_=eG!CeQ@@U?jV,ft<aj>!=~^g;C<[YKQi<CYjZ7+;7-WKO?CY=<T?A_;
+    ;Hl!l}aw_4mBl;R_2'JQ{=-p_Y^KOJQ?*X_rQl\a,Q2$C\Nx1@,]E_<OT+Ww7I_8#\3'7zBA[lWk
+    a<JGQ,+DlEZ-KE^vc[UjA2{~BhBkjAKl2xx>Q$?RRu3rovjR!n=JarE{@]~Om#{n[ulQ*>h_wHU[
+    i[WwGn[~=$+DZX;_;s-eUAa\=z!O;}RX<^se7pu[*\]5Z7TZ]wEr}BpROxJ{D?e=Oe;s-rTk1iYY
+    +D'Ewae3pzwkn!ZDl}s?_}uI@l[j$GJ(::o^<2iEliBew#71}HUe<?a'\j!T_~{EDm,5w3O]i}R^
+    nU={xew$'#|rCB${$uA*3VOG^O_+>C>lsRv<Vur_Cwzuv##1WlT@E,OKRrdPTlnnn{nu
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire decode_check_fire_combo;
+
+  assign decode_check_fire_combo = ((areset === 1'b0 && reset === 1'b0 &&
+                                     is_used === 1'b1 && active === 1'b1) &&
+                                    (out !== sliced_decoded_data &&
+                                     decode_check === 1'b1) &&
+                                    (~(xz_detected)));
+
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_decode_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (decode_check_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_decode_check"),
+                          .msg            ({msg,"Decoded value was not valid."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_decode_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (decode_check_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_decoder_cover.svh"
+
+`qvlendmodule

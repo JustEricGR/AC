@@ -1,0 +1,710 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_fifo_assertions( 
+			   active,                // activation condition
+			   clock,                 // clock signal
+			   reset,                 // synchronous reset signal
+			   areset,                // asynchronous reset signal
+			   enq,                   // enqueue signal
+			   deq,                   // dequeue signal
+			   full,                  // fifo full signal
+			   empty,                 // fifo empty signal
+			   enq_data,              // enqueue data
+			   deq_data,              // dequeue data
+			   dequeue,               // dequeue when empty
+                                                  // check enable 
+			   pass,                  // fifo pass_through mode 
+                                                  //enable
+			   enqueue,               // enqueue when full 
+                                                  //check enable
+			   registered,            // fifo registered check
+                                                  // enable
+			   value,                 // data value integrity check
+			   full_check,
+			   empty_check,
+                           preload,               // pre-loaded values into 
+                                                  //the fifo
+			   enqueue_fire,
+			   dequeue_fire,
+			   value_fire,
+			   full_fire,
+			   empty_fire,
+			   enqueues,
+			   dequeues,
+			   enqueues_and_dequeues,
+			   maximum_fifo_entries,
+			   current_fifo_entries,
+			   expected_deq_data,
+			   last_enq_data,
+			   full_count,
+			   empty_count,
+			   high_water_count,
+			   support,
+			   fire_count
+			   );
+
+   // module level pragmas to specify tags for this checkerware type
+
+   
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+   
+   input	      active;               
+   
+   input	      clock;                
+   // help "Posedge clock signal name"
+   input	      areset;               
+   // help "Active high asynchronous reset signal name"
+   input	      reset;                
+   // help "Active high synchronous reset signal name"
+
+   // required user specified inputs
+   input	      enq;                  
+   // help "Fifo enqueue signal name"
+   input	      deq;                  
+   // help "Fifo dequeue signal name"
+   input full;                             
+   input empty;                           
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   parameter	      DEPTH = 1;        
+
+   wire [31:0]	      depth = DEPTH;
+   parameter	      HIGH_WATER = (DEPTH === 1) ? 1 : DEPTH-1; 
+   // optional inputs when the same_value_dequeued check is enabled
+   parameter	      ADDR_WIDTH = 1;   
+   parameter	      WIDTH = 1;        
+   parameter	      DWIDTH = 1;       
+
+   parameter          PRELOAD_WIDTH = 1; 
+   parameter          PRELOAD_ITEM_WIDTH = 1; 
+   parameter          PRELOAD_ITEM_COUNT = 1; 
+   parameter          PRELOAD_SPECIFIED = 0; 
+
+   parameter          PASS = 0;
+   parameter          REGISTERED = 0;
+   parameter          FULL_CHK_ON = 0;
+   parameter          EMPTY_CHK_ON = 0;
+   parameter          VALUE_CHK_ON = 0;
+
+   input [WIDTH-1:0]  enq_data; 
+   // help "Fifo enqueue data port signal name"
+   input [DWIDTH-1:0] deq_data; 
+   // help "Fifo dequeue data port signal name"
+
+   input [PRELOAD_WIDTH-1:0] preload;
+
+   parameter	      LATENCY = 0;        
+   wire [31:0]	      latency = LATENCY;
+
+   parameter CW_FOR_FPGA = 0;
+   parameter MAX_FE_W = CW_FOR_FPGA ? ADDR_WIDTH : 63;
+
+
+   input	      pass;                 
+   // help "Fifo pass_through mode enable"
+   input	      registered;           
+   // help "Fifo registered mode enable"
+   
+
+   // check enables and modes
+   //
+   // by default these are on:
+   input dequeue; 
+
+   input enqueue; 
+
+   // by default these are off:
+   input value; 
+
+  input full_check; 
+
+  input empty_check; 
+
+   // Outputs:
+
+   // Fire signals
+   output	      enqueue_fire;
+   output	      dequeue_fire;
+   output	      value_fire;
+   output             full_fire;
+   output             empty_fire;
+   reg		      enqueue_fire;
+   reg		      dequeue_fire;
+   reg		      value_fire;
+   reg                full_fire;
+   reg                empty_fire;
+
+
+   // Statistics signals
+   output [STAT_CNT_WIDTH-1:0]      enqueues;
+   output [STAT_CNT_WIDTH-1:0]      dequeues;
+   output [STAT_CNT_WIDTH-1:0]      enqueues_and_dequeues;
+   output [MAX_FE_W:0]      maximum_fifo_entries;
+   output [MAX_FE_W:0]      current_fifo_entries;
+   output [WIDTH-1:0] expected_deq_data;
+   output [WIDTH-1:0] last_enq_data;   
+   output [STAT_CNT_WIDTH-1:0]      full_count;
+   output [STAT_CNT_WIDTH-1:0]      empty_count;
+   output [STAT_CNT_WIDTH-1:0]      high_water_count;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [2:0] fire_count_tmp;
+
+   
+   wire [STAT_CNT_WIDTH-1:0]	      enqueues;
+   wire [STAT_CNT_WIDTH-1:0]	      dequeues;
+   wire [STAT_CNT_WIDTH-1:0]	      enqueues_and_dequeues;
+   wire [MAX_FE_W:0]	      maximum_fifo_entries;
+   wire [MAX_FE_W:0]	      current_fifo_entries;
+   wire [WIDTH-1:0]   expected_deq_data;  // data dequeued from checker fifo
+   reg [WIDTH-1:0]    last_enq_data;      
+   wire [STAT_CNT_WIDTH-1:0]	      full_count;
+   wire [STAT_CNT_WIDTH-1:0]	      empty_count;
+   wire [STAT_CNT_WIDTH-1:0]	      high_water_count;
+
+   // Internal checker controls
+   wire [WIDTH-1:0]   expected_fifo_deq_data;  // data dequeued from checker fifo
+   wire		      expected_full;                           // checker fifo full signal
+   wire		      expected_empty;                          // checker fifo empty signal
+   reg [ADDR_WIDTH:0] volume;           // number fifo entries used / filled
+   
+   wire pipe_lined_deq;
+
+   // Note: 
+   // value check becomes void / disabled as soon
+   // as either a dequeue or enqueue violation happen.  
+   // It is enabled again once a reset sequence is done.
+   reg		      enqueue_has_fired;
+   reg		      dequeue_has_fired;
+   reg preload_reg;
+
+
+
+   // Fifo statistics info
+   reg [STAT_CNT_WIDTH-1:0] enqueueCount;
+   reg [STAT_CNT_WIDTH-1:0] dequeueCount;
+   reg [STAT_CNT_WIDTH-1:0] highWaterCount;
+   reg [STAT_CNT_WIDTH-1:0] emptyCount;
+   reg [STAT_CNT_WIDTH-1:0] fullCount;
+   reg [ADDR_WIDTH:0] maxVolume;
+   reg [STAT_CNT_WIDTH-1:0] full_within_range_count;
+   reg [STAT_CNT_WIDTH-1:0] empty_within_range_count;
+   integer	      within_range;
+
+   wire xz_detected = (^enq === 1'bx) || (^deq === 1'bx);
+
+`ifdef ZI_CW_ADVANCED_STATS
+   integer	      meanVolume;
+   integer	      meanCount;
+`endif
+
+  reg [WIDTH-1:0] pipe_stages [LATENCY:1];
+  reg [LATENCY:1] pipe_stages_deq;
+
+  wire [WIDTH-1:0] pipe_stages_deq_data;
+
+`ifdef QVL_ASSERT_ON
+  wire    qvl_fifo_enqueue_fire_combo1;
+  wire    qvl_fifo_enqueue_fire_combo2;
+  wire    qvl_fifo_dequeue_fire_combo1;
+  wire    qvl_fifo_dequeue_fire_combo2;
+  wire    qvl_fifo_value_fire_combo;
+  wire    qvl_fifo_full_fire_combo1;
+  wire    qvl_fifo_full_fire_combo2;
+  wire    qvl_fifo_empty_fire_combo1; 
+  wire    qvl_fifo_empty_fire_combo2; 
+`endif
+
+
+`ifdef QVL_COVER_ON
+
+   assign enqueues = enqueueCount;
+   assign dequeues = dequeueCount;
+   assign enqueues_and_dequeues = enqueueCount + dequeueCount;
+   assign maximum_fifo_entries = maxVolume;
+   assign current_fifo_entries = volume;
+   assign full_count = fullCount;
+   assign empty_count = emptyCount;
+   assign high_water_count = highWaterCount;
+
+`endif
+
+
+/*************************************************************************
+ *
+ * Latency Implementation
+ *************************************************************************/
+
+   // Latency defined above in LATENCY param
+
+
+  assign expected_fifo_deq_data = (preload_reg === 1'b1) ? 
+                                  preload[PRELOAD_ITEM_WIDTH-1:0] :
+                                  (LATENCY === 0 && expected_empty === 1'b1) ? 
+                                  enq_data : pipe_stages_deq_data;
+
+`protected
+
+    MTI!#Iuw~nU.l-e'loJ1wo7!na~lElr>a1,u}@-e[9"B~uwFi5rn-w!aCs?KV'$?ZI>T>j{!T7#u
+    -{O~|!DVB_k~YHXC^iD=i?$i[}7#uRlE]Pr?\]]+'VeavzBl<E=@x2}_~;?o;]P<RoYU[;_1C3J/
+    .YmU{<V}~E-CVLwq?wXbG>-_w}7C~$?pC'Bk3EBajZKpT_V@Y*)vfUl5p,>G[KX\_7C}lmjinBn{
+    }rd,suJT=2WC,CCQ*Cm}Ns\iW#+Bl%:PZtBoEk'E@k5#+[x?UD=ZvG$+SGT'pEV!X?OY7G}E*/;o
+    Z=3_D?v[_v@Ru-1BA[?\z\XBUI]D$B;|1~a$^+VYju[3YV+V@Xap-Awr1KKlGorTvp-#KnAua57'
+    *OrVKXBUjKml;lTB}3R[ex!5^?Bx^K3!Xnz^ODBC7<$$}_Vok5p2P53E1GJ^T2>1Y9olE>rY{ws?
+    J*CZe?Ol+uDl2pI#o[\+rY?]T\^^AV}\#{jw$1=xoWpV{K$jv]QZjWX73EEbTQi~UG<TIlwa$'E}
+    \+RGk{o+W9i$5YQ\TY=;2<EHIDI-p3xm>}6VzoXnw]sGWRnS]Z@X^_AD#T*'zY}Ej5\sOxYElLD\
+    B${R>1f<5<u{]?YcgrpjnRWRwPaBRG$2-{rd&HC3j;[m5HoeaBW,\MY\vV=(W<j!s$l\AY,~zRi_
+    zsu=EQx}9%S!=avy$W>or><C%XU+<\@\io3;p{Ba\li
+`endprotected
+   assign expected_full = (volume == DEPTH);
+   assign expected_empty = preload_reg ? 1'b0 : (volume == 0);
+   assign expected_deq_data = expected_fifo_deq_data;
+`protected
+
+    MTI!#uz\\Dsxx;A~7OnA{Dx?!IsxR>_ZlOeQ;73Ywzj"e?eD=m*AZ1o;V},[exrzo3Q;0]vQWuU5
+    lJ}{2'x;CExY7KXH'e>A{2HD=v@-Z,1E$S>Ep5#7w}c]\ux_a[@]+3}u{WUP[Y~G^p@s1B+D|ae#
+    GH-+^m]>u${X@_#C=[Z<YVspAG+lp[Dp?#$[uF=TD+@em<2Ur^|BnY\k[a?7>[Rks~1nr*r*CT!~
+    A*<lI{p8*DDepR!BY*>EmUA7WHe'TzeEM#1+D6ijE[w[a^+'3\5a>+<a!_Q}ZCiXKw'kDz'uX*]v
+    5k*E*z?5kZ,kWBYJ{\}x!Zx-_B]aIuF@}AC{AsA{wwTGB;s\<<!,;{T/DlY>BU1K1!~E_aeJWCY+
+    /BU]DFkw$#C}G<2^^lG1ViK$~2I4v#r,b!vi~Y==$$^QrsB<]wwAWwI-x,B_e^+'\^Oz^lxZAeiu
+    IGWsoV<'[A5r=LEC1uznQ#{N{o;C\[H,isnUp-\~1DV2i$WI$#U5z7<w<oOzzAj5\$m[[o'34*U*
+    [x3$V$uUp7aJC&pE323jVjC{!u#>J<'*7${-+w1x!X^{osWp<#o4G7iuGVUpjGo[5@{\w=C5[$ul
+    q}?3wmnC*n=A7aAW>d$}?+n='okR>!U{J%l<aWe3_7Jo3#M}saliY=\'Kn!-x<H#,A$C[!ekTrBF
+    UjD\>[k#$g[,HT@|O+Ci!sa@9Be7V[n5~p]*Bxb=m=Xr*-!z,pJ*>^$N#T]&lC^!l'J7\1H=Dn*}
+    ]VC<SPD-B<^AaO&RxHn[?OeU$l2rD2[qAD+@s>Tul^C^3Ei~7ok#UG#l;V$xzR{$vV}5$ZaD*\YY
+    zG?-r^!A12{G7mYRI^s;4Krav?s]]!s@-iI[5',on$w@p,m}m_e=23+DKZV;'D~s-7;V>njmrJ7r
+    @xWu?TO5Xr#\v?vG!4VI?2sV!WBW2zGsipiBO@uw=C[6k[uJ}*#{u]$#%A$Z]K'DuzV5G[Q[iG+~
+    Q^E{<pG'<MB(r]$Wr?uVIw=]^D']a5'!GlHj5Gm[\2Cln$rRlln<,[RzEo{>t;Rmf2=QRr;$+aTD
+    xls;{kG^~&jCioCD?2jmmWhG>!Y@7Z]z\'J;oj2W<+A-wCYnDUsj,m{wr@n7xj$vJV5?+*KP}nH?
+    RCA=YpOrTC1w^$WI=oQ!RBK+_QT2s^TRO2Q[W<E~*{X$\E~~3V-k_}}=@1k+d=,#REG;>EsQOvvp
+    ~bz=O$hE92l=$-RA'+sG{*2CQ),\OAQzIIB!!#'e7$-{zw5e*]RD'T:2E#mn}Qoz=UHc]~za-Uj_
+    B=X~~aenRCG,+VeWsaj{G2\zf7!uD!Oo>AU*HH'=<1=.Uw]A:1HOxC-nE@1ppj[,p$zaY-GKj1Rk
+    \KHC\+z}$tC[iU_v\rE~~p<D{Yob*PQmWp\u,C[{Q;zV!7>wzY2\~D!7oIM;rVTp\Ou#{>U^F]_@
+    Jnn-UI~^~_7Zem*Asj_RW.)lIxK13>k'vwaxBIK+BR23,wku]DvvkI=1>2jRDDG,vB5HToiG,@Gf
+    -\C]7S=kZCDu[pRG3w2oD#~,}I7e~,ED-2I?7?Zs<7qF,Rm@BY2xJ'\{$Xae]^lWZw[JCz_k}i2r
+    @{$U{1TmX'a[B3B}{=]s\"}0]7]5dp5Dm11Vm*n,~65?GCfrJ~a*PHx?G5!2a(!n*]>r5~~$~a*Z
+    HWIk[k|VcJwllAwZ]2<}D'LAs#Ye1E}=+ErU7_+U>,{4_izY-ND$]=LO[jp:DAZ[^_]mZTl]WIe+
+    n'+G9d+A3Czr_r[rJ{Wx^2wUJw==A20j{H}G'G2Pl>,E+vz^nXB@8IB,^7V~Uzmjs7zKn<A-[eox
+    OZp7$jsAORK+o,^J5zBGlx1[~!*i,vi+*\^Kle"e,wXHUo!]!9vT+x!j1rr>_z_<QC[#p{{Ho$v'
+    lE:>U~nvw37-QEr9K]esiRA5\*I~X{Wr%QCK}@UE~71jr]BQ^NDR'EGNCXps{oDD-hWVsZRrx!RY
+    V?Xe-A{.DYG>I@zW1mEu1*zvr<n?ww!{j-{Q#YW$[>nBO'1>rOX*ln'u$w5Krsnk^T3lo=ECoX~+
+    >V+E-I'~O[O,wGa!'UAaC,;CjHUzO]Tpez{H>7AprGo>j=\[Ye[wV#nX}b7OjRhIy>,i?_Da3j7x
+    u<aVRmV\3!r^J.v?*Dr5j;ivm-KYo^zH'12Y[s\WAkCE$!(RzrljnZm,IVzB^ZW\'^[g5'?o{=vj
+    -RXaT,r{j^rp9Epw[>p_YrBU=i^251JnuDZpC6{Yuxm\lW4F,n^xur\_a[53Jn\m8]vAzVml3/pA
+    KnvGDwV\J-rvzBGETj9rEe!2=!+<U<\+XGo2-V1$$$@Kwxo[^7{U{~^D[Z{NYqT]\I]Z,z-w;*se
+    zQV^U^9i>2~~D;1Ce'@#_v{x{sj3^njORnzvkVG\EC*3x-Q}T>ViUpov$7Rz>BQgBn=m;vOlmY<k
+    POU,WIJ3XoH21-zVG;=-RuIpO,aY?#U=r[3Tls_RI[@UXBA;l:3TKK-pGuQ;w}o!ZTRuJ]l$<kee
+    Wuk*vIJDa<lTrlVo^@s@nn55}>,Ek$]a\n:vE{zBGQGQ+[<J1nX*NC-\sx*?z(ijrGu*-]ipxIZ'
+    --I}C=u'?*Sja\@6<>'Ahjw-J{*sX[J}'PwwBVI^1o$!\ni$VpG{upE3>ls3j!;<sji\>r's#n7O
+    +s+*Q<~RBaB^J,7RA!_w]ID\rWqY->5<ej7jeH@_uZ%^O]1$==o}vur97&Yx{nGvQDnYwOwE#^"7
+    x+,IB\s<_mI/cB3o*]=YoIJI}l~zKrDWI1pQmCkeu@D>*\^3Jp<^>{Xx+HnxsqwrZ~~BDkk*\VAE
+    JK1I2;EOp,t7n-GNAvKE%@'k[?]juw{+;))v@7rGw3E7x+Yp{Vmd=_jZe^G_S*^2z!^3'>wQDjz?
+    W7mo1*K2s^eV7}mU7eG7R^VKCh,,{1B_^[GE},c,;IU?eB=w[=##R3{7HVA5@5'*rvu,[?pVU=,}
+    a\p,a1]r?,E2aV^FlK*G[YlG_K@v;jT2Ek!j$_Q>kOsi'm2s?IA,1_w+=^E3YK1op,;[5U7plBmR
+    75BBg1k*^1HJJ'v#*eApTDk}YQAVe3Y[YsJo~GIIi*--E~BiE*Wo]JO<^v;zATHT}q^HAWx_<vfs
+    $2]2sm'YURw7={vu_^^p3s,KEJw*E~j$1-Hejm^_[i?W[K})eXWlC$i>ruH'vCW!QD{TDmK]n$UO
+    kX]Q|I7=}K<'^uR'AIC@32U-#7>^zo'}r?_X[0B>p70^H$[kVX;%GIjZwaYT''#xuG$_{Cp*[XeA
+    TEx#sR;m\fIn_U\e]Gej%%1-YH5;Us]lGu=CG1i>R1w[Q7\A[JJ,>l6?RUuIZp=DlD\Arz5VQwQP
+    i[X^%{Xe^73{jH5smJ[o@;I;\?-[W*eio4tmeuur]?<Q>KuO!1BX5EJ<v;ZY=pTK]#\mex#*WAOU
+    $A;V+J;8DzH7Ll_ZoxijOYnJEVXAo3_rY^3e;tQ*>*)75WY?${2,Pp~X}-^*!$@]nvI}D^usO)R~
+    ^n?Vk<II~}b_OOlGW5sE!I,,eTE*pG=7CV#o}jKU{>HY#1_7i;JYVJ}C!7^-^GXf*aB!'#!e2lpW
+    2_1=!o<WRs5'[Zra8Ywx>iG#vBs{oFk\QE\O7*-z73lm*uO,^BO+KIwsx'k]JJQY;kC+s#Jxl{5s
+    [URU2v#AXv\H5>-Buu}!,i@DG[[j_3mwE<dXnYUqA,AG^j7151@vU,-{lE<;HEIGQ*w~E2zGJ\s#
+    \WW@eDr~C2HaK[$~w'DlR!Qp^K^2[Hs3-DI<4,,p[]+<OfHXI+*w]$K->D}<22Y>_=8n_ri{-YxV
+    ^_+?to@o#R1pmA_jrJ5oH5U2u7&xZU{Cw^Kis!u%$^,j'lArm[<{omvxCkK2KoUZe?I;C1m^F9Xo
+    JA#Yxig}^,DRMwV2$@<G[#'K\A=A+;YZoCk'oAYEnHxQ*r#D$BvxD-Al#Fgh3>G}~CwjEJQ5#I?A
+    IvU]@*GBPMx{!k-1jHj]nI@H!2D=KQ\#Qu1CR;ZGkWu1l{$Eam^I{D+we{7JXAO,,W\7nea]BIrl
+    >!EK]T}j_<mS\?]a1DmAD7
+`endprotected
+   
+   reg [WIDTH-1:0] 	 fifo [DEPTH-1:0]; // RAM implementation for fifo 
+   reg [ADDR_WIDTH-1:0]  enq_addr;         // write / enqueue pointer
+   reg [ADDR_WIDTH-1:0]  enq_addr_tmp;    //  used in preload loop
+   reg [ADDR_WIDTH-1:0]  deq_addr;         // read / dequeue pointer
+   
+   integer i;
+
+   reg [PRELOAD_WIDTH-1:0] preload_word;
+
+
+  assign pipe_stages_deq_data = (LATENCY!=0) ? pipe_stages[LATENCY] : 
+                                                      fifo[deq_addr];
+
+  assign pipe_lined_deq = (LATENCY!=0) ? pipe_stages_deq[LATENCY] : 
+                          (deq === 1'b1 && ((preload_reg === 1'b1) || 
+			  (expected_empty === 1'b0 || 
+                          (pass === 1'b1 && enq === 1'b1))));
+`protected
+
+    MTI!#'1>m}YsE[a1H_<xVm$Z1lu2=snpHKRKQ[4m'D[czioKTU,iT<Dpx/?$VrsBC~|g7IZ\sHA'
+    1GQ__'32p%EGAj]BW=^BEW*A'aBZV+p9,C}>lI1a/anEHru<[JsjjQVaOB;lpRH_-pR}T}iaR=#x
+    1$\$J}_DpeIa>*UolO=u'eDBza$3WnDO2O;Tx,Q-A7#jk#D;A8}Z*?vAB]TTji+a>}}#{OA{[[-r
+    uB*$$sQ,Y'u\ZBu'e[w}*1,os\Ik@H9OG*eJwp-m[Z!;NE;VTGLj?}v&mYEwG*AuE;~?#TlJr#-G
+    #r\QG<u<k_CCKTHQie#oHSF,v@kWz_zNL^~J]@^~C,lQ;]n,3R}VrxW]XeO]pH5Bs'm@C1YwUD@'
+    u<-*\"#p#e*U^{}U*'^Q-a7-@nP|rp$Jo#nX-X\;'WAw1oD#]uY\[5X[D[%z{G[ivI[lZ;\taR?T
+    R!2Vw$JZ~wJ]=w!zd#<B##r;D#rVu/#I{}vu<e<Hu!HG@I!>lizzn>ax1Cn}o7JVn[I_xD~A^1=n
+    <u?jQp+GKDR8!^j2p35n6-jz3G[AJvWn[]1RT#XRVrx}W<<Y>2s/ekxkF$GBv7Kz_v[KIO\'@('-
+    !Hz-pQ3[EoaG>lzxkTZRIv^U>m$^vEao?e)E<j-D{Rn*j'V==<C_3m#H1;Osa7nB3YU_CEe3H,Hw
+    5Z-zvGz+<OV"Gj{[?}7a1A,eTspC-HYr\H=Z+]p;31C@=OXZ^a@voaECb1OkI76^2jZoCu}<DJ$#
+    A7]MIXIE=#X*:4oI$@uY?[z^\pV2]BO&l^]sWD?{8O)3]IWK*Ev]m_@zr<~xs5OTG{u,}$i]W!p_
+    ~*vps^e6\Hu>smjTE3C}ka=nv#Vap+H\y;HZTs?6y'x"!Bl!7'?QWV[k?eJGGs}'_U4=T$1[xzDx
+    [x?RDOw<HYY}GOi)<1?{UT!@',YXn1,[y$B+uyzoT<Y?[ZIJR*?E#lOSX}l}I6*BX^l<A^\!>[<[
+    A^I*na~ER$sm5Ow-!pGn[k-B*#U*{QsY)Qa}}B@-H5W!BTl?T,w_uv~G[3C_R#HO<w';]Al+G,Z\
+    JVAB5x'oY=aZw7/lUTJ=QIsl+l7b]KVo'B~RNEHuClIu},,n+Z*ZnpBpxKAV<k}\X;7Oskzk;C*Q
+    EJCn}[YN*7=5'[]W#E}7+5}R@Q*+n7]BVe#,faE7A)*2T#TA5aEWRrOp;e)x!;u%vVRp7-Cr=3ue
+    ^URDw-;~W1rZ*{EY;a<]}''\p$;+%py,}oR2xjDKoeA]^irs}pjvQ^E=Du<+q,Uw#}W,{]?$R*wA
+    7j{j{='pE5'kXpsup|C-@sh:}3=sD7o_=7ToaaQ+7m,5Rr=nK'\p:^r{J4|Xn']:+UpKw,JWp;AU
+    7HCVUa5{4,&{{BA\}KoCH;7_v1o\rQ5A]^e!G?nH-ZG*K2EfMDe$Cl}VQ}~*_WrJv#xa@i\a^?pX
+    aKz-}+{'B7U{Zza@B\DDiiv1oxm;jHl$G~\5aJ_Q~K]X;e~^#;HZ]=}\nom1?xXEm*HK^C;5pCE!
+    x%LHsH*6#w2v?Oi<w,jvv7v3ClV@XpvrKXDErY+B@'E;s@m_];InHIlB-7#~6-Uv_<x#+n{IaRT7
+    I6'{GD/E?'<&F'r7lD]z7FXE-x,~;@[YZkF[<-U'2T!u_~-uz7u=jxA?UYE*dQI3{t?-+>~O'~${
+    jY,C=?[7!2rA_K?lBrB8rpsYAGvrl!w1lvRX's,wB,oKA\ln}rCA5[uzokDJ_aeKWAev;n;{9(i*
+    m}QV-+r=!!Vx;k7@Z!8;\3n=?,QbOWua$2<x#CW#x'xA2lURrKrE1Uel,sZIZ'1Oz]Aw[2V*CAap
+    *]WJ#B,s=v@<s+u$om]=#w,ZV*Bprw^?I{}]z{sCE,HDT\rZ}523n{w!1K{D1HY_>A*uw'CA@tGX
+    H,I[{eGIT2v_E$Eu31%os$_};j!ZGDH!GKkk'k>=E>>nB~op@7}]]IkDoTZG=^rXpOE{AGCj+'n#
+    ROJ3,-njYaz$OD>Em7]kepD=_!5UQ,}v]iA\VX@'~I'#DVZ[!;;l!s-?<72Y<;m]7#]~jCjv;{az
+    U\Z[-,@9Yq[4aARVEmB\UOnpK1+H\@*k!s\@i7pGje2zU]'1f}C[D-AwBk>lZDX<z5RToGOY?AXp
+    5+1n}7\zwU-HzEZuED[r~1iY+\a][pz*XER][xY\w}[m-kArlrlRKR>+~I]?-ojB~+Q}]+$X#q1\
+    UoQ^rY{a>H[VA~_?EJjko1wpuk+QTWc9}@ZV7'ruKCe1]s~JD2j[x+HY8I}{K!z175[Ovo_J1FV*
+    KTR>\]XYs~0vu<=qr*uD(oknBYi!Z$mJ?so,}PnB;{C=RrD?~UrG_pu\^}))_JEiq[kmp]$oBpAR
+    ~_DZrMII@o}V*1+TJ7'H7W=;DzB<<reu6@$T?BVlEVZIjYYDCJ$3]Qe$zeK3Ijr{rz!+@jBIB!nJ
+    ze^=~I]}oG^[nM]J[33Y'K'2z@\l@35K[s+*TJ{BAw7@lXuRIe<e'-Ur<>o51ZD>p,\BQU+^zBMU
+    njEG[[~NoZQD1{@D&1U\$r2~$TDer<Q(;oKw^~DU2BmX81EQB,>A1->G-IB#E[Ys}1'azvJllL+Q
+    [XQ'E^?n7H$xXUFA=wVST]e1^l~KI^Vzo^TY1+*lwp^phJeV'[AuQ-E?-mrxo-GkurUE#XR?nCOu
+    l<XUw\@$xEu]J[>Q~5K1~?$z\#SM$rnn@nV~
+`endprotected
+`ifdef QVL_ASSERT_ON
+
+   assign qvl_fifo_enqueue_fire_combo1 =( (~xz_detected) &&
+                                        (areset ===1'b0 && reset ===1'b0) &&
+                                        (active ===1'b1) && enqueue && 
+                                        (registered && (enq & !deq & 
+                                         (expected_full || 
+                                         (preload_reg === 1'b1 && 
+                                          PRELOAD_ITEM_COUNT === DEPTH))) ) );
+
+   assign qvl_fifo_enqueue_fire_combo2 =( (~xz_detected) &&
+                                        (areset ===1'b0 && reset ===1'b0) &&
+                                        (active ===1'b1) && enqueue && 
+                                        (!registered && (enq & (expected_full ||
+                                       (preload_reg === 1'b1 && 
+                                       PRELOAD_ITEM_COUNT === DEPTH)))) );
+
+   assign qvl_fifo_dequeue_fire_combo1 = ( (~xz_detected) &&
+                                         (areset ===1'b0 && reset ===1'b0) &&
+                                         (active ===1'b1)&& 
+                                        (dequeue && preload_reg ===1'b0)
+                                        &&( (pass && (deq & expected_empty &
+                                        !enq)) ) );
+ 
+   assign qvl_fifo_dequeue_fire_combo2 = ( (~xz_detected) &&
+                                         (areset ===1'b0 && reset ===1'b0) &&
+                                         (active ===1'b1)&& 
+                                        (dequeue && preload_reg ===1'b0)
+                                        && (!pass && 
+                                        (deq & expected_empty)) );
+
+  assign qvl_fifo_value_fire_combo =( (~xz_detected) &&
+                                      (areset ===1'b0 && reset ===1'b0) &&
+                                      (active ===1'b1) &&
+                                      (value & !enqueue_has_fired & 
+                                       !dequeue_has_fired & pipe_lined_deq) && 
+                                      (deq_data !== expected_deq_data) );
+ 
+
+   assign qvl_fifo_full_fire_combo1 =( (~xz_detected) &&
+                                       ( (areset ===1'b0 && reset ===1'b0) &&
+                                         (active ===1'b1)&&(full_check)&&
+                                         (full === 1'b1 && 
+                                         (expected_full === 1'b0
+                                         && !(preload_reg && 
+                                         PRELOAD_ITEM_COUNT == DEPTH))) ) );
+ 
+   assign qvl_fifo_full_fire_combo2 =( (~xz_detected) &&
+                                      (areset ===1'b0 && reset ===1'b0) && 
+                                      (active ===1'b1)&& (full_check)&& 
+                                      (full === 1'b0 && (expected_full === 1'b1 
+                                      || (preload_reg === 1'b1 
+                                      && PRELOAD_ITEM_COUNT === DEPTH))) );
+ 
+  assign qvl_fifo_empty_fire_combo1 =( (~xz_detected) &&
+                                      (areset ===1'b0 && reset ===1'b0) && 
+                                      (active ===1'b1)&& empty_check && 
+                                      (empty === 1'b1 &&
+                                       expected_empty === 1'b0) );
+   
+   assign qvl_fifo_empty_fire_combo2 =( (~xz_detected) &&
+                                      (areset ===1'b0 && reset ===1'b0) &&
+                                      (active ===1'b1)&& empty_check &&
+                                      (empty === 1'b0 && 
+                                       expected_empty === 1'b1) );
+`endif
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+	 if(REGISTERED == 1)
+	   begin : assert_fifo_enqueue_registered
+              A_qvl_fifo_enqueue_registered: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_enqueue_fire_combo1)))
+	      else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_enqueue_registered"),
+                          .msg            ({msg,"While the FIFO was full, an enqueue occurred without a dequeue in the same cycle."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end 
+	 if(REGISTERED == 0)
+	   begin : assert_fifo_enqueue
+              A_qvl_fifo_enqueue: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_enqueue_fire_combo2)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_enqueue"),
+                          .msg            ({msg,"An enqueue occurred while the FIFO was full."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // block: assert_fifo_enqueue
+	 if(PASS ==1)
+	   begin : assert_fifo_dequeue_pass
+              A_qvl_fifo_dequeue_pass: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_dequeue_fire_combo1)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_dequeue_pass"),
+                          .msg            ({msg,"While the FIFO was empty, a dequeue occurred  without and enqueue in the same cycle."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // block: fifo_dequeue_pass
+	 if(PASS ==0)
+	   begin : assert_fifo_dequeue
+              A_qvl_fifo_dequeue: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_dequeue_fire_combo2)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_dequeue"),
+                          .msg            ({msg,"A dequeue occurred while the FIFO was empty."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (PASS ==0)
+	 if(VALUE_CHK_ON)
+	   begin : assert_fifo_value
+              A_qvl_fifo_value: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_value_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_value"),
+                          .msg            ({msg,"Dequeued FIFO value did not equal the corresponding enqueued value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // block: assert_fifo_value
+	 if(FULL_CHK_ON)
+	   begin : assert_fifo_full_check_when_fifo_not_full
+              A_qvl_fifo_full_check_when_fifo_not_full: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_full_fire_combo1)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_full_check_when_fifo_not_full"),
+                          .msg            ({msg,"The FIFO was not full when the full signal was asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // block: assert_fifo_full_check_when_fifo_not_full
+	 if(FULL_CHK_ON)
+	   begin : assert_fifo_full_check_when_fifo_full
+              A_qvl_fifo_full_check_when_fifo_full: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_full_fire_combo2)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_full_check_when_fifo_full"),
+                          .msg            ({msg,"The full signal was not asserted when the FIFO was full. "}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (FULL_CHK_ON)
+	 if(EMPTY_CHK_ON)
+	   begin : assert_fifo_empty_check_when_fifo_not_empty
+              A_qvl_fifo_empty_check_when_fifo_not_empty: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_empty_fire_combo1)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_empty_check_when_fifo_not_empty"),
+                          .msg            ({msg,"The FIFO was not empty when the empty signal was asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (EMPTY_CHK_ON)
+	 if(EMPTY_CHK_ON)
+	   begin : assert_fifo_empty_check_when_fifo_empty
+              A_qvl_fifo_empty_check_when_fifo_empty: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_empty_fire_combo2)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_fifo_empty_check_when_fifo_empty"),
+                          .msg            ({msg,"The empty signal was not asserted when the FIFO was empty."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+	 if(REGISTERED == 1)
+	   begin : assume_fifo_enqueue_registered 
+              M_qvl_fifo_enqueue_registered: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_enqueue_fire_combo1)));
+	   end
+	 if(REGISTERED == 0)
+	   begin : assume_fifo_enqueue
+              M_qvl_fifo_enqueue: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_enqueue_fire_combo2)));
+	   end
+	 if(PASS == 1)
+	   begin : assume_fifo_dequeue_pass
+              M_qvl_fifo_dequeue_pass: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_dequeue_fire_combo1)));
+	   end
+	 if(PASS == 0)
+	   begin : assume_fifo_dequeue
+              M_qvl_fifo_dequeue: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_dequeue_fire_combo2)));
+	   end
+	 if(VALUE_CHK_ON)
+	   begin : assume_fifo_value
+              M_qvl_fifo_value: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_value_fire_combo)));
+	   end
+	 if(FULL_CHK_ON)
+	   begin : assume_fifo_full_check_when_fifo_not_full
+              M_qvl_fifo_full_check_when_fifo_not_full: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_full_fire_combo1)));
+	   end
+	 if(FULL_CHK_ON)
+	   begin : assume_fifo_full_check_when_fifo_full
+              M_qvl_fifo_full_check_when_fifo_full: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_full_fire_combo2)));
+	   end
+	 if(EMPTY_CHK_ON)
+	   begin : assume_fifo_empty_check_when_fifo_not_empty
+              M_qvl_fifo_empty_check_when_fifo_not_empty: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_empty_fire_combo1)));
+	   end
+	 if(EMPTY_CHK_ON)
+	   begin : assume_fifo_empty_check_when_fifo_empty
+              M_qvl_fifo_empty_check_when_fifo_empty: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_fifo_empty_fire_combo2)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+
+ 
+
+ 
+
+`endif
+
+`include "qvl_fifo_cover.svh"
+`qvlendmodule // zi_cw_fifo_checker

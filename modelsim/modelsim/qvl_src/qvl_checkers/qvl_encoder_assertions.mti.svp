@@ -1,0 +1,289 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+
+
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_encoder_assertions(
+                               active,           // activation condition
+                               clock,            // clock signal
+                               reset,            // synchronous reset signal
+                               areset,           // asynchronous reset signal
+                               in,               // input data to the encoder
+                               out,              // data output from the encoder
+                               lsb,
+                               used,             // whether the data needs to checked for 'used_cond' 
+                               used_cond,        // the 'used_cond' 
+                               encode_check,     // check for encoded data
+                               zero_check,       // check for zero data input
+                               multibit_check,   // check for non-one-hot data input
+                               encode_fire,      // 'fire' signal when there is encode mismatch 
+                               zero_fire,        // 'fire' signal when non of the bits are asserted
+                               multibit_fire,    // 'fire' signal when more than one bit is asserted
+                               encode_count,     // count for 'number of times' data is encoded
+                               encodes_checked,
+                               encodes_checked_bitmap,
+                               all_encodes_checked,
+			       support,
+                               fire_count
+                           );
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+   parameter MULTIBIT_CHK_ON = 0;
+
+
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   input active; 
+   // help "Activation condition"
+
+   input clock; 
+   // help "Posedge clock signal name"
+
+   input reset; 
+   // help "Active high synchronous reset signal name"
+
+   input areset; 
+   // help "Active high asynchronous reset signal name"
+
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   parameter INWIDTH = 2; 
+   parameter CHKWIDTH = 1; 
+   parameter OUTWIDTH = 1; 
+
+   parameter BIT_VEC_WLOG2 = 1; 
+   parameter CW_FOR_FPGA = 0;
+   parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIT_VEC_WLOG2 : 63;
+
+   input [INWIDTH-1:0] in; 
+
+   input [OUTWIDTH-1:0] out; 
+
+   input lsb; 
+
+   input used; 
+   input used_cond; 
+
+   input encode_check;   
+   input zero_check;     
+   input multibit_check; 
+
+   output encode_fire;
+   reg encode_fire;
+
+   output zero_fire;
+   reg zero_fire;
+
+   output multibit_fire;
+   reg multibit_fire;
+
+   output [STAT_CNT_WIDTH-1:0] encode_count; 
+   reg [STAT_CNT_WIDTH-1:0] encode_count; 
+
+   output [BIT_CNT_WIDTH:0] encodes_checked;
+   reg [BIT_CNT_WIDTH:0] encodes_checked;
+
+   output [INWIDTH-1:0] encodes_checked_bitmap;
+   reg [INWIDTH-1:0] all_encode_checked_stats;
+   wire [INWIDTH-1:0] encodes_checked_bitmap = all_encode_checked_stats;
+
+   output all_encodes_checked;
+   wire all_encodes_checked = &all_encode_checked_stats;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [2:0] fire_count_tmp;
+
+
+   reg [OUTWIDTH-1:0] encoded_data;
+   wire xz_in_detected;
+   wire xz_out_detected;
+
+   reg one_hot_err;
+   reg found_one;
+   integer temp;
+
+   wire is_used; 
+
+
+   integer i;
+   reg trigger_init;
+   reg trigger_init_tmp;
+
+
+   assign xz_in_detected = (^in === 1'bx);
+   assign xz_out_detected = (^out === 1'bx);
+
+   assign is_used = ((used === 1'b0) || ((used === 1'b1) && (used_cond === 1'b1))); 
+`protected
+
+    MTI!#5;e#@ew!RGnXojmT#}RX;V'U-x?<RB]w|*#@pN"c*2{[P7\Vr#RR!FGvYO7~<XaE7=S#X,*
+    +=Kplz3CE~v'&#5BWa*;'tueWl]IA[O-lD**aZeu<[|ko#Ai<b}KjoWjkmtFP$x~sbpRI^I#[zgB
+    7<;s1\Ax{~=pbDzUOa7>*7l>}rw>QtxQ?VKXm\;E#mHvl~B~>,l!I>?=\JU<_#Y3EH+5?@[r?'k_
+    G-B>HY7nWOBW}K+A=e7Wv_Iul!o'{n+IG#>]U^{Tf^W+j'srX^!K=NsoKkeV*\J7kHP}B-@BcBJm
+    UPtA,3l:x@@~ORzjr?A21@uz=HD{N=ZG^inxr|ao!2q}^ilIOK[q;57a3$D~[CrV}>[>ItH{_Yip
+    IHKHY7I#G@u7+r_RKa'Q!3-NFRo.x%dk_!1Xw;Xs@[JN-C#axmp=G7\=CnQkGa$^G+>+va\JJ+vB
+    EiK>Anru2Y+R\J!uu$VuB0rQeE,>E*?R!$C{*ZaA$},TW$lCYBX}#jR[l[T\W?G[ZWV<=jo_^pe\
+    <K$>E{1bMW1#Z<7u5V,]z~'r]]]R~V#xse';<n'p<yXUVup*Q<>1ZU@X;jX9rU,Dep#<_{E\%Bv+
+    E]=E^5f'h~7#'Cm>V}DjIKz!C:+-Q]mzB7(2a^Ty}z@xbWT@6V=-w<Rzm<p!r[K{ac6**A3n-;<Y
+    ?7sA,2o3pQrQZQ].nrvM5=sBVk8!*+<$<=ozZsw@EI#{X<T->VxuYz>'roW|xw*GaC<D8l~rjo{$
+    #x_W$i$vWreO#Un\C_,;*_CC5w55$1-mWo]R2?oeOnzHG7UAmn{};Gw7+27!u1oA7+CO?ZX@mY!U
+    ?3Y\ZiTvoe{AUo\'Q'Dws'H~37V{OR$nW_7XHB^xW53<\Ar[Iw^k?4mR2QGw+[.{a,Y_rm]]X-2-
+    51<;OpYer;IwCl]E?JIAw3}v5-A1+2p'=JQVkQ[=u3#jj=w[aQk*s-p-]ViY@@x/}KlvGCo{aIpe
+    gjdkaJ7[W+KUjzu-7x\Ea!<p0VusjaQr2S@=Qn]'<ATYH^ABHei_s^0C@ZAq6l-\+Y%l;}nzaWjL
+    $z$};HYY<TGG\55@%r-sQ}lelU}lG$?j{zY,TCYv\=xsoG?Va1VBC(zC]iDb~'[-U{<U@IZK~U=$
+    ^n~@oD@3lm]uIYe3UBnBPkY\D0[3*#|7Z\E]V'iPHl~@=@C?[m*7zY'e}[B!I[]-<+>pg!5{UQov
+    ?MW>TW4:F!{;kri7\K-V\liO=Vk@?|,Wrz[ozOr2~T\ve]]_K{J_vT!l=\l?]zH'7+'x]YRXTRu=
+    ua[+@VKEn~oviY~wZwR+_;*Z1!EpRDpKR\O5r<w__?N,sox$m^EAl=?Q*DZvUDa7{A]V$^WBP<e^
+    KiYm~7W<a?nek*{l!*_GY%J_<m?}pa;x]K,Za~CBDWH9VD1=#]mT#l_oq7!V$,Oh^7{=iGmNBo]>
+    qk,]~on-o!{*=U'T~p62{Dk(R3m[U'EAznaT,ZQ[cwwn\GKuIR=z^BzeCrQXz==XVjQW+)1VR35W
+    slJAOsCHXlpR]3K=511m]3@E*]HGR_v@,OYmY>[uCT~5;UC1XmD3!']a3UYiR3$Xr<=-;mwHa21"
+    /[ReXv1A#XC2[H,js"#5#1ZQ$AsUlmDOuC]75<{I~v_5!sKx>s5YZA}>37?X+3q^8=VeQU=V^bIm
+    <^^;K1-O>a7,7<WY$D3^]E$Qla$_Vv<-HBG<mAI{~\rT]JUXAwiY#]$?XEI*<]G?B^?]]r5UaYdC
+    iv7';Oi=me$xnIonR=GJ,zUF/$Wevu{=JWG5HwooRn9DeVw5ARUP<-<CUA_Gk[r{\?1ADAD2Ek1+
+    5%\eJ,!Es3UQuv*n{*YE?QV31V;z^K~zKCiDkIwGV]UoW>>R'[^wsxxZe~wE\+pZOGQR#]'5^l9+
+    |o,>[C3ou?oK!zD!p6n|,K3+AC=;GORre^_1p@1>B=QQ7_~ZvoZV<O>~onJe]AGAD^TsR33sY1BK
+    B{QrW'{onpV\6]JlHn<]5+{;Ov?zIp{v^k_nv?\-U#}X@_Zs*wX<;vJoUlZV<?=zR@U_@]n!r!ew
+    D4\e}Et<Il,q5@,@zHKn~}Ylc}XrG[zB=gw[p#Hw!1'KKam1OVISOkm,p5V{j[
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire encode_check_fire_combo;
+  wire zero_check_fire_combo;
+  wire multibit_check_fire_combo;
+
+  assign encode_check_fire_combo = ((areset === 1'b0 && reset === 1'b0 &&
+                                     is_used === 1'b1 &&
+                                     active === 1'b1) &&
+                                    ((out !== encoded_data) &&  
+                                    (encode_check === 1'b1)) &&
+                                     (~(xz_in_detected)) &&
+                                     (~(xz_out_detected)));  
+
+
+  assign zero_check_fire_combo =   ((areset === 1'b0 && reset === 1'b0 &&
+                                     is_used === 1'b1 &&                     
+                                     active === 1'b1 &&
+                                     zero_check === 1'b1) &&
+                                     (in === 0) &&
+                                     (~(xz_in_detected))); 
+
+
+  assign multibit_check_fire_combo = ((areset === 1'b0 && reset === 1'b0 &&
+                                       is_used === 1'b1 &&
+                                       active === 1'b1 &&
+                                       multibit_check === 1'b1) &&
+                                      (one_hot_err !== 1'b0) &&
+                                      (~(xz_in_detected))); 
+
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_encode_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (encode_check_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_encode_check"),
+                          .msg            ({msg,"Encoded value was not valid."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_zero_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (zero_check_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_zero_check"),
+                          .msg            ({msg,"Input value had no bits asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 if(MULTIBIT_CHK_ON)
+	   begin : assert_multibit_check
+              A_qvl_multibit_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (multibit_check_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_multibit_check"),
+                          .msg            ({msg,"More than one bit in the input data asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end 
+	 
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_encode_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (encode_check_fire_combo)));
+        M_qvl_zero_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (zero_check_fire_combo)));
+	 if(MULTIBIT_CHK_ON)
+	   begin : assume_multibit_check
+              M_qvl_multibit_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (multibit_check_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+ 
+`endif // QVL_ASSERT_ON
+
+`include "qvl_encoder_cover.svh"
+
+`qvlendmodule

@@ -1,0 +1,543 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+ 
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_stack_assertions ( clock,
+                             reset,
+                             areset,
+                             active,
+                             push,
+                             pop,
+			     full,
+			     empty,
+                             push_data,
+                             pop_data,
+                             pop_check,
+                             push_check,
+                             push_pop_check,
+                             value_check,
+			     full_check,
+			     empty_check,
+                             preload,    // pre-loaded values into the stack 
+                             pop_fire,
+                             push_fire,
+                             push_pop_fire,
+                             value_fire,
+			     full_fire,
+			     empty_fire,
+                             pushes_and_pops,
+                             push_count,
+                             pop_count,
+                             max_stack_entries,
+                             current_stack_entries,
+                             expected_pop_data,
+			     full_count,
+			     empty_count,
+			     high_water_count,
+                             support);
+
+// Module Level Pragmas
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+  // Input Declarations
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input clock; 
+  input reset; 
+  input areset; 
+  input active; 
+  input push; 
+  input pop; 
+  input full; 
+  input empty; 
+
+  parameter Constraints_Mode = 0; 
+
+  // Parameters
+
+  parameter MIN_DEPTH = 1;
+
+  // Instantiation Dependent Parameters
+
+  parameter WIDTH = 1; 
+
+  parameter DEPTH = 1; 
+
+  parameter HIGH_WATER = (DEPTH === 1) ? 1 : DEPTH-1; 
+
+  parameter ADDRESS_WIDTH = 1; 
+
+  parameter POP_WIDTH = 1; 
+ 
+  parameter VALUE_SPECIFIED = 1; 
+
+  parameter POP_COND = (VALUE_SPECIFIED) ? POP_WIDTH : WIDTH; 
+
+  parameter          LATENCY = 0;
+
+  parameter          PRELOAD_WIDTH = 1; 
+  parameter          PRELOAD_ITEM_WIDTH = 1; 
+  parameter          PRELOAD_ITEM_COUNT = 1; 
+  parameter          PRELOAD_SPECIFIED = 0; 
+
+  // Parameters for different checks
+
+  parameter FULL_CHECK = 0;
+  parameter EMPTY_CHECK = 0;
+  parameter VALUE_CHECK = 0;
+
+  input [WIDTH-1:0] push_data; 
+  input [WIDTH-1:0] pop_data; 
+
+  // Check Enables And Modes
+
+  input pop_check; 
+  input push_check; 
+  input push_pop_check; 
+  input value_check; 
+
+  input full_check; 
+
+  input empty_check; 
+
+  input [PRELOAD_WIDTH-1:0] preload;
+
+  // Output Declarations
+
+  output pop_fire;
+  output push_fire;
+  output push_pop_fire;
+  output value_fire;
+  output full_fire;
+  output empty_fire;
+
+  output [63:0] pushes_and_pops;
+  output [63:0] push_count;
+  output [63:0] pop_count;
+  output [63:0] max_stack_entries;
+  output [63:0] current_stack_entries;
+  output [63:0] full_count;
+  output [63:0] empty_count;
+  output [63:0] high_water_count;
+
+  output [WIDTH-1:0] expected_pop_data; 
+
+  reg pop_fire; 
+  reg push_fire; 
+  reg push_pop_fire;
+  reg value_fire;
+  reg full_fire;
+  reg empty_fire;
+
+  reg [63:0] push_count; 
+  reg [63:0] pop_count; 
+  reg [63:0] max_stack_entries;
+  wire [63:0] pushes_and_pops; 
+  wire [63:0] current_stack_entries;
+
+  reg [63:0] full_count, empty_count;
+  reg [63:0] high_water_count;
+
+  wire [WIDTH-1:0] expected_pop_data;
+
+
+  // Register declaration for statistics
+  // Internal Variables
+
+  reg [WIDTH-1:0] memory [0:DEPTH-1];
+
+  reg [ADDRESS_WIDTH:0] stack_pointer; 
+                                    // The MSB is used to check for stack full
+
+  // Declarations for 0-In PLIs and Statistics
+
+  integer within_range;
+  reg [63:0] full_within_range_count;
+  reg [63:0] empty_within_range_count;
+
+  // Wire Assignments
+
+  wire stack_full;
+  wire stack_empty;
+  wire stack_within_range_of_empty;
+  wire stack_within_range_of_full;
+  wire stack_over_high_water;
+
+  reg push_has_fired;
+  reg pop_has_fired;
+  reg push_pop_has_fired;
+
+  wire pipe_lined_pop;
+  integer j;
+
+  reg [PRELOAD_WIDTH-1:0] preload_word;
+  reg preload_reg;
+
+  wire xz_detected;
+
+  reg [WIDTH-1:0] pipe_stages_data [LATENCY:1];
+  reg [LATENCY:1] pipe_stages_pop;
+
+  integer i;
+  integer k;
+
+`ifdef QVL_ASSERT_ON
+ wire push_check_combo;
+ wire pop_check_combo;
+ wire push_pop_check_combo;
+ wire full_check_stack_full_combo;
+ wire full_check_stack_not_full_combo;
+ wire empty_check_stack_empty_combo;
+ wire empty_check_stack_not_empty_combo;
+ wire value_check_combo;
+`endif // QVL_ASSERT_ON
+
+
+  assign stack_empty = (preload_reg === 1'b0) ? (stack_pointer === 0) : 1'b0; 
+
+  assign stack_full = (preload_reg === 1'b0) ? (stack_pointer === DEPTH) :
+				       (PRELOAD_ITEM_COUNT === DEPTH);
+
+  assign stack_within_range_of_empty = (stack_pointer < within_range); 
+  assign stack_within_range_of_full = (stack_pointer > (DEPTH - within_range)); 
+  assign stack_over_high_water = (stack_pointer >= HIGH_WATER) || (stack_full === 1'b1); 
+
+`ifdef QVL_COVER_ON
+    assign current_stack_entries = stack_pointer;
+    assign pushes_and_pops = push_count + pop_count;
+`endif
+
+  assign xz_detected = (^push === 1'bx) || (^pop === 1'bx); 
+
+`protected
+
+    MTI!#1zo7#jpRDIk\^W3nZsAA#-+0#7hi[["[~|7?Gl=;7woKAC2X}-g'v*_uvj5>TG[/YBkJ_5=
+    I_]@~HUQT=eXCvsK{+'q%-^okYv{3Ld)#[?z-'W$l,io~X*W+rXDln=;E#\D&mY;^U$]\0!}7$7b
+    Y$2sR!x]HDia*mX7t;7Tu^pTDlmB1Iu}~_=uuCjw@BjO]sxV<_pr;eJ+x~sJ*Vj?nV<G-YV5{51B
+    AiT{}iGUQ=J7zS,YYnL03IBB(T5Ju~U;WCU7=?v[1i>@p$k$=C@]B_~ET2GXO$k1@ceWxax~$ozh
+    Kl=?j-Q''JjB"$~3!~Dri{xrv>*Aw_2+JRnUwN/^eoT}\T^#\puaOa<hUQeieIm]<Uv?0rmK?nT{
+    e]*oz$o5ii*7#)woQ_chR!!!kUwTO*xkBp^uwsCEIx<DE5rU^xWma1DTi>>}skZJ'+pZiTIzC}+W
+    nRmI}2IR>o+'<5}!E2,1l'm_RsHCzQYG5Wx^<+U-WER]pwlGr[$pGGu#7#XUw1_-WSQ!JxOvJo$;
+    Tsh_mK>4lOX$=#oGB&YOUE{X$#YN^c=1X=K]CojU'aZU*W3Ism$BU$:Kj1lK\_'JlHVz"<XQ;}@$
+    i.Edx;Z2$~+wf2I=^HwU'eE>n3De^r^=ANn_D?-w[+Q=@adDD+Zxo_]{C-+!Glr2}7OA]J@+Q,7D
+    >+<=Jwa?7kT_3KnGmj_3Szm+~oYa,#[
+`endprotected
+`ifdef QVL_ASSERT_ON
+ assign push_check_combo = areset === 1'b0 && reset === 1'b0 &&
+                           active === 1'b1 && xz_detected == 1'b0 &&
+                           push === 1'b1 && pop !== 1'b1 && 
+                           (stack_full === 1'b1 || 
+                            (PRELOAD_ITEM_COUNT === DEPTH && preload_reg === 1'b1)) && 
+                           push_check === 1'b1;
+
+ assign pop_check_combo = areset === 1'b0 && reset === 1'b0 &&
+                          active === 1'b1 && xz_detected == 1'b0 &&
+                          push !== 1'b1 && pop === 1'b1 &&
+                          stack_empty === 1'b1 && pop_check === 1'b1 &&
+		          preload_reg === 1'b0;
+
+ assign push_pop_check_combo = areset === 1'b0 && reset === 1'b0 &&
+                               active === 1'b1 && xz_detected == 1'b0 &&
+                               push === 1'b1 && pop === 1'b1 &&
+                               push_pop_check === 1'b1;
+
+ assign full_check_stack_full_combo = areset === 1'b0 && reset === 1'b0 &&
+                                      active === 1'b1 && xz_detected == 1'b0 &&
+                                      full_check === 1'b1 && full === 1'b0 && 
+                                      ((stack_full === 1'b1 && preload_reg === 1'b0)||
+                                       (preload_reg === 1'b1 && PRELOAD_ITEM_COUNT === DEPTH));
+
+ assign full_check_stack_not_full_combo = areset === 1'b0 && reset === 1'b0 &&
+                                          active === 1'b1 && xz_detected == 1'b0 && 
+                                          full_check === 1'b1 && full === 1'b1 && 
+                                          stack_full === 1'b0;
+
+ assign empty_check_stack_empty_combo = areset === 1'b0 && reset === 1'b0 &&
+                                        active === 1'b1 && xz_detected == 1'b0 &&
+	                                empty_check === 1'b1 && empty === 1'b0 && 
+                                        stack_empty === 1'b1;
+
+ assign empty_check_stack_not_empty_combo = areset === 1'b0 && reset === 1'b0 &&
+                                            active === 1'b1 && xz_detected == 1'b0 &&
+	                                    empty_check === 1'b1 && empty === 1'b1 && 
+                                            stack_empty === 1'b0;
+
+ assign value_check_combo = areset === 1'b0 && reset === 1'b0 &&
+                            active === 1'b1 && xz_detected == 1'b0 &&
+                            value_check === 1'b1 && pipe_lined_pop === 1'b1 && 
+                            pop_has_fired === 1'b0 && push_has_fired === 1'b0 && 
+                            push_pop_has_fired === 1'b0 && expected_pop_data !== pop_data;
+`endif // QVL_ASSERT_ON
+`protected
+
+    MTI!#6a,{B*H{KV'j$'KX~(6]=O1^VG,,IEK|(EAW["^ujE{EmvjDzZV_Q[pm^=k7\zUXlTlvm~G
+    lO<i<73jRZ~^H}i7@V>?x'7*Y_3vA1*p4}irr?\1kbiv#BU]T+Y;nJe'i\=I[[[e]'k<!OQ0y7e+
+    Dtl\1,x~IjVXumG!C<Fdi=<$}]?{vC~#IVvz*$QanDDoD3L'J<e"CDQi<VU]k5m@$>m[O-UsD<jp
+    *r*eRpG]sQR^Pw(F#<R?F=x}X|<+,[\ZXp,_BQxOxJ7#Q#75o'V*vKQJ[rthXU;W-sHY[i;1h<oz
+    +!.K'J,v@Q]=>Xs-Cl-rKH@oTRjBR-{_r+#l=U[kU7aYkruEHX!BQsj7Dpm'E]^*G7jxD+GrA;D,
+    3Kv]G<B.Y{HQGZ]uEn}QAUnTEV]1=?*\]J=J[Wz-u\1_o\!@-{w{vzsTI*1ppu7YIkX'lK+CH^Is
+    M[Iv<y^ZjU6?[5<=kKKC&nTakA]ej"0gx(J==[[p}W5[#sZ5AEyoUjA)Uj\BMemvpm<_zhAH${+5
+    la-^Gm1*?T6UGQl>w1Z-nwzuaA1''W@D\*;cU+V#DOBE[^vkoO_TC,Wk*Ye-pZRj$v-xN0vE',T]
+    ~_*<3?=;O\sQaGC3X[Bnw{O~Y;q\zB,-BA^UOap.4lcV'o\B2\ou_O@j5-k>l>~U^Qn_+}lPyC*W
+    k@}!akrBas#mGz>s1O1$T7G#W^v5x=e>[r*_!r]]uQgB\55aOB@d<rs}++REYIkA{D[EVZ=@5u!H
+    p57{ElA3M2aW=RKWW*PZ=\#+<^~+e[_l3]H<-a}>vjxz@XH']+!j->!>w1!>=2}i5^+DGZDwla^)
+    pJ<@^XAu7+@r|zz+Tc_pwG3Bs;JCn-\WWri>p_-B}1Bu1kO?3rEwU,su}3_2$Bfq75u<NYBK<__p
+    #]M/LPUX+A!>mp*EO3[l\pQR~+kG%v\e,gR,n]'DY[@*H]W&V!B<ox?[^ZD5'#Z51k*n0(}P@eZ1
+    vIJsaO-z51{~zC~+L}YDEJ$kA{o?n*}_s2v=2!>[xl'vWE>wIneVHQZ]oTeen'7>oeBOA?n^'xK~
+    e<.#[-5*<JC\<]iD2>ov-{Zg;]}'#oQ;rC7j'?KpBoCpSOu{e1vvjM$W2oDC=i@_$D1zn{CV=Z5i
+    Z5i1}[a{I2|+*?Y|g2zT*h/GJXD?1!~9^KGQ#H123O{z?$kavC)8Em}3kU$^o+{E[wT5@T@oE^\A
+    XAWkR=R^SHrsTGSpGE!}~'KbCn{xmr#3><\'$k>^ZUlVlU_a$G7?j\Qw]uajQ^]zzUTB'li<jk_x
+    aY=nx7o#_5^#I|kv{v'<OmMIHC@W,uBJsB3x_57wOC1Qr$^hQVD$izA]B#oYXOKpHYo5p+3r7x=Z
+    &aEVV*H\Kx{C@I~oo,\]r,'DHmX@_$7mD@aE52r1V]'+<np-o&C5\Ep_;RQ1+KY}G,5.aer!e}]G
+    w*@2qB!ROvo;?lUuVzR5}s{zp^#>+zU+C=Kn-kG+zzDli,gRR1{B;\<5e{~O#N*VsX5C*\se5{,]
+    <2mTB]I*@Ku^W\,?mOYYl@bCGnV$^KU*x}{^*<>iCG-!S&U7Y5s<77VoAn}?BiC;'T@Ir<Bx$]eV
+    n_'GI$RKpa1IKIjUGo#xj;59DOu7<TZD\3AO*J]DTD$am<<HI^DpM~z!5uAOKFp*K]v>Xw}=kZJ$
+    eI53e1@=YBV#$TQHv$WR{e,p!ABx_l~RRxxBluG]YG5GVI5kJ[g_GDXKa+Q2nxGpX2OVkR>~};;3
+    a{v;_7U7+-YXoH^z}Y5K_CYA5E[v,@Q;]z?sHw@J$W#>Xaz|u+ps~XQ}2Gmr8Z$UBArjTO5}JXrj
+    =OB@=/+AxeY_[Y#r7jUr'xuV<!R*Z'XCx[x#}wv*X3tBj<Yc5}<_HR['CG$eo!Q,^585m$ez;HwH
+    +w3CmVAH7{][}=e=XKuyoUHm7*#VI7joW7#,%ELj~T\{Y>p3VIo*nw!,XA7Y><OEx{_V"Uw$#j1E
+    k/hZA~5[=V~$Qr~sG2REG+kUar#n^Xp$a+#WXO5k}enO<[=C*Gnk*D+]pzon7V>m^>?rVA+Bwwvw
+    e;E!vR{-EG1pvDRY,e~6yruRBV}Ae+5uw^<B[QC_ulEo7exQ5=-*HQwZ^!AEv!^AEZYkH}Km1/lQ
+    xx\G;HtQ*pD1Qlxs]?RI*~~z75jQD~G-C^Kra}C?^#![Ym1+'ixQ#+u2{7~U_~aKp$!@$v{_$sW~
+    -X'_5v7>\G^jxWpZ=O^@1TzL#a@Z!E-#pksD*juQ(A9ajr$|9QpR!!Drsj?QCF[p[EYOZH,-~!D@
+    T\K{vz"VQ!UOvA3<'[aDmX2j+}B{UG]UBrGvYRWE$?z*7p#U+orTa<5vWO@Q$e[#zX[GV$>^w;}k
+    ,E2}\WQ]Qi{YzzkIs1uXO\v~1m3C>EZ(R5oQviwZs33C*p>3Gu2XP\w*HI:,BXmxBpl1r7HEj!jQ
+    U>r#z1_hVH5XoDlvDn>2T_2]s*V$C9x'mCoAnY[jIsv+K{_*>[m<!p;nn[X>zYs'J]!hpp>]JCjz
+    vm,xg3j\s<H7xcs?1mqv~sv^Ee>zvnV71KTpUB<)oK3_d,Ev7}UAEn=>^uYGXwQ7s3ssDVlVQp>_
+    sC!{pk$X]BhE\!#\I}<!GA!?>2x1wTRX95a3*7X*lPI-jpV1=O<5#D{>;+NgDn!-Zv'~=i7eREeE
+    KYT
+`endprotected
+  /*************************************************************************
+  * Latency Implementation
+  *************************************************************************/
+
+  assign expected_pop_data = (LATENCY!=0) ? pipe_stages_data[LATENCY] : 
+    (preload_reg === 1'b0) ? memory[stack_pointer-1] :
+      preload[PRELOAD_WIDTH-1:PRELOAD_WIDTH-PRELOAD_ITEM_WIDTH];
+  assign pipe_lined_pop = (LATENCY!=0) ? pipe_stages_pop[LATENCY] : (pop & !(stack_empty));
+`protected
+
+    MTI!#pKpm1!nAQ~8^C7?*SK._#j@cc}Bw@N/a<EirZWBj#r\7Z+GX+{^ba[7J[_}[}sBwBInlaXD
+    r}C>*1P+5]wm$e{Gme,|CX\~u-xuH9%WR"(}w*@O*VX7kVJp*v[+D!}:p_juaI^T}!-,8uV*[Cj6
+    R=Iu~HoURIv'rsku%Ra\'vR=!]RQUiG7i-I$Z*>~nlZJ}b77+;IAl;13Y>-j_3;<lB,\<?<A-BQ!
+    ;BE+e'7ZQOYJRAD>RuDQeei$iK>1->^^k5-nY^<Cw->wT2?}$E"&JXHkbqxQokK|pkIB^F\5;uWR
+    s1u_K=7dKvKT|<=+K[knQ,75x=++[wY~Dl=$>~]T_,'GCYU=wF2s<{n7i}|7D@p^J+ruwwIk5_Rz
+    EpRv0sZpOY,?s2_^Qp1#@Q^\oUjVRv=7;Ypj[@Ie@JBE#}=@--615HVIDkv5}*ld[-{DhUGGz=?n
+    R|A5auHw<xhjE7z5!*l3<^nx=nvL1?l?1315i'H<SG?T3'YTn1nmJ'*,'v<lK.jasQ2TxlJDl1$I
+    ~'mp?!_wG=AYm!wVx#E_#]D,lXsZIoXwva@eiE,*v;~TQnzj>\v7aGRsx>*WmeKU]e$s@ll^\O}[
+    ;3sQRW*WRH]35TJ>v>EDmp#|CJ'o51<vI2RAy5'T}vIX!Unvl~$VCk$Y}*A]i7#sIL/zOz<7^Kz%
+    ^QleOI1[=DVIi=+kZI>2#_}I?1?n-=U3k$7D*OrE!p$JKe>>Ck}^JGn#Q$?\[<,[+[']e!{Dj&iO
+    +UE5;1,$!$o~1BS;EG$f~H[OsRuuN0$snnpUV>
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_stack_push_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (push_check_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_stack_push_check"),
+                          .msg            ({msg,"A push operation occurred while the stack was full."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_stack_pop_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (pop_check_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_stack_pop_check"),
+                          .msg            ({msg,"A pop operation occurred while the stack was empty."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_stack_push_pop_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (push_pop_check_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_stack_push_pop_check"),
+                          .msg            ({msg,"Push and pop asserted together."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (FULL_CHECK == 1)
+          begin : assert_stack_full_check
+            A_qvl_stack_full_check_stack_full: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (full_check_stack_full_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_stack_full_check_stack_full"),
+                              .msg            ({msg,"Full signal was not asserted when the stack was full."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+            A_qvl_stack_full_check_stack_not_full: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (full_check_stack_not_full_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_stack_full_check_stack_not_full"),
+                              .msg            ({msg,"Stack was not full when the full signal was asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (EMPTY_CHECK == 1)
+          begin : assert_stack_empty_check
+            A_qvl_stack_empty_check_stack_empty: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (empty_check_stack_empty_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_stack_empty_check_stack_empty"),
+                              .msg            ({msg,"Empty signal was not asserted when the stack was empty."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+            A_qvl_stack_empty_check_stack_not_empty: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (empty_check_stack_not_empty_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_stack_empty_check_stack_not_empty"),
+                              .msg            ({msg,"Stack was not empty when the empty signal was asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (VALUE_CHECK == 1)
+          begin : assert_stack_value_check
+            A_qvl_stack_value_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (value_check_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_stack_value_check"),
+                              .msg            ({msg,"Popped stack value did not equal the corresponding pushed value."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end  
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_stack_push_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (push_check_combo)));
+        M_qvl_stack_pop_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (pop_check_combo)));
+        M_qvl_stack_push_pop_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (push_pop_check_combo)));
+        if (FULL_CHECK == 1)
+          begin : assume_stack_full_check
+            M_qvl_stack_full_check_stack_full: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (full_check_stack_full_combo)));
+            M_qvl_stack_full_check_stack_not_full: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (full_check_stack_not_full_combo)));
+          end
+        if (EMPTY_CHECK == 1)
+          begin : assume_stack_empty_check
+            M_qvl_stack_empty_check_stack_empty: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (empty_check_stack_empty_combo)));
+            M_qvl_stack_empty_check_stack_not_empty: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (empty_check_stack_not_empty_combo)));
+          end
+        if (VALUE_CHECK == 1)
+          begin : assume_stack_value_check
+            M_qvl_stack_value_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (value_check_combo)));
+          end  
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+
+
+
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_stack_cover.svh"
+
+`qvlendmodule// module qvl_stack_assertions

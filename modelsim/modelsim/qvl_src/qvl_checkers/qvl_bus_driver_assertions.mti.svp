@@ -1,0 +1,275 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_bus_driver_assertions(
+				zivar,
+				driver_enables,
+				used,
+				used_cond,
+				clock,
+				areset,
+				reset,
+				active,
+				multiple_driver,
+				no_driver,
+				multiple_driver_fire,
+				no_driver_fire,
+				cycles_checked,
+				cycles_driven,
+				cycles_undriven,
+				longest_cycles_undriven,
+				shortest_cycles_undriven,
+				longest_cycles_driven,
+				shortest_cycles_driven,
+                                all_driver_enabled_count,
+                                max_undriven_cycles_elapsed_count,
+				support,
+				fire_count
+			       );
+
+
+          
+ parameter severity_level = `QVL_ERROR;
+ parameter property_type = `QVL_ASSERT;
+ parameter msg = "QVL_VIOLATION : ";
+ parameter coverage_level = `QVL_COVER_NONE;
+ 
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter MAX_UNDRIVEN_CYCLES = 0;
+  parameter VARWIDTH = 1;            
+  parameter DRIVER_EN_ITEM_COUNT = 1;
+  parameter DRIVER_EN_ITEM_WIDTH = 1;
+  parameter DRIVER_EN_WIDTH = (DRIVER_EN_ITEM_COUNT*DRIVER_EN_ITEM_WIDTH);
+  parameter NUM_DRIVERS = DRIVER_EN_WIDTH;
+  parameter NO_DRIVER_CHECK = 0;
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input [VARWIDTH-1:0] zivar;          
+  input [DRIVER_EN_WIDTH-1:0] driver_enables;        
+  input used;                        
+  input used_cond;                   
+  input clock;                       
+  input areset;                      
+  input reset;                       
+  input active;                      
+  input multiple_driver;       
+  input no_driver;                   
+
+  output multiple_driver_fire;
+  output no_driver_fire;
+  output [STAT_CNT_WIDTH-1:0] cycles_checked;
+  output [STAT_CNT_WIDTH-1:0] cycles_driven;
+  output [STAT_CNT_WIDTH-1:0] cycles_undriven;
+  output [63:0] longest_cycles_undriven;
+  output [63:0] shortest_cycles_undriven;
+  output [63:0] longest_cycles_driven;
+  output [63:0] shortest_cycles_driven;
+  output [STAT_CNT_WIDTH-1:0] all_driver_enabled_count;
+  output [STAT_CNT_WIDTH-1:0] max_undriven_cycles_elapsed_count;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [2:0] fire_count_tmp;
+   
+
+  reg multiple_driver_fire;
+  reg no_driver_fire;
+
+  reg [STAT_CNT_WIDTH-1:0] cycles_checked;
+  reg [STAT_CNT_WIDTH-1:0] cycles_driven;
+  reg [STAT_CNT_WIDTH-1:0] cycles_undriven;
+  reg [63:0] longest_cycles_undriven;
+  reg [63:0] shortest_cycles_undriven;
+  reg [63:0] longest_cycles_driven;
+  reg [63:0] shortest_cycles_driven;
+  reg [63:0] current_cycles_driven;
+  reg [63:0] current_cycles_undriven;
+  reg [63:0] no_driver_detected_cycles;
+  reg [STAT_CNT_WIDTH-1:0] all_driver_enabled_count;
+  reg [STAT_CNT_WIDTH-1:0] max_undriven_cycles_elapsed_count;
+  reg [63:0] max_undriven_cycles_within_range_count;
+  reg [DRIVER_EN_WIDTH-1:0] driver_enables_last;
+  reg [DRIVER_EN_WIDTH-1:0] all_driver_enabled;
+  reg [DRIVER_EN_WIDTH-1:0] all_driver_enabled_tmp;
+  reg shortest_cycles_driven_set;
+  reg shortest_cycles_undriven_set;
+  reg multiple_driver_detected;
+  reg no_driver_detected;
+  
+  reg found_one;
+
+  integer i;
+  integer driver1_id; 
+  integer driver2_id;
+  integer within_range;   
+   
+  wire is_used = ((used === 1'b0) || ((used === 1'b1) && (used_cond === 1'b1)));
+  wire bus_is_driven = ((|driver_enables) === 1'b1);
+  wire xz_detected = ((^driver_enables) === 1'bX);
+
+`ifdef QVL_ASSERT_ON
+  wire multiple_driver_fire_combo;
+  wire no_driver_fire_combo;
+  reg [63:0] no_driver_detected_cycles_combo;
+`endif   
+
+
+ `protected
+
+    MTI!#pV,pLEiO[ICrWm6oipXG^Z}+nG>EV-r7m[+l]i!iQkurJ]D*@*Jvux*3r?svI2m?^r[hsI;
+    W5s{C[Z{V3<]aq:Q~{,3s?=CX7z9i+~^CDno+j-p|CW+A<EX'lc|G_}z#AxjBrRT\VoOSr\uXh1m
+    mkL'nPLp@+#0+wAHH'm$7ynE\X\?[[2YlJ<<unTEZQC-H@[{,\I9CD,H^U<T17\<*xBJRs=@7-_w
+    @A^U!jW!IGX5^QJ@\1p$?DpJl#-]Oej*5z$=]z5[$-B,Iz@nYU]You$[QJ_Z|=n@kT{GB"iUDBUD
+    5E&AIQipz~JYOIuA+Zu!Y*IV5YjaU]{!wrr#VEY\TcuYGa]@oVRB{kzlpGQ5{R;TBAEJAli>I-iG
+    ?DLIZVI*n\=DRSTTF,><37J3;)rEXE=rE2joA#y_HZsGMz1@'o,#J>sI1r!A2S'7{,S=2QA^T}X#
+    7i
+`endprotected
+   
+
+`ifdef QVL_ASSERT_ON
+  assign multiple_driver_fire_combo = (areset === 1'b0) & (reset === 1'b0) &
+                                      (!xz_detected) & (active === 1'b1) &
+                                      (multiple_driver_detected === 1'b1) &
+                                      (multiple_driver);
+
+  assign no_driver_fire_combo = (areset === 1'b0) & (reset === 1'b0) &
+                                (!xz_detected) & (active === 1'b1) &
+                                (no_driver) & (no_driver_detected === 1'b1) &
+                                (no_driver_detected_cycles_combo >= 
+                                      MAX_UNDRIVEN_CYCLES + 1);
+`endif //  `ifdef QVL_ASSERT_ON
+   
+`protected 
+    MTI!#Tj5}EB+Aw>{'AEru]U+2JrT?Ds\^+X3e}?ADDFhgv*[\1\lElDAp3]^[5_WaVlWx}EkI2XO
+    E\mU,m]*i7UDv3Erk{TjOwTI]}1k<+[p7]I5vLR3Do?*W5D3{e\nR!JT7slXHx1|_oH3g[O>Q27[
+    [1[!!L{[k*GuA=,7Ye7kl#!<u<aTI]YBm{NQ)\XeG<RO]wjnpY>_3v-v}{{V37+ejK+[G>&_R?Yw
+    AH!no#k>n~p}kjYU<QDj[-[z;rW-[~mOZA@Q5W';QB]rwJ7[JD-?O-$>IZzn1Q!Vo_shLr3{!aan
+    x!^vzazStq{w~a1~<GCQ$QAY?eRJo;u}Y@QQ1D1,G?;\C~ERC]\W]Ro@GTbB>5'mr>[CIJ\ir2jm
+    r5XO-\E[G@DjxBEI>Vk[U2A*o!E~xj@$YHO?oH^G!X5VpzJ,w=kPlOlAlQAGr]=p=TV^Cua$QN"W
+    'CoF_'D3sz7_tYY,Uk<j*@\u]*7<{<Bji<XY2Y<u7KoC#-r*X@O-3=[5Q1HR_J1#2A^k#BW$B[HB
+    asj]mI#r+O{+]]k1QZ<+-^ITw\i\aZAH$'WnAtqZono\?DXD?*KS"5OE@[m\X_vB5O>Vi?[3}mj$
+    ]oGxki7HZH<-]Oe?z3IYZ>r\[S]_@X^Hm]!R7uEkQ^~D,zdiI1~TT^3Wj!5LBp;en^Z-o2+IYJ[x
+    zz7k<,k[2lI'ia1E05!7e_^u+<nsi%3'i$8:j5U{ls[~o#-_1',a|*?ea|oE?^Zoo]Y[;~ur,7~D
+    YvEq!Q52Axw]f}a5!~XXWZeKB/E$[~zx2xzCGI1_;wEVW![E';iYsR3<,wkxlzm'W}DZ}?_w[@Z5
+    ?lez7nBHG]wY*;N|<]]'{{'lK-<k7B*V^eYx~]$k[*j2UA_!kUzQkt^XDQCk>J**iuK$XQCBGu>E
+    #{YQH!JT^Gixz$JGJ\$\e!b;HW=WDHT}J<BnDp2(vVJZ>HlZQijC#]x1seT5[TA5Kz~CDzpX'u@3
+    eVll}Cm;O.Qs^GVG~zB*pGyv>}@YQK;7VBjVv2en^}?il?$u^W?unCUl['E4R]u[b?zw#DR1OJDQ
+    +]?xDV!$iolWs+-~u*p~ut3vkD57!J,z<o!x*p+]WO[XIpVmpX]ep}^B-@UEY#1@X@//L+w',BUw
+    3Ekzs*eT$zY[r|UH*?A=_V6<r\Yl>ZR|T]]kTCuZ/8*B1AA>p{ijv^Ta>p\kewu'V#w-HpADC1ws
+    Zz^{T7OGEH7V'[<vY;J**^?wGB7mx{\Q1;r;GXYupW1G7uHj=@zo]nRTwvGws1=B#Z-nzkYn~D1i
+    ;-RnrT21QT?[D^.vp-eKzXC!w@l^wI;g;rsTe?eWE1I]tTGo$kvO{ys3Trx,JjGa5'Sua1mA$eoN
+    SY{E.w7DU}^#@lT7!DzDn[sJs{OWk\aGEaw@r-BYVW^~^irHwBZ;*HOkGWGz[FDJO]G^!793E12i
+    1*i+7v3H\K}Ii\-O[E~'@KI7=x3xrAu:eDmlDoYmi\!\cT<*@r[G^~De{R3\iB}[-ck'aA=eWJ~H
+    A_kT_@+9=I7_YiGsRV5C~p<^-nEE]J~AQKV+C-_kl#}~^u$+s}B]'ixJuUV;<OEsxsU$WR73-XQC
+    pr\^_2zZX_A{7D;E3a<-ErVn-DsW=XsrI#Zsp52UD}_i]k!Uor7JUY51-_XWV}JQO=a-oA!3'Z1s
+    [>ulpZ;-CCK@#$V$0COKeG5eG1>TReuer:RVvC15X-]ur,$JrYDl++QsK~sGYo2AZ?+Eu!Iu+!Oe
+    1VGX32Ie5rV}?{}BuC;UT>rr-vRi5zT1nemUUx\U3#D'Dp7Cw=N~A$<H*aB^'5_j\jT_Krl5KjI\
+    n\^*[n$JD2R4nGB!:OB=\I5T}NBlT$RGXm3Vi=nw;G']2#zOjx)y\zDwuO#j[=e^X6SDnD1x>Jka
+    xvee@l<eUUjqBmn~JU=vYk!G>TQYs{~Vz]OBlsVroQA_o]p!Os5B'Z-?T-WB}arZ9'~_r^U<j8ka
+    VpB;p;@rGA,jrn~ED~YxIJwe[$^J$\lkz}lD_#35,}D<~20'OCzkGvB+E2IpOQ-#xB#H'A5=XTm!
+    DADu]2{p*Asz~Gx1X}XVw];x3or5pV;j=m?2-'ASlWv=Y<]vCYArT^7R]z2C!E\IoL|,]-QH_7Xq
+    n}vAzB#rip'}jE_*~s=5*+sD!HRUQ#+G+wW1=m[QYsW~u\aQ?I+=1DB$v,EYJ6!Qk+RnjZw6{*n'
+    u==j'nAAB~w^Rp2Bu}H@+LmT-!?,OTv5s<sj,zdF3r>DIeOxI\5{-1AJsiIjQ}B\QUHOB^ws6XD$
+    _D?>HlXQBz1-3RnVp_IGDNu^2l^JSSn,#'WBWsJs3W-IkldXtv3{#lEj$5]~CE$p\A53maaQ[BV5
+    kuzBA#Rjx[#WVJa$so3E+CnA^3wj^e3;}P{EkG9@&i^VaOmmWXemUaaDBj!ICj>rZ@-ArM#Y*76]
+    ;z'zYvw'WY}TaYD,J;OXpQ3&}p=[a-$]j}Vmcp\,GXzn'13lo(w*,_(:vp${BB1vU{X^?HYxl$2_
+    t_OlKBiu}5bB5eum_o^EAr^Tj<We{Rr'S7Dv~WSTC3wop$UehOs7I)*A<?VX>'LdkA{~RF"Ks;jC
+    xAB6G1?]UeGvmCujWe=B@O[r3X=Ca^HXn<{rImOBX[$DpQEK2X[GR<O]-5DU_vm7EE}\k{JGun]'
+    VTaV5K$<mv71-RsH[>XO!}-vp>+H'uvBvX]mAa=5<DH+vW]rGw!{ROy_uXBBDZ1bXw[iE,V^^TwX
+    R\rkenGuvOeJR=Dm3+2I77]w,'<;EinO3vC>'u~_XHwv[3;$eX1$oB#Gb5p<__nVnOw+X1$Uvn[A
+    s;\z^\G[77HUvRI}K0Y;aWuoJ~;-u@3CXuzKB[1ZT-2wYWsBp#EnjjpkC7K^++B@REy,p<aq}_pT
+    ADlD\?{lKH\}<}+#SW]#_O2IV;HXkWvQK0b_E1QG*aD"r2WZ@-V^+<
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  //Instance for multiple_driver check.
+  //
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_bus_driver_multiple_driver: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (multiple_driver_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_bus_driver_multiple_driver"),
+                          .msg            ({msg," Multiple sources driving the bus."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 if(NO_DRIVER_CHECK)
+	   begin : assert_bus_driver_no_driver
+              A_qvl_bus_driver_no_driver:
+	        assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (no_driver_fire_combo)))
+                else qvl_error_t(
+                          .err_msg        ("A_qvl_bus_driver_no_driver"),
+                          .msg            ({msg," No sources driving the bus."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_bus_driver_multiple_driver: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (multiple_driver_fire_combo)));
+	 if(NO_DRIVER_CHECK)
+	   begin : assume_bus_driver_no_driver
+              M_qvl_bus_driver_no_driver: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (no_driver_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+  
+  //Instance for no_driver check.
+  //
+`endif
+
+`include "qvl_bus_driver_cover.svh"
+
+`qvlendmodule 
+

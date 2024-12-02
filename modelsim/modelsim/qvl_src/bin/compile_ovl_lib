@@ -1,0 +1,47 @@
+#!/bin/csh
+#
+# DESCRIPTION: Script for compiling OVL library
+#
+# OUTPUT: Compiles OVL checkers to ovl_lib
+#
+# OVL Usage for compile library: 
+#	(See QVL documentation for details.)
+#	1) Compile the OVL library
+#		- Specify the QUESTA_HOME environment variable (see below)
+#		- Verify the correct logical to physical library mapping
+#		- Run this compilation script
+#	2) Instantiate the OVL checker in the design.
+#	3) For VHDL designs, specify the OVL library and specify 
+#	   the std_ovl package:
+#	     library ovl_lib; 
+#	     use ovl_lib.std_ovl.all;
+#	4) Specify the OVL library during simulation.
+#	     vsim ... -L ovl_lib
+#
+#	Note: Disabling OVL Impicit X/Z Checks
+#	The QVL monitors and checkers use Accellera Standard OVL checkers 
+#	to report violations. The Accellera Standard OVL checkers have 
+#	implicit X/Z checks (see the Accellera Standard OVL Library 
+#	Reference Manual) that are not needed for violation reporting. 
+#	If Accellera Standard OVL checkers are directly instantiated 
+#	in your design, it is recommended that you remove the 
+#	OVL_IMPLICIT_XCHECK_OFF define from the OVL library compilation below.
+#
+# LAST MODIFIED: 4/9/2007
+
+if (! $?QUESTA_HOME) then
+  # If QUESTA_HOME environment variable is not previously set,
+  # compile script assumes script is executed from:
+  #   <Questa installation>/qvl_src/bin
+  setenv QUESTA_HOME "../../"
+endif
+
+vlib ovl_lib
+
+vcom -work ovl_lib -novopt \
+$QUESTA_HOME/verilog_src/std_ovl/std_ovl.vhd
+
+vlog -work ovl_lib -novopt -sv -mfcu \
++define+OVL_ASSERT_ON+OVL_SVA+OVL_IMPLICIT_XCHECK_OFF \
++incdir+$QUESTA_HOME/verilog_src/std_ovl \
+$QUESTA_HOME/verilog_src/std_ovl/*.vlib

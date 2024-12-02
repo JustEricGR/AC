@@ -1,0 +1,159 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+* PURPOSE         This file is part of the 0-In CheckerWare.
+*
+* DESCRIPTION     This module performs clock recovery.
+*
+* USAGE           This module will be instantiated in the TB.
+*
+* Last Modified   24th Dec 2003
+*
+***********************************************************************/
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_clock_recovery (pos_data, 
+                             neg_data, 
+                             clock);
+
+  // -------------------------
+  // Parameter declarations
+  // -------------------------
+
+  // --------------------------------------------------------------------
+  // Parameter ELECTRICAL_IDLE_LENGTH specifies the clock count for
+  // electrical idle signal is sampled asserted.  If the specified value 
+  // reaches, clock recovery stops and old clock will be used till the 
+  // next transition being seen on the bus.
+  // --------------------------------------------------------------------
+
+  parameter ELECTRICAL_IDLE_LENGTH = 30000;
+  wire [31:0] pw_ELECTRICAL_IDLE_LENGTH = ELECTRICAL_IDLE_LENGTH;
+
+  // --------------------------------------------------------------------
+  // Parameter TIME_UNIT specifies the time unit used in the test bench.
+  // If the parameter is set to 0, test bench time unit is in ps. If the 
+  // parameter is set to 1, test bench time unit is fs.
+  // --------------------------------------------------------------------
+  
+  parameter TIME_UNIT = 0;
+  wire [31:0] pw_TIME_UNIT = TIME_UNIT;
+
+  // ----------------------------
+  // Internal Parameter 
+  // ----------------------------
+
+  parameter ZI_TIME_UNIT_MULTIPLIER = TIME_UNIT ? 1000 : 1;
+
+  //---------------------------------------------
+  // Input port declarations
+  // --------------------------------------------
+
+  input pos_data;
+  input neg_data;
+
+  // --------------------------------------------
+  // Output port declarations
+  // --------------------------------------------
+
+  output clock;
+
+  // --------------------------------------------
+  // Wire declarations 
+  //---------------------------------------------
+
+  wire clock; //The recovered clock we're generating
+
+  // --------------------------------------------
+  // Register declarations
+  // --------------------------------------------
+
+  reg clock_locked; //The "clock" output is believed to be locked and good.
+  reg updated_clock; //The new rising edge of the clock based on recent data 
+  reg [4:0] data_count; //The number of data bits received 
+                        //(count the first 10, then pick the min)
+
+  initial begin
+        #0;
+        clock_locked = 'b0;
+        updated_clock = 1'b0;
+	data_count = 'b0;
+  end
+
+  //-----------------------------------
+  // New Variable declarations
+  //-----------------------------------
+
+  realtime pulse_width1;
+  realtime pulse_width2;
+  realtime pulse_width_diff;
+  realtime min_pulse_width;
+  realtime temp_width;
+  realtime delay;
+
+  reg[31:0] clock_count;
+  reg sec_recovery; 
+
+  
+`protected
+
+    MTI!#!e}oD;'EeI5#OsE>Z=U1pu]CZ<<u}Zw}7?BZpN}i-l$%|oZ-3k_*=nYu]KXoiGy#ETz=e'Y
+    ATYx[~CDuT{BH<!vLU}n_xI]17ilZc[K]oB*!!yooQUO#Up,KmC$ps$_zR7]]1JRBC#i5+aR~xUe
+    :F-*zQEk2!k}k71H_u8Qe3TiaZO$;C+Z$@jY+@?gE3e?O7+}?v]eo\{*n5QJzrUeH<3Q3'nVA-Aj
+    C8jNisu=HRjZC[=}iji[>GZ1GQDoXn3u.~aB]>n2[I_Av~XB~AD#,NH_-lEz}!DOA*,sI<dr3QBv
+    u_iYK-GeR,O1e*B,w^[Glvil?7>,fTvHxYiJB^@Qo1iWe(>9,*~~7-_~lWHz91^<'+'>}'@C;xm<
+    pmUMY]]7Bll+Y$YWrw;E^\3sDmOYj^W23rpRm=j!#VACFY\<WDO@!n[p@q|+xnRmIAZz]Mc+1B7o
+    m\>]*BDwnlamsji$5ajl7Wl]N.s'T<I@!Ej5a?WvKm?{e@\r;T|Q?e;ou}HB5U-NnYp~HwTB\^s{
+    uXe;n<xm(o9XRwX>I<TH}=a|}"Z6nY$rm1Z7ueXkb>_^xEE=*E=swo1I,}Bpw|E?HaT[\3^xYTqo
+    Z$YlAY2j,1Y527}+*U@f7~H[n75C!lCm3}Kpk=\O2Au]?COlIusA+&O)Q]n#We_=tA{Bl^~n@1)3
+    nVir_o}wTY=sv?]XCau]'W\lWeCrj3^+zBp~'JrvE#<oj?UBQJ$ZU7BR?@W>okTHxWnAU!a
+`endprotected
+
+  reg toggle_clock;
+
+  `protected
+
+    MTI!#a=[llWpDB}}T'?3AjR7sm>pz1a5ZP^IDi$;Ek="[]+RoG*_@}1noz,[;{C~<rZA;1IHEQEi
+    x?DAX=VAZA<Z1BH2l3j}[,kTMYvo;g[JTG7oKUN>oI2*Qi\}-[O@jVaB1k<T}R<T,{CLBl\;|oaC
+    1}<QE@{;ehms~nBJ2k72V,cKa<C$kOIju{7r@<]VB<u[*oJB{Ou;ApieZX~N\Zae3EwXoDiW7Y7l
+    kl0n[QDPKDi@!p{]P~'~wJolZxEZHHs?7T{prU[>;=nl{=KaAZj?3+<U?8U1A~$l2DZR@l{r#C8,
+    u+W@z=!=C.<->l!EGvi5!5l\D*^C7Hw7]~;$Qxc7Q?U,>^Zq1vvm~-$wb})@pBx[m@#UrmomrkUr
+    z'^~B>HnU*7K{n*GTvJ3{K_1Z>kd]*'3B{GE<U^ugrT[{OwwXWp*pWwpp<z\HDzDK=3lkuGjUR-a
+    pevOZHI;Q_V,35=~l3xmu]D=z!Vo\R3HT!o]^+{A]FmQQ2xei$]*W[IupX3nDih
+`endprotected
+
+  assign clock = (pos_data != neg_data) ? (clock_locked & updated_clock) :
+                  updated_clock;
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`qvlendmodule

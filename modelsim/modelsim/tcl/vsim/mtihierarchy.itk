@@ -1,0 +1,3911 @@
+# Hierarchy
+# ----------------------------------------------------------------------
+# Hierarchical data viewer.  Manages a list of nodes that can be
+# expanded or collapsed.  Individual nodes can be highlighted.
+# Clicking with the right mouse button on any item brings up a
+# special item menu.  Clicking on the background area brings up
+# a different popup menu.
+# ----------------------------------------------------------------------
+#   AUTHOR:  Brian Griffin
+#            Loosely copied from iwidgets::Hierarchy by
+#   AUTHOR:  Michael J. McLennan
+#            Bell Labs Innovations for Lucent Technologies
+#            mmclennan@lucent.com
+#
+#            Mark L. Ulferts
+#            DSC Communications
+#            mulferts@austin.dsccc.com
+#
+# ----------------------------------------------------------------------
+#                Copyright (c) 1996  Lucent Technologies
+# ======================================================================
+# Permission to use, copy, modify, and distribute this software and its
+# documentation for any purpose and without fee is hereby granted,
+# provided that the above copyright notice appear in all copies and that
+# both that the copyright notice and warranty disclaimer appear in
+# supporting documentation, and that the names of Lucent Technologies
+# any of their entities not be used in advertising or publicity
+# pertaining to distribution of the software without specific, written
+# prior permission.
+#
+# Lucent Technologies disclaims all warranties with regard to this
+# software, including all implied warranties of merchantability and
+# fitness.  In no event shall Lucent Technologies be liable for any
+# special, indirect or consequential damages or any damages whatsoever
+# resulting from loss of use, data or profits, whether in an action of
+# contract, negligence or other tortuous action, arising out of or in
+# connection with the use or performance of this software.
+#
+# ----------------------------------------------------------------------
+#            Copyright (c) 1996 DSC Technologies Corporation
+# ======================================================================
+# Permission to use, copy, modify, distribute and license this software 
+# and its documentation for any purpose, and without fee or written 
+# agreement with DSC, is hereby granted, provided that the above copyright 
+# notice appears in all copies and that both the copyright notice and 
+# warranty disclaimer below appear in supporting documentation, and that 
+# the names of DSC Technologies Corporation or DSC Communications 
+# Corporation not be used in advertising or publicity pertaining to the 
+# software without specific, written prior permission.
+# 
+# DSC DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING 
+# ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, AND NON-
+# INFRINGEMENT. THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, AND THE
+# AUTHORS AND DISTRIBUTORS HAVE NO OBLIGATION TO PROVIDE MAINTENANCE, 
+# SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS. IN NO EVENT SHALL 
+# DSC BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR 
+# ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, 
+# WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTUOUS ACTION,
+# ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS 
+# SOFTWARE.
+# ======================================================================
+
+package require Iwidgets
+package provide Vsimwidgets 1.0
+package require Img
+package require mtiimages
+#
+# Usual options.
+#
+itk::usual Hierarchy {
+    keep -cursor -textfont
+    keep -background -background2 -foreground -textbackground 
+    keep -selectbackground -selectforeground 
+	keep -activebackground -activeforeground
+	keep -striping
+}
+
+# ------------------------------------------------------------------
+#                            HIERARCHY
+# ------------------------------------------------------------------
+itcl::class vsimwidgets::Hierarchy {
+    inherit iwidgets::Scrolledwidget
+
+    constructor {args} {}
+
+    destructor {}
+
+    #itk_option define -alwaysquery alwaysQuery AlwaysQuery 0
+    itk_option define -actioncommand actionCommand Action {}
+    itk_option define -borderwidth borderWidth BorderWidth 1
+    itk_option define -closedicon closedIcon Icon {}
+    itk_option define -columnborderwidth columnBorderWidth ColumnBorderWidth 0
+    itk_option define -command command Command {}
+    itk_option define -deemphasizebg deemphasizebg DeemphasizeBG "light gray"
+    itk_option define -deemphasizefg deemphasizefg DeemphasizeFG "black"
+    itk_option define -abovecutoff abovecutoff AboveCutoff Green
+    itk_option define -belowcutoff belowcutoff BelowCutoff Red
+    itk_option define -cutoff cutoff CutOff 90
+    itk_option define -enabledragging enableDragging EnableDragging 0
+    itk_option define -expanded expanded Expanded 0 
+    itk_option define -expandcommand expandCommand ExpandCommand {}
+    itk_option define -exportselection exportSelection ExportSelection 1
+    itk_option define -filter filter Filter 0 
+    itk_option define -header header Header 0
+    itk_option define -height height Height 0
+    itk_option define -iconcommand iconCommand IconCommand {}
+    itk_option define -markbackground markBackground Foreground #a0a0a0 
+    itk_option define -markforeground markForeground Background Black
+	itk_option define -minrowheight minRowHeight MinRowHeight 0
+    itk_option define -nodeicon nodeIcon Icon {}
+    itk_option define -openicon openIcon Icon {}
+    itk_option define -popupmenu popupMenu PopupMenu {}
+	itk_option define -querycommand queryCommand QueryCommand {}
+    itk_option define -queryblocksize queryBlockSize QueryBlockSize 500
+    itk_option define -qsizecommand qsizeCommand QSizeCommand {}
+    itk_option define -selectbackground selectBackground Foreground #c3c3c3 
+    itk_option define -selectcommand selectCommand SelectCommand {}
+    itk_option define -selectforeground selectForeground Background Black 
+    itk_option define -selectmode selectMode SelectMode browse
+    itk_option define -spacing1 spacing1  Spacing1 3
+    itk_option define -textforeground textForeground Foreground Black
+    itk_option define -visibleitems visibleItems VisibleItems 80x24
+    itk_option define -width width Width 0
+    itk_option define -kind kind Kind tcl 
+    itk_option define -context context Context ""
+    itk_option define -process process Process ""
+    itk_option define -namespace namespace Namespace ""
+    itk_option define -acc acc Acc "Root"
+    itk_option define -propertycommand propertyCommand PropertyCommand {} 
+    itk_option define -propertyprefix propertyPrefix PropertyPrefix {} 
+	itk_option define -debug debug Debug 0
+
+    # Basic Tree methods: feed them through to the tree
+    public method addacc {args} {
+        eval $itk_component(tree) addacc $args
+        set itk_option(-acc) [$itk_component(tree) cget -acc]
+    }
+    public method busy {args}                  {eval $itk_component(tree) busy $args}
+    public method cancelRedisplay {}
+    public method collapseall {args}           {eval $itk_component(tree) collapseall $args}
+    public method curselection {args}          {eval $itk_component(tree) curselection $args}
+    public method disable_update {}            {$itk_component(tree) disable_update}
+    public method display_all_matching {args}  {eval $itk_component(tree) display_all_matching $args}
+    public method enable_update {}             {$itk_component(tree) enable_update}
+    public method restore_expansion {args}     {eval $itk_component(tree) restore_expansion $args}
+    public method errorboar {args}             {eval $itk_component(tree) errorbar $args}
+    public method expandall {args}             {eval $itk_component(tree) expandall $args}
+    public method expandstate {args}           {eval $itk_component(tree) expandstate $args}
+    public method expandeditems {args}         {eval $itk_component(tree) expandeditems $args}
+    public method expandtoggle {args}          {eval $itk_component(tree) expandtoggle $args}
+    public method filter {cmd args}
+    public method find {args}                  {eval $itk_component(tree) find $args}
+    public method formatmask {args}            {eval $itk_component(tree) formatmask $args}
+    public method formattedselection {args}    {eval $itk_component(tree) formattedselection $args}
+    public method get2 {args}                  {eval $itk_component(tree) get2 $args}
+    public method get_is_view_mode {args}      {eval $itk_component(tree) get_is_view_mode $args}
+    public method get_label {args}             {eval $itk_component(tree) get_label $args}
+    public method get_range {args}             {eval $itk_component(tree) get_range $args}
+    public method createAllowed {args}         {eval $itk_component(tree) createAllowed $args}
+    public method get_direction {args}         {eval $itk_component(tree) get_direction $args}
+    public method get_process_id {args}        {eval $itk_component(tree) get_process_id $args}
+    public method get_signal_id {args}         {eval $itk_component(tree) get_signal_id $args}
+    public method immupdate {}                 {$itk_component(tree) immupdate}
+    public method insertquery {args}           {eval $itk_component(tree) insertquery $args}
+    public method itemacctype {args}           {eval $itk_component(tree) itemacctype $args}
+    public method itemcget {args}              {eval $itk_component(tree) itemcget $args}
+    public method itemconfigure {args}         {eval $itk_component(tree) itemconfigure $args}
+    public method itemtype {args}              {eval $itk_component(tree) itemtype $args}
+    public method modify {args}                {eval $itk_component(tree) modify $args}
+    public method nearest {args}               {eval $itk_component(tree) nearest $args}
+    public method next {args}                  {eval $itk_component(tree) next $args}
+    public method parent {args}                {eval $itk_component(tree) parent $args}
+    public method pointer {args}               {eval $itk_component(tree) pointer $args}
+    public method prev {args}                  {eval $itk_component(tree) prev $args}
+    public method process_id_to_index {args}   {eval $itk_component(tree) process_id_to_index $args}
+    public method process_name {args}          {eval $itk_component(tree) cget -process}
+    public method remove {args}                {eval $itk_component(tree) remove $args}
+    public method removedataset {args}         {eval $itk_component(tree) removedataset $args}
+    public method removevirtualitem {args}     {eval $itk_component(tree) removevirtualitem $args}
+    public method reset {args}                 {eval $itk_component(tree) reset $args}
+    public method restart {args}               {eval $itk_component(tree) restart $args}
+    public method restartprepare {args}        {eval $itk_component(tree) restartprepare $args}
+    public method rmacc {args} {
+	eval $itk_component(tree) rmacc $args
+	set itk_option(-acc) [$itk_component(tree) cget -acc]
+    }
+    public method size {args}                  {eval $itk_component(tree) size $args}
+    public method update {args}                {eval $itk_component(tree) update $args}
+    public method update_process_status {args} {eval $itk_component(tree) update_process_status $args}
+    public method updatestructregion {args}    {eval $itk_component(tree) updatestructregion $args}
+    public method write {args}                 {eval $itk_component(tree) write $args}
+    public method writetree {args}             {eval $itk_component(tree) writetree $args}
+
+    public method collapseselected {}
+    public method column {op args} ;# Manage columns.  op is one of:
+	                               ;#   add name args   :: add a new column
+	                               ;#   get nameOrIndex first ?last? :: returns value str for col
+	                               ;#   put nameOrIndex {label tag icon}
+	                               ;#   hide nameOrIndex
+	                               ;#   show nameOrIndex
+	                               ;#   move nameOrIndex destNameOrIndex
+	                               ;#   delete nameOrIndex
+	                               ;#   configure nameOrIndex ?option...?
+	                               ;#   cget nameOrIndex option
+	                               ;#   width nameOrIndex ?width?
+	                               ;#   index nameOrIndex :: returns column index number
+	                               ;#   name nameOrIndex  :: return columns name
+    public method cursel {}
+    public method expandbyname {name}
+    public method expanditems {items} 
+    public method expandselected {}
+    public method clear {}
+    public method collapse {node}
+    public method current {}
+    public method draw {{when -now}}
+    public method expand {node}
+    public method invoke {{column ""}}
+
+    public method Action { args } 
+    public method append {args} 
+    public method delete {first {last {}}} 
+    public method get {index1 {index2 {}}}
+    public method get3 {index1 {index2 {}}}
+    public method get4 {index1 {index2 {}}}
+    public method get_row {maxcol index1 {index2 {}}}
+    public method header {op col args}  ;# Manage column headers.  op is one of:
+	                                    ;#   add 
+	                                    ;#   sort <sortstate>
+	                                    ;#   configure args
+	                                    ;#   cget option
+	                                    ;#   index nameOrIndex
+	                                    ;#   name nameOrIndex
+    public method index {index} 
+    public method insert {args} 
+    public method itemname {index}
+    public method mark {op args}
+    public method prune {node}
+    public method put {index value}
+    public method refresh {node}
+    public method requery {}
+    public method search {args} 
+    public method see {index} 
+    public method see2 {index} 
+    public method selection {op args}
+    public method sort {column {dir next}}
+    public method reapply_sort {} 
+
+    public method statustoggle {}
+    public method toggle {node}
+    public method xview {args}
+    public method yview {args}
+
+    public method selnext {}
+    public method selprev {}
+    protected method _selnext {idx}
+    protected method _selprev {idx}
+    public method selexpand {}
+    public method selcollapse {}
+    public method updateColumnVisibility {args}
+
+	public method VisibleColumnOrder {}
+	public method expandSerialize {}
+	public method expandUnserialize {state}
+
+	public method saveimage {file {type bmp}}
+	public method SaveImage {}
+
+    protected method _B1 {w x y c}
+    protected method _B1Motion {w x y}
+    protected method _B1Release {w x y c}
+    protected method _IB1 {w x y}
+    protected method _IB1Motion {w x y}
+    protected method _IB1Release {w}
+    protected method _CB1 {w x y}
+    protected method _CB1Motion {w x y}
+    protected method _CB1Release {w}
+    protected method _Motion {w x y c}
+    protected method _IMotion {w x y p}
+    protected method _CMotion {w x y p}
+	protected method _DoubleB1 {w x y c}
+    protected method _button1 { w x y}
+    protected method _buttonMotion1 {w s x y}
+    protected method _buttonRelease1 {w x y}
+    protected method _doublebutton1 {w x y c}
+    protected method _shiftButton1 {w x y}
+    protected method _shiftButtonRelease1 {x y}
+    protected method _configureCanvas {} 
+    protected method _configureFrame {{x ""}}
+    protected method _controlButton1 {w x y}
+    protected method _controlButtonRelease1 {x y}
+    protected method _contents {uid}
+    protected method _deemphasize {}
+    protected method _emphasize {}
+    protected method _iconSelect {node icon}
+    protected method _post {w x y {col 0}}
+    protected method _select {node}
+    protected method _selectHandler {offset maxChars}
+    protected method _deleteNodeInfo {uid}
+    protected method _getParent {uid}
+    protected method _getHeritage {uid}
+    protected method _scrollWidget {wid first last} 
+    protected method _delayedScrollWidget {wid first last}
+    protected method _post_configure_hdrmenu {}
+    protected method _configure_hdrdlg {}
+    protected method _position_hdrdlg { x y }
+    protected method _configure_hdrdlgOK {}
+    protected method _initializeSortColumn {}
+
+    protected method _toggle_column_visible {col}
+    protected method _keyboardSearch {key}
+    protected method _evalCmd {cmd index args}
+
+    protected method propertyKey {key}
+    protected method propertyColumnKey {col suffix}
+    protected method setProperty {prop var}
+    protected method getProperty {prop var def}
+    protected method InitColumnVisibility { col } 
+    protected method canDragItems {w}
+    protected method dragItems {w}
+    protected method dragItemsConfig {w}
+    protected method dragItemsIdx {w}
+
+    protected method genConfigList {w sel {include_name 0}}
+
+    private method _getIndex {idx nameVar numberVar}
+	private method _rearrange {col destWid}
+	private method _editcheck {e cmd args} ;# Used for editinplace to terminate entry
+	private method _getsortedcolumnlist {} ;# Used for sorting column names
+
+	private variable __inConfigC 0   ;# recursive stop flag
+	private variable __inConfigF 0   ;# recursive stop flag
+	private variable _colNum 0       ;# Column index
+	private variable _dragging 0     ;# Drag operation in progress
+	private variable _initialXCoord  ;# Drag op. X start location
+	private variable _initialYCoord  ;# Drag op. Y start location
+	private variable _selectWhenReleased 0 ;# Complete selection on button release if true
+	private variable _startCol -1    ;# Column number of resize operation
+	private variable _startDragging 0;# Potential start of a drag operation
+	private variable _startResize 0  ;# Resize enable flag
+	private variable _startSlave ""  ;# Column component to be resized
+	private variable _startWidth 0   ;# Original width of _startSlave
+	private variable _startX 0       ;# Start X offset
+	private variable _toggled 0      ;# True if Button-1 caused a toggle (inside expand box)
+	private variable _visible        ;# Dialog checkbox variable
+	private variable _dlgVisible     ;# Dialog checkbox variable
+    private variable _filterCode ""  ;# Compact view flag.
+    private variable _images         ;# Array of our icons by uid
+    private variable _marked         ;# Array of marked nodes by uid
+    private variable _nodes          ;# List of subnodes by uid
+    private variable _pending ""     ;# Pending draw flag
+	private variable _pendingScroll  ;# delayed scroll operations
+    private variable _posted ""      ;# List of tags at posted menu position
+    private variable _selected       ;# Array of selected nodes by uid
+	private variable _resizePending "" ;# pending idle event.
+    private variable _colNames   ;# List of column names index by column number
+	private variable _columnDlg ""
+	private variable _colMap [list]  ;# Map of column numbers to grid column
+	                                 ;# the list position indicates the grid column
+	                                 ;# the element value is the column number
+    private variable _sortCol ""     ;# column that has sort set
+    private variable _sortState ""   ;# "up" or "down"
+	private variable _identity  ""   ;# Identity of current button down event
+	protected variable _filter_pat ""  ;# Filter pattern
+	protected variable _filterAfter "" ;# Filter after handle
+    public variable _cx_ 0
+	private variable _selid ""       ;# after handle for selnext/prev
+	private variable _nextsel ""     ;# next count
+	private variable _inIconCmd 0		;# Execution of -iconcommand in progress
+
+#	Icon support variables and routines
+
+	public	method	icon_image { filename nodetype {is_filename 0}}
+	private	method  load_images { } 
+	common okFlag
+	common editValue
+}
+
+#
+# Provide a lowercased access method for the Hierarchy class.
+# 
+proc ::vsimwidgets::hierarchy {pathName args} {
+    uplevel ::vsimwidgets::Hierarchy $pathName $args
+}
+
+#
+# Use option database to override default resources of base classes.
+#
+option add *Hierarchy.menuCursor arrow widgetDefault
+option add *Hierarchy.labelPos n widgetDefault
+option add *Hierarchy.tabs 30 widgetDefault
+option add *Hierarchy.columnBorderWidth 0 widgetDefault
+option add *Hierarchy.borderWidth 1 widgetDefault
+
+# ------------------------------------------------------------------
+#                        CONSTRUCTOR
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::constructor {args} {
+    itk_option remove iwidgets::Labeledwidget::state
+	
+    mtiimages::load_images
+
+    set itk_option(-closedicon) expand
+    set itk_option(-openicon) contract
+    set itk_option(-nodeicon) empty
+    #
+    # Initialize the widget based on the command line options.
+    #
+
+    #
+    # Our -width and -height options are slightly different than
+    # those implemented by our base class, so we're going to
+    # remove them and redefine our own.
+    #
+    itk_option remove iwidgets::Scrolledwidget::width
+    itk_option remove iwidgets::Scrolledwidget::height
+
+    #
+    # Create a clipping frame which will provide the border for
+    # relief display.
+    #
+    itk_component add clipper {
+		frame $itk_interior.clipper
+    } {
+	usual
+
+	keep -borderwidth -relief -highlightthickness -highlightcolor
+	rename -highlightbackground -background background Background
+	rename -cursor -resizecursor resizecursor Cursor
+    }	
+    grid $itk_component(clipper) -row 0 -column 0 -sticky nsew
+    grid rowconfigure $_interior 0 -weight 1
+    grid columnconfigure $_interior 0 -weight 1
+
+    #
+    # Create header canvas
+    #
+    if {$::tcl_platform(platform) == "windows"} {
+	# work-around of Windows scrollbar update problem
+	set xscrollcmd [code $this _delayedScrollWidget $itk_interior.horizsb]
+    } else {
+	set xscrollcmd "[code $this _scrollWidget $itk_interior.horizsb]"
+    }
+    itk_component add canvas {
+	canvas $itk_component(clipper).canvas \
+	    -height 0 -width 0 \
+	    -highlightthickness 0 \
+	    -scrollregion "0 0 1 1" \
+	    -xscrollcommand $xscrollcmd
+    } {
+	rename -background -textbackground textBackground Background
+	ignore -highlightthickness
+	keep -cursor
+    }
+    grid $itk_component(canvas) -row 0 -column 0 -sticky nsew
+    grid rowconfigure $itk_component(clipper) 0 -weight 1
+    grid columnconfigure $itk_component(clipper) 0 -weight 1
+    #
+    # Create a Frame inside canvas to hold widgets to be scrolled 
+    #
+    itk_component add -protected sfchildsite {
+	frame $itk_component(canvas).sfchildsite -width 1 -height 1
+    } {
+	keep -cursor
+	rename -background -textbackground textBackground Background
+    }
+    $itk_component(canvas) create window 0 0 -tags frameTag \
+	-window $itk_component(sfchildsite) -anchor nw \
+	-width 1 -height 1
+#    bind $itk_component(sfchildsite) <Configure> [code $this _configureFrame %W]
+    bind $itk_component(canvas) <Configure> [code $this _configureCanvas]
+    bind $itk_component(canvas) <Map> [code $this _configureCanvas]
+    
+    #
+    # Create a text widget for displaying our hierarchy.
+
+    itk_component add tree {
+	if { [lindex $args 0] == "-kind" } {
+	    tree $itk_component(sfchildsite).tree -kind [lindex $args 1]
+	} else {
+	    tree $itk_component(sfchildsite).tree -kind Tcl
+	}
+    } {
+	keep -selectmode -selectover -alwaysquery
+	keep -context -acc -process -namespace
+	keep -viewmask -minrowheight
+	keep -expanded
+    }
+    itk_component add col0 {
+	catch { 
+	    nameWidget $itk_component(sfchildsite).list $itk_component(tree) \
+		-drawmode 3 \
+		-relief flat \
+		-borderwidth 0 \
+		-highlightthickness 0 \
+		-yscrollcommand [code $this _scrollWidget $itk_interior.vertsb]
+	} errkind
+	set errkind 
+    } {
+	keep -displayhboxes -displayboxes -pluscolor -pointercolor
+	rename -font -textfont textFont TextFont
+	rename -background -textbackground textBackground Background
+	rename -background2 -textbackground2 textBackground2 Background
+	rename -foreground -textforeground textForeground Foreground
+	rename -borderwidth -columnborderwidth columnBorderWidth ColumnBorderWidth
+	rename -deemphasisbackground -deemphasizebg deemphasizebg DeemphasizeBG
+	rename -deemphasisforeground -deemphasizefg deemphasizefg DeemphasizeFG
+	keep -belowcutoff -abovecutoff -cutoff
+	keep -striping
+    }
+
+    # Initialize column name list
+    set _colNames [list "name"]
+    set _visible(0) show
+
+
+    itk_component add -private hdrMenu {
+	menu $itk_component(hull).hdrmenu -tearoff 0
+    } {
+	rename -cursor -menucursor menuCursor Cursor
+    }
+    $itk_component(hdrMenu) configure -postcommand [code $this _post_configure_hdrmenu]
+
+    #
+    # Layout the initial window
+    #
+    lappend _colMap 0
+    grid $itk_component(col0) -row 1 -column 0 -padx 0 -sticky nsew -columnspan 2
+    grid rowconfigure $itk_component(sfchildsite) 1 -weight 1
+    grid columnconfigure $itk_component(sfchildsite) 1 -weight 1
+    bind $itk_component(col0) <Configure> [code $this _configureFrame %W]
+    header add 0
+    header configure 0 -menu $itk_component(hdrMenu)
+
+	itk_component add -protected menubutton {
+		button $itk_component(sfchildsite).menubutton \
+			-image [mtiimages::image_menubutton]
+	} {
+		keep -background -borderwidth 
+		ignore -relief -height -width -command
+	}
+	$itk_component(menubutton) configure -command [code $this _configure_hdrdlg]
+
+    # 
+    # Configure the command on the vertical scroll bar in the base class.
+    #
+    $itk_component(vertsb) configure \
+		-command [code $itk_component(tree) yview]
+    #
+    # Configure the command on the horizontal scroll bar in the base class.
+    #
+    $itk_component(horizsb) configure \
+		-command [code $itk_component(canvas) xview]
+
+    #
+    # Adjust the bind tags to remove the class bindings.  Also, add
+    # bindings for mouse button 1 to do selection and button 3 to 
+    # display a popup.
+    #
+    set i [lsearch [bindtags $itk_component(tree)] VTree]
+    if {$i >= 0} {
+	bindtags $itk_component(tree) [lreplace [bindtags $itk_component(tree)] $i $i]
+    }
+    set i [lsearch [bindtags $itk_component(col0)] Name]
+    if {$i >= 0} {
+	bindtags $itk_component(col0) [lreplace [bindtags $itk_component(col0)] $i $i]
+    }
+    set bttree $itk_component(tree)
+    set mwcmd [format {%s yview scroll [expr {- (%%D / 120)}] units} $bttree]
+
+    # Modify bindtags for components
+    #  Add binding to window (object) for each component
+    bindtags $itk_component(col0) [linsert [bindtags $itk_component(col0)] 2 $itk_component(hull)]
+    bindtags $itk_component(canvas) [linsert [bindtags $itk_component(canvas)] 2 $itk_component(hull)]
+    bindtags $itk_component(sfchildsite) [linsert [bindtags $itk_component(sfchildsite)] 2 $itk_component(hull)]
+    #  Add Hierarchy class binding for each component
+    bindtags $itk_component(col0) [linsert [bindtags $itk_component(col0)] end-2 Hierarchy]
+    bindtags $itk_component(canvas) [linsert [bindtags $itk_component(canvas)] end-2 Hierarchy]
+    bindtags $itk_component(sfchildsite) [linsert [bindtags $itk_component(sfchildsite)] end-2 Hierarchy]
+
+    # Define LMB bindings
+    bind $itk_component(col0) <ButtonPress-1>    [code $this _button1 %W %x %y]
+    bind $itk_component(col0) <B1-Motion>        [code $this _buttonMotion1 %W %s %x %y]
+    bind $itk_component(col0) <ButtonRelease-1>  [code $this _buttonRelease1 %W %x %y]
+    bind $itk_component(col0) <Shift-1>          [code $this _shiftButton1 %W %x %y]
+    bind $itk_component(col0) <Control-1>        [code $this _controlButton1 %W %x %y]
+    bind $itk_component(col0) <Double-Button-1>  [code $this _doublebutton1 %W %x %y 0]
+    # Define RMB bindings
+    bind $itk_component(col0) <ButtonPress-3>    [code $this _post %W %x %y]
+    # Define Mouse Wheel bindings
+    bind $itk_component(col0) <Button-5>         [list $bttree yview scroll  1 units]
+    bind $itk_component(col0) <Button-4>         [list $bttree yview scroll -1 units]
+    bind $itk_component(col0) <Shift-Button-5>   [list $bttree yview scroll  5 units]
+    bind $itk_component(col0) <Shift-Button-4>   [list $bttree yview scroll -5 units]
+    bind $itk_component(col0) <Control-Button-5> [list $bttree yview scroll  1 pages]
+    bind $itk_component(col0) <Control-Button-4> [list $bttree yview scroll -1 pages]
+    bind $itk_component(col0) <MouseWheel>       $mwcmd
+    # Define Keyboard bindings
+    bind $itk_component(col0)     <Key-Prior>    [list $bttree yview scroll -1 pages]
+    bind $itk_component(col0)     <Key-Next>     [list $bttree yview scroll 1 pages]
+    bind $itk_component(col0)     <Key-Up>       [code $this selprev]
+    bind $itk_component(col0)     <Key-Down>     [code $this selnext]
+    bind $itk_component(col0)     <Key-Left>     [code $this selcollapse]
+    bind $itk_component(col0)     <Key-Right>    [code $this selexpand]
+    bind $itk_component(col0)     <Key-Return>   [code $this invoke 0]
+    bind $itk_component(col0)     <Key>          [code $this _keyboardSearch %A]
+    catch {
+	bind $itk_component(col0) <Key-KP_Prior> [list $bttree yview scroll -1 pages]
+	bind $itk_component(col0) <Key-KP_Next>  [list $bttree yview scroll 1 pages]
+	bind $itk_component(col0) <Key-KP_Up>    [code $this selprev]
+	bind $itk_component(col0) <Key-KP_Down>  [code $this selnext]
+	bind $itk_component(col0) <Key-KP_Left>  [code $this selcollapse]
+	bind $itk_component(col0) <Key-KP_Right> [code $this selexpand]
+    }
+
+    #bind in mouse event occuring over the dummy column
+    bind $itk_component(sfchildsite) <ButtonPress-1>    [code $this _button1 %W %x %y]
+    bind $itk_component(sfchildsite) <ButtonRelease-1>  [code $this _buttonRelease1 %W %x %y]
+    bind $itk_component(sfchildsite) <Shift-1>          [code $this _shiftButton1 %W %x %y]
+    bind $itk_component(sfchildsite) <Control-1>        [code $this _controlButton1 %W %x %y]
+    bind $itk_component(sfchildsite) <ButtonPress-3>    [code $this _post %W %x %y]
+    bind $itk_component(sfchildsite) <Button-5>         [list $bttree yview scroll  1 units]
+    bind $itk_component(sfchildsite) <Button-4>         [list $bttree yview scroll -1 units]
+    bind $itk_component(sfchildsite) <Shift-Button-5>   [list $bttree yview scroll  5 units]
+    bind $itk_component(sfchildsite) <Shift-Button-4>   [list $bttree yview scroll -5 units]
+    bind $itk_component(sfchildsite) <Control-Button-5> [list $bttree yview scroll  1 pages]
+    bind $itk_component(sfchildsite) <Control-Button-4> [list $bttree yview scroll -1 pages]
+    bind $itk_component(sfchildsite) <Key-Prior>        [list $bttree yview scroll -1 pages]
+    bind $itk_component(sfchildsite) <Key-Next>         [list $bttree yview scroll 1 pages]
+    bind $itk_component(sfchildsite) <MouseWheel>       $mwcmd
+    
+    #with no headers, mouse events goto the canvas not the childsite
+    bind $itk_component(canvas) <ButtonPress-1>         [code $this _button1 %W %x %y]
+    bind $itk_component(canvas) <ButtonRelease-1>       [code $this _buttonRelease1 %W %x %y]
+    bind $itk_component(canvas) <Shift-1>               [code $this _shiftButton1 %W %x %y]
+    bind $itk_component(canvas) <Control-1>             [code $this _controlButton1 %W %x %y]
+    bind $itk_component(canvas) <ButtonPress-3>         [code $this _post %W %x %y]
+    bind $itk_component(canvas) <Button-5>              [list $bttree yview scroll  1 units]
+    bind $itk_component(canvas) <Button-4>              [list $bttree yview scroll -1 units]
+    bind $itk_component(canvas) <Shift-Button-5>        [list $bttree yview scroll  5 units]
+    bind $itk_component(canvas) <Shift-Button-4>        [list $bttree yview scroll -5 units]
+    bind $itk_component(canvas) <Control-Button-5>      [list $bttree yview scroll  1 pages]
+    bind $itk_component(canvas) <Control-Button-4>      [list $bttree yview scroll -1 pages]
+    bind $itk_component(canvas) <Key-Prior>             [list $bttree yview scroll -1 pages]
+    bind $itk_component(canvas) <Key-Next>              [list $bttree yview scroll 1 pages]
+    bind $itk_component(canvas) <MouseWheel>            $mwcmd
+
+    ::bind $itk_component(lwchildsite) <Button-1> {# Ignore this!}
+    ::bind $itk_component(clipper) <Button-1> {# Ignore this!}
+
+	if {$::tcl_platform(platform) == "windows"} {
+		bind $itk_component(col0) <Control-Key-f> {event generate %W <<Find>>}
+		bind $itk_component(sfchildsite) <Control-Key-f> {event generate %W <<Find>>}
+		bind $itk_component(canvas) <Control-Key-f> {event generate %W <<Find>>}
+	} else {
+		bind $itk_component(col0) <Control-Key-s> {event generate %W <<Find>>}
+		bind $itk_component(sfchildsite) <Control-Key-s> {event generate %W <<Find>>}
+		bind $itk_component(canvas) <Control-Key-s> {event generate %W <<Find>>}
+	}
+
+    #
+    # When this widget own selection, the following command is used
+    # to fetch the selection
+    #
+    ::selection handle $itk_component(hull) [code $this _selectHandler]
+
+    # When this widget gets the focus, emphasize the selection
+    if {$::tcl_platform(platform) == "windows"} {
+	bind $itk_component(hull) <FocusIn> [code $this selection own]
+    }
+    eval itk_initialize $args
+
+    # Set the initial column width of the first (name) column
+    getProperty [propertyColumnKey 0 _wid] wid [font measure $itk_option(-textfont) SouthAfricanKuduandGemsbok]
+    column width 0 $wid
+
+	#
+	# Restore the column arrangement map
+	#
+	getProperty [propertyKey columnMap] _colMap $_colMap
+	set col [lsearch $_colMap 0]
+	if {$col > 0} {
+		incr col
+		# move first column to its correct location
+		grid $itk_component(col0) -row 1 -column $col -padx 0 -sticky nsew -columnspan 1
+		if {$itk_option(-header)} {
+			grid $itk_component(header0) -row 0 -column $col -padx 0 -sticky nsew
+		}
+	}
+
+    #
+    # Restore sort order
+    #
+    getProperty [propertyKey sortColumnV2] _sortCol ""
+    if {$_sortCol eq ""} {
+	getProperty [propertyKey sortColumn] _sortCol ""
+    }
+    getProperty [propertyKey sortState] _sortState ""
+    if { [string length $_sortCol] > 0  && 
+	 [string length $_sortState] > 0 }  {
+        after idle [code $this _initializeSortColumn]
+    }
+}
+
+# ------------------------------------------------------------------
+#                           DESTRUCTOR
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::destructor {} {
+    if {$_pending != ""} {
+	after cancel $_pending
+    }
+    foreach wid [array names _pendingScroll] {
+	if {$_pendingScroll($wid) != ""} {
+	    after cancel $_pendingScroll($wid)
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+#                             OPTIONS
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# OPTION: -acc
+#
+# Borderwidth of widget
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::acc {
+	$itk_component(tree) configure -acc $itk_option(-acc)
+	# This feed back is necessary because there are some
+	# symbolic acc names that actually represent a list
+	# of acc flags.  By doing this we will see the
+	# individual acc values in the list.
+	set itk_option(-acc) [$itk_component(tree) cget -acc]
+}
+
+# ------------------------------------------------------------------
+# OPTION: -borderwidth
+#
+# Borderwidth of widget
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::borderwidth {
+	$itk_component(clipper) configure -borderwidth $itk_option(-borderwidth)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -columnborderwidth
+#
+# Borderwidth of columns
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::columnborderwidth {
+	for {set i 0} {$i <= $_colNum} {incr i} {
+		if {[info exists itk_component(col$i)]} {
+			$itk_component(col$i) configure -borderwidth \
+				$itk_option(-columnborderwidth)
+		}
+	}
+}
+
+# ------------------------------------------------------------------
+# OPTION: -cutoff
+#
+# cutoff value
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::cutoff {
+	for {set i 1} {$i <= $_colNum} {incr i} {
+		if {[info exists itk_component(col$i)]} {
+			$itk_component(col$i) configure -cutoff $itk_option(-cutoff)
+		}
+	}
+}
+# ------------------------------------------------------------------
+# OPTION: -abovecutoff
+#
+# cutoff value
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::abovecutoff {
+	for {set i 1} {$i <= $_colNum} {incr i} {
+		if {[info exists itk_component(col$i)]} {
+			$itk_component(col$i) configure -abovecutoff \
+				$itk_option(-abovecutoff)
+		}
+	}
+}
+# ------------------------------------------------------------------
+# OPTION: -belowcutoff
+#
+# cutoff value
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::belowcutoff {
+	for {set i 1} {$i <= $_colNum} {incr i} {
+		if {[info exists itk_component(col$i)]} {
+			$itk_component(col$i) configure -belowcutoff \
+				$itk_option(-belowcutoff)
+		}
+	}
+	$itk_component(col0) configure -belowcutoff $itk_option(-belowcutoff)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -debug
+#
+# debug flags
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::debug {
+	$itk_component(tree) configure -debug $itk_option(-debug)
+	for {set i 0} {$i <= $_colNum} {incr i} {
+		if {[info exists itk_component(col$i)]} {
+			$itk_component(col$i) configure -debug $itk_option(-debug)
+		}
+	}
+}
+
+# ------------------------------------------------------------------
+# OPTION: -header
+#
+# Boolean enables/disables headers
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::header {
+	if {$itk_option(-header)} {
+		grid $itk_component(menubutton) -row 0 -column 0 -sticky nsew
+		for {set i 0} {$i <= $_colNum} {incr i} {
+			if {[info exists itk_component(header$i)]} {
+				set col [expr {[lsearch $_colMap $i] + 1}]
+				grid $itk_component(header$i) -row 0 -column $col -sticky ewns
+			}
+		}
+	} else {
+		grid forget $itk_component(menubutton)
+		for {set i 0} {$i <= $_colNum} {incr i} {
+			if {[info exists itk_component(header$i)]} {
+				grid forget $itk_component(header$i)
+			}
+		}
+	}
+}
+
+# ------------------------------------------------------------------
+# OPTION: -selectbackground
+#
+# Background color scheme for selected nodes.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::selectbackground {
+    for {set i 0} {$i <= $_colNum} {incr i} {
+	if {[info exists itk_component(col$i)]} {
+	    $itk_component(col$i) configure -selectbackground \
+		$itk_option(-selectbackground)
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -selectforeground
+#
+# Foreground color scheme for selected nodes.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::selectforeground {
+    for {set i 0} {$i <= $_colNum} {incr i} {
+	if {[info exists itk_component(col$i)]} {
+	    $itk_component(col$i) configure -selectforeground \
+		$itk_option(-selectforeground)
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -textforeground
+#
+# Foreground color scheme for selected nodes.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::textforeground {
+    $itk_component(col0) configure \
+		-foreground $itk_option(-textforeground)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -selectmode
+#
+# Selection Mode
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::selectmode {
+	# One of: single, browse, multiple, or extended; the default value is browse
+    $itk_component(tree) configure -selectmode \
+		$itk_option(-selectmode)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -markbackground
+#
+# Background color scheme for marked nodes.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::markbackground {
+    #$itk_component(col0) tag configure lowlite \
+            -background $itk_option(-markbackground)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -markforeground
+#
+# Foreground color scheme for marked nodes.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::markforeground {
+    #$itk_component(col0) tag configure lowlite \
+		-foreground $itk_option(-markforeground)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -querycommand
+#
+# Command executed to query the contents of each node.  If this 
+# command contains "%n", it is replaced with the name of the desired 
+# node.  In its simpilest form it should return the children of the 
+# given node as a list which will be depicted in the display.
+#
+# Two other substitutions are used in order to facilitate block
+# updates in conjunction with the -queryblocksize and -qsizecommand
+# options.  The start index is given for %i and the count (number of
+# items to return) is given for %c.  This is the lesser of the value
+# specified in the -queryblocksize option or the remaining number of
+# children as returned by the -qsizecommand callback.
+#
+# Since the names of the children are used as tags in the underlying 
+# text widget, each child must be unique in the hierarchy.  Due to
+# the unique requirement, the nodes shall be reffered to as uids 
+# or uid in the singular sense.
+# 
+#   {uid [uid ...]}
+#
+#   where uid is a unique id and primary key for the hierarchy entry
+#
+# Should the unique requirement pose a problem, the list returned
+# can take on another more extended form which enables the 
+# association of text to be displayed with the uids.  The uid must
+# still be unique, but the text does not have to obey the unique
+# rule.  In addition, the format also allows the specification of
+# additional tags to be used on the same entry in the hierarchy
+# as the uid and additional icons to be displayed just before
+# the node.  The tags and icons are considered to be the property of
+# the user in that the hierarchy widget will not depend on any of 
+# their values.
+#
+#   {{uid [text [tags [icons]]]} {uid [text [tags [icons]]]} ...}
+#
+#   where uid is a unique id and primary key for the hierarchy entry
+#         text is the text to be displayed for this uid
+#         tags is a list of user tags to be applied to the entry
+#         icons is a list of icons to be displayed in front of the text
+#
+# The hierarchy widget does a look ahead from each node to determine
+# if the node has a children.  This can be cost some performace with
+# large hierarchies.  User's can avoid this by providing a hint in
+# the user tags.  A tag of "leaf" or "branch" tells the hierarchy
+# widget the information it needs to know thereby avoiding the look
+# ahead operation.
+#
+# More on tags:
+#   Valid tag values
+#      leaf            :: item has not children (default)
+#      branch          :: add [+] expand box to entry (item has children)
+#      color=<color>   :: use <color> for text.  This is equivalent to
+#                         $w itemconfigure <n> -color <color>
+#                         It will effect the color of the entire row.
+#                         May only be used in the first (0) column.
+#      window=<widget> :: insert <widget>  Must be valid Tk widget path.
+#      sort:<value>    :: use <value> for sorting purposes.
+#      {color <color> <startidx> <endidx>}  
+#                      :: color text from <strtidx> to <endidx> using <color>
+#                      :: color is done only in the given column
+#          <color> may be any valid Tk color specification
+#          <endidx> or "end" to indicate end of label.
+#          <color> "normal" will use the default foreground color.
+#      {<color> <startidx> <endidx>} is accepted for backward compatability
+#      {background <color-spec> <start> <end>}  
+#                      :: Set the background color for the range given
+#                      :: Currently only supported in value columns (col# > 0)
+#      {offset <offset>} 
+#                      :: All future idx values are offset (incremented) by <offset>
+#      {offset <ignored> <offset>} is accepted for backward compatability
+#      cutoff=<n>      :: use <n> for bargraph cutoff value instead of -cutoff
+#      abovecutoff=<color> :: use <color> for bargraph instead of -abovecolor
+#      belowcutoff=<color> :: use <color> for bargraph instead of -belowcolor
+#      {font <tkfont> ?<startidx> ?<endidx>??} :: Use <tkfont> instead for the text
+#          <tkfont> may be any valid Tk font specification
+#          <endidx> or "end" to indicate end of label.
+#          The absence of a <startidx> defaults to 0.
+#          The absence of an <endidx> defaults to 'end'.
+#
+# More on icons:
+#  The icons field may be a list of Tk images.  They are drawn in order, 
+#  left to right.
+
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::querycommand {
+	$itk_component(tree) configure -querycommand $itk_option(-querycommand)
+	requery
+}
+
+itcl::configbody vsimwidgets::Hierarchy::queryblocksize {
+	$itk_component(tree) configure -queryblocksize $itk_option(-queryblocksize)
+    clear
+	$itk_component(tree) insertquery end ""
+    #draw -eventually
+	update
+}
+
+itcl::configbody vsimwidgets::Hierarchy::qsizecommand {
+	$itk_component(tree) configure -qsizecommand $itk_option(-qsizecommand)
+    clear
+	$itk_component(tree) insertquery end ""
+    #draw -eventually
+	update
+}
+
+# ------------------------------------------------------------------
+# OPTION: -selectcommand
+#
+# Command executed to select an item in the list.  If this command
+# contains "%n", it is replaced with the name of the selected node.  
+# If it contains a "%s", it is replaced with a boolean indicator of 
+# the node's current selection status, where a value of 1 denotes
+# that the node is currently selected and 0 that it is not.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::selectcommand {
+}
+
+# ------------------------------------------------------------------
+# OPTION: -iconcommand
+#
+# Command executed upon selection of user icons.  If this command 
+# contains "%n", it is replaced with the name of the node the icon
+# belongs to.  Should it contain "%i" then the icon name is 
+# substituted.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::iconcommand {
+}
+
+# ------------------------------------------------------------------
+# OPTION: -alwaysquery
+#
+# Boolean flag which tells the hierarchy widget weather or not
+# each refresh of the display should be via a new query using
+# the -querycommand option or use the values previous found the
+# last time the query was made.
+# ------------------------------------------------------------------
+#configbody vsimwidgets::Hierarchy::alwaysquery {
+#}
+
+# ------------------------------------------------------------------
+# OPTION: -filter
+#
+# When true only the branch nodes and selected items are displayed.
+# This gives a compact view of important items.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::filter {
+    switch -- $itk_option(-filter) {
+		1 - true - yes - on {
+			set newCode {set display [info exists _selected($child)]}
+		}
+		0 - false - no - off {
+			set newCode {set display 1}
+		}
+		default {
+			error "bad filter option \"$itk_option(-filter)\":\
+                   should be boolean"
+		}
+    }
+    if {$newCode != $_filterCode} {
+		set _filterCode $newCode
+		draw -eventually
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -expanded
+#
+# When true, the hierarchy will be completely expanded when it
+# is first displayed.  A fresh display can be triggered by
+# resetting the -querycommand option.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::expanded {
+    switch -- $itk_option(-expanded) {
+		1 - true - yes - on {
+			;# okay
+		}
+		0 - false - no - off {
+		    ;# okay
+		}
+		default {
+			error "bad expanded option \"$itk_option(-expanded)\":\
+                   should be boolean"
+		}
+    }
+}
+    
+# ------------------------------------------------------------------
+# OPTION: -openicon
+#
+# Specifies the open icon image to be used in the hierarchy.  Should
+# one not be provided, then one will be generated, pixmap if 
+# possible, bitmap otherwise.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::openicon {
+    if {$itk_option(-openicon) == {}} {
+		if {[lsearch [image names] openFolder] == -1} {
+			if {[lsearch [image types] pixmap] != -1} {
+				image create pixmap openFolder -data {
+					/* XPM */
+					static char * dir_opened [] = {
+						"16 16 4 1",
+						/* colors */
+						". c grey85 m white g4 grey90",
+						"b c black  m black g4 black",
+						"y c yellow m white g4 grey80",
+						"g c grey70 m white g4 grey70",
+						/* pixels */
+						"................",
+						"................",
+						"................",
+						"..bbbb..........",
+						".bggggb.........",
+						"bggggggbbbbbbb..",
+						"bggggggggggggb..",
+						"bgbbbbbbbbbbbbbb",
+						"bgbyyyyyyyyyyybb",
+						"bbyyyyyyyyyyyyb.",
+						"bbyyyyyyyyyyybb.",
+						"byyyyyyyyyyyyb..",
+						"bbbbbbbbbbbbbb..",
+						"................",
+						"................",
+						"................"};
+				}
+			} else {
+				image create bitmap openFolder -data {
+					#define open_width 16
+					#define open_height 16
+					static char open_bits[] = {
+						0x00, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x42, 0x00, 
+						0x81, 0x3f, 0x01, 0x20, 0xf9, 0xff, 0x0d, 0xc0, 
+						0x07, 0x40, 0x03, 0x60, 0x01, 0x20, 0x01, 0x30,
+						0xff, 0x1f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				}
+			}
+			
+			set itk_option(-openicon) openFolder
+		}
+		
+    } else {
+		if {[lsearch [image names] $itk_option(-openicon)] == -1} {
+			error "bad openicon option \"$itk_option(-openicon)\":\
+                   should be an existing image"
+		}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -closedicon
+#
+# Specifies the closed icon image to be used in the hierarchy.  
+# Should one not be provided, then one will be generated, pixmap if 
+# possible, bitmap otherwise.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::closedicon {
+    if {$itk_option(-closedicon) == {}} {
+	if {[lsearch [image names] closedFolder] == -1} {
+	    if {[lsearch [image types] pixmap] != -1} {
+		image create pixmap closedFolder -data {
+		    /* XPM */
+		    static char *dir_closed[] = {
+			"16 16 3 1",
+			". c grey85 m white g4 grey90",
+			"b c black  m black g4 black",
+			"y c yellow m white g4 grey80",
+			"................",
+			"................",
+			"................",
+			"..bbbb..........",
+			".byyyyb.........",
+			"bbbbbbbbbbbbbb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"bbbbbbbbbbbbbb..",
+			"................",
+			"................",
+			"................"};	
+		}
+	    } else {
+		image create bitmap closedFolder -data {
+		    #define closed_width 16
+		    #define closed_height 16
+		    static char closed_bits[] = {
+			0x00, 0x00, 0x00, 0x00, 0x78, 0x00, 0x84, 0x00, 
+			0xfe, 0x7f, 0x02, 0x40, 0x02, 0x40, 0x02, 0x40, 
+			0x02, 0x40, 0x02, 0x40, 0x02, 0x40, 0x02, 0x40,
+			0xfe, 0x7f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+		}
+	    }
+
+	    set itk_option(-closedicon) closedFolder
+	}
+
+    } else {
+	if {[lsearch [image names] $itk_option(-closedicon)] == -1} {
+	    error "bad closedicon option \"$itk_option(-closedicon)\":\
+                   should be an existing image"
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -nodeicon
+#
+# Specifies the node icon image to be used in the hierarchy.  Should 
+# one not be provided, then one will be generated, pixmap if 
+# possible, bitmap otherwise.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::nodeicon {
+    if {$itk_option(-nodeicon) == {}} {
+	if {[lsearch [image names] nodeFolder] == -1} {
+	    if {[lsearch [image types] pixmap] != -1} {
+		image create pixmap nodeFolder -data {
+		    /* XPM */
+		    static char *dir_node[] = {
+			"16 16 3 1",
+			". c grey85 m white g4 grey90",
+			"b c black  m black g4 black",
+			"y c yellow m white g4 grey80",
+			"................",
+			"................",
+			"................",
+			"...bbbbbbbbbbb..",
+			"..bybyyyyyyyyb..",
+			".byybyyyyyyyyb..",
+			"byyybyyyyyyyyb..",
+			"bbbbbyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"byyyyyyyyyyyyb..",
+			"bbbbbbbbbbbbbb..",
+			"................",
+			"................",
+			"................"};	
+		}
+	    } else {
+		image create bitmap nodeFolder -data {
+		    #define node_width 16
+		    #define node_height 16
+		    static char node_bits[] = {
+			0x00, 0x00, 0x00, 0x00, 0xe0, 0x7f, 0x50, 0x40, 
+			0x48, 0x40, 0x44, 0x40, 0x42, 0x40, 0x7e, 0x40, 
+			0x02, 0x40, 0x02, 0x40, 0x02, 0x40, 0x02, 0x40,
+			0xfe, 0x7f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+		}
+	    }
+
+	    set itk_option(-nodeicon) nodeFolder
+	}
+
+    } else {
+	if {[lsearch [image names] $itk_option(-nodeicon)] == -1} {
+	    error "bad nodeicon option \"$itk_option(-nodeicon)\":\
+                   should be an existing image"
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -width
+#
+# Specifies the width of the hierarchy widget as an entire unit.
+# The value may be specified in any of the forms acceptable to 
+# Tk_GetPixels.  Any additional space needed to display the other
+# components such as labels, margins, and scrollbars force the text
+# to be compressed.  A value of zero along with the same value for 
+# the height causes the value given for the visibleitems option 
+# to be applied which administers geometry constraints in a different
+# manner.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::width {
+    if {$itk_option(-width) != 0} {
+		set shell [lindex [grid info $itk_component(clipper)] 1]
+
+		#
+		# Due to a bug in the tk4.2 grid, we have to check the 
+		# propagation before setting it.  Setting it to the same
+		# value it already is will cause it to toggle.
+		#
+		if {[grid propagate $shell]} {
+			grid propagate $shell no
+		}
+		
+		$itk_component(col0) configure -width 1
+		$shell configure \
+			-width [winfo pixels $shell $itk_option(-width)] 
+    } else {
+		configure -visibleitems $itk_option(-visibleitems)
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -height
+#
+# Specifies the height of the hierarchy widget as an entire unit.
+# The value may be specified in any of the forms acceptable to 
+# Tk_GetPixels.  Any additional space needed to display the other
+# components such as labels, margins, and scrollbars force the text
+# to be compressed.  A value of zero along with the same value for 
+# the width causes the value given for the visibleitems option 
+# to be applied which administers geometry constraints in a different
+# manner.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::height {
+    if {$itk_option(-height) != 0} {
+		set shell [lindex [grid info $itk_component(clipper)] 1]
+
+		#
+		# Due to a bug in the tk4.2 grid, we have to check the 
+		# propagation before setting it.  Setting it to the same
+		# value it already is will cause it to toggle.
+		#
+		if {[grid propagate $shell]} {
+			grid propagate $shell no
+		}
+	
+		$itk_component(col0) configure -height 1
+		$shell configure \
+			-height [winfo pixels $shell $itk_option(-height)] 
+    } else {
+		configure -visibleitems $itk_option(-visibleitems)
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -visibleitems
+#
+# Specified the widthxheight in characters and lines for the text.
+# This option is only administered if the width and height options
+# are both set to zero, otherwise they take precedence.  With the
+# visibleitems option engaged, geometry constraints are maintained
+# only on the text.  The size of the other components such as 
+# labels, margins, and scroll bars, are additive and independent, 
+# effecting the overall size of the scrolled text.  In contrast,
+# should the width and height options have non zero values, they
+# are applied to the scrolled text as a whole.  The text is 
+# compressed or expanded to maintain the geometry constraints.
+# ------------------------------------------------------------------
+itcl::configbody vsimwidgets::Hierarchy::visibleitems {
+    if {[regexp {^[0-9]+x[0-9]+$} $itk_option(-visibleitems)]} {
+		if {($itk_option(-width) == 0) && \
+			($itk_option(-height) == 0)} {
+			set chars [lindex [split $itk_option(-visibleitems) x] 0]
+			set lines [lindex [split $itk_option(-visibleitems) x] 1]
+			set shell [lindex [grid info $itk_component(sfchildsite)] 1]
+			#
+			# Due to a bug in the tk4.2 grid, we have to check the 
+			# propagation before setting it.  Setting it to the same
+			# value it already is will cause it to toggle.
+			#
+			if {$shell != "" && ! [grid propagate $shell]} {
+				grid propagate $shell yes
+			}
+	    
+#			$itk_component(col0) configure -width $chars -height $lines
+		}
+		
+    } else {
+		error "bad visibleitems option\
+		\"$itk_option(-visibleitems)\": should be\
+		widthxheight"
+    }
+}
+
+# ------------------------------------------------------------------
+#                         PUBLIC METHODS
+# ------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: cancelRedisplay
+#
+# Cancels any pending redisplay. This is used when the data needed for
+# redisplay may nolonger be valid.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::cancelRedisplay {} {
+	for {set i 0} {$i <= $_colNum} {incr i} {		
+		if {[info exists itk_component(col$i)]} {
+			$itk_component(col$i) cancel
+		}
+	}
+    return
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: clear
+#
+# Removes all items from the display including all tags and icons.  
+# The display will remain empty until the -filter or -querycommand 
+# options are set.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::clear {} {
+    $itk_component(col0) configure -cursor watch
+    $itk_component(tree) reset ;#delete 0 end
+    $itk_component(col0) configure -cursor $itk_option(-cursor)
+
+    if {[info exists _nodes]} {unset _nodes}
+    if {[info exists _images]} {unset _images}
+
+    return
+}
+
+itcl::body vsimwidgets::Hierarchy::_B1 {w x y c} {
+	if {$_startCol >= 0} {
+		if {[info exists itk_component(col$_startCol)]}  {
+			set _startSlave $itk_component(col$_startCol)
+		} else {
+			return
+		}
+		set _startX $x
+		set _startWidth [winfo width $_startSlave]
+		set _startResize 1
+		return -code break
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::_DoubleB1 {w x y c} {
+	if {$_startCol >= 0} {
+		if {[info exists itk_component(col$_startCol)]} {
+			column autosize $_startCol
+			return -code break
+		}
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::_Motion {w x y c} {
+	if {!$_startResize} {
+		set width [winfo width $w]
+		if {$x < 7 || $x > [expr {$width - 7}]} {
+			$w configure -cursor sb_h_double_arrow
+			if {$x < 7} {
+				set prevC -1
+				set cx [lsearch $_colMap $c]
+				while {$cx > 0} {
+					incr cx -1
+					set prevC [lindex $_colMap $cx]
+					if {$_visible($prevC) eq "show"} {
+						break
+					}
+				}
+				set _startCol $prevC
+			} else {
+				set _startCol $c
+			}
+		} else {
+			$w configure -cursor {}
+			set _startCol -1
+		}
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::_IMotion {w x y p} {
+	if {!$_startResize} {
+		$p configure -cursor {}
+	}
+}
+itcl::body vsimwidgets::Hierarchy::_CMotion {w x y p} {			
+	if {!$_startResize} {
+		$p configure -cursor {}
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::_B1Motion {w x y} {
+	if {$_startResize} {
+		set _newWidth [expr {$_startWidth + ($x - $_startX)}]
+		$_startSlave configure -width $_newWidth
+		if {$_resizePending != ""} {
+			after cancel $_resizePending
+		}
+		set cmd [list catch [code $this header _resizePad -]]
+		set _resizePending [after idle $cmd]
+		return -code break
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::_B1Release {w x y c} {
+    if { $_startResize } {
+		set _startResize 0
+		$w configure -cursor {}
+		set name [winfo name $_startSlave]
+		if {$name == "list"} {
+			set col 0
+		} else {
+			scan $name "col%d" col
+		}
+		set label [propertyColumnKey $col _wid]
+		set wid [$_startSlave cget -width]
+		setProperty $label wid
+		return -code break
+    }
+	if {$_startCol >= 0} {
+		return -code break
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::_post_configure_hdrmenu {} {
+    set menu $itk_component(hdrMenu)
+    $menu delete 0 end
+    array unset _dlgVisible
+    array set _dlgVisible [array get _visible]
+
+    # Distribute checkbuttons in a uniform manner
+    # with no more than 25 rows.
+    if {$_colNum > 25} {
+	set ncolumns [expr {($_colNum + 24)/25}]
+	set nrows [expr {($_colNum + $ncolumns - 1) / $ncolumns}]
+    } else {
+	set ncolumns 1
+	set nrows $_colNum
+    }
+
+	set sortedColNames [_getsortedcolumnlist]
+
+    for {set c 0} {$c < $ncolumns} {incr c} {
+		set cb [expr {$c!=0}]
+		for {set r 0} {$r < $nrows} {incr r} {
+			# Want columns ordered row first, left to right
+			# then column, top to bottom
+			# But menus are added column first, top to bottom
+			set i [expr {($r * $ncolumns) + $c + 1}]
+			if {$i > $_colNum} continue
+			set realIdx [lindex $sortedColNames [expr {$i - 1}] 1]
+			if {![info exists itk_component(header$realIdx)]} continue
+			if {[info exists _dlgVisible($realIdx)] && \
+				$_dlgVisible($realIdx) ne "invisible"} {
+				set label [$itk_component(header$realIdx) cget -text]
+				regsub -all {\n} $label " " label
+				$menu add checkbutton -label $label \
+					-variable [scope _dlgVisible($realIdx)] \
+					-command [code $this _toggle_column_visible $realIdx] \
+					-onvalue show -offvalue hide \
+					-columnbreak $cb
+				set cb 0
+			}
+		}
+    }
+}
+
+itcl::body vsimwidgets::Hierarchy::_position_hdrdlg { x y } {
+	set h [winfo height $_columnDlg]
+	set bts 75
+	set bottom [expr {$h + $y + $bts }]
+	set screenh [lindex [GetUsableDesktop] 3]
+	if { $bottom > $screenh } {
+	    set delta  [expr { $bottom - $screenh } ]
+	    set y [expr {$y - $delta} ]
+	    set loc [format "+%d+%d" $x $y]
+	    wm geometry $_columnDlg $loc
+	}
+} 
+
+
+itcl::body vsimwidgets::Hierarchy::_configure_hdrdlg {} {
+    if { $_columnDlg == "" } {
+	set _columnDlg .columndlg
+    }
+    if {[winfo exists $_columnDlg]} {
+	destroy $_columnDlg
+    }
+    toplevel $_columnDlg
+    wm title $_columnDlg "Configure Columns"
+    wm transient $_columnDlg $itk_component(hull)
+    
+    array unset _dlgVisible
+    array set _dlgVisible [array get _visible]
+
+    # Distribute checkbuttons in a uniform manner
+    # with no more than 25 rows.
+    if {$_colNum > 25} {
+	set ncolumns [expr {($_colNum + 24)/25}]
+	set nrows [expr {($_colNum + $ncolumns - 1) / $ncolumns}]
+    } else {
+	set ncolumns 1
+	set nrows $_colNum
+    }
+
+	set sortedColNames [_getsortedcolumnlist]
+
+	set idx 0
+	for {set r 0} {$r < $nrows && $idx < $_colNum} {incr r} {
+	for {set c 0} {$c < $ncolumns && $idx < $_colNum} {incr c} {
+		set i [lindex $sortedColNames $idx 1]
+	    if {[info exists itk_component(header$i)] &&
+			[info exists _dlgVisible($i)] && 
+			$_dlgVisible($i) ne "invisible"} {
+			checkbutton $_columnDlg.c$idx \
+				-text [$itk_component(header$i) cget -text] \
+				-offvalue hide \
+				-onvalue  show \
+				-variable [scope _dlgVisible($i)] 
+		   
+			grid $_columnDlg.c$idx -row $r -column $c -sticky w
+	    }
+	    incr idx
+	}
+    }
+   MtiFormUtil::makeButtonBox $_columnDlg.bb 2 [list \
+		[list "OK"     [code $this _configure_hdrdlgOK]] \
+		[list "Cancel" "destroy $_columnDlg"]]
+    grid $_columnDlg.bb -sticky se -columnspan $ncolumns
+
+    set pb $itk_component(menubutton)
+    set x [winfo rootx $pb] 
+    set y [expr {[winfo rooty $pb]  + [winfo height $pb]} ]
+    set loc [format "+%d+%d" $x $y]
+    wm geometry $_columnDlg $loc
+    wm resizable $_columnDlg 0 0
+    after idle   [code $this _position_hdrdlg $x $y]
+    ModalDialogActivate $_columnDlg 
+}
+
+
+itcl::body vsimwidgets::Hierarchy::_configure_hdrdlgOK {} {
+    for {set i 1} {$i <= $_colNum} {incr i} {
+		if { $_dlgVisible($i) != $_visible($i) } {
+			 _toggle_column_visible $i
+		}
+	}
+	destroy $_columnDlg
+}
+
+
+itcl::body vsimwidgets::Hierarchy::_initializeSortColumn {}  {
+    if {[column exists $_sortCol]} {
+	set sortIdx [column index $_sortCol]
+	switch $_sortState {
+	    up { set dir ascending }
+	    down { set dir descending }
+	    default { set dir "" }
+	}
+	if { [string length $dir] > 0 }  {
+	    sort $sortIdx $dir
+	}
+    }
+}    
+
+
+itcl::body vsimwidgets::Hierarchy::_toggle_column_visible {col} {
+    # The value of _visible should have been changed by
+    # the checkbox already.
+    column $_dlgVisible($col) $col
+
+    set label [propertyColumnKey $col _vis]
+    set value 0
+    if { $_dlgVisible($col) == "show" } {
+	set value 1
+    }
+    setProperty $label value
+}
+
+itcl::body vsimwidgets::Hierarchy::_getIndex {idx nameVar numberVar} {
+    if {$idx == "-"} {
+        return
+    }
+    upvar $nameVar name
+    upvar $numberVar number
+    
+    if {[isNumber $idx]} {
+        set number $idx
+        set name [lindex $_colNames $number]
+    } else {
+        set number [lsearch -exact $_colNames $idx]
+        if {$number < 0} {
+	    if {$idx eq "end"} {
+		set number [expr {[llength $_colNames] - 1}]
+		set name [lindex $_colNames $number]
+	    } else {
+		# maybe idx is a list, retrieve first element
+		set index [lindex $idx 0]
+		set number [lsearch -exact $_colNames $index]
+	    }
+	    if {$number < 0} {
+		set number -1
+	    }
+        }
+        set name $idx
+    }
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: column op ?args...?
+#
+# Handles all operations controlling columns in the widget.
+# Columns may be added, removed, or configured.  
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::column {op args} {
+    switch $op {
+	vadd - 
+	add {
+	    incr _colNum
+	    if {$op != "vadd"} {
+		set wcmd tvalueWidget
+	    } else {
+		set wcmd valueWidget
+	    }
+	    itk_component add col$_colNum {
+		$wcmd $itk_component(sfchildsite).col$_colNum $itk_component(tree) \
+		    -index $_colNum \
+		    -bd 0 -relief flat -highlightthickness 0 \
+		    -selectforeground $itk_option(-selectforeground) \
+		    -selectbackground $itk_option(-selectbackground)
+	    } {
+		rename -font -textfont textFont TextFont
+		rename -background -textbackground textBackground Background
+		rename -background2 -textbackground2 textBackground2 Background
+		rename -foreground -textforeground textForeground Foreground
+		rename -borderwidth -columnborderwidth columnBorderWidth ColumnBorderWidth
+		rename -deemphasisbackground -deemphasizebg deemphasizebg DeemphasizeBG
+		rename -deemphasisforeground -deemphasizefg deemphasizefg DeemphasizeFG
+		keep -pointercolor
+		keep -belowcutoff -abovecutoff -cutoff
+		keep -striping
+	    }
+
+	    set col [lsearch $_colMap $_colNum]
+	    if {$col < 0} {
+		lappend _colMap $_colNum
+		set col $_colNum
+	    }
+	    header add $_colNum
+	    incr col
+	    if {$col == 1 && $_colNum == 0} {
+		set c 0; set cs 2
+	    } else {
+		set c $col; set cs 1
+	    }
+	    grid $itk_component(col$_colNum) -row 1 -column $c -sticky nsew -padx 0 -columnspan $cs
+
+	    set bttree $itk_component(tree)
+	    set mwcmd [format {%s yview scroll [expr {- (%%D / 120)}] units} $bttree]
+            bind $itk_component(col$_colNum) <Configure>        [code $this _configureFrame %W]
+
+	    #  Add binding to window (object) for each component
+	    bindtags $itk_component(col$_colNum) [linsert [bindtags $itk_component(col$_colNum)] 2 $itk_component(hull)]
+	    #  Add Hierarchy class binding for each component
+	    bindtags $itk_component(col$_colNum) [linsert [bindtags $itk_component(col$_colNum)] end-2 Hierarchy]
+
+	    # Define LMB bindings
+            bind $itk_component(col$_colNum) <ButtonPress-1>    [code $this _button1 %W %x %y]
+            bind $itk_component(col$_colNum) <B1-Motion>        [code $this _buttonMotion1 %W %s %x %y]
+            bind $itk_component(col$_colNum) <ButtonRelease-1>  [code $this _buttonRelease1 %W %x %y]
+            bind $itk_component(col$_colNum) <Shift-1>          [code $this _shiftButton1 %W %x %y]
+            bind $itk_component(col$_colNum) <Control-1>        [code $this _controlButton1 %W %x %y]
+	    bind $itk_component(col$_colNum) <Double-Button-1>  [code $this _doublebutton1 %W %x %y $_colNum]
+	    # Define RMB bindings 
+            bind $itk_component(col$_colNum) <ButtonPress-3>    [code $this _post %W %x %y $_colNum]
+	    # Define Wheel Mouse bindings
+            bind $itk_component(col$_colNum) <Button-5>         [list $bttree yview scroll  1 units]
+            bind $itk_component(col$_colNum) <Button-4>         [list $bttree yview scroll -1 units]
+            bind $itk_component(col$_colNum) <Shift-Button-5>   [list $bttree yview scroll  5 units]
+            bind $itk_component(col$_colNum) <Shift-Button-4>   [list $bttree yview scroll -5 units]
+            bind $itk_component(col$_colNum) <Control-Button-5> [list $bttree yview scroll  1 pages]
+            bind $itk_component(col$_colNum) <Control-Button-4> [list $bttree yview scroll -1 pages]
+            bind $itk_component(col$_colNum) <MouseWheel>       $mwcmd
+	    # Define Keyboard bindings
+            bind $itk_component(col$_colNum) <Key-Prior>        [list $bttree yview scroll -1 pages]
+            bind $itk_component(col$_colNum) <Key-Next>         [list $bttree yview scroll 1 pages]
+            bind $itk_component(col$_colNum) <Key-Up>           [code $this selprev]
+            bind $itk_component(col$_colNum) <Key-Down>         [code $this selnext]
+            bind $itk_component(col$_colNum) <Key-Left>         [code $this selcollapse]
+            bind $itk_component(col$_colNum) <Key-Right>        [code $this selexpand]
+	    bind $itk_component(col$_colNum) <Key-Return>       [code $this invoke $_colNum]
+            bind $itk_component(col$_colNum) <Key>              [code $this _keyboardSearch %A]
+	    if {$::tcl_platform(platform) == "windows"} {
+		bind $itk_component(col$_colNum) <Control-Key-f> {event generate %W <<Find>>}
+	    } else {
+		bind $itk_component(col$_colNum) <Control-Key-s> {event generate %W <<Find>>}
+	    }
+
+	    if {[llength $args] > 0} {
+		set colName [lindex $args 0]
+		lappend _colNames $colName
+		header configure $_colNum -text $colName
+		if {[llength $args] > 1} {
+		    eval $itk_component(col$_colNum) configure [lrange $args 1 end]
+		}
+	    } else {
+		lappend _colNames col$_colNum
+	    }
+
+	    InitColumnVisibility $_colNum
+	    getProperty [propertyColumnKey $_colNum _wid] wid [$itk_component(col$_colNum) cget -width]
+	    column width $_colNum $wid
+	}
+	get {
+	    _getIndex [lindex $args 0] col_name col_number
+	    set index_first [lindex $args 1]
+	    set ix [expr {$col_number * 3}]
+	    if {[llength $args] == 2} {
+		set vallist [get3 $index_first]
+		return [lindex $vallist $ix]
+	    } elseif {[llength $args] == 3} {
+		set index_last [lindex $args 2]
+		set vallist [get3 $index_first $index_last]
+		set rv [list]
+		foreach valentry $vallist {
+		    lappend rv [lindex $valentry $ix]
+		}
+		return $rv
+	    } else {
+		error "wrong # of args. Usage: get col firstIndex ?lastIndex?"
+	    }
+	}
+	put {
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {$col_number > 0} {
+		set index [lindex $args 1]
+		set value [lindex $args 2]
+		set txt [lindex $value 0]
+		set tag [lindex $value 1]
+		set icon [lindex $value 2]
+		set current [get3 $index]
+		set start [expr {$col_number * 3}]
+		set end   [expr {$start + 2}]
+		set new [lreplace $current $start $end $txt $tag $icon]
+		put $index $new
+	    }
+	}
+	hide {
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {[llength $args] == 2 && [lindex $args 1] eq "invisible"} {
+		set _visible($col_number) invisible
+	    } else {
+		set _visible($col_number) hide
+	    }
+	    if {[info exists itk_component(col$col_number)] &&
+		[winfo manager $itk_component(col$col_number)] != ""} {
+		grid forget $itk_component(col$col_number) 
+		if {[info exists itk_component(header$col_number)] &&
+		    [info exists itk_option(-header)] && 
+		    $itk_option(-header)} {
+		    grid forget $itk_component(header$col_number)
+		    if {$_resizePending ne ""} {
+			after cancel $_resizePending
+		    }
+		    set cmd [list catch [code $this header _resizePad -]]
+		    set _resizePending [after idle $cmd]
+		}
+	    }
+	}
+	show {
+	    _getIndex [lindex $args 0] col_name col_number
+	    set col [expr {[lsearch $_colMap $col_number] + 1}]
+	    set _visible($col_number) show
+	    if {[info exists itk_component(col$col_number)] &&
+		[winfo manager $itk_component(col$col_number)] == ""} {
+		if {$col == 1 && $col_number == 0} {
+		    set c 0; set s 2
+		} else {
+		    set c $col; set s 1
+		}
+		grid $itk_component(col$col_number) -row 1 -column $c -sticky nsew -padx 0 -columnspan $s
+		if {[info exists itk_option(-header)] && 
+		    $itk_option(-header) && 
+		    [info exists itk_component(header$col_number)] &&
+		    [winfo manager $itk_component(header$col_number)] != "grid"} {
+		    grid $itk_component(header$col_number) -row 0 -column $col -sticky nsew -padx 0
+		    if {$_resizePending ne ""} {
+			after cancel $_resizePending
+		    }
+		    set cmd [list catch [code $this header _resizePad -]]
+		    set _resizePending [after idle $cmd]
+		}
+	    }
+	}
+	showedlist {
+	    set slist [list]
+	    foreach i $_colMap {
+		_getIndex $i col_name col_number
+		if {[info exists _visible($col_number)] &&
+		    $_visible($col_number) eq "show"} {
+		    lappend slist $col_name
+		}
+	    }
+	    return $slist
+	}
+	isshow {
+	    if {[llength $args] == 1} {
+		_getIndex [lindex $args 0] col_name col_number
+		if {$_visible($col_number) eq "show"} {
+		    return 1
+		} else {
+		    return 0
+		}
+	    } else {
+		error "wrong # of args. Usage: isshow index"
+	    }
+	}
+	move {
+	    # Get the logical column and destination (actual) column #
+	    _getIndex [lindex $args 0] col_name col_number
+	    set destColNum [lindex $args 1]
+
+	    # Find it's current position
+	    set mapFrom [lsearch $_colMap $col_number]
+	    set oldMap $_colMap
+
+	    # Move the colum in the map
+	    set _colMap [lreplace $_colMap $mapFrom $mapFrom]
+	    set _colMap [linsert $_colMap $destColNum $col_number]
+
+	    # Save the new column position for posterity
+	    setProperty [propertyKey columnMap] _colMap
+
+	    if {[info exists itk_option(-header)] && $itk_option(-header)} {
+		set doHeader 1
+	    } else {
+		set doHeader 0
+	    }
+
+	    # Layout the new columns
+	    set col 1
+
+	    foreach col_number $_colMap {
+		if {[info exists itk_component(col$col_number)] && $_visible($col_number) eq "show"} {
+		    if {$col == 1 && $col_number == 0} {
+			set c 0; set s 2
+		    } else {
+			set c $col; set s 1
+		    }
+		    grid $itk_component(col$col_number) -row 1 -column $c -sticky nsew -padx 0 -columnspan $s
+		    if {$doHeader && [info exists itk_component(header$col_number)]} {
+			grid $itk_component(header$col_number) -row 0 -column $col \
+			    -sticky nsew -padx 0
+		    }
+		}
+		incr col
+	    }
+	    if {$_resizePending ne ""} {
+		after cancel $_resizePending
+	    }
+	    set cmd [list catch [code $this header _resizePad -]]
+	    set _resizePending [after idle $cmd]
+	}
+	delete {
+	    _getIndex [lindex $args 0] col_name col_number
+	    set col [lsearch $_colMap $col_number]
+	    set _colMap [lreplace $_colMap $col $col]
+
+	    # Save the new column position for posterity
+	    setProperty [propertyKey columnMap] _colMap
+
+	    set _colNames [lreplace $_colNames $col_number $col_number {}]
+	    if {[info exists itk_component(col$col_number)]} {
+		destroy $itk_component(col$col_number)
+	    }
+	    if {[info exists itk_component(header$col_number)]} {
+		destroy $itk_component(header$col_number)
+	    }
+	}
+	config -
+	configure {
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {[info exists itk_component(col$col_number)]} {
+		eval $itk_component(col$col_number) configure [lrange $args 1 end]
+	    }
+	}
+	cget {
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {[info exists itk_component(col$col_number)]} {
+		eval $itk_component(col$col_number) cget [lrange $args 1 end]
+	    }
+	}
+	width {
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {[info exists itk_component(col$col_number)]} {
+		if {[llength $args] > 1} {
+		    $itk_component(col$col_number) configure -width [lindex $args 1]
+		} else {
+		    $itk_component(col$col_number) cget -width
+		}
+	    }
+	}
+	autosize {
+	    _getIndex [lindex $args 0] col_name col_number
+	    set max_width 0
+	    set end [index end]
+	    set i 0
+	    set abs_max [winfo width $itk_component(hull)]
+	    foreach data [get_row $_colNum 0 end] {
+		set str [lindex $data [expr {$col_number * 3}]]
+		set icon [lindex $data [expr {$col_number * 3 + 2}]]
+		if {$icon ne "" &&
+		    [lsearch -exact [image names] $icon] >= 0} {
+		    set img_w [image width $icon]
+		} elseif {$col_number == 0 &&
+			  [itemcget $i -icon] ne ""} {
+		    set img_w 0
+		    foreach ic [itemcget $i -icon] {
+			incr img_w [image width $ic]
+		    }
+		} else {
+		    set img_w 0
+		}
+		if {$col_number == 0} {
+		    set indent 18
+		    set pi $i
+		    while {$pi ne ""} {
+			set pi [parent $pi]
+			incr indent 18
+		    }
+		} else {
+		    set indent 0
+		}
+		set w [font measure $itk_option(-textfont) "$str "]
+		if {$w > $abs_max} {
+		    # Don't autosize larger than window width
+		    set w $abs_max
+		    set max_width [expr {$w + $img_w + $indent}]
+		    break
+		}
+		if {($w+$img_w+$indent) > $max_width} {
+		    set max_width [expr {$w + $img_w + $indent}]
+		}
+		incr i
+	    }
+	    column width $col_number [expr {($itk_option(-columnborderwidth) * 2) + $max_width}]
+	}
+	index {
+	    _getIndex [lindex $args 0] col_name col_number
+	    return $col_number
+	}
+	phyindex {
+	    _getIndex [lindex $args 0] col_name col_number
+	    set col [lsearch $_colMap $col_number]
+	    return $col
+	}
+	name {
+	    if {[llength $args] == 0} {
+		return $_colNames
+	    } else {
+		set res [list]
+		foreach arg $args {
+		    _getIndex $arg col_name col_number
+		    lappend res $col_name
+		}
+		return $res
+	    }
+	}
+	phyname {
+	    if {[llength $args] == 0} {
+		return $_colNames
+	    } else {
+		set res [list]
+		foreach arg $args {
+		    set col [lindex $_colMap $arg]
+		    _getIndex $col col_name col_number
+		    lappend res $col_name
+		}
+		return $res
+	    }
+	}
+	exists {
+	    if {[llength $args] != 1} {
+		return 0
+	    } elseif {[string is integer [lindex $args 0]]} {
+		set ix [lindex $args 0]
+		return [expr {$ix >= 0 && $ix < [llength $_colNames]}]
+	    } else {
+		set ix [lsearch -exact $_colNames [lindex $args 0]]
+		return [expr {$ix >= 0}]
+	    }
+	}
+	coord {
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {[info exists itk_component(col$col_number)]} {
+		set col $itk_component(col$col_number)
+		set index [lindex $args 1]
+		return [$col coord $index]
+	    } else {
+		return [list]
+	    }
+	}
+	bbox {
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {[info exists itk_component(col$col_number)]} {
+		set col $itk_component(col$col_number)
+		set index [lindex $args 1]
+		set coord [$col coord $index]
+		set x [expr {[lindex $coord 0] + (($col_number == 0) ? 3 : -2)}]
+		set y [lindex $coord 1]
+		set x1 [expr {$x + [winfo rootx $col]}]
+		set y1 [expr {$y + [winfo rooty $col]}]
+		set x2 [expr {$x1 + [lindex $coord 2]}]
+		set y2 [expr {$y1 + [lindex $coord 3]}]
+		return [list $x1 $y1 $x2 $y2]
+	    } else {
+		return [list]
+	    }
+	}
+	editinplace {
+	    # Note on editinplace arguments:
+	    # 0: column index
+	    # 1: row index
+	    # 2: initial data value(optional)
+	    # 3 - end: entrybox options (-font, -width, -borderwidth and -textvariable are ignored)
+	    #
+
+	    if {$itk_option(-kind) ne "tcl"} {
+		# Currently the get3 method does not
+		# return the info needed in this case
+		# for non-Tcl trees
+		return
+	    }
+	    _getIndex [lindex $args 0] col_name col_number
+	    set index [lindex $args 1]
+	    if {[info exists itk_component(col$col_number)]} {
+		set col $itk_component(col$col_number)
+		set data [$itk_component(tree) modify $index]
+		if {[llength $args] > 2} {
+		    if {[lindex $args 2] eq ""} {
+			set editValue [lindex $data [expr {($col_number * 3) + 1}]]
+		    } else {
+			set editValue [lindex $args 2]
+		    }
+		} else {
+		    set editValue [lindex $data [expr {($col_number * 3) + 1}]]
+		}
+		set e [eval [linsert [lrange $args 3 end] 0 entry $col.e]]
+		set wid 20
+		$e configure -font $itk_option(-font) \
+		    -width $wid \
+		    -borderwidth 1 \
+		    -textvariable [scope editValue]
+		bind $e <Key-Return> [code $this _editcheck $e ok]
+		bind $e <Key-Escape> [code $this _editcheck $e cancel]
+		bind $e <ButtonPress-1> [code $this _editcheck $e check %X %Y]
+		set coord [$col coord $index]
+		set x [expr {[lindex $coord 0] + (($col_number == 0) ? 3 : -2)}]
+		set y [lindex $coord 1]
+		place $e -x $x -y $y
+		set cwidth [lindex $coord 2]
+		update
+		while {$wid > 5 && [winfo width $e] > $cwidth} {
+		    incr wid -1
+		    $e configure -width $wid
+		    update
+		}
+		if {![winfo ismapped $e]} {
+		    tkwait visibility $e
+		}
+		set y [expr {$y + ([lindex $coord 3] - [winfo height $e])/2 + 1}]
+		place $e -x $x -y $y
+		set okFlag 0
+		# Go modal on entry until done
+		set oldFocus [focus]
+		set oldGrab [grab current $e]
+		if {$oldGrab != ""} {
+		    set grabStatus [grab status $oldGrab]
+		}
+		grab $e
+		$e selection from 0
+		$e selection to end
+		focus -force $e
+		tkwait window $e
+		catch {focus $oldFocus}
+		grab release $e
+		if {$oldGrab != ""} {
+		    if {$grabStatus == "global"} {
+			grab -global $oldGrab
+		    } else {
+			grab $oldGrab
+		    }
+		}
+		catch {focus $oldFocus}
+		if {$okFlag} {
+		    set ix [expr {($col_number * 3) + 1}]
+		    set newData [lreplace $data $ix $ix $editValue]
+		    $itk_component(tree) modify $index $newData
+		    if {$editValue ne ""} {
+			return $editValue
+		    } else {
+			return "{}"
+		    }
+		}
+		return ""
+	    }
+	    return ""
+	}
+	component {
+	    if {[llength $args] == 0} {
+		return $_colNames
+	    }
+	    _getIndex [lindex $args 0] col_name col_number
+	    if {$col_number < 0} {
+		error "Column [lindex $args 0] not found."
+	    }
+	    if {[llength $args] == 1} {
+		return $itk_component(col$col_number)
+	    }
+	    return [eval $itk_component(col$col_number) [lrange $args 1 end]]
+	}
+	default {
+	    set subcmds [lsort -dictionary {
+		add get put hide show showedlist isshow move delete 
+		configure cget width autosize index phyindex name exists 
+		coord bbox editinplace component}]
+	    error "unknown subcommand: $op\nExpecting one of: $subcmds"
+	}
+    }
+}
+
+itcl::body vsimwidgets::Hierarchy::_editcheck {e cmd args} {
+	switch $cmd {
+		ok {
+			set okFlag 1
+		}
+		cancel {
+			set okFlag 0
+		}
+		check {
+			set X [lindex $args 0]
+			set Y [lindex $args 1]
+			set wx [winfo containing $X $Y]
+			if {$wx eq $e} {
+				# Don't cancel or ok, just ignore
+				return
+			}
+			set okFlag 0
+		}
+	}
+	destroy $e
+	return -code break
+}
+
+# ----------------------------------------------------------------------
+# Create an array to hold all column names for sorting purpose.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_getsortedcolumnlist {} {
+	set sortedColNames [list]
+	for {set n 1} {$n <= $_colNum} {incr n} {
+		if {[info exists itk_component(header$n)]} {
+			set ninfo [list [$itk_component(header$n) cget -text] $n]
+			lappend sortedColNames $ninfo
+		}
+	}
+	return [lsort -index 0 -dictionary $sortedColNames]
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: header op ?args...?
+#
+# Handles all operations controlling column headers in the widget.
+# Headers may be configured.  
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::header {op col args} {
+    set col_arg $col
+    _getIndex $col_arg col_name col
+    switch $op {
+	add {
+	    if {![info exists itk_component(header$col)]} {
+		if {[info exists itk_component(headerPad)]} {
+		    grid forget $itk_component(headerPad)
+		} else {
+		    itk_component add headerPad {
+			frame $itk_component(sfchildsite).headerPad -highlightthickness 0 \
+			    -relief raised
+		    } {
+			keep -background -borderwidth
+			rename -cursor -headercursor headerCursor Cursor
+		    }
+		    bind $itk_component(headerPad) <ButtonPress-3> "mti_popup $itk_component(hdrMenu) %X %Y"
+		}
+
+		itk_component add header$col {
+		    ::mtiwidgets::colbutton $itk_component(sfchildsite).header$col 
+		} {
+		    keep -background -borderwidth
+		    rename -cursor -headercursor headerCursor Cursor
+		    rename -font -headerfont headerFont HeaderFont
+		}
+		set hdr $itk_component(header$col)
+		$hdr configure -movecommand [code $this _rearrange $col]
+		if {[llength $args] > 0} {
+		    eval $hdr configure $args
+		}
+		if {[info exists itk_option(-header)] && $itk_option(-header)} {
+		    set loc [expr {[lsearch $_colMap $_colNum] + 1}]
+		    grid $hdr -row 0 -column $loc -sticky ewns
+		}
+
+		bind [$hdr component button]     <Motion> [code $this _Motion %W %x %y $col]
+		bind [$hdr component indicator]  <Motion> [code $this _Motion [$hdr component button] %x %y $col]
+		bind [$hdr component coltext]    <Motion> [code $this _Motion [$hdr component button] %x %y $col]
+		bind [$hdr component button]     <ButtonPress-1> [code $this _B1 %W %X %Y $col]
+		set tmp [bind [$hdr component coltext] <ButtonPress-1>]
+		bind [$hdr component coltext]    <ButtonPress-1> [code $this _B1 %W %X %Y $col]\n$tmp
+		bind [$hdr component button]     <B1-Motion>     [code $this _B1Motion %W %X %Y]
+		set tmp [bind [$hdr component coltext] <B1-Motion>]
+		bind [$hdr component coltext]    <B1-Motion> [code $this _B1Motion %W %X %Y]\n$tmp
+		bind [$hdr component button]     <ButtonRelease-1> [code $this _B1Release %W %X %Y $col]
+		set tmp [bind [$hdr component coltext] <ButtonRelease-1>]
+		bind [$hdr component coltext]	 <ButtonRelease-1> [code $this _B1Release %W %X %Y $col]\n$tmp
+		bind [$hdr component button]     <Double-Button-1> [code $this _DoubleB1 %W %X %Y $col]
+		bind [$hdr component coltext]    <Double-Button-1> [code $this _DoubleB1 %W %X %Y $col]
+
+		$hdr configure -menu $itk_component(hdrMenu)
+
+		#
+		# Now put the pad header at the end
+		#
+		header _resizePad -
+	    }
+	    return $itk_component(header$col)
+	}
+	sort { 
+	    if {[info exists itk_component(header$col)]} {
+			for {set i 0} {$i <= $_colNum} {incr i} {		
+				if {[info exists itk_component(header$i)]} {
+					$itk_component(header$i) configure -sortstate none
+				}
+			}
+			$itk_component(header$col) configure -sortstate $args
+	    }
+	}
+
+	_resizePad {
+	    set _resizePending ""
+	    if {$_colNum == 0} {
+			set padw 0
+			set cw [winfo width $itk_component(canvas)]
+			$itk_component(col0) configure -width $cw
+			$itk_component(headerPad) configure -width $padw
+	    } else {
+			set tw [winfo width $itk_component(canvas)]
+			set sw [winfo width $itk_component(sfchildsite)]
+			set dw [winfo width $itk_component(headerPad)]
+			set rw [expr {$sw - $dw - 1}]
+			set padw [expr {($tw < $rw) ? 0 : ($tw - $rw)}]
+			set padw [expr {($padw < $itk_option(-borderwidth)) ? 0 : ($padw - $itk_option(-borderwidth))}]
+			$itk_component(headerPad) configure -width $padw
+			if {[info exists itk_option(-header)] && $itk_option(-header)} {
+				set padCol [expr {[llength $_colMap] + 1}]
+				grid $itk_component(headerPad) -row 0 -column $padCol -sticky nsew
+			}
+	    }
+	}
+	cget {
+		if {[info exists itk_component(header$col)]} {
+			return [eval $itk_component(header$col) cget $args]
+		}
+	}
+	config -
+	configure {
+		if {[info exists itk_component(header$col)]} {
+			return [eval $itk_component(header$col) configure $args]
+		}
+	}
+	index {
+	    _getIndex $col col_name col_number
+	    return $col_number
+	}
+	name {
+	    _getIndex $col col_name col_number
+	    return $col_name
+	}
+    }
+}
+
+itcl::body vsimwidgets::Hierarchy::_rearrange {col destWid} {
+	# The destWid should be another column in this widget
+	# Determine this widgets physical column number
+	regexp {header(\d*)} [winfo name $destWid] name destcol
+	set destloc [lsearch $_colMap $destcol]
+	set srcloc [lsearch $_colMap $col]
+	if {$srcloc >=0 && $destloc >= 0} {
+		column move $col $destloc
+	}
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _deemphasize
+#
+# De-emphasize the selection, but don't clear it!
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_deemphasize {} {
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _emphasize
+#
+# Emphasize the selection.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_emphasize {} {
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: selection option ?uid uid...?
+#
+# Handles all operations controlling selections in the hierarchy.
+# Selections may be cleared, added, removed, or queried.  The add and
+# remove options accept a series of unique ids.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::selection {op args} {
+    switch -- $op {
+        clear {
+            $itk_component(tree) selection clear all
+            if {[info exists _selected]} {unset _selected}
+	    #_select 0
+	    return
+        }
+	deemphasize {
+	    _deemphasize
+	}
+	namecontains -
+	datacontains -
+	count {
+	    return [eval $itk_component(tree) selection $op $args]
+	}
+	anchor {
+	    eval $itk_component(col0) selection anchor $args
+	}
+        add {
+            foreach node $args {
+                set _selected($node) 1
+		set idx [$itk_component(tree) index &$node]
+		if {$idx >= 0} {
+                    $itk_component(tree) selection set $idx
+                }
+            }
+	    if {[info exists idx] && $idx >= 0} {
+		_select $idx
+	    }
+	    _emphasize
+	    if {$itk_option(-exportselection)} {
+		::selection own -command [code $this selection deemphasize] $itk_component(hull)
+	    }
+        }
+        remove {
+            foreach node $args {
+                catch {
+                    if {[info exists _selected($node)]} {unset _selected($node)}
+		    set idx [$itk_component(tree) index &$node]
+		    if {$idx >= 0} {
+			$itk_component(tree) selection clear $idx
+		    }
+                }
+            }
+	    if {[info exists idx] && $idx >= 0} {
+		_select $idx
+	    }
+	    _emphasize
+	    if {$itk_option(-exportselection) && [$itk_component(tree) selection count] > 0} {
+		::selection own -command [code $this selection deemphasize] $itk_component(hull)
+	    }
+        }
+	get {
+	    return [$itk_component(tree) selection get]
+	}
+	set {
+	    eval $itk_component(col0) selection set $args
+            foreach idx [$itk_component(tree) cursel] {
+		set node [lindex [$itk_component(tree) get $idx] 0]
+                set _selected($node) 1
+            }
+	    if {[info exists idx] && $idx >= 0} {
+		_select $idx
+	    }
+	    _emphasize
+	    if {$itk_option(-exportselection)} {
+		::selection own -command [code $this selection deemphasize] $itk_component(hull)
+	    }
+	}
+	own {
+	    _emphasize
+	    if {$itk_option(-exportselection)} {
+		::selection own -command [code $this selection deemphasize] $itk_component(hull)
+	    }
+	}
+        default {
+	    return [eval [linsert $args 0 $itk_component(tree) selection $op]]
+        }
+    }
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: mark option ?arg arg...?
+#
+# Handles all operations controlling marks in the hierarchy.  Marks may 
+# be cleared, added, removed, or queried.  The add and remove options 
+# accept a series of unique ids.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::mark {op args} {
+	return
+    switch -- $op {
+        clear {
+            $itk_component(tree) tag remove lowlite 1.0 end
+            catch {unset _marked}
+	    return
+        }
+        add {
+            foreach node $args {
+                set _marked($node) 1
+                catch {
+                    $itk_component(tree) tag add lowlite \
+			    "$node.first" "$node.last"
+                }
+            }
+        }
+        remove {
+            foreach node $args {
+                catch {
+                    unset _marked($node)
+                    $itk_component(tree) tag remove lowlite \
+			    "$node.first" "$node.last"
+                }
+            }
+        }
+	get {
+	    return [array names _marked]
+	}
+        default {
+            error "bad mark operation \"$op\":\
+                   should be add, remove, clear or get"
+        }
+    }
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: current
+#
+# Returns the node that was most recently selected by the right mouse
+# button when the item menu was posted.  Usually used by the code
+# in the item menu to figure out what item is being manipulated.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::current {} {
+    return $_posted
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: cursel
+#
+# Returns a list of selected indexes.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::cursel {} {
+	return [$itk_component(tree) cursel]
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: expand node
+#
+# Expands the hierarchy beneath the specified node.  Since this can take
+# a moment for large hierarchies, the cursor will be changed to a watch
+# during the expansion.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::expand {node} {
+	$itk_component(col0) configure -cursor watch
+    set val [$itk_component(tree) expand $node]
+	$itk_component(col0) configure -cursor $itk_option(-cursor)
+    return $val
+}
+
+	
+itcl::body vsimwidgets::Hierarchy::expandbyname { name } {
+	set idx [$itk_component(tree) index &$name]
+	if { $idx >= 0 } {
+		$itk_component(tree) expand $idx 
+	}
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: collapse node
+#
+# Collapses the hierarchy beneath the specified node.  Since this can 
+# take a moment for large hierarchies, the cursor will be changed to a 
+# watch during the expansion.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::collapse {node} {
+	$itk_component(col0) configure -cursor watch
+	$itk_component(tree) collapse $node
+	$itk_component(col0) configure -cursor $itk_option(-cursor)
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: toggle node
+#
+# Toggles the hierarchy beneath the specified node.  If the hierarchy
+# is currently expanded, then it is collapsed, and vice-versa.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::toggle {node} {
+	$itk_component(col0) configure -cursor watch
+	$itk_component(tree) expandtoggle $node
+	$itk_component(col0) configure -cursor $itk_option(-cursor)
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: prune node
+#
+# Removes a particular node from the hierarchy.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::prune {node} {
+    #
+    # While we're working, change the state and cursor so we can
+    # edit the text and give a busy visual clue.
+    #
+    $itk_component(col0) configure -cursor watch
+	update
+
+    #
+    # Next we need to remove the node itself.  Using the ranges for
+    # its tag we'll remove it from line start to the end plus one
+    # character which takes us to the start of the next node.
+    #
+	$itk_component(tree) delete &$node
+
+    #
+    # We're done, so change the state and cursor back to their 
+    # original values.
+    #
+    $itk_component(col0) configure -cursor $itk_option(-cursor)
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: draw ?when?
+#
+# Performs a complete draw of the entire hierarchy.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::draw {{when -now}} {
+    if {$when == "-eventually"} {
+        if {$_pending == ""} {
+            set _pending [after idle [code $this draw -now]]
+        }
+        return
+    } elseif {$when != "-now"} {
+        error "bad when option \"$when\": should be -eventually or -now"
+    }
+    $itk_component(tree) immupdate
+    update
+	return
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: refresh node
+#
+# Performs a redraw of a specific node.  If that node is currently 
+# not visible, then no action is taken.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::refresh {node} {
+	return
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: requery
+#
+# Performs a redraw everything
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::requery {} {
+	$itk_component(tree) reset
+	$itk_component(tree) insertquery end ""
+	return
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD delete first ?last?
+#
+# Delete a range of characters from the text.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::delete {first {last {}}} {
+    $itk_component(col0) configure -cursor watch
+    $itk_component(tree) delete $first $last
+    $itk_component(col0) configure -cursor $itk_option(-cursor)
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD get index1 ?index2?
+#
+# Return text from start index to end index.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::get {index1 {index2 {}}} {
+	set cmd [list $itk_component(tree) get $index1]
+	if {$index2 ne ""} {
+		lappend cmd $index2
+	}
+    eval $cmd
+}
+
+itcl::body vsimwidgets::Hierarchy::itemname {index} {
+	lindex [$itk_component(tree) get $index] 0
+}
+
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD get3 index1 ?index2?
+#
+# Return value text from start index to end index.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::get3 {index1 {index2 {}}} {
+    eval $itk_component(tree) get3 $index1 $index2
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD get4 index1 ?index2?
+#
+# Return value text from start index to end index.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::get4 {index1 {index2 {}}} {
+    eval $itk_component(tree) get4 $index1 $index2
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD get_row maxcol index1 ?index2?
+#
+# Return value text from start index to end index.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::get_row {maxcol index1 {index2 {}}} {
+    eval $itk_component(tree) get_row $maxcol $index1 $index2
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD put index value
+#
+# Replace value string at index
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::put {index value} {
+    $itk_component(tree) put $index $value
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD index index
+#
+# Return position corresponding to index.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::index {index} {
+    return [$itk_component(tree) index $index]
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD insert index chars ?tagList?
+#
+# Insert text at index.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::insert {args} {
+    $itk_component(col0) configure -cursor watch
+    eval $itk_component(tree) insert $args
+    $itk_component(col0) configure -cursor $itk_option(-cursor)
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD append index chars ?tagList?
+#
+# Append text at index.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::append {args} {
+    $itk_component(col0) configure -cursor watch
+    eval $itk_component(tree) append $args
+    $itk_component(col0) configure -cursor $itk_option(-cursor)
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD search ?switches? pattern index ?varName?
+#
+#  options:
+#    -field       where 1=label (what's shown) 2=name (unique node id)
+#    -forwards    search forward (down)
+#    -reverse     search backward (up)
+#    -backwards     "       "      "
+#    -all         return all matches, not just first match
+#    -toggle      toggle selection state on mathing items
+#    -top         Start search at top of tree
+#    -wrap        search wraps around to top(bottom) of tree
+#    -nowrap       and continues until reaching starting point
+#
+# Searches the text for characters matching a pattern.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::search {args} {
+    return [eval $itk_component(tree) find $args]
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD see index
+#
+# Adjusts the view in the window so the character at index is 
+# visible.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::see {index} {
+    $itk_component(tree) see $index
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD see index
+#
+# Adjusts the view in the window so the character at index is 
+# at the top.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::see2 {index} {
+    $itk_component(tree) see2 $index
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD selnext
+#
+# Adjusts the selection to the next item
+#
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::selnext {} {
+	if {$_selid ne ""} {
+		after cancel $_selid
+	}
+	if {$_nextsel ne ""} {
+		incr _nextsel
+	} else {
+		set _nextsel [lindex [$itk_component(tree) cursel] end]
+	}
+	set _selid [after idle [code $this _selnext $_nextsel]]
+	return ""
+}
+
+itcl::body vsimwidgets::Hierarchy::_selnext {idx} {
+	if {$idx ne ""} {
+		incr idx
+		while {$idx <= [$itk_component(tree) index end]} {
+			if {[itemcget $idx -itemtype] ne "Divider"} {
+				selection clear
+				vsimwidgets::Hierarchy::selection anchor $idx
+				vsimwidgets::Hierarchy::selection set $idx
+				see $idx
+				break
+			}
+			incr idx
+		}
+	}
+	set _nextsel ""
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD selprev
+#
+# Adjusts the selection to the previous item
+#
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::selprev {} {
+	if {$_selid ne ""} {
+		after cancel $_selid
+	}
+	if {$_nextsel ne ""} {
+		incr _nextsel -1
+	} else {
+		set _nextsel [lindex [$itk_component(tree) cursel] end]
+	}
+	set _selid [after idle [code $this _selprev $_nextsel]]
+	return ""
+}
+
+itcl::body vsimwidgets::Hierarchy::_selprev {idx} {
+	if {$idx ne ""} {
+		set idx [expr {$idx - 1}]
+		while {$idx >= 0} {
+			if {[itemcget $idx -itemtype] ne "Divider"} {
+				selection clear
+				vsimwidgets::Hierarchy::selection anchor $idx
+				vsimwidgets::Hierarchy::selection set $idx
+				see $idx
+				break
+			}
+			incr idx -1
+		}
+	}
+	set _nextsel ""
+}
+
+# ------------------------------------------------------------------
+# PROTECTED METHOD _evalCmd
+#
+# Evaluate a callback after % character substitutions.  
+# If %n appears in the command, the selected node is substituted.  
+# If %s appears, a boolean value representing the current selection state
+#   will be substituted.
+# If %e appears, one of +|-|0 will represent the node as expanded,
+#   collapsed, or no children respectively.
+# If %c appears, the name of the column at (x,y) is supstituted.
+# If %i appears, the name of the icon at (x,y) is supstituted.
+# ----------------------------------------------------------------------
+#
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_evalCmd {cmd index args} {
+    if {$cmd ne "" && $index ne ""} {
+	if {[llength $args] > 0 && ([llength $args] & 3) == 2} {
+	    array set options $args
+	}
+	set idx [index $index]
+	if {$idx >= 0 || [info exists options(-item)]} {
+	    if {[info exists options(-expandstatus)]} {
+		set expandstatus $options(-expandstatus)
+	    } else {
+		set expandstatus [expandstate $idx]
+	    }
+	    if {[info exists options(-selectstatus)]} {
+		set selectstatus $options(-selectstatus)
+	    } else {
+		set selectstatus [$itk_component(tree) selection includes $idx]
+	    }
+	    if {[info exists options(-item)]} {
+		set item $options(-item)
+	    } else {
+		set item [lindex [$itk_component(tree) get $idx] 0]
+	    }
+	    set ix 0
+	    # This doesn't work for extened identifiers
+	    # regsub -all {%n} $cmd [list $item] cmd
+	    while {[set ix [string first {%n} $cmd $ix]] >= 0} {
+		set cmd [string replace $cmd $ix [expr {$ix+1}] [list $item]]
+		set ix [expr {$ix + [string length [list $item]]}]
+	    }
+	    regsub -all {%e} $cmd [list $expandstatus] cmd
+	    regsub -all {%s} $cmd [list $selectstatus] cmd
+	    if {[info exists options(-column)]} {
+		set col_name [lindex $_colNames $options(-column)]
+	    } else {
+		set col_name ""
+	    }
+	    regsub -all {%c} $cmd [list $col_name] cmd
+	    if {[info exists options(-icon)]} {
+		regsub -all {%i} $cmd [list $options(-icon)] cmd
+	    }
+	    return [uplevel "#0" $cmd]
+	}
+    }
+    return ""
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD selexpand
+#
+# Expand the selected node
+#
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::selexpand {} {
+    set idx [lindex [$itk_component(tree) cursel] end]
+    if {$idx != ""} {
+	if {$idx >= 0} {
+	    set expandstatus [expandstate $idx]
+	    expand $idx
+	    _evalCmd $itk_option(-expandcommand) $idx -expandstatus $expandstatus
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD selcollapse
+#
+# Collapse the selected node
+#
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::selcollapse {} {
+    set idx [lindex [$itk_component(tree) cursel] end]
+    if {$idx != ""} {
+	if {$idx >= 0} {
+	    set expandstatus [expandstate $idx]
+	    collapse $idx
+	    _evalCmd $itk_option(-expandcommand) -expandstatus $expandstatus
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# PUBLIC METHOD sort column ?direction?
+#
+# Sort the tree by the column specified, and the direction 
+# (ascending, descending, decl) given.  If the direction is "next"
+# Then it will select the direction based on the current direction.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::sort {column {dir next}} {
+	switch -glob $dir {
+		next {
+			switch [header cget $column -sortstate] {
+				none {set dir ascending}
+				up   {set dir descending}
+				down {set dir decl}
+			}
+		}
+		prev {
+			switch [header cget $column -sortstate] {
+				none {set dir descending}
+				up   {set dir decl}
+				down {set dir ascending}
+			}
+		}
+		a* -
+		dec* -
+		d* {
+		}
+		default {
+			return -code error "Bad direction, must be one of ascending, descending, next, or decl."
+		}
+	}
+    $itk_component(tree) sort $dir [column cget $column -index]
+	switch -glob $dir {
+		a*     {set state up}
+		dec*   {set state none}
+		d*     {set state down}
+		default {set state none}
+	}
+	header sort $column $state
+
+    #
+    # save sort state
+    #
+    if { $state == "none" }  {
+        set state ""
+        set columnName ""
+    }  else  {
+        set columnName [$this column name $column]
+    }
+    setProperty [propertyKey sortColumnV2] columnName
+    setProperty [propertyKey sortState] state
+}
+
+itcl::body vsimwidgets::Hierarchy::reapply_sort {} {
+	for {set i 0} {$i <= $_colNum} {incr i} { 
+		if {[info exists itk_component(header$i)]} {
+			switch [header cget $i -sortstate] {
+				none {set dir decl}
+				up   {set dir ascending}
+				down {set dir descending}
+			} 
+			if { $dir != "decl" } {
+				sort $i $dir
+				return
+			}
+		}
+	}
+}
+
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: xview args
+#
+# Thin wrap of the text widget's xview command.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::xview {args} {
+    return [eval $itk_component(canvas) xview $args]
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: yview args
+#
+# Thin wrap of the text widget's yview command.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::yview {args} {
+    return [eval $itk_component(tree) yview $args]
+}
+
+# ----------------------------------------------------------------------
+# PUBLIC METHOD: statustoggled
+#
+# indicates if last button-1 event was inside expand box
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::statustoggle {} {
+	return $_toggled
+}
+
+# ------------------------------------------------------------------
+#                       PROTECTED METHODS
+# ------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _post x y
+#
+# Used internally to post the popup menu at the coordinate (x,y)
+# relative to the widget.  If (x,y) is on an item, then the popup menu
+# is posted.  Otherwise, the bgMenu is posted.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_post {w x y {colNum 0}} {
+	focus $w
+	if {$itk_option(-popupmenu) == {} } {
+		return
+	}
+	set _posted [expr {[$itk_component(tree) index @$x,$y] >= 0}]
+
+	if { $w != $itk_component(col0) } {
+		if { ($w == $itk_component(canvas)) || ($w == $itk_component(sfchildsite)) } {
+			set ny [winfo y $w]
+			set coly [winfo y $itk_component(col0)]
+			set y [expr {$y - $ny - $coly}]
+		}
+	}
+
+	set index [$itk_component(tree) nearest $y]
+
+	set rx [expr {[winfo rootx $itk_component(col$colNum)]+$x}]
+	set ry [expr {[winfo rooty $itk_component(col$colNum)]+$y}]
+
+    #
+    # Popup item menu if over item name|icon
+    #
+	 if {$_posted} {
+		# Only perform selection if over item
+		set already_selected [ $itk_component(tree) selection includes $index]
+		if {$already_selected == 0 } { 
+			selection clear all
+			vsimwidgets::Hierarchy::selection anchor $index
+			vsimwidgets::Hierarchy::selection set $index
+		}
+	}
+	mti_popup $itk_option(-popupmenu) $rx $ry
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _button1 w x y
+#
+# Used internally to select or expand/collapse an item at the
+# coordinate (x,y) relative to the widget.  If the (x,y) corresponds
+# to the Icon or label text, then the item is selected and the command
+# associated with the -selectcommand option is execute following %
+# character substitutions.  If %n appears in the command, the selected
+# node is substituted.  If %s appears, a boolean value representing
+# the current selection state will be substituted.
+# If the (x,y) corresponds the expand toggle box, then then expand
+# state for the item is toggled and the command associated with the
+# -expandcommand option is executed following % character
+# substitutions.  If %n appears in the command, the node name is
+# substituted.  If %e appears, a boolean value representing the
+# current expand state will be substituted.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_button1 {w x y} {
+    if { $w != $itk_component(col0) } {
+	set x 1
+	if { ($w == $itk_component(canvas)) || ($w == $itk_component(sfchildsite)) } {
+	    set ny [winfo y $w]
+	    set coly [winfo y $itk_component(col0)]
+	    set y [expr {$y - $ny - $coly}]
+	}
+    }
+    set idx [$itk_component(col0) index @$x,$y]
+
+    if {$idx >= 0} {
+	set _startDragging 0
+	set _selectWhenReleased 0
+	set _dragging 0
+	set _initialXCoord $x
+	set _initialYCoord $y
+	# Save current expand state since it will change after calling
+	# expandtoggle
+	set expandstatus [$itk_component(tree) expandstate $idx]
+	set _toggled [$itk_component(col0) expandtoggle $idx $x]
+	set ident [$itk_component(tree) identify $idx $x]
+	set _identity [list $idx $ident]
+	if {!$_toggled} {
+	    set doSelection 0
+	    switch -exact $ident {
+		"" {
+		    # Ignore this which means the mouse is over
+		    # nothing identifiable
+		}
+		expand {
+		    # Already handled (should never get here)
+		}
+		none -
+		text {
+		    set doSelection 1
+		}
+		default {
+		    # Icon: perform action on button up
+		    set doSelection 1
+		}
+	    }
+	    if {$doSelection} {
+		if {[$itk_component(tree) selection includes $idx] == 0} {
+		    ## Case where B1 on unselected item:
+		    ## Immediate select item and prepare for dragging.
+		    set _startDragging $itk_option(-enabledragging)
+		    set _selectWhenReleased 0
+		    set idx [$itk_component(col0) index @$x,$y]
+		    if {$idx < 0} {
+			return
+		    }
+		    selection clear all
+		    vsimwidgets::Hierarchy::selection anchor $idx
+		    vsimwidgets::Hierarchy::selection set $idx
+		} else {
+		    ## Case where B1 on selected item:
+		    ## Set SelectWhenReleased so if no drag occurs, item is selected.
+		    ## Prepare for dragging.
+		    set _selectWhenReleased 1
+		    set _startDragging $itk_option(-enabledragging)
+		}
+	    }
+	} else {
+	    _evalCmd $itk_option(-expandcommand) $idx
+	}
+    }
+    focus $w
+
+}
+itcl::body vsimwidgets::Hierarchy::_buttonMotion1 {w s x y} {
+    # mask out control key (ignore Control-B1-Motion)
+    if {![expr {$s & 4}]} {
+	if {$_startDragging} {
+            ## First motion following button press.
+            ## Make sure mouse has moved far enough to start a drag.
+	    if {[expr {abs($_initialXCoord - $x)}] > 6 ||
+		[expr {abs($_initialYCoord - $y)}] > 6 } {
+		set _dragging 1
+		set _startDragging 0
+		set _selectWhenReleased 0
+		StartDragSelection $w [llength [$itk_component(tree) cursel]] \
+		    [code $this canDragItems] Drag_VerifyTreeItems
+		dnd drag $w
+	    }
+	} elseif {$_dragging} {
+	    ## Already dragging.
+	    #DragSelection $w $x $y
+	    set _selectWhenReleased 0
+	} else {
+            ## Not dragging.  Motion started with <shift-1>.
+            ## Or wave cursor dragging.
+	    if {!$_toggled} {
+		## Too Do:  deal with other select modes
+		# treeMotion tree el ????
+	    }
+	}
+    }
+}
+itcl::body vsimwidgets::Hierarchy::_buttonRelease1 {w x y} {
+    if {$_dragging} {
+	#EndDragSelection $w [code $this dragItems] $x $y [code $this dragItemsConfig] [code $this dragItemsIdx]
+    } else { 
+	set idx [$itk_component(col0) index @$x,$y]
+	set ident [$itk_component(tree) identify $idx $x]
+	if {[info exists _identity] && $_identity ne "" && 
+	    $idx == [lindex $_identity 0] && $ident eq [lindex $_identity 1]} {
+	    switch -exact $ident {
+		"" {
+		    # Ignore this which means the mouse is over
+		    # nothing identifiable
+		}
+		expand {
+		    # Already handled (should never get here)
+		}
+		none -
+		text {
+		    if {$_selectWhenReleased} {
+			set _selectWhenReleased 0
+			selection clear all
+			set idx [$itk_component(col0) index @$x,$y]
+			vsimwidgets::Hierarchy::selection anchor $idx
+			vsimwidgets::Hierarchy::selection set $idx
+		    }
+		}
+		default {
+		    if {$itk_option(-iconcommand) ne ""} {
+			_iconSelect $idx $ident
+		    }
+		}
+	    }
+	}
+	set _identity ""
+    }
+    # set _toggled 0
+    set _dragging 0
+    set _startDragging 0
+}
+itcl::body vsimwidgets::Hierarchy::_shiftButton1 {w x y} {
+	if { $w != $itk_component(col0) } {
+		set x 1
+		if { ($w == $itk_component(canvas)) || ($w == $itk_component(sfchildsite)) } {
+			set ny [winfo y $w]
+			set coly [winfo y $itk_component(col0)]
+			set y [expr {$y - $ny - $coly}]
+		}
+	}
+	set idx [$itk_component(col0) index @$x,$y]
+	if {$idx < 0} {
+		return
+	}
+	set _toggled [$itk_component(col0) expandtoggle $idx $x]
+	set _selectWhenReleased 0
+	set ident [$itk_component(tree) identify $idx $x]
+	set _identity [list $idx $ident]
+	if {!$_toggled} {
+		set idx [$itk_component(col0) index @$x,$y]
+		if {$idx < 0} {
+			return
+		}
+		selection clear all
+		if {$itk_option(-selectmode) == "multiple"} {
+			set first [$itk_component(col0) index anchor]
+			vsimwidgets::Hierarchy::selection set $first $idx
+		} else {
+			vsimwidgets::Hierarchy::selection set $idx
+		}
+		#_select $idx
+		focus $w
+	}
+}
+itcl::body vsimwidgets::Hierarchy::_controlButton1 {w x y} {
+	if { $w != $itk_component(col0) } {
+		set x 1
+		if { ($w == $itk_component(canvas)) || ($w == $itk_component(sfchildsite)) } {
+			set ny [winfo y $w]
+			set coly [winfo y $itk_component(col0)]
+			set y [expr {$y - $ny - $coly}]
+		}
+	}
+	set idx [$itk_component(col0) index @$x,$y]
+	if {$idx < 0} {
+		return
+	}
+	set _toggled [$itk_component(col0) expandtoggle $idx $x]
+	set _selectWhenReleased 0
+	if {!$_toggled} {
+		set idx [$itk_component(col0) index @$x,$y]
+		if {$idx < 0} {
+			return
+		}
+		if {[$itk_component(col0) selection includes $idx]} {
+			$itk_component(col0) selection clear $idx
+		} else {
+			if {$itk_option(-selectmode) != "multiple"} {
+				$itk_component(col0) selection clear all
+			}
+			$itk_component(col0) selection set $idx
+		}
+		_select $idx
+		focus $w
+	}
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _doublebutton1 x y
+#
+# Used internally to select an item at the coordinate (x,y) relative 
+# to the widget.  The command associated with the -command
+# option is execute following % character substitutions.  
+# If %n appears in the command, the selected node is substituted.  
+# If %s appears, a boolean value representing the current selection state
+#   will be substituted.
+# If %e appears, one of +|-|0 will represent the node as expanded,
+#   collapsed, or no children respectively.
+# If %c appears, the name of the column at (x,y)
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_doublebutton1 {w x y c} {
+    set idx [$itk_component(col0) index @$x,$y]
+    # check to see if this is the expand box
+    if {  [$itk_component(col0) expandtoggle $idx $x] } {
+	_button1 $w $x $y
+	return
+    }
+    
+    if {$itk_option(-command) != {}} {
+	set node [$itk_component(tree) index @$x,$y]
+	_evalCmd $itk_option(-command) $node -column $c
+    }
+    return
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: invoke
+#
+# The command associated with the -command option is execute following 
+# % character substitutions.  
+# If %n appears in the command, the selected node is substituted.  
+# If %s appears, a boolean value representing the current selection state
+#   will be substituted.
+# If %e appears, one of +|-|0 will represent the node as expanded,
+#   collapsed, or no children respectively.
+# If %c appears, the name of the column at (x,y)
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::invoke {{column ""}} {
+    if {$itk_option(-command) != {}} {
+	set nodes [$itk_component(tree) cursel]
+	foreach node $nodes {
+	    if {$node < 0} {
+		continue
+	    }
+	    _evalCmd $itk_option(-command) $node $column
+	}
+    }
+    return
+}
+
+itcl::body vsimwidgets::Hierarchy::canDragItems {w} {
+	# We'll ignore w and go right to the tree
+	set tree $itk_component(tree)
+	if {[$tree cget -kind] == "Signal" || [$tree cget -kind] == "Variable"} {
+		set selcnt 0
+		set can_drag_cnt 0
+		set sel [$tree curselection]
+		foreach objidx $sel {
+			incr selcnt
+			set type [$tree itemtype $objidx]
+			if {[TreeItemTypeIsDraggable $type]} {
+				incr can_drag_cnt
+			}
+		}
+		if {$can_drag_cnt == 0} {return 0}
+		if {$can_drag_cnt < $selcnt} {
+			echo "Warning: some selected items cannot be dragged and dropped"
+		}
+	}
+	return 1
+}
+itcl::body vsimwidgets::Hierarchy::dragItems {w} {
+    # Ignore w parameter and go right to tree
+	set accStatement 508
+    set tree $itk_component(tree)
+    set sel [$tree curselection]
+    set objlist ""
+    foreach objidx $sel {
+	set type [$tree itemtype $objidx]
+	## Allow dragging any type 'from' the wave window.
+	if {[TreeItemTypeIsDraggable $type]} {
+	    if {[TreeItemTypeIsScope $type]} {
+			if {$type == $accStatement} {
+				set accType [GetObjectTypeName [lindex [$tree get $objidx] 0]]
+				if {$accType == "accAssertion" || $accType == "accCover"} {
+					set obj [lindex [$tree get $objidx] 0]
+				} else {
+					# Add wildcard to end to get all contained objects
+					set obj [context join [lindex [$tree get $objidx] 0] *]
+				}
+			} else {
+				# Add wildcard to end to get all contained objects
+				set obj [context join [lindex [$tree get $objidx] 0] *]
+			}
+	    } else {
+			set obj [lindex [$tree get $objidx] 0]
+	    }
+	    lappend objlist $obj
+	}
+    }
+    return $objlist
+}
+
+itcl::body vsimwidgets::Hierarchy::dragItemsIdx {w} {
+    set tree [TreeFromWidget2 $w]
+    set sel [$tree curselection]
+    set sel_idxlist ""
+    foreach objidx $sel {
+        set type [$tree itemtype $objidx]
+        ## Allow dragging any type 'from' the wave window.
+        if {([$tree cget -kind] == "Wave") ||
+            ([TreeItemTypeIsDraggable $type])} {
+            #set obj [$tree get $objidx]
+            lappend sel_idxlist $objidx
+        }
+    }
+    return $sel_idxlist
+}
+
+
+itcl::body vsimwidgets::Hierarchy::dragItemsConfig {w} {
+	# Ignore w parameter, go right to tree
+	set sel [$itk_component(tree) curselection]
+	return [genConfigList $itk_component(tree) $sel]
+}
+
+itcl::body vsimwidgets::Hierarchy::genConfigList {w sel {include_name 0}} {
+	set config_list [list]  ;# Empty list
+
+	if {[llength $sel] > 0} {
+		foreach i $sel {
+			# bundle up non-default item configuration settings
+			set config [list]
+			if {[catch [list $itk_component(tree) itemconfig $i] obj]} continue
+			foreach c $obj {
+				if {[lindex $c 0] == "-label" && [IsIndexLabel [lindex $c 4]]} {
+					## Do not save label strings for indices.
+					continue
+				}
+				if {[lindex $c 0] == "-icon" ||
+					[lindex $c 0] == "-activeicon"} {
+					## Do not save icons--they get calculated on the fly.
+					continue
+				}
+				set default [lindex $c 3]
+				set value [lindex $c 4]
+				if {[string compare $default $value] != 0 } {
+					if { [lindex $c 0] != "-itemtype" } {
+						lappend config [lindex $c 0] $value
+					} else {
+						## Special config for adding non-Context items to wave window.
+						switch $value {
+							Divider {
+								lappend config -divider
+							}
+						}
+					}
+				}
+			}
+			if {$include_name} {
+				lappend config_list [list [lindex [$itk_component(tree) get $i] 0] $config]
+			} else {
+				lappend config_list $config
+			}
+		}					
+	}
+	return $config_list
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _keyboardSearch widget key
+#
+# Implement tree searching via keyboard key strokes.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_keyboardSearch {key} {
+    if {$key != {} && $key != "	" && $key != " "} {
+		if {![catch {find -field 1 ${key}*} msg]} {
+			if {$msg < 0} {
+				catch {find -field 1 *${key}*} msg
+			}
+			if {$msg >= 0} {
+				_select $msg
+			}
+		}
+    }
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _select node
+#
+# Used internally to select an item at the coordinate (x,y) relative 
+# to the widget.  The command associated with the -selectcommand
+# option is execute following % character substitutions.  If %n
+# appears in the command, the selected node is substituted.  If %s
+# appears, a boolean value representing the current selection state
+# will be substituted.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_select {node} {
+    if {$itk_option(-selectcommand) != {}} {
+	if {$node < 0} {
+	    return
+	}
+	_evalCmd $itk_option(-selectcommand) $node
+    }
+    return
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _selectHandler offset maxChars 
+#
+# A handler for selection requests, such that command will be executed
+# whenever selection is owned by window and someone attempts to
+# retrieve it in the form given by type (e.g. type is specified in the
+# selection get command). Selection defaults to PRIMARY, type defaults
+# to STRING, and format defaults to STRING. If command is an empty
+# string then any existing handler for window, type, and selection is
+# removed.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_selectHandler {offset maxChars} {
+	set sel ""
+	set nl ""
+	foreach idx [$itk_component(tree) cursel] {
+		::append sel [lindex [$itk_component(tree) get $idx] 0]
+		::append sel $nl
+		set nl "\n"
+	}
+	set ret [string range $sel $offset [expr {$offset + $maxChars}]]
+	return $ret
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _iconSelect node icon
+#
+# Used internally to upon selection of user icons.  The -iconcommand
+# is executed after substitution of the node for %n and icon for %i.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_iconSelect {node icon} {
+
+	if { $_inIconCmd } {
+		return {}
+	}
+	set _inIconCmd 1
+	_evalCmd $itk_option(-iconcommand) $node -icon $icon
+	set _inIconCmd 0
+	return {}
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _getParent uid
+#
+# Used internally to determine the parent for a node.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_getParent {uid} {
+    foreach node [array names _nodes] {
+		if {[set index [lsearch $_nodes($node) $uid]] != -1} {
+			return $node
+		}
+    }
+}
+
+# ----------------------------------------------------------------------
+# PROTECTED METHOD: _getHeritage uid
+#
+# Used internally to determine the list of parents for a node.
+# ----------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_getHeritage {uid} {
+    set parents {}
+
+    if {[set parent [_getParent $uid]] != {}} {
+		lappend parents $parent
+    }
+
+    return $parents
+}
+
+# ------------------------------------------------------------------
+# PRIVATE METHOD: _configureCanvas 
+#
+# Responds to configure events on the canvas widget.  When canvas 
+# changes size, adjust frame size.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_configureCanvas {} {
+	if {!$__inConfigC} {
+		set __inConfigC 1
+		set bd [expr {1 * $itk_option(-borderwidth)}]
+		set ch [expr {[winfo height $itk_component(canvas)] - $bd}]
+		if {$ch < 0} {set ch 1}
+		if {!$__inConfigF} {
+		    if {$_cx_ == 0} {
+			# We only need to do this once.
+			$itk_component(sfchildsite) configure -width 0 -height $ch
+			incr _cx_
+		    }
+			if {$_resizePending != ""} {
+				after cancel $_resizePending
+			}
+			set cmd [list catch [code $this header _resizePad -]]
+			set _resizePending [after idle $cmd]
+			if {[winfo ismapped $itk_component(sfchildsite)] && ![winfo ismapped $itk_component(col0)]} {
+				set col [expr {[lsearch $_colMap 0] + 1}]
+				if {$col == 1} {
+					set c 0; set s 2
+				} else {
+					set c $col; set s 1
+				}
+				grid $itk_component(col0) -row 1 -column $c -padx 0 -sticky nsew -columnspan $s
+				update
+			}
+		}
+		$itk_component(canvas) itemconfigure frameTag -width 0 -height $ch
+
+		set __inConfigC 0
+	}
+}
+
+# ------------------------------------------------------------------
+# PRIVATE METHOD: _configureFrame 
+#
+# Responds to configure events on the frame widget.  When the frame 
+# changes size, adjust scrolling region size.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_configureFrame {{x ""}} {
+	if {!$__inConfigF} {
+		set __inConfigF 1
+		_configureCanvas
+		set __inConfigF 0
+	}
+	set bbox [$itk_component(canvas) bbox frameTag]
+	set wid [lindex $bbox 2]
+	if {$wid < [winfo width $itk_component(canvas)]} {
+		set wid [expr {[winfo width $itk_component(canvas)] - $itk_option(-borderwidth)}]
+		set bbox [lreplace $bbox 2 2 $wid]
+	}
+    $itk_component(canvas) configure -scrollregion $bbox
+}
+
+
+itcl::body vsimwidgets::Hierarchy::expanditems { items } {
+	foreach group $items {
+		set idx [$itk_component(tree) index &$group ]
+		if { $idx >= 0 } {
+			$itk_component(tree) expand $idx 
+		}
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::expandselected {} {
+	set list [lsort -decreasing -integer [$itk_component(tree) cursel]]
+	foreach i $list {
+		expandall $i
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::collapseselected {} {
+	set list [lsort -decreasing -integer [$itk_component(tree) cursel]]
+	foreach i $list {
+		collapseall $i
+	}
+}
+
+itcl::body vsimwidgets::Hierarchy::icon_image { filename nodetype {is_filename 0} } {	
+	mtiimages::load_icon_image $filename $nodetype $is_filename
+}
+
+itcl::body vsimwidgets::Hierarchy::propertyColumnKey {col suffix} {
+    _getIndex $col col_name col_number
+    set label [format %s%s%s $itk_option(-propertyprefix) $col_name $suffix]
+    regsub -all {[ \t\n\{\}\"\[\]]} $label "_" label
+    return $label
+}
+
+itcl::body vsimwidgets::Hierarchy::propertyKey {key} {
+    set label [format %s%s $itk_option(-propertyprefix) $key]
+    regsub -all {[ \t\n\{\}\"\[\]]} $label "_" label
+    return $label
+}
+
+itcl::body vsimwidgets::Hierarchy::setProperty {prop var} {
+	if {$itk_option(-propertycommand) != ""} {
+		upvar $var data
+		return [eval $itk_option(-propertycommand) set $prop data]
+	}
+	return ""
+}
+
+itcl::body vsimwidgets::Hierarchy::getProperty {prop var def} {
+	upvar $var data
+	if {$itk_option(-propertycommand) != ""} {
+		return [eval $itk_option(-propertycommand) get $prop data $def]
+	}
+	set data $def
+}
+
+itcl::body vsimwidgets::Hierarchy::InitColumnVisibility { col } {
+    set label [propertyColumnKey $col _vis]
+
+    getProperty $label results 1
+    if { $results } {
+	column show $col
+    } else {
+	column hide $col
+    }
+}	
+
+itcl::body vsimwidgets::Hierarchy::updateColumnVisibility {args} {
+	for {set i 1} {$i <= $_colNum} {incr i} {
+		InitColumnVisibility $i
+	}
+}
+
+# ------------------------------------------------------------------
+# PROTECTED METHOD: _scrollWidget wid first last
+#
+# Call base class version, but first safeguard against premature
+# widget destruction.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_scrollWidget {wid first last} {
+    if {[winfo exists $wid]} {
+		chain $wid $first $last
+    }
+	set _pendingScroll($wid) ""
+}
+
+# ------------------------------------------------------------------
+# PROTECTED METHOD: _delayedScrollWidget wid first last
+#
+# Call base class version, but first safeguard against premature
+# widget destruction.
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::_delayedScrollWidget {wid first last} {
+	if {[info exists _pendingScroll($wid)] && $_pendingScroll($wid) != ""} {
+		after cancel $_pendingScroll($wid)
+	}
+	set _pendingScroll($wid) [after 30 [code $this _scrollWidget $wid $first $last]]
+}
+
+
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+itcl::body vsimwidgets::Hierarchy::Action {args} {
+    if {$itk_option(-actioncommand) ne ""} {
+	if {$idx < 0} {
+	    set item ""
+	    set selectstatus ""
+	} else {
+	    set item [lindex [$itk_component(tree) get $idx] 0]
+	    set selectstatus [$itk_component(tree) selection includes $idx]
+	}
+	set cmd [linsert $args 0 $itk_option(-actioncommand)]
+	
+	return [_evalCmd $cmd $idx -item $item -selectstatus $selectstatus]
+    }
+    return 0
+}
+
+# ------------------------------------------------------------------
+# METHOD: VisibleColumnOrder
+#
+# Returns the left to right order and title of visible columns.
+# Useful for writing text files from the list.
+# ------------------------------------------------------------------
+
+itcl::body vsimwidgets::Hierarchy::VisibleColumnOrder {} {
+	set ret_val [list]
+	foreach col_number $_colMap {
+		if {$_visible($col_number) eq "show"} {
+			_getIndex $col_number col_name idx
+			lappend ret_val $col_name
+		}
+	}
+	return $ret_val
+}
+
+
+# ------------------------------------------------------------------
+# METHOD: expandSerialize
+#
+# Serialize a list of expanded nodes for this tree.
+# ------------------------------------------------------------------
+
+itcl::body vsimwidgets::Hierarchy::expandSerialize {} {
+	set exlist [list]
+	for {set i 0} {$i < [index end]} {incr i} {
+		if {[expandstate $i] == "+"} {
+			lappend exlist [get $i]
+		}
+	}
+	return $exlist
+}
+
+# ------------------------------------------------------------------
+# METHOD: expandUnserialize
+#
+# Serialize a list of expanded nodes for this tree.
+# ------------------------------------------------------------------
+
+itcl::body vsimwidgets::Hierarchy::expandUnserialize {state} {
+	if {[llength $state] > 0} {
+		expand 0
+		foreach s $state {
+			set ix [index &$s]
+			if {$ix} {
+				expand $ix
+			}
+		}
+	}
+}
+
+# ------------------------------------------------------------------
+# METHOD: saveimage
+#
+# Save an image of this widget to file
+# ------------------------------------------------------------------
+
+itcl::body vsimwidgets::Hierarchy::saveimage {file {type bmp}} {
+	raise [winfo toplevel $itk_component(hull)]
+	set img [image create photo ${this}-image -format window -data $itk_component(clipper)]
+	$img write -format $type $file
+	image delete $img
+}
+
+# ------------------------------------------------------------------
+# METHOD: SaveImage
+#
+# Prompt for a file to save an image then
+# Save an image of this widget to the file.
+# ------------------------------------------------------------------
+
+itcl::body vsimwidgets::Hierarchy::SaveImage {} {
+	set top [winfo toplevel $itk_component(hull)]
+	set save_cursor [$top cget -cursor]
+	$top configure -cursor watch
+
+	catch {
+		FlushEvents
+
+		set filetypes [list [list Bitmap *.bmp] [list All *]]
+		set save_file [tk_getSaveFile -title "Save Image" \
+						   -initialdir [pwd] \
+						   -initialfile image.bmp \
+						   -filetypes $filetypes \
+						   -parent $top]
+		if {$save_file != ""} {
+			raise $top
+			FlushEvents
+			saveimage $save_file
+		}
+	}
+	$top configure -cursor $save_cursor
+	FlushEvents
+}
+
+# ------------------------------------------------------------------
+# METHOD: filter
+#
+# Excute filter commands.  The "set" subcommand is delayed so that
+# multiple sets in a row will not cause undo burden.
+# In otherwords at the hier level the set command is called for 
+# each character typed, by delaying, several characters can be
+# queued up at a time and the filter will happen when there's a
+# pause in typing
+# ------------------------------------------------------------------
+
+itcl::body vsimwidgets::Hierarchy::filter {cmd args} {
+	if {$_filterAfter ne ""} {
+		after cancel $_filterAfter
+		set _filterAfter ""
+	}
+	if {$cmd eq "set" && [llength $args] > 0} {
+		set acmd [list catch [concat $itk_component(tree) filter set $args]]
+		set afterCmd [list after 333 $acmd]
+		set _filterAfter [eval $afterCmd]
+		return ""
+	} else {
+		set args [linsert $args 0 $itk_component(tree) filter $cmd]
+		eval $args
+	}
+}

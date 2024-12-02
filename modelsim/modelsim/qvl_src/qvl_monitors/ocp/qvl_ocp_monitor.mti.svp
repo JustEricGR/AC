@@ -1,0 +1,1091 @@
+
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*********************************************************************
+ * PURPOSE       This file is part of 0-In CheckerWare.
+ *
+ * DESCRIPTION   This monitor checks the OCP interface for compliance with 
+ *               OCP specification and protocol.
+ *
+ * REFERENCE     Open Core Protocol Specification 2.1, Document Revision 1.0,
+ *               Part number: 161-000125-0003.
+ *
+ * INPUTS
+ *               clk                - OCP clock
+ *               enableclk          - OCP clock enable (OCP 2.2)
+ *               areset_n           - Asynchronous reset (active low)
+ *               maddr              - Transfer address
+ *               mcmd               - Transfer command
+ *               mdata              - Write data
+ *               mdatavalid         - Write data valid
+ *               mrespaccept        - Master accepts response
+ *               scmdaccept         - Slave accepts command transfer
+ *               sdata              - Read data
+ *               sdataaccept        - Slave accepts write data
+ *               sresp              - Transfer response
+ *               maddrspace         - Address space
+ *               mbyteen            - Request phase byte enables
+ *               mdatabyteen        - Datahandshake phase write byte enables
+ *               mdatainfo          - Additional information transferred 
+ *                                    with the write data
+ *               mreqinfo           - Additional information transferred 
+ *                                    with the request
+ *               sdatainfo          - Additional information transferred 
+ *                                    with the request
+ *               srespinfo          - Additional information transferred 
+ *                                    with the request
+ *               matomiclength      - Length of atomic burst
+ *               mblockheight       - Number of rows for 2-D block burst.
+ *               mblockstride       - Address difference between the first
+                                      data word in each consecutive row in 2-D
+                                      block burst.
+ *               mburstlength       - Burst length
+ *               mburstprecise      - Given burst length is precise
+ *               mburstseq          - Address sequence of burst
+ *               mburstsinglereq    - Burst uses single request/ multiple 
+ *                                    data protocol
+ *               mdatalast          - Last write data in burst
+ *               mdatarowlast       - Last write data in a row
+ *               mreqlast           - Last request in burst
+ *               mreqrowlast        - Last request in a row
+ *               sresplast          - Last response in burst
+ *               sresprowlast       - Last response in a row
+ *               mdatatagid         - Ordering tag for write data
+ *               mtagid             - Ordering tag for request
+ *               mtaginorder        - Do not reorder this request
+ *               stagid             - Ordering tag for response
+ *               staginorder        - This response is not reordered
+ *               mconnid            - Connection identifier
+ *               mdatathreadid      - Write data thread identifier
+ *               mthreadbusy        - Master thread busy
+ *               mthreadid          - Request thread identifier
+ *               sdatathreadbusy    - Slave write data thread busy
+ *               sthreadbusy        - Slave request thread busy
+ *               sthreadid          - Response thread identifier
+ *               mreset_n           - Synchronous master reset
+ *               sreset_n           - Synchronous slave reset    
+ *               mareset_n          - Asynchronous master reset
+ *               sareset_n          - Asynchronous slave reset
+ *               control            - Core control information
+ *               controlbusy        - Hold control information
+ *               controlwr          - Control information has been written
+ *               status             - Core status information
+ *               statusbusy         - Status information is not consistent
+ *               statusrd           - Status information has been read
+ *               mconnect           - Master signal for disconnect control
+ *               sconnect           - Slave signal for disconnect/connect request
+ *               swait              - Slave signal for insert/bypass wait states for
+ *                                    disconnect/connect events
+ *               base               - BASE address for the XOR bursts
+ *               phase_options_group - Port used to configure parameters related
+ *                                     to OCP phase options.
+ *                                      Bit position       Parameter
+ *                                      0                  DATAHANDSHAKE
+ *                                      1                  REQDATA_TOGETHER
+ *                                      2                  WRITERESP_ENABLE
+ *               basic_group        - Port used to configure parameters related 
+ *                                    to basic OCP signals.
+ *                                      Bit position       Parameter
+ *                                      0                  ADDR
+ *                                      1                  CMDACCEPT
+ *                                      2                  DATAACCEPT
+ *                                      3                  MDATA
+ *                                      4                  SDATA
+ *                                      5                  RESPACCEPT
+ *                                      6                  RESP
+ *                                      7                  ENABLECLK //OCP 2.2 
+ *               simple_ext_group   - Port used to configure parameters related
+ *                                    to simple OCP extensions.
+ *                                      Bit position       Parameter
+ *                                      0                  ADDRSPACE
+ *                                      1                  BYTEEN
+ *                                      2                  MDATABYTEEN
+ *                                      3                  MDATAINFO
+ *                                      4                  REQINFO
+ *                                      5                  RESPINFO
+ *                                      6                  SDATAINFO
+ *               burst_ext_group    - Port used to configure parameters related
+ *                                    to OCP burst extensions.
+ *                                      Bit position       Parameter
+ *                                      0                  BURSTSEQ_INCR_ENABLE
+ *                                      1                  BURSTSEQ_STRM_ENABLE
+ *                                      2                  BURSTSEQ_WRAP_ENABLE
+ *                                      3                  BURSTSEQ_XOR_ENABLE
+ *                                      4                  BURSTSEQ_DFLT1_ENABLE
+ *                                      5                  BURSTSEQ_DFLT2_ENABLE
+ *                                      6                  BURSTSEQ_UNKN_ENABLE
+ *                                      7                  ATOMICLENGTH
+ *                                      8                  BURSTLENGTH
+ *                                      9                  BURSTPRECISE
+ *                                      10                 BURSTSEQ
+ *                                      11                 BURSTSINGLEREQ
+ *                                      12                 REQLAST
+ *                                      13                 DATALAST
+ *                                      14                 RESPLAST
+ *                                      15                 BURST_ALIGNED
+ *                                      16                 FORCE_ALIGNED
+ *                                      17                 BURSTSEQ_BLCK_ENABLE
+ *                                      18                 BLOCKHEIGHT
+ *                                      19                 BLOCKSTRIDE
+ *                                      20                 DATAROWLAST
+ *                                      21                 REQROWLAST
+ *                                      22                 RESPROWLAST
+ *               tag_ext_group      - Port used to configure parameters related
+ *                                    to OCP tag extensions
+ *                                      Bit position       Parameter
+ *                                      0                  TAGINORDER
+ *               thread_ext_group   - Port used to configure parameters related
+ *                                    to OCP thread extensions.
+ *                                      Bit position       Parameter
+ *                                      0                  MTHREADBUSY_EXACT
+ *                                      1                  SDATATHREADBUSY_EXACT
+ *                                      2                  STHREADBUSY_EXACT
+ *                                      3                  CONNID
+ *                                      4                  MTHREADBUSY
+ *                                      5                  SDATATHREADBUSY
+ *                                      6                  STHREADBUSY
+ *                                      7                  MTHREADBUSY_PIPELINED
+ *                                      8                  SDATATHREADBUSY_PIPELINED
+ *                                      9                  STHREADBUSY_PIPELINED
+ *               sideband_sig_group - Port used to configure parameters related
+ *                                    to sideband OCP signals.
+ *                                      Bit position       Parameter
+ *                                      0                  CONTROL
+ *                                      1                  CONTROLBUSY
+ *                                      2                  CONTROLWR
+ *                                      3                  STATUS
+ *                                      4                  STATUSBUSY
+ *                                      5                  STATUSRD
+ *                                      6                  CONNECTCAP
+ *               cmd_enable_group   - Port used to configure parameters related
+ *                                    command enables.
+ *                                      Bit position       Parameter
+ *                                      0                  READ_ENABLE
+ *                                      1                  WRITE_ENABLE
+ *                                      2                  WRITENONPOST_ENABLE
+ *                                      3                  BROADCAST_ENABLE
+ *                                      4                  RDLWRC_ENABLE
+ *                                      5                  READEX_ENABLE
+ *
+ * INSTANTIATION
+ *               The CheckerWare OCP monitor can be placed
+ *               on the master or slave side to provide interface
+ *               checks for 0-In Check.
+ *              
+ *              
+ *         +-----------------+                +-----------------+
+ *         |                 |                |                 |
+ *         | OCP       +---+ |    OCP I/F     | +---+  OCP      |
+ *         | Compliant | M |<|--------------->|>| M |  Compliant|
+ *         | Device    | W |<|<---------------|>| W |  Device   |
+ *         | [Master]  +---+ |                | +---+  [Slave]  |
+ *         |                 |                |                 |
+ *         +-----------------+                +-----------------+
+ *            (SYSTEM/CORE)                      (CORE/SYSTEM)
+ *              
+ *              
+ * LAST MODIFIED 15-MAR-2006
+ *
+***********************************************************************/
+`include "std_qvl_defines.h"
+`qvlmodule qvl_ocp_monitor (clk,
+                          areset_n,
+                          maddr,
+                          mcmd,
+                          mdata,
+                          mdatavalid,
+                          mrespaccept,
+                          scmdaccept,
+                          sdata,
+                          sdataaccept,
+                          sresp,
+                          maddrspace,
+                          mbyteen,
+                          mdatabyteen,
+                          mdatainfo,
+                          mreqinfo,
+                          sdatainfo,
+                          srespinfo,
+                          matomiclength,
+                          mburstlength,
+                          mburstprecise,
+                          mburstseq,
+                          mburstsinglereq,
+                          mdatalast,
+                          mreqlast,
+                          sresplast,
+                          mdatatagid,
+                          mtagid,
+                          mtaginorder,
+                          stagid,
+                          staginorder,
+                          mconnid,
+                          mdatathreadid,
+                          mthreadbusy,
+                          mthreadid,
+                          sdatathreadbusy,
+                          sthreadbusy,
+                          sthreadid,
+                          mreset_n,
+                          sreset_n,
+                          control,
+                          controlbusy,
+                          controlwr,
+                          status,
+                          statusbusy,
+                          statusrd,
+                          base,
+                          phase_options_group,
+                          basic_group,
+                          simple_ext_group,
+                          burst_ext_group,
+                          tag_ext_group,
+                          thread_ext_group,
+                          sideband_sig_group,
+                          cmd_enable_group,
+// OCP 2.2 new signals
+                          enableclk, 
+                          mareset_n,
+                          sareset_n,
+                          mblockheight,
+                          mblockstride,
+                          mdatarowlast,
+                          mreqrowlast,
+                          sresprowlast,
+
+// OCP disconnect new extension signals
+
+                          mconnect,
+                          sconnect,
+                          swait
+
+// Special Tie-Off configuration signals
+
+`ifdef QVL_OCP_TIEOFF_CONFIG_ON
+                          ,
+                          tieoff_maddr,
+                          tieoff_mdata,
+                          tieoff_mrespaccept,
+                          tieoff_scmdaccept,
+                          tieoff_sdata,
+                          tieoff_sdataaccept,
+                          tieoff_sresp,
+                          tieoff_maddrspace,
+                          tieoff_mbyteen,
+                          tieoff_mdatabyteen,
+                          tieoff_mdatainfo,
+                          tieoff_mreqinfo,
+                          tieoff_sdatainfo,
+                          tieoff_srespinfo,
+                          tieoff_matomiclength,
+                          tieoff_mburstlength,
+                          tieoff_mburstprecise,
+                          tieoff_mburstseq,
+                          tieoff_mburstsinglereq,
+                          tieoff_mdatatagid,
+                          tieoff_mtagid,
+                          tieoff_mtaginorder,
+                          tieoff_stagid,
+                          tieoff_staginorder,
+                          tieoff_mconnid,
+                          tieoff_mdatathreadid,
+                          tieoff_mthreadbusy,
+                          tieoff_mthreadid,
+                          tieoff_sdatathreadbusy,
+                          tieoff_sthreadbusy,
+                          tieoff_sthreadid,
+                          tieoff_control,
+                          tieoff_controlbusy,
+                          tieoff_status,
+                          tieoff_statusbusy,
+                          tieoff_enableclk,
+                          tieoff_mblockheight,
+                          tieoff_mblockstride,
+                          tieoff_connectcap
+
+`endif // QVL_OCP_TIEOFF_CONFIG_ON
+
+                          );
+
+ // This parameter configures the checks in the monitor as constraints
+ // during formal analysis
+
+  parameter Constraints_Mode = 0; 
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Interface type (Location of monitor instance)
+  // 0 => Master interface on core side
+  // 1 => Slave interface on core side
+  // 2 => Master interface on system side
+  // 3 => Slave interface on system side
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // This parameter defines the width of the maddr signal in bits.
+
+  parameter ADDR_WDTH = 32;
+  wire [31:0] pw_ADDR_WDTH = ADDR_WDTH;
+
+  // This parameter defines the width of the mdata/sdata signals in bits.
+
+  parameter DATA_WDTH = 32;
+  wire [31:0] pw_DATA_WDTH = DATA_WDTH;
+
+  // This parameter defines the width of the mburstlength signal in bits.
+
+  parameter BURSTLENGTH_WDTH = 4;
+  wire [31:0] pw_BURSTLENGTH_WDTH = BURSTLENGTH_WDTH;
+
+  // This parameter defines the width of the matomiclength signal in bits.
+
+  parameter ATOMICLENGTH_WDTH = 2;
+  wire [31:0] pw_ATOMICLENGTH_WDTH = ATOMICLENGTH_WDTH;
+
+  // This parameter defines the number of threads.
+
+  parameter THREADS = 1;
+  wire [31:0] pw_THREADS = THREADS;
+
+  // This parameter defines the widths of the threadid signals. User should not 
+  // set value of this parameter to 0.
+
+  parameter THREADID_WDTH = 1;
+  wire [31:0] pw_THREADID_WDTH = THREADID_WDTH;
+
+  // This parameter defines the width of the mconnid signal in bits.
+
+  parameter CONNID_WDTH = 1;
+  wire [31:0] pw_CONNID_WDTH = CONNID_WDTH;
+
+  // This parameter defines the width of the maddrspace signal in bits.
+
+  parameter ADDRSPACE_WDTH = 4;
+  wire [31:0] pw_ADDRSPACE_WDTH = ADDRSPACE_WDTH;
+
+  // This parameter defines the width of the mdatainfo signal in bits.
+
+  parameter MDATAINFO_WDTH = 4;
+  wire [31:0] pw_MDATAINFO_WDTH = MDATAINFO_WDTH;
+
+  // This parameter defines the number of bits in mdatainfo associated 
+  // with each data byte in mdata signal
+
+  parameter MDATAINFOBYTE_WDTH = 1;
+  wire [31:0] pw_MDATAINFOBYTE_WDTH = MDATAINFOBYTE_WDTH;
+
+  // This parameter defines the width of the mreqinfo signal in bits.
+
+  parameter REQINFO_WDTH = 4;
+  wire [31:0] pw_REQINFO_WDTH = REQINFO_WDTH;
+
+  // This parameter defines the width of the srespinfo signal in bits.
+
+  parameter RESPINFO_WDTH = 4;
+  wire [31:0] pw_RESPINFO_WDTH = RESPINFO_WDTH;
+
+  // This parameter defines the width of the sdatainfo signal in bits.
+
+  parameter SDATAINFO_WDTH = 4;
+  wire [31:0] pw_SDATAINFO_WDTH = SDATAINFO_WDTH;
+
+  // This parameter defines the number of bits in sdatainfo associated 
+  // with each data byte in sdata signal
+
+  parameter SDATAINFOBYTE_WDTH = 1;
+  wire [31:0] pw_SDATAINFOBYTE_WDTH = SDATAINFOBYTE_WDTH;
+
+  // This parameter defines the width of the control signal in bits.
+
+  parameter CONTROL_WDTH = 4;
+  wire [31:0] pw_CONTROL_WDTH = CONTROL_WDTH;
+
+  // This parameter defines the width of the status signal in bits.
+
+  parameter STATUS_WDTH = 4;
+  wire [31:0] pw_STATUS_WDTH = STATUS_WDTH;
+
+  // This parameter defines the number of tags.
+
+  parameter TAGS = 1;
+  wire [31:0] pw_TAGS = TAGS;
+
+  // This parameter defines the widths of the tagdid signals. User should not
+  // set value of this parameter to 0.
+
+  parameter TAGID_WDTH = 1;
+  wire [31:0] pw_TAGID_WDTH = TAGID_WDTH;
+
+  // This parameter defines the interleaving granularity for the responses.
+
+  parameter TAG_INTERLEAVE_SIZE = 1;
+  wire [31:0] pw_TAG_INTERLEAVE_SIZE = TAG_INTERLEAVE_SIZE;
+
+  // This parameter enables the inter phase dataflow tranfer checks.
+
+  parameter ENABLE_INTER_PHASE_TRANFER_CHECKS = 0;
+  wire [31:0] pw_ENABLE_INTER_PHASE_TRANFER_CHECKS = 
+                           ENABLE_INTER_PHASE_TRANFER_CHECKS;
+
+  // This parameter defines the number of outstanding requests
+
+  parameter MAX_OUTSTANDING_REQ = 16;
+  wire [31:0] pw_MAX_OUTSTANDING_REQ = MAX_OUTSTANDING_REQ;
+
+  //OCP 2.2 specific parameters
+
+  // This parameter defines the width of the mblockheight signal in bits.
+
+  parameter BLOCKHEIGHT_WDTH = 4;
+  wire [31:0] pw_BLOCKHEIGHT_WDTH = BLOCKHEIGHT_WDTH;
+
+  // This parameter defines the width of the sdatainfo signal in bits.
+
+  parameter BLOCKSTRIDE_WDTH = 4;
+  wire [31:0] pw_BLOCKSTRIDE_WDTH =  BLOCKSTRIDE_WDTH;
+
+  // This parameter specifies if the base address is calculated by the user
+  // and passed to the monitor
+  // A value of 0 indicates that the base address is calculated internally
+  // for such configuration the base port may be left unconnected
+
+  parameter BASE_PORT_SPECIFIED = 0;
+  wire [31:0] pw_BASE_PORT_SPECIFIED =  BASE_PORT_SPECIFIED;
+
+  // This parameter specifies if the OCP 3.0 configuration checks are enabled
+  // A default value 0 for parameter means that OCP 3.0 configuration
+  // checks are not enabled.
+  // Set this parameter to 1 to enable 3.0 configuration checks
+  // Curently the monitor supports only one such check which states:
+  // To enable non-posted write, write response must also be enabled
+
+  parameter OCP_3_0_CHECK_ENABLE = 0;
+
+  // Parameter for disconnect support
+  // Default value 0 denotes that disconnect is not supported by default
+  // Set this parameter to 1 to support disconnect extension of OCP
+
+  parameter CONNECTION = 0;
+
+  // Internal parameters
+  // ===================
+
+  // This parameter defines the width of the data bus as next higher power of 2
+  // in bits
+
+  parameter ZI_DATA_WDTH = (DATA_WDTH < 9)                        ? 8    :
+                           (8 < DATA_WDTH && DATA_WDTH < 17)      ? 16   :
+                           (16 < DATA_WDTH && DATA_WDTH < 33)     ? 32   :
+                           (32 < DATA_WDTH && DATA_WDTH < 65)     ? 64   :
+                           (64 < DATA_WDTH && DATA_WDTH < 129)    ? 128  :
+                           (128 < DATA_WDTH && DATA_WDTH < 257)   ? 256  :
+                           (256 < DATA_WDTH && DATA_WDTH < 513)   ? 512  :
+                           (512 < DATA_WDTH && DATA_WDTH < 1025)  ? 1024 :
+                           (1024 < DATA_WDTH && DATA_WDTH < 2049) ? 2048 : 8;
+  wire [31:0] pw_ZI_DATA_WDTH = ZI_DATA_WDTH;
+
+  // This parameter defines log 2 value of the width of the data bus in bytes
+
+  parameter ZI_LOG2_DATA_WDTH = (ZI_DATA_WDTH == 8)    ? 1 :
+                                (ZI_DATA_WDTH == 16)   ? 2 :
+                                (ZI_DATA_WDTH == 32)   ? 3 :
+                                (ZI_DATA_WDTH == 64)   ? 4 :
+                                (ZI_DATA_WDTH == 128)  ? 5 :
+                                (ZI_DATA_WDTH == 256)  ? 6 :
+                                (ZI_DATA_WDTH == 512)  ? 7 :
+                                (ZI_DATA_WDTH == 1024) ? 8 :
+                                (ZI_DATA_WDTH == 2048) ? 9 : 1;
+  wire [31:0] pw_ZI_LOG2_DATA_WDTH = ZI_LOG2_DATA_WDTH;
+
+  // This parameter defines the width of ByteEn signals.
+
+  parameter ZI_BYTEEN_WDTH = (DATA_WDTH > 7) ? DATA_WDTH >> 3 : 1;
+  wire [31:0] pw_ZI_BYTEEN_WDTH = ZI_BYTEEN_WDTH;
+
+  // These parameters are used to configure the appropriate set of checks
+  // as constraints on either master or slave or core or system side.
+
+  parameter ZI_CONSTRAINT_MASTER_SIDE = (Constraints_Mode == 1 &&
+             (INTERFACE_TYPE == 0 || INTERFACE_TYPE == 2));
+  wire [31:0] pw_ZI_CONSTRAINT_MASTER_SIDE = ZI_CONSTRAINT_MASTER_SIDE;
+
+  parameter ZI_CONSTRAINT_SLAVE_SIDE = (Constraints_Mode == 1 &&
+             (INTERFACE_TYPE == 1 || INTERFACE_TYPE == 3));
+  wire [31:0] pw_ZI_CONSTRAINT_SLAVE_SIDE = ZI_CONSTRAINT_SLAVE_SIDE;
+
+  parameter ZI_CONSTRAINT_CORE_SIDE = (Constraints_Mode == 1 &&
+             (INTERFACE_TYPE == 0 || INTERFACE_TYPE == 1));
+  wire [31:0] pw_ZI_CONSTRAINT_CORE_SIDE = ZI_CONSTRAINT_CORE_SIDE;
+
+  parameter ZI_CONSTRAINT_SYSTEM_SIDE = (Constraints_Mode == 1 &&
+             (INTERFACE_TYPE == 2 || INTERFACE_TYPE == 3));
+  wire [31:0] pw_ZI_CONSTRAINT_SYSTEM_SIDE = ZI_CONSTRAINT_SYSTEM_SIDE;
+
+`protected
+
+    MTI!#*IRwI}<YU^>-#eK}Z[rZEKCY8s>D+U7\is~TZN&YJU]I;[OA'7~o#jsB}k]DRj#u{e~6<HH
+    UI~na?s?onp+[,ZrZ|YuX~G;D_OE=3o,-kLx;mJ6Ar-@oAO=W<Y^5JR?VaW~rI+r=@7x,@@-mn^p
+    =\kYwwB>g?w*D#Qk=n^XT\@WOe@-ZARzCV^i^^\Vp=i~\d12~A^1-e1lQB\BIQiXsBB1,73UJ@\?
+    KK0VkUm|eXa$=~Y_=<\=$XoO?sanF\1[l*o=mIam1R]jBDIlD@o<~Eu3r7~ABBBGO73l?#1_l+X\
+    iws5nUE?aV^3r)*BmaxTz#DK'+*CjB'V!'{x]*OU{pFYAG@|=lTVmD3;1zCRarBj<{[CHa1VEC^_
+    eo\:T8B!+rR<e<U7zW3B_iH51$XG'U1&7l-2,[k<ji-EuG$1
+`endprotected
+
+  parameter ZI_TT = THREADS*TAGS + 1 ;
+  wire [31:0] pw_ZI_TT = ZI_TT;
+
+
+`protected
+
+    MTI!##]i<\A;e1]mWNp5~Ui_nW,U7-nvUE-ChF#\t[%zPs@3;=I]*YmT,CP.aB~B,nTDG;VBUY<G
+    A77[RpCn=Wl,#$k?2Hw$'3;l^O*OGuT~[$z~x!rQ@>x'I$#E<wCo"bOs@A?5Q^V^@RrBv5RE?Y!A
+    ToQT>jopp#-oB~1*@Z=WY,iAz^V/@Ae!-r[,;TuZ#UeQxp~nN{R$na1OmVr1Uj=Y!Jaux^pR^UDR
+    @sR_i;-pG,>-_nwZ1_RU]DsjzD5#1X7H!KIE[VE!'w{v#'9rU~r>$#=v]R]O#}OkjQv{Xrs#[kEx
+    3UseK]^?R-HN7I<2oP/G!\n~+O3
+`endprotected
+
+  parameter ZI_MEM_DEPTH = ENABLE_INTER_PHASE_TRANFER_CHECKS ? 
+            MAX_OUTSTANDING_REQ : 1;
+  
+  // This parameter defines the width of pointers used to traverse through
+  // memories used for request Vs response tracking.
+
+  parameter ZI_PTR_WDTH = (ZI_MEM_DEPTH < 3)           ? 1  :
+                          (2 < ZI_MEM_DEPTH &&
+                               ZI_MEM_DEPTH < 5)       ? 2  :
+                          (4 < ZI_MEM_DEPTH &&
+                               ZI_MEM_DEPTH < 9)       ? 3  :
+                          (8 < ZI_MEM_DEPTH &&
+                               ZI_MEM_DEPTH < 17)      ? 4  :
+                          (16 < ZI_MEM_DEPTH &&
+                                ZI_MEM_DEPTH < 33)     ? 5  :
+                          (32 < ZI_MEM_DEPTH &&
+                                ZI_MEM_DEPTH < 65)     ? 6  :
+                          (64 < ZI_MEM_DEPTH &&
+                                ZI_MEM_DEPTH < 129)    ? 7  :
+                          (128 < ZI_MEM_DEPTH &&
+                                 ZI_MEM_DEPTH < 257)   ? 8  :
+                          (256 < ZI_MEM_DEPTH &&
+                                 ZI_MEM_DEPTH < 513)   ? 9  :
+                          (512 < ZI_MEM_DEPTH &&
+                                 ZI_MEM_DEPTH < 1025)  ? 10 :
+                          (1024 < ZI_MEM_DEPTH &&
+                                  ZI_MEM_DEPTH < 2049) ? 11 :
+                          (2048 < ZI_MEM_DEPTH &&
+                                  ZI_MEM_DEPTH < 4097) ? 12 : 1;
+  wire [31:0] pw_ZI_PTR_WDTH = ZI_PTR_WDTH;
+
+ 
+ 
+  // Basic signals
+  input clk;
+  input enableclk; //OCP 2.2 specific
+  input areset_n;
+  input [ADDR_WDTH-1:0] maddr;
+  input [2:0] mcmd;
+  input [DATA_WDTH-1:0] mdata;
+  input mdatavalid;
+  input mrespaccept;
+  input scmdaccept;
+  input [DATA_WDTH-1:0] sdata;
+  input sdataaccept;
+  input [1:0] sresp;
+
+  // Simple Extensions
+  input [ADDRSPACE_WDTH-1:0] maddrspace;
+  input [ZI_BYTEEN_WDTH-1:0] mbyteen;
+  input [ZI_BYTEEN_WDTH-1:0] mdatabyteen;
+  input [MDATAINFO_WDTH-1:0] mdatainfo;
+  input [REQINFO_WDTH-1:0] mreqinfo;
+  input [SDATAINFO_WDTH-1:0] sdatainfo;
+  input [RESPINFO_WDTH-1:0] srespinfo;
+
+  // Burst Extensions
+  input [ATOMICLENGTH_WDTH-1:0] matomiclength;
+  input [BURSTLENGTH_WDTH-1:0] mburstlength;
+  input mburstprecise;
+  input [2:0] mburstseq;
+  input mburstsinglereq;
+  input mdatalast;
+  input mreqlast;
+  input sresplast;
+
+//OCP 2.2 specific
+  input [BLOCKHEIGHT_WDTH-1:0] mblockheight;
+  input [BLOCKSTRIDE_WDTH-1:0] mblockstride;
+  input mdatarowlast;
+  input mreqrowlast;
+  input sresprowlast;
+
+  // Tag Extensions
+  input [TAGID_WDTH-1:0] mdatatagid;
+  input [TAGID_WDTH-1:0] mtagid;
+  input mtaginorder;
+  input [TAGID_WDTH-1:0] stagid;
+  input staginorder;
+
+  // Thread Extensions
+  input [CONNID_WDTH-1:0] mconnid;
+  input [THREADID_WDTH-1:0] mdatathreadid;
+  input [THREADS-1:0] mthreadbusy;
+  input [THREADID_WDTH-1:0] mthreadid;
+  input [THREADS-1:0] sdatathreadbusy;
+  input [THREADS-1:0] sthreadbusy;
+  input [THREADID_WDTH-1:0] sthreadid;
+
+  // Sideband Signals
+  input mreset_n;
+  input sreset_n;
+  input mareset_n; //OCP 2.2 specific
+  input sareset_n; //OCP 2.2 specific
+  input [CONTROL_WDTH-1:0] control;
+  input controlbusy;
+  input controlwr;
+  input [STATUS_WDTH-1:0] status;
+  input statusbusy;
+  input statusrd;
+
+//OCP disconnect specific
+  input [1:0] mconnect;
+  input sconnect;
+  input swait;
+  
+  // base addr for XOR burst
+  input [ADDR_WDTH-1:0] base;
+
+  // Parameter configuration ports
+  input [2:0] phase_options_group;
+  input [7:0] basic_group;
+  input [6:0] simple_ext_group;
+  input [22:0] burst_ext_group;
+  input tag_ext_group;
+  input [9:0] thread_ext_group;
+  input [6:0] sideband_sig_group;
+  input [5:0] cmd_enable_group;
+
+`ifdef QVL_OCP_TIEOFF_CONFIG_ON
+
+  input [ADDR_WDTH-1:0] tieoff_maddr;
+  input [DATA_WDTH-1:0] tieoff_mdata;
+  input tieoff_mrespaccept;
+  input tieoff_scmdaccept;
+  input [DATA_WDTH-1:0] tieoff_sdata;
+  input tieoff_sdataaccept;
+  input [1:0] tieoff_sresp;
+
+  // Simple Extensions
+  input [ADDRSPACE_WDTH-1:0] tieoff_maddrspace;
+  input [ZI_BYTEEN_WDTH-1:0] tieoff_mbyteen;
+  input [ZI_BYTEEN_WDTH-1:0] tieoff_mdatabyteen;
+  input [MDATAINFO_WDTH-1:0] tieoff_mdatainfo;
+  input [REQINFO_WDTH-1:0] tieoff_mreqinfo;
+  input [SDATAINFO_WDTH-1:0] tieoff_sdatainfo;
+  input [RESPINFO_WDTH-1:0] tieoff_srespinfo;
+
+  // Burst Extensions
+  input [ATOMICLENGTH_WDTH-1:0] tieoff_matomiclength;
+  input [BURSTLENGTH_WDTH-1:0] tieoff_mburstlength;
+  input tieoff_mburstprecise;
+  input [2:0] tieoff_mburstseq;
+  input tieoff_mburstsinglereq;
+
+//OCP 2.2 specific
+  input tieoff_enableclk;
+  input [BLOCKHEIGHT_WDTH-1:0] tieoff_mblockheight;
+  input [BLOCKSTRIDE_WDTH-1:0] tieoff_mblockstride;
+
+  // Tag Extensions
+  input [TAGID_WDTH-1:0] tieoff_mdatatagid;
+  input [TAGID_WDTH-1:0] tieoff_mtagid;
+  input tieoff_mtaginorder;
+  input [TAGID_WDTH-1:0] tieoff_stagid;
+  input tieoff_staginorder;
+
+  // Thread Extensions
+  input [CONNID_WDTH-1:0] tieoff_mconnid;
+  input [THREADID_WDTH-1:0] tieoff_mdatathreadid;
+  input [THREADS-1:0] tieoff_mthreadbusy;
+  input [THREADID_WDTH-1:0] tieoff_mthreadid;
+  input [THREADS-1:0] tieoff_sdatathreadbusy;
+  input [THREADS-1:0] tieoff_sthreadbusy;
+  input [THREADID_WDTH-1:0] tieoff_sthreadid;
+
+  // Sideband Signals
+  input [CONTROL_WDTH-1:0] tieoff_control;
+  input tieoff_controlbusy;
+  input [STATUS_WDTH-1:0] tieoff_status;
+  input tieoff_statusbusy;
+
+  // Disconnect Signal
+  input tieoff_connectcap;
+
+ 
+`endif //QVL_OCP_TIEOFF_CONFIG_ON
+
+  wire areset_n_sampled;
+  wire [ADDR_WDTH-1:0] maddr_sampled;
+  wire [2:0] mcmd_sampled;
+  wire [DATA_WDTH-1:0] mdata_sampled;
+  wire mdatavalid_sampled;
+  wire mrespaccept_sampled;
+  wire scmdaccept_sampled;
+  wire [DATA_WDTH-1:0] sdata_sampled;
+  wire sdataaccept_sampled;
+  wire [1:0] sresp_sampled;
+  wire [ADDRSPACE_WDTH-1:0] maddrspace_sampled;
+  wire [ZI_BYTEEN_WDTH-1:0] mbyteen_sampled;
+  wire [ZI_BYTEEN_WDTH-1:0] mdatabyteen_sampled;
+  wire [MDATAINFO_WDTH-1:0] mdatainfo_sampled;
+  wire [REQINFO_WDTH-1:0] mreqinfo_sampled;
+  wire [SDATAINFO_WDTH-1:0] sdatainfo_sampled;
+  wire [RESPINFO_WDTH-1:0] srespinfo_sampled;
+  wire [ATOMICLENGTH_WDTH-1:0] matomiclength_sampled;
+  wire [BURSTLENGTH_WDTH-1:0] mburstlength_sampled;
+  wire mburstprecise_sampled;
+  wire [2:0] mburstseq_sampled;
+  wire mburstsinglereq_sampled;
+  wire mdatalast_sampled;
+  wire mreqlast_sampled;
+  wire sresplast_sampled;
+  wire [TAGID_WDTH-1:0] mdatatagid_sampled;
+  wire [TAGID_WDTH-1:0] mtagid_sampled;
+  wire mtaginorder_sampled;
+  wire [TAGID_WDTH-1:0] stagid_sampled;
+  wire staginorder_sampled;
+  wire [CONNID_WDTH-1:0] mconnid_sampled;
+  wire [THREADID_WDTH-1:0] mdatathreadid_sampled;
+  wire [THREADS-1:0] mthreadbusy_sampled;
+  wire [THREADID_WDTH-1:0] mthreadid_sampled;
+  wire [THREADS-1:0] sdatathreadbusy_sampled;
+  wire [THREADS-1:0] sthreadbusy_sampled;
+  wire [THREADID_WDTH-1:0] sthreadid_sampled;
+  wire mreset_n_sampled;
+  wire sreset_n_sampled;
+  wire [CONTROL_WDTH-1:0] control_sampled;
+  wire controlbusy_sampled;
+  wire controlwr_sampled;
+  wire [STATUS_WDTH-1:0] status_sampled;
+  wire statusbusy_sampled;
+  wire statusrd_sampled;
+  wire [ADDR_WDTH-1:0] base_sampled;
+  wire [2:0] phase_options_group_sampled;
+  wire [7:0] basic_group_sampled;
+  wire [6:0] simple_ext_group_sampled;
+  wire [22:0] burst_ext_group_sampled;
+  wire tag_ext_group_sampled;
+  wire [9:0] thread_ext_group_sampled;
+  wire [6:0] sideband_sig_group_sampled;
+  wire [5:0] cmd_enable_group_sampled;
+
+//OCP 2.2 specific
+  wire enableclk_sampled;
+  wire mareset_n_sampled;
+  wire sareset_n_sampled;
+  wire [BLOCKHEIGHT_WDTH-1:0] mblockheight_sampled;
+  wire [BLOCKSTRIDE_WDTH-1:0] mblockstride_sampled;
+  wire mdatarowlast_sampled;
+  wire mreqrowlast_sampled;
+  wire sresprowlast_sampled;
+
+`ifdef QVL_OCP_TIEOFF_CONFIG_ON
+  wire tieoff_enableclk_sampled;
+  wire [ADDR_WDTH-1:0] tieoff_maddr_sampled;
+  wire [DATA_WDTH-1:0] tieoff_mdata_sampled;
+  wire tieoff_mrespaccept_sampled;
+  wire tieoff_scmdaccept_sampled;
+  wire [DATA_WDTH-1:0] tieoff_sdata_sampled;
+  wire tieoff_sdataaccept_sampled;
+  wire [1:0] tieoff_sresp_sampled;
+  wire [ADDRSPACE_WDTH-1:0] tieoff_maddrspace_sampled;
+  wire [ZI_BYTEEN_WDTH-1:0] tieoff_mbyteen_sampled;
+  wire [ZI_BYTEEN_WDTH-1:0] tieoff_mdatabyteen_sampled;
+  wire [MDATAINFO_WDTH-1:0] tieoff_mdatainfo_sampled;
+  wire [REQINFO_WDTH-1:0] tieoff_mreqinfo_sampled;
+  wire [SDATAINFO_WDTH-1:0] tieoff_sdatainfo_sampled;
+  wire [RESPINFO_WDTH-1:0] tieoff_srespinfo_sampled;
+  wire [ATOMICLENGTH_WDTH-1:0] tieoff_matomiclength_sampled;
+  wire [BURSTLENGTH_WDTH-1:0] tieoff_mburstlength_sampled;
+  wire tieoff_mburstprecise_sampled;
+  wire [2:0] tieoff_mburstseq_sampled;
+  wire tieoff_mburstsinglereq_sampled;
+  wire [BLOCKHEIGHT_WDTH-1:0] tieoff_mblockheight_sampled;
+  wire [BLOCKSTRIDE_WDTH-1:0] tieoff_mblockstride_sampled;
+  wire [TAGID_WDTH-1:0] tieoff_mdatatagid_sampled;
+  wire [TAGID_WDTH-1:0] tieoff_mtagid_sampled;
+  wire tieoff_mtaginorder_sampled;
+  wire [TAGID_WDTH-1:0] tieoff_stagid_sampled;
+  wire tieoff_staginorder_sampled;
+  wire [CONNID_WDTH-1:0] tieoff_mconnid_sampled;
+  wire [THREADID_WDTH-1:0] tieoff_mdatathreadid_sampled;
+  wire [THREADS-1:0] tieoff_mthreadbusy_sampled;
+  wire [THREADID_WDTH-1:0] tieoff_mthreadid_sampled;
+  wire [THREADS-1:0] tieoff_sdatathreadbusy_sampled;
+  wire [THREADS-1:0] tieoff_sthreadbusy_sampled;
+  wire [THREADID_WDTH-1:0] tieoff_sthreadid_sampled;
+  wire [CONTROL_WDTH-1:0] tieoff_control_sampled;
+  wire tieoff_controlbusy_sampled;
+  wire [STATUS_WDTH-1:0] tieoff_status_sampled;
+  wire tieoff_statusbusy_sampled;
+
+`endif // QVL_OCP_TIEOFF_CONFIG_ON
+
+  assign `QVL_DUT2CHX_DELAY areset_n_sampled = areset_n;
+  assign `QVL_DUT2CHX_DELAY maddr_sampled = maddr;
+  assign `QVL_DUT2CHX_DELAY mcmd_sampled = mcmd;
+  assign `QVL_DUT2CHX_DELAY mdata_sampled = mdata;
+  assign `QVL_DUT2CHX_DELAY mdatavalid_sampled = mdatavalid;
+  assign `QVL_DUT2CHX_DELAY mrespaccept_sampled = mrespaccept;
+  assign `QVL_DUT2CHX_DELAY scmdaccept_sampled = scmdaccept;
+  assign `QVL_DUT2CHX_DELAY sdata_sampled = sdata;
+  assign `QVL_DUT2CHX_DELAY sdataaccept_sampled = sdataaccept;
+  assign `QVL_DUT2CHX_DELAY sresp_sampled = sresp;
+  assign `QVL_DUT2CHX_DELAY maddrspace_sampled = maddrspace;
+  assign `QVL_DUT2CHX_DELAY mbyteen_sampled = mbyteen;
+  assign `QVL_DUT2CHX_DELAY mdatabyteen_sampled = mdatabyteen;
+  assign `QVL_DUT2CHX_DELAY mdatainfo_sampled = mdatainfo;
+  assign `QVL_DUT2CHX_DELAY mreqinfo_sampled = mreqinfo;
+  assign `QVL_DUT2CHX_DELAY sdatainfo_sampled = sdatainfo;
+  assign `QVL_DUT2CHX_DELAY srespinfo_sampled = srespinfo;
+  assign `QVL_DUT2CHX_DELAY matomiclength_sampled = matomiclength;
+  assign `QVL_DUT2CHX_DELAY mburstlength_sampled = mburstlength;
+  assign `QVL_DUT2CHX_DELAY mburstprecise_sampled = mburstprecise;
+  assign `QVL_DUT2CHX_DELAY mburstseq_sampled = mburstseq;
+  assign `QVL_DUT2CHX_DELAY mburstsinglereq_sampled = mburstsinglereq;
+  assign `QVL_DUT2CHX_DELAY mdatalast_sampled = mdatalast;
+  assign `QVL_DUT2CHX_DELAY mreqlast_sampled = mreqlast;
+  assign `QVL_DUT2CHX_DELAY sresplast_sampled = sresplast;
+  assign `QVL_DUT2CHX_DELAY mdatatagid_sampled = mdatatagid;
+  assign `QVL_DUT2CHX_DELAY mtagid_sampled = mtagid;
+  assign `QVL_DUT2CHX_DELAY mtaginorder_sampled = mtaginorder;
+  assign `QVL_DUT2CHX_DELAY stagid_sampled = stagid;
+  assign `QVL_DUT2CHX_DELAY staginorder_sampled = staginorder;
+  assign `QVL_DUT2CHX_DELAY mconnid_sampled = mconnid;
+  assign `QVL_DUT2CHX_DELAY mdatathreadid_sampled = mdatathreadid;
+  assign `QVL_DUT2CHX_DELAY mthreadbusy_sampled = mthreadbusy;
+  assign `QVL_DUT2CHX_DELAY mthreadid_sampled = mthreadid;
+  assign `QVL_DUT2CHX_DELAY sdatathreadbusy_sampled = sdatathreadbusy;
+  assign `QVL_DUT2CHX_DELAY sthreadbusy_sampled = sthreadbusy;
+  assign `QVL_DUT2CHX_DELAY sthreadid_sampled = sthreadid;
+  assign `QVL_DUT2CHX_DELAY mreset_n_sampled = mreset_n;
+  assign `QVL_DUT2CHX_DELAY sreset_n_sampled = sreset_n;
+  assign `QVL_DUT2CHX_DELAY control_sampled = control;
+  assign `QVL_DUT2CHX_DELAY controlbusy_sampled = controlbusy;
+  assign `QVL_DUT2CHX_DELAY controlwr_sampled = controlwr;
+  assign `QVL_DUT2CHX_DELAY status_sampled = status;
+  assign `QVL_DUT2CHX_DELAY statusbusy_sampled = statusbusy;
+  assign `QVL_DUT2CHX_DELAY statusrd_sampled = statusrd;
+  assign `QVL_DUT2CHX_DELAY base_sampled = base;
+  assign `QVL_DUT2CHX_DELAY phase_options_group_sampled = phase_options_group;
+  assign `QVL_DUT2CHX_DELAY basic_group_sampled = basic_group;
+  assign `QVL_DUT2CHX_DELAY simple_ext_group_sampled = simple_ext_group;
+  assign `QVL_DUT2CHX_DELAY burst_ext_group_sampled = burst_ext_group;
+  assign `QVL_DUT2CHX_DELAY tag_ext_group_sampled = tag_ext_group;
+  assign `QVL_DUT2CHX_DELAY thread_ext_group_sampled = thread_ext_group;
+  assign `QVL_DUT2CHX_DELAY sideband_sig_group_sampled = sideband_sig_group;
+  assign `QVL_DUT2CHX_DELAY cmd_enable_group_sampled = cmd_enable_group;
+
+//OCP 2.2 specific
+  assign `QVL_DUT2CHX_DELAY enableclk_sampled = enableclk;
+  assign `QVL_DUT2CHX_DELAY sreset_n_sampled = sreset_n;
+  assign `QVL_DUT2CHX_DELAY mareset_n_sampled = mareset_n;
+  assign `QVL_DUT2CHX_DELAY sareset_n_sampled = sareset_n;
+  assign `QVL_DUT2CHX_DELAY mblockheight_sampled = mblockheight;
+  assign `QVL_DUT2CHX_DELAY mblockstride_sampled = mblockstride;
+  assign `QVL_DUT2CHX_DELAY mdatarowlast_sampled = mdatarowlast;
+  assign `QVL_DUT2CHX_DELAY mreqrowlast_sampled = mreqrowlast;
+  assign `QVL_DUT2CHX_DELAY sresprowlast_sampled = sresprowlast;
+
+`ifdef QVL_OCP_TIEOFF_CONFIG_ON
+
+  assign `QVL_DUT2CHX_DELAY tieoff_maddr_sampled = tieoff_maddr;
+  assign `QVL_DUT2CHX_DELAY tieoff_mdata_sampled = tieoff_mdata;
+  assign `QVL_DUT2CHX_DELAY tieoff_mrespaccept_sampled = tieoff_mrespaccept;
+  assign `QVL_DUT2CHX_DELAY tieoff_scmdaccept_sampled = tieoff_scmdaccept;
+  assign `QVL_DUT2CHX_DELAY tieoff_sdata_sampled = tieoff_sdata;
+  assign `QVL_DUT2CHX_DELAY tieoff_sdataaccept_sampled = tieoff_sdataaccept;
+  assign `QVL_DUT2CHX_DELAY tieoff_sresp_sampled = tieoff_sresp;
+  assign `QVL_DUT2CHX_DELAY tieoff_maddrspace_sampled = tieoff_maddrspace;
+  assign `QVL_DUT2CHX_DELAY tieoff_mbyteen_sampled = tieoff_mbyteen;
+  assign `QVL_DUT2CHX_DELAY tieoff_mdatabyteen_sampled = tieoff_mdatabyteen;
+  assign `QVL_DUT2CHX_DELAY tieoff_mdatainfo_sampled = tieoff_mdatainfo;
+  assign `QVL_DUT2CHX_DELAY tieoff_mreqinfo_sampled = tieoff_mreqinfo;
+  assign `QVL_DUT2CHX_DELAY tieoff_sdatainfo_sampled = tieoff_sdatainfo;
+  assign `QVL_DUT2CHX_DELAY tieoff_srespinfo_sampled = tieoff_srespinfo;
+  assign `QVL_DUT2CHX_DELAY tieoff_matomiclength_sampled = tieoff_matomiclength;
+  assign `QVL_DUT2CHX_DELAY tieoff_mburstlength_sampled = tieoff_mburstlength;
+  assign `QVL_DUT2CHX_DELAY tieoff_mburstprecise_sampled = tieoff_mburstprecise;
+  assign `QVL_DUT2CHX_DELAY tieoff_mburstseq_sampled = tieoff_mburstseq;
+  assign `QVL_DUT2CHX_DELAY tieoff_mburstsinglereq_sampled = tieoff_mburstsinglereq;
+  assign `QVL_DUT2CHX_DELAY tieoff_mdatatagid_sampled = tieoff_mdatatagid;
+  assign `QVL_DUT2CHX_DELAY tieoff_mtagid_sampled = tieoff_mtagid;
+  assign `QVL_DUT2CHX_DELAY tieoff_mtaginorder_sampled = tieoff_mtaginorder;
+  assign `QVL_DUT2CHX_DELAY tieoff_stagid_sampled = tieoff_stagid;
+  assign `QVL_DUT2CHX_DELAY tieoff_staginorder_sampled = tieoff_staginorder;
+  assign `QVL_DUT2CHX_DELAY tieoff_mconnid_sampled = tieoff_mconnid;
+  assign `QVL_DUT2CHX_DELAY tieoff_mdatathreadid_sampled = tieoff_mdatathreadid;
+  assign `QVL_DUT2CHX_DELAY tieoff_mthreadbusy_sampled = tieoff_mthreadbusy;
+  assign `QVL_DUT2CHX_DELAY tieoff_mthreadid_sampled = tieoff_mthreadid;
+  assign `QVL_DUT2CHX_DELAY tieoff_sdatathreadbusy_sampled = tieoff_sdatathreadbusy;
+  assign `QVL_DUT2CHX_DELAY tieoff_sthreadbusy_sampled = tieoff_sthreadbusy;
+  assign `QVL_DUT2CHX_DELAY tieoff_sthreadid_sampled = tieoff_sthreadid;
+  assign `QVL_DUT2CHX_DELAY tieoff_control_sampled = tieoff_control;
+  assign `QVL_DUT2CHX_DELAY tieoff_controlbusy_sampled = tieoff_controlbusy;
+  assign `QVL_DUT2CHX_DELAY tieoff_status_sampled = tieoff_status;
+  assign `QVL_DUT2CHX_DELAY tieoff_statusbusy_sampled = tieoff_statusbusy;
+  assign `QVL_DUT2CHX_DELAY tieoff_enableclk_sampled = tieoff_enableclk;
+  assign `QVL_DUT2CHX_DELAY tieoff_mblockheight_sampled = tieoff_mblockheight;
+  assign `QVL_DUT2CHX_DELAY tieoff_mblockstride_sampled = tieoff_mblockstride;
+
+`endif //  QVL_OCP_TIEOFF_CONFIG_ON
+
+  qvl_ocp_logic     #(.Constraints_Mode                  (Constraints_Mode),
+                      .INTERFACE_TYPE                    (INTERFACE_TYPE),
+                      .ADDR_WDTH                         (ADDR_WDTH),
+                      .DATA_WDTH                         (DATA_WDTH),
+                      .BURSTLENGTH_WDTH                  (BURSTLENGTH_WDTH),
+                      .ATOMICLENGTH_WDTH                 (ATOMICLENGTH_WDTH),
+                      .THREADS                           (THREADS),
+                      .THREADID_WDTH                     (THREADID_WDTH),
+                      .CONNID_WDTH                       (CONNID_WDTH),
+                      .ADDRSPACE_WDTH                    (ADDRSPACE_WDTH),
+                      .MDATAINFO_WDTH                    (MDATAINFO_WDTH),
+                      .MDATAINFOBYTE_WDTH                (MDATAINFOBYTE_WDTH),
+                      .REQINFO_WDTH                      (REQINFO_WDTH),
+                      .RESPINFO_WDTH                     (RESPINFO_WDTH),
+                      .SDATAINFO_WDTH                    (SDATAINFO_WDTH),
+                      .SDATAINFOBYTE_WDTH                (SDATAINFOBYTE_WDTH),
+                      .CONTROL_WDTH                      (CONTROL_WDTH),
+                      .STATUS_WDTH                       (STATUS_WDTH),
+                      .TAGS                              (TAGS),
+                      .TAGID_WDTH                        (TAGID_WDTH),
+                      .TAG_INTERLEAVE_SIZE               (TAG_INTERLEAVE_SIZE),
+                      .MAX_OUTSTANDING_REQ               (MAX_OUTSTANDING_REQ),
+                      .ENABLE_INTER_PHASE_TRANFER_CHECKS (ENABLE_INTER_PHASE_TRANFER_CHECKS),
+                      .BLOCKHEIGHT_WDTH                  (BLOCKHEIGHT_WDTH), //OCP 2.2
+                      .BLOCKSTRIDE_WDTH                  (BLOCKSTRIDE_WDTH), //OCP 2.2
+                      .BASE_PORT_SPECIFIED               (BASE_PORT_SPECIFIED),
+                      .OCP_3_0_CHECK_ENABLE              (OCP_3_0_CHECK_ENABLE), //OCP 3.0
+                      .CONNECTION                        (CONNECTION)) // Disconnect extension support 
+                   U0 (   .clk(clk),
+                          .enableclk(enableclk_sampled), //OCP 2.2
+                          .areset_n(areset_n_sampled),
+                          .maddr(maddr_sampled),
+                          .mcmd(mcmd_sampled),
+                          .mdata(mdata_sampled),
+                          .mdatavalid(mdatavalid_sampled),
+                          .mrespaccept(mrespaccept_sampled),
+                          .scmdaccept(scmdaccept_sampled),
+                          .sdata(sdata_sampled),
+                          .sdataaccept(sdataaccept_sampled),
+                          .sresp(sresp_sampled),
+                          .maddrspace(maddrspace_sampled),
+                          .mbyteen(mbyteen_sampled),
+                          .mdatabyteen(mdatabyteen_sampled),
+                          .mdatainfo(mdatainfo_sampled),
+                          .mreqinfo(mreqinfo_sampled),
+                          .sdatainfo(sdatainfo_sampled),
+                          .srespinfo(srespinfo_sampled),
+                          .matomiclength(matomiclength_sampled),
+                          .mblockheight(mblockheight_sampled), //OCP 2.2
+                          .mblockstride(mblockstride_sampled), //OCP 2.2
+                          .mburstlength(mburstlength_sampled),
+                          .mburstprecise(mburstprecise_sampled),
+                          .mburstseq(mburstseq_sampled),
+                          .mburstsinglereq(mburstsinglereq_sampled),
+                          .mdatalast(mdatalast_sampled),
+                          .mdatarowlast(mdatarowlast_sampled), //OCP 2.2
+                          .mreqlast(mreqlast_sampled),
+                          .mreqrowlast(mreqrowlast_sampled), //OCP 2.2
+                          .sresplast(sresplast_sampled),
+                          .sresprowlast(sresprowlast_sampled), //OCP 2.2
+                          .mdatatagid(mdatatagid_sampled),
+                          .mtagid(mtagid_sampled),
+                          .mtaginorder(mtaginorder_sampled),
+                          .stagid(stagid_sampled),
+                          .staginorder(staginorder_sampled),
+                          .mconnid(mconnid_sampled),
+                          .mdatathreadid(mdatathreadid_sampled),
+                          .mthreadbusy(mthreadbusy_sampled),
+                          .mthreadid(mthreadid_sampled),
+                          .sdatathreadbusy(sdatathreadbusy_sampled),
+                          .sthreadbusy(sthreadbusy_sampled),
+                          .sthreadid(sthreadid_sampled),
+                          .mreset_n(mreset_n_sampled),
+                          .sreset_n(sreset_n_sampled),
+                          .mareset_n(mareset_n_sampled), //OCP 2.2
+                          .sareset_n(sareset_n_sampled), //OCP 2.2
+                          .control(control_sampled),
+                          .controlbusy(controlbusy_sampled),
+                          .controlwr(controlwr_sampled),
+                          .status(status_sampled),
+                          .statusbusy(statusbusy_sampled),
+                          .statusrd(statusrd_sampled),
+                          .base(base_sampled),
+                          .phase_options_group(phase_options_group_sampled),
+                          .basic_group(basic_group_sampled),
+                          .simple_ext_group(simple_ext_group_sampled),
+                          .burst_ext_group(burst_ext_group_sampled),
+                          .tag_ext_group(tag_ext_group_sampled),
+                          .thread_ext_group(thread_ext_group_sampled),
+                          .sideband_sig_group(sideband_sig_group_sampled),
+                          .cmd_enable_group(cmd_enable_group_sampled),
+                          .mconnect(mconnect),
+                          .sconnect(sconnect),
+                          .swait(swait)
+
+`ifdef QVL_OCP_TIEOFF_CONFIG_ON
+                          ,
+                          .tieoff_enableclk(tieoff_enableclk),
+                          .tieoff_maddr(tieoff_maddr),
+                          .tieoff_mdata(tieoff_mdata),
+                          .tieoff_mrespaccept(tieoff_mrespaccept),
+                          .tieoff_scmdaccept(tieoff_scmdaccept),
+                          .tieoff_sdata(tieoff_sdata),
+                          .tieoff_sdataaccept(tieoff_sdataaccept),
+                          .tieoff_sresp(tieoff_sresp),
+                          .tieoff_maddrspace(tieoff_maddrspace),
+                          .tieoff_mbyteen(tieoff_mbyteen),
+                          .tieoff_mdatabyteen(tieoff_mdatabyteen),
+                          .tieoff_mdatainfo(tieoff_mdatainfo),
+                          .tieoff_mreqinfo(tieoff_mreqinfo),
+                          .tieoff_sdatainfo(tieoff_sdatainfo),
+                          .tieoff_srespinfo(tieoff_srespinfo),
+                          .tieoff_matomiclength(tieoff_matomiclength),
+                          .tieoff_mburstlength(tieoff_mburstlength),
+                          .tieoff_mburstprecise(tieoff_mburstprecise),
+                          .tieoff_mburstseq(tieoff_mburstseq),
+                          .tieoff_mburstsinglereq(tieoff_mburstsinglereq),
+                          .tieoff_mdatatagid(tieoff_mdatatagid),
+                          .tieoff_mtagid(tieoff_mtagid),
+                          .tieoff_mtaginorder(tieoff_mtaginorder),
+                          .tieoff_stagid(tieoff_stagid),
+                          .tieoff_staginorder(tieoff_staginorder),
+                          .tieoff_mconnid(tieoff_mconnid),
+                          .tieoff_mdatathreadid(tieoff_mdatathreadid),
+                          .tieoff_mthreadbusy(tieoff_mthreadbusy),
+                          .tieoff_mthreadid(tieoff_mthreadid),
+                          .tieoff_sdatathreadbusy(tieoff_sdatathreadbusy),
+                          .tieoff_sthreadbusy(tieoff_sthreadbusy),
+                          .tieoff_sthreadid(tieoff_sthreadid),
+                          .tieoff_control(tieoff_control),
+                          .tieoff_controlbusy(tieoff_controlbusy),
+                          .tieoff_status(tieoff_status),
+                          .tieoff_statusbusy(tieoff_statusbusy),
+                          .tieoff_mblockheight(tieoff_mblockheight),
+                          .tieoff_mblockstride(tieoff_mblockstride),
+                          .tieoff_connectcap(tieoff_connectcap)
+
+`endif // QVL_OCP_TIEOFF_CONFIG_ON
+
+                          );
+
+`qvlendmodule

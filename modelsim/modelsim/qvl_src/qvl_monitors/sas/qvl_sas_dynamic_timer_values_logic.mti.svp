@@ -1,0 +1,2477 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+*
+* PURPOSE     This file is part of 0-In CheckerWare.
+*
+* DESCRIPTION This monitor tracks the SAS interface for compliance with
+*             Serial Attached SCSI specification and protocol.
+*             
+* REFERENCES   Serial Attached SCSI, Revision 1.1, Revision 04, Mar 13, 2004.
+*
+* INPUTS      
+*             areset                    - Asynchronous reset, active high
+*             reset                     - Synchronous reset, active high
+*
+*             tx_clk                    - Transmit clock. 
+*             tx_data_plus              - Transmit data plus
+*             tx_data_minus             - Transmit data minus
+*             tx_idle_signal            - Transmit Electrical Idle signal 
+*
+*             rx_clk                    - Receive clock.
+*             rx_data_plus              - Receive data plus
+*             rx_data_minus             - Receive data minus
+*             rx_idle_signal            - Receive Electrical Idle signal
+*             bypass_reset_sequence     - Bypassing the reset sequence
+*             start_speed_negotiation   - Starting point of RCD phase
+*
+*             tx_cominit_idle_time      - Transmitter COMINIT IDLE time period
+*             tx_comsas_idle_time       - Transmitter COMSAS IDLE time period
+*             tx_cominit_neg_time       - Tx COMINIT NEGATION time period
+*             tx_comsas_neg_time        - Tx COMSAS NEGATION time period
+*             rate_change_delay         - RATE CHANGE DELAY period
+*             spd_neg_lock_time         - SPEED NEG LOCK time period
+*             spd_neg_transmit_time     - SPEED NEG TRANSMIT time period
+*             hotplug_timeout           - HOTPLUG timeout period
+*             comsas_timeout            - COMSAS timeout period
+*             hard_reset_timeout        - HARD RESET timeout period
+*             ident_frame_timeout       - IDENTIFICATION FRAME timeout period
+*             break_timeout             - BREAK timeout period
+*             open_addr_res_timeout     - OPEN ADDRESS RESPONSE timeout period
+*             credit_timeout            - CREDIT timeout period
+*             ack_nak_timeout           - ACK/NAK timeout period
+*             close_timeout             - CLOSE timeout period
+*             done_timeout              - DONE timeout period
+*             rx_cominit_idle_time_min  - Rcvr COMINIT minimum idle time
+*             rx_cominit_idle_time_max  - Rcvr COMINIT maximum idle time
+*             rx_comsas_idle_time_min   - Rcvr COMSAS minimum idle time
+*             rx_comsas_idle_time_max   - Rcvr COMSAS maximum idle time
+*             rx_cominit_neg_time       - Rx COMINIT NEGATION time period
+*             rx_comsas_neg_time        - Rx COMSAS NEGATION time period
+*
+* MONITOR INSTANTIATION 
+*
+*     1. In a Initiator Device
+*        ---------------------
+*
+*       +---------------+                 +-----------------+
+*       |   INITIATOR   |  Transmit       |                 |
+*       |       +---+   |  Interface      |                 |
+*       |       | M |<--|---------------->|       TARGET    |
+*       |       | O |   |                 |       DEVICE    |
+*       |       | N |   |                 |                 |
+*       |       | I |   |                 |                 |
+*       |       | T |   |  Receive        |                 |
+*       |       | O |   |  Interface      |                 |
+*       |       | R |<--|<----------------|                 |
+*       |       +---+   |                 |                 |
+*       |               |                 |                 |
+*       +---------------+                 +-----------------+
+*
+*     2. In an Expander device
+*        ---------------------
+*      
+*       Note : Monitor is instantiated in the Expander device.
+*
+*       +---------------+                 +-----------------+
+*       |   EXPANDER    |  Transmit       |                 |
+*       |       +---+   |  Interface      |                 |
+*       |       | M |<--|---------------->|       TARGET    |
+*       |       | O |   |                 |       DEVICE    |
+*       |       | N |   |                 |                 |
+*       |       | I |   |                 |                 |
+*       |       | T |   |  Receive        |                 |
+*       |       | O |   |  Interface      |                 |
+*       |       | R |<--|<----------------|                 |
+*       |       +---+   |                 |                 |
+*       |               |                 |                 |
+*       +---------------+                 +-----------------+
+*
+*     3. In a Target device
+*        ------------------ 
+* 
+*       Note : Monitor is instantiated in the Target device.
+*
+*       +---------------+                 +-----------------+
+*       |   INITIATOR   |  Receive        |     TARGET      |
+*       |    DEVICE     |  Interface      |    +---+        |
+*       |               |---------------->|--->|   |        |
+*       |               |                 |    | M |        |
+*       |               |                 |    | O |        |
+*       |               |                 |    | N |        |
+*       |               |  Transmit       |    | I |        |
+*       |               |  Interface      |    | T |        |
+*       |               |<----------------|--->| O |        |
+*       |               |                 |    | R |        |
+*       |               |                 |    +---+        |
+*       +---------------+                 +-----------------+
+*
+*
+* LAST MODIFIED DATE : 01st July 2004
+*
+*****************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_sas_dynamic_timer_values_logic(
+                         reset,
+                         areset,
+                          
+                         tx_clk,
+                         tx_data_plus,
+                         tx_data_minus,
+			 tx_idle_signal,
+
+                         rx_clk,
+                         rx_data_plus,
+                         rx_data_minus,
+			 rx_idle_signal,
+                         bypass_reset_sequence,
+                         start_speed_negotiation,
+
+			 tx_cominit_idle_time,
+			 tx_comsas_idle_time,
+			 tx_cominit_neg_time,
+			 tx_comsas_neg_time,
+			 rate_change_delay,
+			 spd_neg_lock_time,
+			 spd_neg_transmit_time,
+			 hotplug_timeout,
+			 comsas_timeout,
+			 hard_reset_timeout,
+			 ident_frame_timeout,
+			 break_timeout,
+			 open_addr_res_timeout,
+			 credit_timeout,
+			 ack_nak_timeout,
+			 close_timeout,
+			 done_timeout,
+                         rx_cominit_idle_time_min,
+                         rx_cominit_idle_time_max,
+                         rx_comsas_idle_time_min,
+                         rx_comsas_idle_time_max,
+                         rx_cominit_neg_time,
+                         rx_comsas_neg_time  
+                        );
+
+  // Set this parameter to 1 if the checks in the monitor are to be used 
+  // as constraints for 0-In Search. 
+
+`ifdef QVL_ZIN
+  parameter Constraints_Mode = 1;
+`else
+  parameter Constraints_Mode = 0;
+`endif //QVL_ZIN
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Configures the monitor to track a initiator/target device or an 
+  // expander/fanout expander device.  Set this parameter to 1 to track an 
+  // expander/fanout expander device.  By default the monitor tracks 
+  // initator/target device.
+
+  parameter SAS_DEVICE_TYPE = 0;
+  wire [31:0] pw_SAS_DEVICE_TYPE = SAS_DEVICE_TYPE;
+
+  // This parameter configures the monitor to either serial or parallel mode. 
+  // Set this parameter to 1 if the monitor is instantiated on a 10-bit parallel 
+  // interface. Set this parameter to 2, if the monitor is instantiated on a
+  // 20-bit parallel interface. By default the monitor is instantiated on a 
+  // serial interface.
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // Configures the active edge of the tx_clk/rx_clk clocks. Set this 
+  // parameter to 1 if both edges of tx_clk/rx_clk clocks are active. Set 
+  // this parameter to 0 if tx_clk/rx_clk is active on only rising edge. 
+  // By default, tx_clk/rx_clk is active on only rising edge.
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // Configures the rate at which ALIGNs are transmitted after powerup.Set 
+  // this parameter to 1 if ALIGNs are transmitted at G2(3.0Gbps) rate. 
+  // By default, ALIGNs are transmitted at G1 (1.5Gbps) rate.
+
+  parameter TX_DEVICE_SPEED_RATE = 0;
+  wire [31:0] pw_TX_DEVICE_SPEED_RATE = TX_DEVICE_SPEED_RATE;
+
+  // Configures the rate at which ALIGNs are received after powerup.Set 
+  // this parameter to 1 if ALIGNs are received at G2(3.0Gbps) rate. 
+  // By default, ALIGNs are received at G1 (1.5Gbps) rate.
+
+  parameter RX_DEVICE_SPEED_RATE = 0;
+  wire [31:0] pw_RX_DEVICE_SPEED_RATE = RX_DEVICE_SPEED_RATE;
+
+  // Specifies the value of the encoded 10B data during electrical idle 
+  // conditions. This parameter is applicable only when INTERFACE_TYPE is set 
+  // to 1 (parallel mode of operation). The default value of the  parameter is 
+  // the value equivalent to 3FFh, the assumed 10-bit encoded value for 
+  // electrical idle.  In serial mode of operation, the monitor detects 
+  // electrical idle when both D+ and D- inputs are driven to same level.
+
+  parameter ELECTRICAL_IDLE_TIME_BIT_PATTERN = 10'h3ff;
+  wire [31:0] pw_ELECTRICAL_IDLE_TIME_BIT_PATTERN =
+                                           ELECTRICAL_IDLE_TIME_BIT_PATTERN;
+
+  // This parameter will determine the maximum rate supported by the device.
+  // If this is set to 1, maximum supported rate is G2.  If this is set to 0,
+  // Maximum supported rate is G1.   Bydefault this is set to 0.
+  // by the TX device. 
+
+  parameter TX_MAX_SUPPORTED_RATE = 0;
+  wire [31:0] pw_TX_MAX_SUPPORTED_RATE = TX_MAX_SUPPORTED_RATE;
+
+  // This parameter will determine the maximun rate supported by the device.
+  // If this is set to 1, maximum supported rate is G2.  If this is set to 0,
+  // Maximum supported rate is G1.   Bydefault this is set to 0.
+  // by the RX device.
+
+  parameter RX_MAX_SUPPORTED_RATE = 0;
+  wire [31:0] pw_RX_MAX_SUPPORTED_RATE = RX_MAX_SUPPORTED_RATE; 
+
+  // Configures the monitor to track repeatitive primitive sequences.
+  // Set this parameter to 0 to disable the tracking of repeated primitive 
+  // sequences.By default , monitor tracks repetitive primitive sequences.
+
+  parameter REPEATED_PRIMITIVE_SEQ = 1;
+  wire [31:0] pw_REPEATED_PRIMITIVE_SEQ = REPEATED_PRIMITIVE_SEQ;
+
+  // Configures the monitor to perform the transaction layer checks. Set this
+  // parameter to 0 to configure the monitor to disable transport layer
+  // checks.  By default, the transport layer checks are turned on.
+
+  parameter TRANSPORT_LAYER_CHECKS_ENABLE = 1;
+  wire [31:0] pw_TRANSPORT_LAYER_CHECKS_ENABLE = 
+                                           TRANSPORT_LAYER_CHECKS_ENABLE;
+
+  //Configures the monitor to perform scrambling. Set this parameter to 1 to
+  //configure the monitor to disable scrambling of 8bit data.  By default
+  //monitor performs scrambling of 8bit data.
+
+  parameter DISABLE_DESCRAMBLER = 0;
+  wire [31:0] pw_DISABLE_DESCRAMBLER = DISABLE_DESCRAMBLER;
+
+  // Configures the monitor to perform the checks during reset sequence.
+  // Set the parameter to 1 to configure the monitor to perform the 
+  // reset sequence checks.  By default, reset sequence checks are 
+  // turned off.
+
+  parameter PHY_RESET_SEQ_CHECK_ENABLE = 0;
+  wire [31:0] pw_PHY_RESET_SEQ_CHECK_ENABLE = PHY_RESET_SEQ_CHECK_ENABLE;
+
+  // Configures the monitor to perform the check for the reserved values.
+  // Set the parameter to 1 to configure the monitor to perform the check.
+  // By default, checks are performed for the reserved values.
+
+  parameter RESERVED_FIELD_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_FIELD_CHECK_ENABLE = RESERVED_FIELD_CHECK_ENABLE;
+
+  // Parameter VENDOR_SPECIFIC_ENCODING_ENABLE = 0 configures the monitor to
+  // allow the usage of vendor specific encodings in the SSP and SMP frames.
+
+  parameter VENDOR_SPECIFIC_ENCODING_ENABLE = 0;
+  wire [31:0] pw_VENDOR_SPECIFIC_ENCODING_ENABLE =
+                                             VENDOR_SPECIFIC_ENCODING_ENABLE;
+
+  // ---------------------------------
+  // Internal Parameter declarations
+  // ---------------------------------
+
+  parameter ZI_PORT_WIDTH = (INTERFACE_TYPE === 0 ? 1 : 
+			     (INTERFACE_TYPE === 1 ? 10 :
+			     (INTERFACE_TYPE === 2 ? 20 : 20)));
+
+  parameter ZI_LINK_PORT_WIDTH = (INTERFACE_TYPE !== 0) ? 10 : 1;
+
+  // This parameter will determine where the first transmitted 10-bit
+  // will sit in the parallel 20-bit data.
+
+  parameter ZI_BIT_POSITION = 0;
+
+  // This parameter will determine the DOUBLE_DATA_RATE depending on
+  // the INTERFACE_TYPE
+
+  parameter ZI_FINAL_DDR = INTERFACE_TYPE === 2 ? 1 : DOUBLE_DATA_RATE;
+  wire [31:0] pw_ZI_FINAL_DDR = ZI_FINAL_DDR;
+			     
+  // Input declarations
+
+  input reset;
+  input areset;
+  input tx_clk;
+  input [ZI_PORT_WIDTH - 1:0] tx_data_plus;
+  input [ZI_PORT_WIDTH - 1:0] tx_data_minus;
+  input tx_idle_signal;
+  input rx_clk;
+  input [ZI_PORT_WIDTH - 1:0] rx_data_plus;
+  input [ZI_PORT_WIDTH - 1:0] rx_data_minus;
+  input rx_idle_signal;
+  input start_speed_negotiation;
+
+  input [31:0] tx_cominit_idle_time;
+  input [31:0] tx_comsas_idle_time;
+  input [31:0] rx_cominit_idle_time_min;
+  input [31:0] rx_cominit_idle_time_max; 
+  input [31:0] rx_comsas_idle_time_min;
+  input [31:0] rx_comsas_idle_time_max;
+  input [31:0] tx_cominit_neg_time;
+  input [31:0] tx_comsas_neg_time;
+  input [31:0] rx_cominit_neg_time;
+  input [31:0] rx_comsas_neg_time;
+  input [31:0] rate_change_delay;
+  input [31:0] spd_neg_lock_time;
+  input [31:0] spd_neg_transmit_time;
+  input [31:0] hotplug_timeout;
+  input [31:0] comsas_timeout;
+  input [31:0] hard_reset_timeout;
+  input [31:0] ident_frame_timeout;
+  input [31:0] break_timeout;
+  input [31:0] open_addr_res_timeout;
+  input [31:0] credit_timeout;
+  input [31:0] ack_nak_timeout;
+  input [31:0] close_timeout;
+  input [31:0] done_timeout;
+
+  // Configure this port to 1'b1 to track phy reset sequence, when 
+  // configured as 1'b0 the monitor assumes the link is in idle condition.
+
+  input bypass_reset_sequence;
+
+  // Wire declaration for 20 bit interface support.
+
+  reg [ZI_PORT_WIDTH - 1:0] temp_tx_data_plus_posedge;
+  reg [ZI_PORT_WIDTH - 1:0] temp_tx_data_plus_negedge;
+  reg [ZI_PORT_WIDTH - 1:0] temp_rx_data_plus_posedge; 
+  reg [ZI_PORT_WIDTH - 1:0] temp_rx_data_plus_negedge;
+
+  wire [ZI_PORT_WIDTH - 1:0] temp_tx_data_plus;
+  wire [ZI_PORT_WIDTH - 1:0] temp_rx_data_plus;
+
+  wire tx_data_select;
+  wire rx_data_select;
+
+  wire [ZI_LINK_PORT_WIDTH-1:0] tx_data_p;
+  wire [ZI_LINK_PORT_WIDTH-1:0] rx_data_p;
+
+  wire [ZI_LINK_PORT_WIDTH-1:0] tx_final_data_plus;
+  wire [ZI_LINK_PORT_WIDTH-1:0] rx_final_data_plus;
+
+  // These wire declarations are used for the support of G1 rate.
+
+  wire [ZI_LINK_PORT_WIDTH-1:0] data_in_odd_position;
+  wire [ZI_LINK_PORT_WIDTH-1:0] data_in_even_position;
+  wire transaction_in_g1;
+  wire transaction_in_g1rate;
+  wire [ZI_LINK_PORT_WIDTH-1:0] data_in_g1rate;
+  wire [ZI_LINK_PORT_WIDTH-1:0] tx_link_data;
+
+  // Wire declarations
+
+  //----------------------------------------------------------------------
+  // These signals are used to connect the Tx link monitor and the Rx
+  // link monitor instantiations.  `_from_rx` signals are output from the
+  // RX instantiation and the `_to_rx` signals are output from the TX
+  // instantiation.
+  //---------------------------------------------------------------------- 
+
+  //--------------------------------------------------------------------
+  // Following two signals shall be asserted only in 20-bit interface.
+  // If the 20-bit data is driven after half clock period (i.e during
+  // off time period) then this signal will get asserted.  It is a pulse.
+  //--------------------------------------------------------------------
+
+  wire negedge_com_tx;
+  wire negedge_com_rx;
+
+  // ---------------------------------------------------------------
+  // Following two signals are latched version of the above signals.
+  // ---------------------------------------------------------------
+
+  reg r_negedge_com_tx;
+  reg r_negedge_com_rx;
+  wire negedge_com_det_tx;
+  wire negedge_com_det_rx;
+
+  reg inv_level_select_tx;
+  reg inv_level_select_rx;
+
+  wire final_level_select_tx;
+  wire final_level_select_rx;
+
+  wire reset_expect;
+  wire [2:0] current_negotiated_rate;
+  wire collect_stats;
+
+  wire [2:0] disable_scr_count;
+  wire electrical_idle_detected;
+
+  wire start_rcd;
+  wire parallel_rcd;
+  wire start_speed_neg;
+
+  wire align0_xmtd_from_rx;
+  wire align0_xmtd_to_rx;
+
+  wire align1_xmtd_from_rx;
+  wire align1_xmtd_to_rx;
+
+  wire speed_neg_status;
+
+  wire cominit_det_to_rx;
+  wire cominit_det_from_rx;
+  wire comsas_det_to_rx;
+  wire comsas_det_from_rx;
+  wire iaf_sent_to_rx;
+  wire iaf_sent_from_rx;
+  wire hard_reset_to_rx;
+  wire hard_reset_from_rx;
+  wire soaf_to_rx;
+  wire soaf_from_rx;
+  wire eoaf_to_rx;
+  wire eoaf_from_rx; 
+  wire aip_to_rx;
+  wire aip_from_rx;
+  wire open_acc_to_rx;
+  wire open_acc_from_rx;
+  wire open_rej_to_rx;
+  wire open_rej_from_rx;
+  wire sof_det_to_rx;
+  wire sof_det_from_rx;
+  wire eof_det_to_rx;
+  wire eof_det_from_rx;
+  wire ack_det_to_rx;
+  wire ack_det_from_rx;
+  wire nak_det_to_rx;
+  wire nak_det_from_rx;
+  wire close_to_rx;
+  wire close_affl_to_rx;
+  wire close_from_rx;
+  wire close_affl_from_rx;
+  wire done_from_rx;
+  wire done_to_rx;
+  wire [7:0] info_unit_from_rx;
+  wire [7:0] info_unit_to_rx;
+  wire sata_xrdy_from_rx;
+  wire sata_xrdy_to_rx;
+  wire sata_rrdy_from_rx;
+  wire sata_rrdy_to_rx;
+  wire hold_from_rx;
+  wire hold_to_rx; 
+  wire holda_from_rx;
+  wire holda_to_rx;
+  wire wtrm_from_rx;
+  wire wtrm_to_rx;
+  wire rok_from_rx;
+  wire rok_to_rx;
+  wire rerr_from_rx;
+  wire rerr_to_rx;
+  wire sync_from_rx;
+  wire sync_to_rx;
+  wire sata_sof_from_rx;
+  wire sata_sof_to_rx;
+  wire sata_eof_to_rx;
+  wire sata_eof_from_rx;
+  wire [7:0] smp_req_fn_from_rx;
+  wire [7:0] smp_req_fn_to_rx;
+  wire [7:0] smp_res_fn_from_rx;
+  wire [7:0] smp_res_fn_to_rx; 
+  wire [2:0] protocol_from_rx;
+  wire [2:0] protocol_to_rx;
+  wire [31:0] read_data_from_rx;
+  wire [31:0] read_data_to_rx;
+  wire r_soaf_detected_from_rx;
+  wire r_soaf_detected_to_rx;
+  wire [3:0] addr_type_from_rx;
+  wire [3:0] addr_type_to_rx;
+  wire break_det_from_rx;
+  wire break_det_to_rx;
+  wire r_sof_det_from_rx;
+  wire r_sof_det_to_rx;
+  wire prim_violation_from_rx;
+  wire prim_violation_to_rx;
+  wire change_from_rx;
+  wire change_to_rx; 
+  wire ini_tar_from_rx;
+  wire ini_tar_to_rx;
+  wire cominit_sent_from_rx;
+  wire cominit_sent_to_rx;
+  wire comsas_sent_from_rx;
+  wire comsas_sent_to_rx;
+  wire rrdy_det_to_rx;
+  wire rrdy_det_from_rx;
+  wire sas_valid_to_rx;
+  wire dword_valid_to_rx;
+  wire sas_valid_from_rx; 
+  wire dword_valid_from_rx;
+  wire latched_hold_to_rx;
+  wire latched_hold_from_rx;
+
+  wire [15:0] tgt_prt_tag_to_rx;
+  wire [15:0] tgt_prt_tag_from_rx;
+
+  wire conn_sta_to_rx;
+  wire conn_sta_from_rx;
+
+  wire ssp_to_rx;
+  wire smp_to_rx;
+  wire stp_to_rx;
+  wire out_to_rx;
+
+  wire ssp_from_rx;
+  wire smp_from_rx;
+  wire stp_from_rx;
+  wire out_from_rx;
+
+  wire validg1_to_rx;
+  wire validg2_to_rx;
+  wire validg3_to_rx;
+  wire neg_to_rx;
+
+  wire validg1_from_rx;
+  wire validg2_from_rx;
+  wire validg3_from_rx;
+  wire neg_from_rx;
+
+  wire tx_empty;
+  wire rx_empty;
+
+  wire [133:0] signals_from_tx_to_rx;
+  wire [133:0] signals_from_rx_to_tx;
+  wire [133:0] signals_from_tx_to_rx_via_fifo;
+  wire [133:0] signals_from_rx_to_tx_via_fifo;
+
+  wire from_tx_to_rx_fifo_write;
+  wire from_rx_to_tx_fifo_write;
+
+  wire latched_hold_changed_tx;
+  wire cominit_det_changed_tx;
+  wire comsas_det_changed_tx;
+  wire cominit_sent_changed_tx;
+  wire comsas_sent_changed_tx;
+  wire smp_req_fn_valid_tx;
+  wire smp_res_fn_valid_tx;
+  wire protocol_valid_tx;
+  wire tgt_prt_tag_valid_tx;
+  wire info_unit_type_valid_tx;
+  wire data_frame_count_valid_tx;
+  wire addr_frame_type_valid_tx;
+  wire initiator_target_valid_tx;
+  wire latched_hold_changed_rx;
+  wire cominit_det_changed_rx;
+  wire comsas_det_changed_rx;
+  wire cominit_sent_changed_rx;
+  wire comsas_sent_changed_rx;
+  wire smp_req_fn_valid_rx;
+  wire smp_res_fn_valid_rx;
+  wire protocol_valid_rx;
+  wire tgt_prt_tag_valid_rx;
+  wire info_unit_type_valid_rx;
+  wire data_frame_count_valid_rx;
+  wire addr_frame_type_valid_rx;
+  wire initiator_target_valid_rx;
+  wire r_soaf_detected_to_rx_changed;
+  wire r_sof_det_to_rx_changed;
+  wire r_soaf_detected_from_rx_changed;
+  wire r_sof_det_from_rx_changed;
+  wire level_select_temp_tx;
+  wire level_select_temp_rx;
+
+  wire addr_fr_ty_err_from_rx;
+  wire addr_fr_ty_err_to_rx;
+  wire crc_err_from_rx;
+  wire crc_err_to_rx;
+  wire oaf_fr_sz_from_rx;
+  wire oaf_fr_sz_to_rx;
+  wire iaf_fr_sz_from_rx;
+  wire iaf_fr_sz_to_rx;
+  wire discard_fr_from_rx;
+  wire discard_fr_to_rx;
+  wire dat_prs_err_from_rx;
+  wire dat_prs_err_to_rx;
+
+  reg sas_vld1;
+  reg sas_vld2;
+  reg sas_vld_from_rx;
+  reg sas_vld_to_rx;
+
+  reg [2:0] data_counter;
+  reg transaction_in_g1rate_flag;
+
+  wire [ZI_LINK_PORT_WIDTH-1:0] com_detected_rx;
+  wire [ZI_LINK_PORT_WIDTH-1:0] com_detected_tx;
+  wire [ZI_LINK_PORT_WIDTH-1:0] temp_com_detected_rx;
+  wire [ZI_LINK_PORT_WIDTH-1:0] temp_com_detected_tx;
+
+  wire credit_exhausted_from_rx;
+  wire credit_exhausted_from_tx;
+
+`protected
+
+    MTI!#\]GK3HXVWYow_G\JJ,I]v2eW_'Q2R_G[=;oC?j?2KXz]O~2<e{sK?UpvWEnK#x,~A=s=Ae<
+    HR{>GpOxiGl#R)R3lk%oP6UD{v'<B?_$V$>_wl}W,1Ox#n>v|pH{XR\B>@EERbB[@>G?1i7QAB$E
+    ZWss?KzDV<5B7p[;V'RQ<Bgk$7]s\i[!]VGlzjUV2paA'R?Gk+W7eBV+wZmo!<re2Y5=?m5Rr~oR
+    k1{'J*rOx}@=wj<DW^=HnuH6{j2+[u-**8V7<X7WCA~,-I_?Arbv1__F#-,@$?m-^CY*Y61K{^H'
+    -GWaT,e\vl~YI$?HJ1-]TH[{3zNr2e?BU}Z6aeK+^{^BuaDom,jO_#}?EnomCO3nmV>{xAoK2$]D
+    8wUz1At!XUR-,+kC,<a,sIJE?]2>Ce$'1='<ri[l+[v!+@{^2B<=^i37G{2|*QdN7=5R7+v5Y@m#
+    #oG](?DIW\Je+EAIe={2z)(}9s-'{&!Er^*1e*qY@+[ma-KAr?a>5R?>7CGaY?lC$<pIfX_TYmRQ
+    ?p}o{qI?_2={zC|n<OGzwAC$'OVmGz~/a[um2D_ukHGY_}ia[G?Qp+1KBV,;W[<JQs#RDHp]lZRJ
+    G\vCp-7w7!~<fP$];pk_>pY+JArYTreo$w4UY=^.zE=5DW@C~X*5SGKVoV;sa_XA!n\5~,,*R_t+
+    >]T=:l?m~3=ExvmG1X172TaQ}x>m]8j~sD'2!kQC?a\vk\Ren{L?BOn*_w>DeAaA*-!q^'kae?{m
+    @'-nioM@<RQs3CTGC[TB;*7R,e[ZOCi7|;[s@ztrsir7IQ*4a5~mCRI$:'eoJGZ,?@H!=YJ2#lu3
+    W]m=r7Y~]B;QOZ[!$KA>DrWoI<R*[{D<?Hw1'z{e'ReOIq1[2O^VwDn-u{<$<C$@nrWAQQ}u2G,#
+    ~u>_]}Aes}mOmWZ\[~laC@E\=j7m_@p1}TUC$@Q*XrvE!rC1=I/-EDI+5>l1Cs$15Z!y^3-!lRH5
+    1uRREJa[!DKY(onJ*_?*BIW(spnuo+]Z<1i7JwYIz_e5C{R<v=]DVJW\{=Z~-}+<?]$vB\Y@xBJs
+    DovI,E$rwRz_QpI}+AnE_^~[sws*I{zmVepTHX\~*Z,wAU!GnpwYFF|@V>ee2GH$o$R!+<]ZIVAy
+    x1l?}VD<]h=i=5iwE+xjU6wTE1VmawzKC;oVxvH[Ba-oiTn\rvRB7j-QO+5nAQQv]k-C7#G!$5Z+
+    x#DZG3DKJ~v$3!5U5o,KH-xWvGWenDOY7UX{AX%^\>-Y[5nCiulY9KOmX-]v3~w$3Xv5B_!]zy{Q
+    BxK5=-];}@iI?aZHwZmrKw97!'Kn\Vv,_;urYU2v^=luAK7\~rn|o}}-5kp[QA@OHxvAw$7Wwxjz
+    @CAD1+51l}$^[XG}jYa]y^-vB1{*pQOsKlzGVFA=jx_QU3}Un'#_*_qZ}xj}ojJCOzlCxa-vBrn]
+    iIp@]o\$'\C=E>,-X3mKUmT3Y5a1oGpKojp}Zr{_sRoUY?uI_-=72*r[eT~_}$
+`endprotected
+
+  //-------------------------------------------
+  // New assign statements
+  //-------------------------------------------
+
+  assign temp_tx_data_plus = level_select_temp_tx ? temp_tx_data_plus_posedge :
+						    temp_tx_data_plus_negedge;
+
+  assign temp_rx_data_plus = level_select_temp_rx ? temp_rx_data_plus_posedge :
+						  temp_rx_data_plus_negedge;
+
+  assign com_detected_tx = 
+		  ({tx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+                    tx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]}); 
+
+  assign com_detected_rx = 
+		   ({rx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+                    rx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]}); 
+
+  assign temp_com_detected_tx =
+             ({temp_tx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+               temp_tx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]});
+
+  assign temp_com_detected_rx =
+            ({temp_rx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+              temp_rx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]});
+
+  assign negedge_com_tx = (level_select_temp_tx === 0 &&
+                          ((com_detected_tx === 10'h17c &&
+                           temp_com_detected_tx !== 10'h17c) || 
+			   (com_detected_tx === 10'h283 &&
+                           temp_com_detected_tx !== 10'h283)) &&
+                           r_negedge_com_tx === 1'b0 && 
+			   INTERFACE_TYPE === 2);
+
+  assign negedge_com_rx = (level_select_temp_rx === 0 &&
+                           ((com_detected_rx === 10'h17c &&
+                           temp_com_detected_rx !== 10'h17c) ||
+                           (com_detected_rx === 10'h283 &&
+                           temp_com_detected_rx !== 10'h283)) &&
+                           r_negedge_com_rx === 1'b0 &&
+			   INTERFACE_TYPE === 2);
+
+  assign negedge_com_det_tx = (negedge_com_tx || r_negedge_com_tx);
+
+  assign negedge_com_det_rx = (negedge_com_rx || r_negedge_com_rx); 
+
+  assign final_level_select_tx = negedge_com_det_tx ? inv_level_select_tx:
+				      level_select_temp_tx;
+
+  assign final_level_select_rx = negedge_com_det_rx ? inv_level_select_rx :
+					  level_select_temp_rx;
+
+  assign data_in_odd_position = (ZI_BIT_POSITION === 1) ?
+         {tx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-1-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-3-ZI_SUB)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-5-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-7-ZI_SUB)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-9-ZI_SUB)*ZI_INTERFACE_MULTIPLIER]} :
+	  {tx_data_plus[(ZI_PORT_WIDTH-9-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-7-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-5-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-3-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-1-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]};
+
+  assign data_in_even_position = (ZI_BIT_POSITION === 1) ?
+         {tx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-2-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-4-ZI_SUB)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-6-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+          tx_data_plus[(ZI_PORT_WIDTH-8-ZI_SUB)*ZI_INTERFACE_MULTIPLIER], 
+          tx_data_plus[(ZI_PORT_WIDTH-10-ZI_SUB)*ZI_INTERFACE_MULTIPLIER]} :
+	  {tx_data_plus[(ZI_PORT_WIDTH-10-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-8-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-6-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-4-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-2-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+	   tx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER]};
+
+  assign transaction_in_g1 = (INTERFACE_TYPE === 2) ?
+                    ((data_in_odd_position === data_in_even_position) &&
+		    {data_in_odd_position,data_in_even_position} !== 20'b0 &&
+		    {data_in_odd_position,data_in_even_position} !== 20'hfffff) 
+		      : 1'b0;
+
+  assign transaction_in_g1rate = (transaction_in_g1 && 
+				  transaction_in_g1rate_flag);
+
+  assign data_in_g1rate = data_in_odd_position;
+
+  assign tx_link_data = (INTERFACE_TYPE === 2 &&
+                        (transaction_in_g1rate === 1'b1)) ?
+                         data_in_g1rate : tx_final_data_plus;
+
+  //----------------------------------------------------------------------
+
+  assign tx_data_p = (INTERFACE_TYPE === 2 ? (ZI_BIT_POSITION == 0 ?
+			     (final_level_select_tx ?
+                     {tx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+		     tx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+		     tx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+	             tx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]}:
+                     {tx_data_plus[(ZI_PORT_WIDTH-10-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-9-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-8-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-7-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-6-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-5-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-4-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-3-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-2-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-1-ZI_SUB)*ZI_INTERFACE_MULTIPLIER]}) :
+                     (final_level_select_tx ?
+                     {tx_data_plus[(ZI_PORT_WIDTH-10-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-9-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-8-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-7-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-6-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-5-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-4-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-3-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-2-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-1-ZI_SUB)*ZI_INTERFACE_MULTIPLIER]} :
+                     {tx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+                     tx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]})) :
+                     tx_data_plus);
+
+   assign rx_data_p = (INTERFACE_TYPE === 2 ? (ZI_BIT_POSITION == 0 ?
+                             (final_level_select_rx ?
+                     {rx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+                    rx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]}:
+                     {rx_data_plus[(ZI_PORT_WIDTH-10-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-9-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-8-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-7-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-6-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-5-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-4-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-3-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-2-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-1-ZI_SUB)*ZI_INTERFACE_MULTIPLIER]}) :
+                     (final_level_select_rx ?
+                     {rx_data_plus[(ZI_PORT_WIDTH-10-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-9-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-8-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-7-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-6-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                    rx_data_plus[(ZI_PORT_WIDTH-5-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-4-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-3-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-2-ZI_SUB)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-1-ZI_SUB)*ZI_INTERFACE_MULTIPLIER]}:
+                     {rx_data_plus[(ZI_PORT_WIDTH-10)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-9)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-8)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-7)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-6)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-5)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-4)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-3)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-2)*ZI_INTERFACE_MULTIPLIER],
+                     rx_data_plus[(ZI_PORT_WIDTH-1)*ZI_INTERFACE_MULTIPLIER]})) :
+                     rx_data_plus);
+
+  assign tx_final_data_plus = INTERFACE_TYPE === 2 ? tx_data_p : tx_data_plus;
+
+  assign rx_final_data_plus = INTERFACE_TYPE === 2 ? rx_data_p : rx_data_plus;
+
+  assign signals_from_tx_to_rx = {addr_fr_ty_err_to_rx,
+                                  crc_err_to_rx,
+                                  oaf_fr_sz_to_rx,
+                                  iaf_fr_sz_to_rx,
+                                  discard_fr_to_rx,
+                                  dat_prs_err_to_rx, 
+                                  align0_xmtd_to_rx, 
+				  align1_xmtd_to_rx,
+				  validg1_to_rx, validg2_to_rx, 
+				  validg3_to_rx, neg_to_rx, 
+				  ssp_to_rx, smp_to_rx, stp_to_rx, out_to_rx,
+                                  1'b0, //conn_sta_to_rx,
+				  close_affl_to_rx, tgt_prt_tag_to_rx,
+				  dword_valid_to_rx, rrdy_det_to_rx, 
+				  latched_hold_to_rx,
+                                  cominit_det_to_rx, comsas_det_to_rx,
+				  cominit_sent_to_rx, comsas_sent_to_rx,
+				  iaf_sent_to_rx, hard_reset_to_rx,
+				  soaf_to_rx, eoaf_to_rx, aip_to_rx,
+				  open_acc_to_rx, open_rej_to_rx,
+				  sof_det_to_rx, eof_det_to_rx,
+				  ack_det_to_rx, nak_det_to_rx,
+				  sata_xrdy_to_rx, sata_rrdy_to_rx,
+				  hold_to_rx, holda_to_rx, wtrm_to_rx,
+				  rok_to_rx, rerr_to_rx, sync_to_rx,
+				  sata_sof_to_rx, sata_eof_to_rx,
+				  smp_req_fn_to_rx[7:0], smp_res_fn_to_rx[7:0],
+				  protocol_to_rx[2:0], done_to_rx, close_to_rx,
+				  change_to_rx, info_unit_to_rx[7:0],
+				  read_data_to_rx[31:0], r_soaf_detected_to_rx,
+				  r_sof_det_to_rx, addr_type_to_rx[3:0],
+				  break_det_to_rx, prim_violation_to_rx,
+				  ini_tar_to_rx, sas_valid_to_rx};
+
+  assign from_tx_to_rx_fifo_write = (addr_fr_ty_err_to_rx ||
+                                     crc_err_to_rx ||
+                                     oaf_fr_sz_to_rx ||
+                                     iaf_fr_sz_to_rx ||
+                                     discard_fr_to_rx ||
+                                     dat_prs_err_to_rx ||
+                                     align0_xmtd_to_rx || align1_xmtd_to_rx ||
+				     validg1_to_rx || validg2_to_rx ||
+				     validg3_to_rx || neg_to_rx || 
+				     ssp_to_rx || smp_to_rx || stp_to_rx ||
+                                     out_to_rx ||
+                                     1'b0 /*conn_sta_to_rx*/ || close_affl_to_rx ||
+				     dword_valid_to_rx || rrdy_det_to_rx || 
+                                     latched_hold_changed_tx ||
+				     cominit_det_changed_tx || 
+				     comsas_det_changed_tx ||
+				     cominit_sent_changed_tx || 
+				     comsas_sent_changed_tx ||
+				     iaf_sent_to_rx || hard_reset_to_rx ||
+				     soaf_to_rx || eoaf_to_rx || aip_to_rx ||
+				     open_acc_to_rx || open_rej_to_rx ||
+				     sof_det_to_rx || eof_det_to_rx ||
+				     ack_det_to_rx || nak_det_to_rx ||
+				     sata_xrdy_to_rx || sata_rrdy_to_rx ||
+				     hold_to_rx || holda_to_rx || wtrm_to_rx ||
+				     rok_to_rx || rerr_to_rx || sync_to_rx ||
+				     sata_sof_to_rx || sata_eof_to_rx ||
+				     smp_req_fn_valid_tx || 
+				     smp_res_fn_valid_tx ||
+				     protocol_valid_tx || done_to_rx ||
+
+				     /*tgt_prt_tag_valid_tx*/ 1'b0  ||
+				     close_to_rx || change_to_rx ||
+				     info_unit_type_valid_tx || 
+				     data_frame_count_valid_tx || 
+				     r_soaf_detected_to_rx_changed || 
+				     r_sof_det_to_rx_changed || 
+				     addr_frame_type_valid_tx || 
+				     break_det_to_rx || prim_violation_to_rx ||
+				     initiator_target_valid_tx); //|| 
+				     //sas_valid_to_rx);
+				     //(INTERFACE_TYPE >= 1 ? 1'b0 : sas_valid_to_rx));
+
+  assign signals_from_rx_to_tx = {addr_fr_ty_err_from_rx,
+                                  crc_err_from_rx,
+                                  oaf_fr_sz_from_rx,
+                                  iaf_fr_sz_from_rx,
+                                  discard_fr_from_rx,
+                                  dat_prs_err_from_rx,
+                                  align0_xmtd_from_rx, align1_xmtd_from_rx,
+				  validg1_from_rx, validg2_from_rx,
+				  validg3_from_rx, neg_from_rx, 
+				  ssp_from_rx, smp_from_rx, stp_from_rx,
+                                  out_from_rx,  
+                                  1'b0, //conn_sta_from_rx, 
+				  close_affl_from_rx, tgt_prt_tag_from_rx,
+				  dword_valid_from_rx, rrdy_det_from_rx, 
+				  latched_hold_from_rx,
+                                  cominit_det_from_rx, comsas_det_from_rx,
+				  cominit_sent_from_rx, comsas_sent_from_rx,
+				  iaf_sent_from_rx, hard_reset_from_rx,
+				  soaf_from_rx, eoaf_from_rx, aip_from_rx,
+				  open_acc_from_rx, open_rej_from_rx,
+				  sof_det_from_rx, eof_det_from_rx,
+				  ack_det_from_rx, nak_det_from_rx,
+				  sata_xrdy_from_rx, sata_rrdy_from_rx,
+				  hold_from_rx, holda_from_rx, wtrm_from_rx,
+				  rok_from_rx, rerr_from_rx, sync_from_rx,
+				  sata_sof_from_rx, sata_eof_from_rx,
+				  smp_req_fn_from_rx[7:0], 
+				  smp_res_fn_from_rx[7:0], 
+				  protocol_from_rx[2:0], done_from_rx,
+				  close_from_rx, change_from_rx, 
+				  info_unit_from_rx[7:0], 
+				  read_data_from_rx[31:0], 
+				  r_soaf_detected_from_rx, r_sof_det_from_rx,
+				  addr_type_from_rx[3:0], break_det_from_rx,
+				  prim_violation_from_rx, ini_tar_from_rx,
+				  sas_valid_from_rx};
+
+  assign from_rx_to_tx_fifo_write = (addr_fr_ty_err_from_rx ||
+                                     crc_err_from_rx ||
+                                     oaf_fr_sz_from_rx ||
+                                     iaf_fr_sz_from_rx ||
+                                     discard_fr_from_rx ||
+                                     dat_prs_err_from_rx ||
+                                     align0_xmtd_from_rx || 
+				     align1_xmtd_from_rx ||
+				     validg1_from_rx || validg2_from_rx ||
+				     validg3_from_rx ||  neg_from_rx ||
+				     ssp_from_rx || smp_from_rx || 
+				     stp_from_rx ||
+                                     out_from_rx ||
+                                     1'b0 /*conn_sta_from_rx*/ || close_affl_from_rx ||
+				     dword_valid_from_rx || rrdy_det_from_rx ||
+                                     latched_hold_changed_rx ||
+				     cominit_det_changed_rx || 
+				     comsas_det_changed_rx ||
+				     cominit_sent_changed_rx ||
+				     comsas_sent_changed_rx ||
+				     iaf_sent_from_rx || hard_reset_from_rx ||
+				     soaf_from_rx || eoaf_from_rx ||
+				     aip_from_rx || open_acc_from_rx ||
+				     open_rej_from_rx || sof_det_from_rx ||
+				     eof_det_from_rx || ack_det_from_rx ||
+				     nak_det_from_rx || sata_xrdy_from_rx ||
+				     sata_rrdy_from_rx || hold_from_rx ||
+				     holda_from_rx || wtrm_from_rx ||
+				     rok_from_rx || rerr_from_rx ||
+				     sync_from_rx || sata_sof_from_rx ||
+				     sata_eof_from_rx || smp_req_fn_valid_rx ||
+				     smp_res_fn_valid_rx || 
+				     protocol_valid_rx || done_from_rx ||
+
+				     /*tgt_prt_tag_valid_rx*/ 1'b0 ||
+				     close_from_rx || change_from_rx ||
+				     info_unit_type_valid_rx || 
+				     data_frame_count_valid_rx ||
+				     r_soaf_detected_from_rx_changed || 
+				     r_sof_det_from_rx_changed || 
+				     addr_frame_type_valid_rx || 
+				     break_det_from_rx || 
+				     prim_violation_from_rx ||
+				     initiator_target_valid_rx);// ||
+				     //sas_valid_from_rx);
+				     //(INTERFACE_TYPE >= 1 ? 1'b0 : sas_valid_from_rx));
+
+  `protected
+
+    MTI!#Vvu#r=,+O!aZwaAQJji~+jKJJjvG>Xxm}?{u("7iTn|#E#<,QH]~T=@[unT*@xwECg5s1I"
+    {R2+AjQkt*GN-[o}=*C#Xwvj}i,*osa>d@\2uaa+{ToeGp,vo=sia#7X@ZYHWB$<YBC3?~v,T>71
+    ;A[^[I_mnnD$>J,<KP\AY*uDDvkAO[l,2~}w\Tu^*xWSg+T[3-oFH}#pek3'/7R1<n}2sV3TAG~Z
+    [p=7vg.ApCBz7?*s@'*[,nw?rl^xB<r2^loo+-[^l*BGXu$ZXV{$5D=}ATW^?!;-x|e$i2TYnksu
+    WOEeEoz+^,7Z7ngfo^R1TU\>57n'aRn~ar*lFoCXrLpl-G<>[rA'RJ3Glp@[p^QzTzaU}<<sQ^l#
+    R;e~YnAET_lpsEX>\Btli[\eolXC-z@VeHk$\pm$3nHs>WU@*em_'!DVv?Zjr{l'G]w[OvUpI@xi
+    B;^ujmrsm3wrQZJy}37^'v]RQAo[<*>Ac*kTZQjV#VEB!1'WV_V,J!}Go*EV+5UGuzmI_=#O2BYZ
+    T1lVaYE_QoRloUsKX3YHD}m3oahHYWH%FQ50*5=^#Uv?n\{GCnT#*<U->HG[Cxr2K-WdBD#vzX*E
+    5k*D^NtHBR<prUJh<}uY3U~ILkHR3Q;{_~rB5kDYwy[B3O3TAB[ZEGMCPQ\xi['VHL5@Gl6KQ[Wl
+    _E{Duau+7Uk}@TJ7mYVcKw><^![nU[XQ,<avu^;~=YCx_-Be4aA+wrJ{$lK;I$+vv{rjDwl'z*D+
+    2kQI_YpA-+*3w}JA7_V<p17n@98,S\3puwB~VA[
+`endprotected
+
+  wire [31:0] tx_cominit_idle_time_muxed;
+  wire [31:0] tx_comsas_idle_time_muxed;
+  wire [31:0] rx_cominit_idle_time_muxed_min;
+  wire [31:0] rx_cominit_idle_time_muxed_max;
+  wire [31:0] rx_comsas_idle_time_muxed_min;
+  wire [31:0] rx_comsas_idle_time_muxed_max;
+  wire [31:0] tx_cominit_neg_time_muxed;
+  wire [31:0] tx_comsas_neg_time_muxed;
+  wire [31:0] rx_cominit_neg_time_muxed;
+  wire [31:0] rx_comsas_neg_time_muxed;
+  wire [31:0] rate_change_delay_muxed;
+  wire [31:0] spd_neg_lock_time_muxed;
+  wire [31:0] spd_neg_transmit_time_muxed;
+  wire [31:0] hotplug_timeout_muxed;
+  wire [31:0] comsas_timeout_muxed;
+  wire [31:0] hard_reset_timeout_muxed;
+  wire [31:0] ident_frame_timeout_muxed;
+  wire [31:0] break_timeout_muxed;
+  wire [31:0] open_addr_res_timeout_muxed;
+  wire [31:0] credit_timeout_muxed;
+  wire [31:0] ack_nak_timeout_muxed;
+  wire [31:0] close_timeout_muxed; 
+  wire [31:0] done_timeout_muxed; 
+
+  // Transmitter module instantiation
+
+  assign tx_cominit_idle_time_muxed = 
+	    ((^tx_cominit_idle_time) === 1'bx) ? 480 :
+               tx_cominit_idle_time;
+
+  assign tx_comsas_idle_time_muxed = 
+            ((^tx_comsas_idle_time) === 1'bx) ? 1440 :
+               tx_comsas_idle_time;
+
+  assign rx_cominit_idle_time_muxed_min =
+            ((^rx_cominit_idle_time_min) === 1'bx) ? 260 :
+               rx_cominit_idle_time_min;
+
+  assign rx_cominit_idle_time_muxed_max =
+            ((^rx_cominit_idle_time_max) === 1'bx) ? 780 :
+               rx_cominit_idle_time_max;
+
+  assign rx_comsas_idle_time_muxed_min =
+            ((^rx_comsas_idle_time_min) === 1'bx) ? 780 :
+               rx_comsas_idle_time_min;
+
+  assign rx_comsas_idle_time_muxed_max =
+            ((^rx_comsas_idle_time_max) === 1'bx) ? 2360 :
+               rx_comsas_idle_time_max;
+
+  assign tx_cominit_neg_time_muxed = 
+            ((^tx_cominit_neg_time) === 1'bx) ? 800 :
+               tx_cominit_neg_time;
+
+  assign tx_comsas_neg_time_muxed = 
+            ((^tx_comsas_neg_time) === 1'bx) ? 2400 :
+               tx_comsas_neg_time;
+
+  assign rx_cominit_neg_time_muxed = 
+            ((^rx_cominit_neg_time) === 1'bx) ? 800 :
+               rx_cominit_neg_time;
+
+  assign rx_comsas_neg_time_muxed = 
+            ((^rx_comsas_neg_time) === 1'bx) ? 2400 :
+               rx_comsas_neg_time;
+
+  assign rate_change_delay_muxed = 
+            ((^rate_change_delay) === 1'bx) ? 750000 :
+               rate_change_delay;
+
+  assign spd_neg_lock_time_muxed = 
+            ((^spd_neg_lock_time) === 1'bx) ? 153600 :
+               spd_neg_lock_time;
+
+  assign spd_neg_transmit_time_muxed = 
+            ((^spd_neg_transmit_time) === 1'bx) ? 163840 :
+               spd_neg_transmit_time;
+
+  assign hotplug_timeout_muxed = 
+            ((^hotplug_timeout) === 1'bx)? 1499250 :
+               hotplug_timeout;
+
+  assign comsas_timeout_muxed = 
+            ((^comsas_timeout) === 1'bx) ? 20480 :
+               comsas_timeout;
+
+  assign hard_reset_timeout_muxed = 
+            ((^hard_reset_timeout) === 1'bx) ? 1499250 :
+               hard_reset_timeout;
+
+  assign ident_frame_timeout_muxed = 
+            ((^ident_frame_timeout) === 1'bx) ? 1499250 :
+               ident_frame_timeout;
+
+  assign break_timeout_muxed = 
+            ((^break_timeout) === 1'bx) ? 1499250 :
+               break_timeout;
+
+  assign open_addr_res_timeout_muxed = 
+            ((^open_addr_res_timeout) === 1'bx) ? 1499250 :
+               open_addr_res_timeout;
+
+  assign credit_timeout_muxed = 
+            ((^credit_timeout) === 1'bx) ? 1499250 :
+               credit_timeout;
+
+  assign ack_nak_timeout_muxed = 
+            ((^ack_nak_timeout) === 1'bx) ? 1499250 :
+               ack_nak_timeout;
+
+  assign close_timeout_muxed = 
+            ((^close_timeout) === 1'bx) ? 1499250 :
+               close_timeout;
+
+  assign done_timeout_muxed = 
+            ((^done_timeout) === 1'bx) ? 1499250 :
+               done_timeout;
+
+
+  qvl_sas_link_monitor # 
+               (0,                           // Constraints_mode
+                1,		             // TX_INTERFACE 	
+                SAS_DEVICE_TYPE,             // SAS_DEVICE_TYPE
+                INTERFACE_TYPE,              // INTERFACE_TYPE
+                ZI_FINAL_DDR,                   // DOUBLE_DATA_RATE
+                ELECTRICAL_IDLE_TIME_BIT_PATTERN, // ELECTRICAL_IDLE_VAL
+                TX_DEVICE_SPEED_RATE,        // DEVICE_SPEED_RATE
+                REPEATED_PRIMITIVE_SEQ,      // REPEAT_PRIMITIVE_SEQ_ENABLE
+                TRANSPORT_LAYER_CHECKS_ENABLE, 
+                                             //TRANSACTION_LAYER_CHECKS_ENABLE
+		TX_MAX_SUPPORTED_RATE,        // MAX RATE SUPPORTED BY DEVICE. 
+		DISABLE_DESCRAMBLER,  //Disable/Enable scrambler
+                PHY_RESET_SEQ_CHECK_ENABLE, // Reset Sequence Check Enable
+		RESERVED_FIELD_CHECK_ENABLE, // Reserved field check enable
+                VENDOR_SPECIFIC_ENCODING_ENABLE // Vendor specific encoding 
+               )
+                 TX (.clk(tx_clk),
+                     .areset(areset),
+                     .reset(reset),
+                     .data_plus(tx_link_data),
+                     .data_minus(tx_data_minus),
+                     .bypass_reset_seq(bypass_reset_sequence),
+		     .start_speed_negotiation(start_speed_negotiation),
+		     .tx_cominit_idle_time(tx_cominit_idle_time_muxed),
+		     .tx_comsas_idle_time(tx_comsas_idle_time_muxed),
+		     .rx_cominit_idle_time_min(rx_cominit_idle_time_muxed_min),
+		     .rx_cominit_idle_time_max(rx_cominit_idle_time_muxed_max),
+		     .rx_comsas_idle_time_min(rx_comsas_idle_time_muxed_min),
+		     .rx_comsas_idle_time_max(rx_comsas_idle_time_muxed_max),
+		     .tx_cominit_neg_time(tx_cominit_neg_time_muxed),
+		     .tx_comsas_neg_time(tx_comsas_neg_time_muxed),
+		     .rx_cominit_neg_time(rx_cominit_neg_time_muxed),
+		     .rx_comsas_neg_time(rx_comsas_neg_time_muxed),
+		     .hotplug_timeout(hotplug_timeout_muxed),
+		     .comsas_timeout(comsas_timeout_muxed),
+		     .hard_reset_timeout(hard_reset_timeout_muxed),
+		     .ident_frame_timeout(ident_frame_timeout_muxed),
+		     .break_timeout(break_timeout_muxed),
+		     .open_addr_res_timeout(open_addr_res_timeout_muxed),
+		     .credit_timeout(credit_timeout_muxed),
+		     .ack_nak_timeout(ack_nak_timeout_muxed),
+		     .close_timeout(close_timeout_muxed),
+		     .done_timeout(done_timeout_muxed),
+		     .electrical_idle(tx_idle_signal),
+                     .cominit_det(cominit_det_to_rx) ,
+                     .cominit_det_received(signals_from_rx_to_tx_via_fifo[96]),
+                     .comsas_det(comsas_det_to_rx),
+                     .comsas_det_received(signals_from_rx_to_tx_via_fifo[95]),
+                     .cominit_sent(cominit_sent_to_rx),
+                     .cominit_sent_received(signals_from_rx_to_tx_via_fifo[94]),
+                     .comsas_sent(comsas_sent_to_rx),
+                     .comsas_sent_received(signals_from_rx_to_tx_via_fifo[93]),
+                     .iaf_sent(iaf_sent_to_rx),
+                     .iaf_received(signals_from_rx_to_tx_via_fifo[92]),
+                     .hard_reset_detected(hard_reset_to_rx),
+                     .hard_reset_received(signals_from_rx_to_tx_via_fifo[91]),
+                     .soaf_detected(soaf_to_rx),
+                     .soaf_received(signals_from_rx_to_tx_via_fifo[90]),
+                     .eoaf_detected(eoaf_to_rx),
+                     .eoaf_received(signals_from_rx_to_tx_via_fifo[89]),
+                     .aip(aip_to_rx),
+                     .aip_received(signals_from_rx_to_tx_via_fifo[88]),
+                     .open_accept(open_acc_to_rx),
+                     .open_accept_received(signals_from_rx_to_tx_via_fifo[87]),
+                     .open_reject(open_rej_to_rx),
+                     .open_reject_received(signals_from_rx_to_tx_via_fifo[86]),
+                     .sof_det(sof_det_to_rx),
+                     .eof_det(eof_det_to_rx),
+                     .ack_det(ack_det_to_rx),
+                     .nak_det(nak_det_to_rx),
+                     .sof_det_received(signals_from_rx_to_tx_via_fifo[85]),
+                     .eof_det_received(signals_from_rx_to_tx_via_fifo[84]),
+                     .ack_det_received(signals_from_rx_to_tx_via_fifo[83]),
+                     .nak_det_received(signals_from_rx_to_tx_via_fifo[82]),
+                     .sata_sof_det(sata_sof_to_rx),
+                     .sata_sof_det_received(signals_from_rx_to_tx_via_fifo[73]),
+                     .sata_eof_det(sata_eof_to_rx),
+                     .sata_eof_det_received(signals_from_rx_to_tx_via_fifo[72]), 
+                     .sata_xrdy_det(sata_xrdy_to_rx),
+                     .sata_xrdy_det_received(signals_from_rx_to_tx_via_fifo[81]),
+                     .sata_rrdy_det(sata_rrdy_to_rx),
+                     .sata_rrdy_det_received(signals_from_rx_to_tx_via_fifo[80]),
+                     .hold_det(hold_to_rx),
+                     .hold_det_received(signals_from_rx_to_tx_via_fifo[79]),
+                     .holda_det(holda_to_rx),
+                     .holda_det_received(signals_from_rx_to_tx_via_fifo[78]),
+                     .wtrm_det(wtrm_to_rx),
+                     .wtrm_det_received(signals_from_rx_to_tx_via_fifo[77]),
+                     .r_ok_det(rok_to_rx),
+                     .r_ok_det_received(signals_from_rx_to_tx_via_fifo[76]),
+                     .r_err_det(rerr_to_rx),
+                     .r_err_det_received(signals_from_rx_to_tx_via_fifo[75]),
+                     .sync_det(sync_to_rx),
+                     .sync_det_received(signals_from_rx_to_tx_via_fifo[74]),
+                     .smp_res_fn(smp_res_fn_to_rx),
+                     .smp_res_fn_received(signals_from_rx_to_tx_via_fifo[63:56]),
+                     .smp_req_fn(smp_req_fn_to_rx),
+                     .smp_req_fn_received(signals_from_rx_to_tx_via_fifo[71:64]),
+                     .protocol(protocol_to_rx),
+                     .protocol_received(signals_from_rx_to_tx_via_fifo[55:53]),
+                     .close_det(close_to_rx),
+                     .close_det_received(signals_from_rx_to_tx_via_fifo[51]),
+		     .close_affliation_det(close_affl_to_rx),
+		     .close_affliation_det_received(signals_from_rx_to_tx_via_fifo[116]),
+                     .done_det(done_to_rx),
+                     .done_det_received(signals_from_rx_to_tx_via_fifo[52]),
+                     .info_unit_type(info_unit_to_rx),
+                     .info_unit_type_received(signals_from_rx_to_tx_via_fifo[49:42]),
+                     .data_frame_count(read_data_to_rx),
+                     .data_frame_count_received(signals_from_rx_to_tx_via_fifo[41:10]),
+                     .r_soaf_detected(r_soaf_detected_to_rx),
+                     .r_soaf_received(signals_from_rx_to_tx_via_fifo[9]),
+                     .addr_frame_type(addr_type_to_rx),
+                     .addr_frame_type_received(signals_from_rx_to_tx_via_fifo[7:4]),
+                     .break_det(break_det_to_rx),
+                     .break_det_received(signals_from_rx_to_tx_via_fifo[3]),
+                     .r_sof_detected(r_sof_det_to_rx),
+                     .r_sof_detected_received(signals_from_rx_to_tx_via_fifo[8]),
+                     .primitive_violation(prim_violation_to_rx),
+                     .primitive_violation_received(signals_from_rx_to_tx_via_fifo[2]),
+                     .change_det(change_to_rx),
+                     .change_det_received(signals_from_rx_to_tx_via_fifo[50]),
+                     .initiator_target(ini_tar_to_rx),
+                     .initiator_target_received(signals_from_rx_to_tx_via_fifo[1]),
+                     .latched_hold_det(latched_hold_to_rx),
+                     .latched_hold_det_changed(latched_hold_changed_tx),
+                     .latched_hold_det_received(signals_from_rx_to_tx_via_fifo[97]),
+                     .rrdy_det(rrdy_det_to_rx),
+                     .rrdy_det_received(signals_from_rx_to_tx_via_fifo[98]),
+                     .sas_valid(sas_valid_to_rx),
+		     .sas_valid_received(sas_vld_from_rx),
+                     //.sas_valid_received(signals_from_rx_to_tx_via_fifo[0]),
+                     //.sas_valid_received(INTERFACE_TYPE >= 1 ? sas_valid_from_rx : signals_from_rx_to_tx_via_fifo[0]),
+		     .dword_valid(dword_valid_to_rx),
+		     .dword_valid_received(signals_from_rx_to_tx_via_fifo[99]),
+		     .smp_req_fn_valid (smp_req_fn_valid_tx),
+	             .smp_res_fn_valid (smp_res_fn_valid_tx),
+		     .protocol_valid (protocol_valid_tx),
+		     .tgt_prt_tag_valid(tgt_prt_tag_valid_tx),
+		     .info_unit_type_valid (info_unit_type_valid_tx),
+		     .data_frame_count_valid(data_frame_count_valid_tx),
+		     .addr_frame_type_valid (addr_frame_type_valid_tx),
+		     .initiator_target_valid(initiator_target_valid_tx),
+		     .cominit_det_changed (cominit_det_changed_tx),
+		     .comsas_det_changed (comsas_det_changed_tx),
+		     .cominit_sent_changed (cominit_sent_changed_tx),
+		     .comsas_sent_changed (comsas_sent_changed_tx),
+		     .r_soaf_detected_changed (r_soaf_detected_to_rx_changed),
+		     .r_sof_det_changed (r_sof_det_to_rx_changed),
+		     .level_select_temp (level_select_temp_tx),
+		     .target_port_transfer_tag(tgt_prt_tag_to_rx),
+		     .target_port_transfer_tag_rcvd(signals_from_rx_to_tx_via_fifo[115:100]),
+		     .connection_status(conn_sta_to_rx),
+		     .connection_status_received(conn_sta_from_rx),//(signals_from_rx_to_tx_via_fifo[117]),
+                     .illegal_primitive_inside_ssp_connection(ssp_to_rx),
+                     .illegal_prim_ssp_rcvd(signals_from_rx_to_tx_via_fifo[121]),
+                     .illegal_primitive_inside_smp_connection(smp_to_rx),
+                     .illegal_prim_smp_rcvd(signals_from_rx_to_tx_via_fifo[120]),
+                     .illegal_primitive_inside_stp_connection(stp_to_rx),
+                     .illegal_prim_stp_rcvd(signals_from_rx_to_tx_via_fifo[119]),
+                     .illegal_primitive_outside_connection(out_to_rx),
+                     .illegal_prim_out_rcvd(signals_from_rx_to_tx_via_fifo[118]),
+		     .valid_g1_state(validg1_to_rx),
+		     .valid_g1_state_rcvd(signals_from_rx_to_tx_via_fifo[125]),
+		     .valid_g2_state(validg2_to_rx),
+		     .valid_g2_state_rcvd(signals_from_rx_to_tx_via_fifo[124]),
+		     .valid_g3_state(validg3_to_rx),
+		     .valid_g3_state_rcvd(signals_from_rx_to_tx_via_fifo[123]),
+		     .neg_state(neg_to_rx),
+		     .neg_state_rcvd(signals_from_rx_to_tx_via_fifo[122]),
+		     .transaction_in_g1rate(transaction_in_g1rate),
+		     .align0_xmtd(align0_xmtd_to_rx),
+		     .align1_xmtd(align1_xmtd_to_rx),
+                     .disable_scr_count(disable_scr_count),
+                     .electrical_idle_detected(electrical_idle_detected),
+		     .speed_neg_status(speed_neg_status),
+		     .next_start_rcd(start_rcd),
+		     .next_parallel_rcd(parallel_rcd),
+                     .start_speed_neg(start_speed_neg),
+                     .reset_expect(reset_expect),
+		     .current_negotiated_rate(current_negotiated_rate),
+                     .addr_frame_type_err(addr_fr_ty_err_to_rx),
+                     .addr_frame_type_err_rcvd
+                              (signals_from_rx_to_tx_via_fifo[133]),
+                     .crc_err(crc_err_to_rx), 
+                     .crc_err_rcvd(signals_from_rx_to_tx_via_fifo[132]),
+                     .oaf_max_frame_size_err(oaf_fr_sz_to_rx),
+                     .oaf_max_frame_size_err_rcvd
+                                (signals_from_rx_to_tx_via_fifo[131]),
+                     .iaf_max_frame_size_err(iaf_fr_sz_to_rx),
+                     .iaf_max_frame_size_err_rcvd
+                                           (signals_from_rx_to_tx_via_fifo[130]),
+                     .discard_frame(discard_fr_to_rx),
+                     .discard_frame_rcvd(signals_from_rx_to_tx_via_fifo[129]),
+                     .data_pres_err(dat_prs_err_to_rx),
+                     .data_pres_err_rcvd(signals_from_rx_to_tx_via_fifo[128]),
+                     .credit_exhausted(credit_exhausted_from_tx),
+                     .credit_exhausted_rcvd(credit_exhausted_from_rx),
+		     .collect_stats(collect_stats)
+                    ); 
+ 
+  qvl_sas_link_monitor # 
+               (Constraints_Mode,            // Constraints_mode
+                0,                           // TX_INTERFACE
+                SAS_DEVICE_TYPE,             // SAS_DEVICE_TYPE
+                INTERFACE_TYPE,              // INTERFACE_TYPE
+                ZI_FINAL_DDR,                   // DOUBLE_DATA_RATE
+                ELECTRICAL_IDLE_TIME_BIT_PATTERN,// ELECTRICAL_IDLE_VAL
+                RX_DEVICE_SPEED_RATE,        // DEVICE_SPEED_RATE
+                REPEATED_PRIMITIVE_SEQ,      // REPEAT_PRIMITIVE_SEQ_ENABLE
+                TRANSPORT_LAYER_CHECKS_ENABLE, 
+                                          // TRANSACTION_LAYER_CHECKS_ENABLE
+		RX_MAX_SUPPORTED_RATE,         // MAX. RATE SUPPORTED BY DEVICE
+		DISABLE_DESCRAMBLER,     //Disable/Enable scrambler
+                PHY_RESET_SEQ_CHECK_ENABLE,   // Reset Sequence Check Enable
+		RESERVED_FIELD_CHECK_ENABLE,  // Reserved field check enable
+                VENDOR_SPECIFIC_ENCODING_ENABLE // Vendor specific enable
+               )
+                         RX (.clk(rx_clk),
+                             .areset(areset),
+                             .reset(reset),
+                             .data_plus(rx_final_data_plus),
+                             .data_minus(rx_data_minus),
+                             .bypass_reset_seq(bypass_reset_sequence),
+			     .start_speed_negotiation(start_speed_negotiation),
+                             .tx_cominit_idle_time(tx_cominit_idle_time_muxed),
+                             .tx_comsas_idle_time(tx_comsas_idle_time_muxed),
+                             .rx_cominit_idle_time_min
+                                        (rx_cominit_idle_time_muxed_min),
+                             .rx_cominit_idle_time_max
+                                        (rx_cominit_idle_time_muxed_max),
+                             .rx_comsas_idle_time_min
+                                        (rx_comsas_idle_time_muxed_min),
+                             .rx_comsas_idle_time_max
+                                        (rx_comsas_idle_time_muxed_max), 
+                             .tx_cominit_neg_time(tx_cominit_neg_time_muxed),
+                             .tx_comsas_neg_time(tx_comsas_neg_time_muxed),
+                             .rx_cominit_neg_time(rx_cominit_neg_time_muxed),
+                             .rx_comsas_neg_time(rx_comsas_neg_time_muxed),
+                             .hotplug_timeout(hotplug_timeout_muxed),
+                             .comsas_timeout(comsas_timeout_muxed),
+                             .hard_reset_timeout(hard_reset_timeout_muxed),
+                             .ident_frame_timeout(ident_frame_timeout_muxed),
+                             .break_timeout(break_timeout_muxed),
+                             .open_addr_res_timeout(open_addr_res_timeout_muxed),
+                             .credit_timeout(credit_timeout_muxed),
+                             .ack_nak_timeout(ack_nak_timeout_muxed),
+                             .close_timeout(close_timeout_muxed),
+                             .done_timeout(done_timeout_muxed),
+			     .electrical_idle(rx_idle_signal),
+                             .cominit_det(cominit_det_from_rx),
+                             .cominit_det_received(signals_from_tx_to_rx_via_fifo[96]),
+                             .comsas_det(comsas_det_from_rx),
+                             .comsas_det_received(signals_from_tx_to_rx_via_fifo[95]),
+                             .cominit_sent(cominit_sent_from_rx),
+                             .cominit_sent_received(signals_from_tx_to_rx_via_fifo[94]),
+                             .comsas_sent(comsas_sent_from_rx),
+                             .comsas_sent_received(signals_from_tx_to_rx_via_fifo[93]),
+                             .iaf_sent(iaf_sent_from_rx),
+                             .iaf_received(signals_from_tx_to_rx_via_fifo[92]),
+                             .hard_reset_detected(hard_reset_from_rx),
+                             .hard_reset_received(signals_from_tx_to_rx_via_fifo[91]),
+                             .soaf_detected(soaf_from_rx),
+                             .soaf_received(signals_from_tx_to_rx_via_fifo[90]),
+                             .eoaf_detected(eoaf_from_rx),
+                             .eoaf_received(signals_from_tx_to_rx_via_fifo[89]),
+                             .aip(aip_from_rx),
+                             .aip_received(signals_from_tx_to_rx_via_fifo[88]),
+                             .open_accept(open_acc_from_rx),
+                             .open_accept_received(signals_from_tx_to_rx_via_fifo[87]),
+                             .open_reject(open_rej_from_rx),
+                             .open_reject_received(signals_from_tx_to_rx_via_fifo[86]),
+                             .sof_det(sof_det_from_rx),
+                             .eof_det(eof_det_from_rx),
+                             .ack_det(ack_det_from_rx),
+                             .nak_det(nak_det_from_rx),
+                             .sof_det_received(signals_from_tx_to_rx_via_fifo[85]),
+                             .eof_det_received(signals_from_tx_to_rx_via_fifo[84]),
+                             .ack_det_received(signals_from_tx_to_rx_via_fifo[83]),
+                             .nak_det_received(signals_from_tx_to_rx_via_fifo[82]),
+                             .sata_sof_det(sata_sof_from_rx),
+                             .sata_sof_det_received(signals_from_tx_to_rx_via_fifo[73]),
+                             .sata_eof_det(sata_eof_from_rx),
+                             .sata_eof_det_received(signals_from_tx_to_rx_via_fifo[72]),
+                             .sata_xrdy_det(sata_xrdy_from_rx),
+                             .sata_xrdy_det_received(signals_from_tx_to_rx_via_fifo[81]),
+                             .sata_rrdy_det(sata_rrdy_from_rx),
+                             .sata_rrdy_det_received(signals_from_tx_to_rx_via_fifo[80]),
+                             .hold_det(hold_from_rx),
+                             .hold_det_received(signals_from_tx_to_rx_via_fifo[79]),
+                             .holda_det(holda_from_rx),
+                             .holda_det_received(signals_from_tx_to_rx_via_fifo[78]),
+                             .wtrm_det(wtrm_from_rx),
+                             .wtrm_det_received(signals_from_tx_to_rx_via_fifo[77]),
+                             .r_ok_det(rok_from_rx),
+                             .r_ok_det_received(signals_from_tx_to_rx_via_fifo[76]),
+                             .r_err_det(rerr_from_rx),
+                             .r_err_det_received(signals_from_tx_to_rx_via_fifo[75]),
+                             .sync_det(sync_from_rx),
+                             .sync_det_received(signals_from_tx_to_rx_via_fifo[74]),
+                             .smp_res_fn(smp_res_fn_from_rx),
+                             .smp_res_fn_received(signals_from_tx_to_rx_via_fifo[63:56]),
+                             .smp_req_fn(smp_req_fn_from_rx),
+                             .smp_req_fn_received(signals_from_tx_to_rx_via_fifo[71:64]),
+                             .protocol(protocol_from_rx),
+                             .protocol_received(signals_from_tx_to_rx_via_fifo[55:53]),
+                             .info_unit_type(info_unit_from_rx),
+                        .info_unit_type_received(signals_from_tx_to_rx_via_fifo[49:42]),
+                             .close_det(close_from_rx),
+                             .close_det_received(signals_from_tx_to_rx_via_fifo[51]),
+			     .close_affliation_det(close_affl_from_rx),
+			     .close_affliation_det_received(signals_from_tx_to_rx_via_fifo[116]),
+                             .done_det(done_from_rx),
+                             .done_det_received(signals_from_tx_to_rx_via_fifo[52]),
+                             .data_frame_count(read_data_from_rx),
+                       .data_frame_count_received(signals_from_tx_to_rx_via_fifo[41:10]),
+                             .r_soaf_detected(r_soaf_detected_from_rx),
+                             .r_soaf_received(signals_from_tx_to_rx_via_fifo[9]),
+                             .addr_frame_type(addr_type_from_rx),
+                      .addr_frame_type_received(signals_from_tx_to_rx_via_fifo[7:4]),
+                             .break_det(break_det_from_rx),
+                             .break_det_received(signals_from_tx_to_rx_via_fifo[3]),
+                             .r_sof_detected(r_sof_det_from_rx),
+                             .r_sof_detected_received(signals_from_tx_to_rx_via_fifo[8]),
+                            .primitive_violation(prim_violation_from_rx),
+                        .primitive_violation_received(signals_from_tx_to_rx_via_fifo[2]),
+                             .change_det(change_from_rx),
+                             .change_det_received(signals_from_tx_to_rx_via_fifo[50]),
+                             .initiator_target(ini_tar_from_rx),
+                         .initiator_target_received(signals_from_tx_to_rx_via_fifo[1]),
+                             .latched_hold_det(latched_hold_from_rx),
+                             .latched_hold_det_changed(latched_hold_changed_rx),
+                          .latched_hold_det_received(signals_from_tx_to_rx_via_fifo[97]),
+                             .rrdy_det(rrdy_det_from_rx),
+                             .rrdy_det_received(signals_from_tx_to_rx_via_fifo[98]),
+                             .sas_valid(sas_valid_from_rx),
+			     .sas_valid_received(sas_vld_to_rx), 
+                             //.sas_valid_received(signals_from_tx_to_rx_via_fifo[0]),
+                             //.sas_valid_received(INTERFACE_TYPE >= 1 ? sas_valid_to_rx : signals_from_tx_to_rx_via_fifo[0]),
+			     .dword_valid(dword_valid_from_rx),
+			     .dword_valid_received(signals_from_tx_to_rx_via_fifo[99]),
+			     .smp_req_fn_valid (smp_req_fn_valid_rx),
+			     .smp_res_fn_valid (smp_res_fn_valid_rx),
+			     .protocol_valid (protocol_valid_rx),
+			     .tgt_prt_tag_valid(tgt_prt_tag_valid_rx),
+			     .info_unit_type_valid (info_unit_type_valid_rx),
+			     .data_frame_count_valid(data_frame_count_valid_rx),
+			     .addr_frame_type_valid (addr_frame_type_valid_rx),
+			     .initiator_target_valid(initiator_target_valid_rx),
+			     .cominit_det_changed (cominit_det_changed_rx),
+			     .comsas_det_changed (comsas_det_changed_rx),
+			     .cominit_sent_changed (cominit_sent_changed_rx),
+			     .comsas_sent_changed (comsas_sent_changed_rx),
+			     .r_soaf_detected_changed (r_soaf_detected_from_rx_changed),
+			     .r_sof_det_changed (r_sof_det_from_rx_changed),
+			     .level_select_temp (level_select_temp_rx),
+			     .target_port_transfer_tag(tgt_prt_tag_from_rx),
+			     .target_port_transfer_tag_rcvd(signals_from_tx_to_rx_via_fifo[115:100]),
+			     .connection_status(conn_sta_from_rx),
+			     .connection_status_received(conn_sta_to_rx),//(signals_from_tx_to_rx_via_fifo[117]),
+			     .illegal_primitive_inside_ssp_connection(ssp_from_rx),
+			     .illegal_prim_ssp_rcvd(signals_from_tx_to_rx_via_fifo[121]),
+			     .illegal_primitive_inside_smp_connection(smp_from_rx),
+			     .illegal_prim_smp_rcvd(signals_from_tx_to_rx_via_fifo[120]),
+			     .illegal_primitive_inside_stp_connection(stp_from_rx),
+			     .illegal_prim_stp_rcvd(signals_from_tx_to_rx_via_fifo[119]),
+			     .illegal_primitive_outside_connection(out_from_rx),
+			     .illegal_prim_out_rcvd(signals_from_tx_to_rx_via_fifo[118]),
+			     .valid_g1_state(validg1_from_rx),
+			     .valid_g1_state_rcvd(signals_from_tx_to_rx_via_fifo[125]),
+			     .valid_g2_state(validg2_from_rx),
+			     .valid_g2_state_rcvd(signals_from_tx_to_rx_via_fifo[124]),
+			     .valid_g3_state(validg3_from_rx),
+			     .valid_g3_state_rcvd(signals_from_tx_to_rx_via_fifo[123]),
+			     .neg_state(neg_from_rx),
+			     .neg_state_rcvd(signals_from_tx_to_rx_via_fifo[122]),
+			     .transaction_in_g1rate(1'b0),
+			     .align0_xmtd(align0_xmtd_from_rx),
+			     .align1_xmtd(align1_xmtd_from_rx),
+                             .disable_scr_count(),
+                             .electrical_idle_detected(),
+			     .speed_neg_status(speed_neg_status),
+			     .next_start_rcd(),
+			     .next_parallel_rcd(),
+                             .start_speed_neg(start_speed_neg),
+                             .reset_expect(reset_expect),
+			     .current_negotiated_rate(current_negotiated_rate),
+                             .addr_frame_type_err(addr_fr_ty_err_from_rx),
+                             .addr_frame_type_err_rcvd
+                                 (signals_from_tx_to_rx_via_fifo[133]),
+                             .crc_err(crc_err_from_rx), 
+                             .crc_err_rcvd(signals_from_tx_to_rx_via_fifo[132]),
+                             .oaf_max_frame_size_err(oaf_fr_sz_from_rx),
+                             .oaf_max_frame_size_err_rcvd
+                                 (signals_from_tx_to_rx_via_fifo[131]),
+                             .iaf_max_frame_size_err(iaf_fr_sz_from_rx),
+                             .iaf_max_frame_size_err_rcvd
+                                (signals_from_tx_to_rx_via_fifo[130]),
+                             .discard_frame(discard_fr_from_rx),
+                             .discard_frame_rcvd
+                                    (signals_from_tx_to_rx_via_fifo[129]),
+                             .data_pres_err(dat_prs_err_from_rx),
+                             .data_pres_err_rcvd
+                                   (signals_from_tx_to_rx_via_fifo[128]),
+                             .credit_exhausted(credit_exhausted_from_rx),
+                             .credit_exhausted_rcvd(credit_exhausted_from_tx),
+			     .collect_stats()
+                            );
+
+  //----------------------------------------------
+  // SAS speed negotiation module instantiation
+  //----------------------------------------------
+
+  qvl_sas_speed_negotiation #(INTERFACE_TYPE,
+				ZI_FINAL_DDR,
+				TX_MAX_SUPPORTED_RATE
+                               )                 
+               SPEED_NEGOTIATION (.clock(tx_clk),
+                                  .areset(areset),
+                                  .reset(reset), 
+				  .rate_change_delay(rate_change_delay_muxed),
+				  .spd_neg_lock_time(spd_neg_lock_time_muxed),
+				  .spd_neg_transmit_time(spd_neg_transmit_time_muxed),
+                                  .align0_rcvd
+					(signals_from_rx_to_tx_via_fifo[127]),
+                                  .align1_rcvd
+					(signals_from_rx_to_tx_via_fifo[126]), 
+                                  .align0_xmtd(align0_xmtd_to_rx),
+                                  .align1_xmtd(align1_xmtd_to_rx),
+                                  .sas_valid(sas_valid_to_rx),
+                                  .electrical_idle_detected
+                                        (electrical_idle_detected),
+                                  .transaction_in_g1rate
+                                       (transaction_in_g1rate),
+                                  .disable_scr_count(disable_scr_count),
+                                  .level_select(level_select_temp_tx),
+                                  .next_speed_negotiation_status(speed_neg_status),
+				  .start_rcd(start_rcd),
+				  .parallel_rcd(parallel_rcd),
+                                  .next_start_speed_neg(start_speed_neg),
+                                  .next_reset_expect(reset_expect),
+				  .current_negotiated_rate
+				       (current_negotiated_rate),
+                                  .collect_stats(collect_stats)
+                                  ); 
+
+  //**************************************************************
+  // FIFO module instantiations.  These FIFO modules are used to 
+  // synchronize the signals flow across the clock domains.
+  // Instantiation to TX monitor.
+  //**************************************************************
+
+  qvl_sas_fifo #(20, 134, ZI_FINAL_DDR) FROM_TX_TO_RX_FIFO 
+                       (.reset(reset),
+                        .areset(areset),
+                        .write_clk(tx_clk),
+                        .write_enable(from_tx_to_rx_fifo_write), 
+                        .read_clk(rx_clk),
+                        .read_enable(~tx_empty),
+                        .rd_level_select(level_select_temp_rx),
+                        .empty(tx_empty),
+                        .input_data(signals_from_tx_to_rx),
+                        .output_data(signals_from_tx_to_rx_via_fifo),
+			.transaction_in_g1rate(transaction_in_g1rate)
+                       );
+
+  //**************************************************************
+  // FIFO module instantiations.  These FIFO modules are used to
+  // synchronize the signals flow across the clock domains.
+  // Instantiation to RX monitor.
+  //**************************************************************
+
+  qvl_sas_fifo #(20, 134, ZI_FINAL_DDR) FROM_RX_TO_TX_FIFO
+                       (.reset(reset),
+                        .areset(areset),
+                        .write_clk(rx_clk),
+                        .write_enable(from_rx_to_tx_fifo_write),
+                        .read_clk(tx_clk),
+                        .read_enable(~rx_empty),
+                        .rd_level_select(level_select_temp_tx),
+                        .empty(rx_empty),
+                        .input_data(signals_from_rx_to_tx),
+                        .output_data(signals_from_rx_to_tx_via_fifo),
+			.transaction_in_g1rate(1'b0)
+                       );
+
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_sas_dynamic_timer_values_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sas_dynamic_timer_values_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sas_dynamic_timer_values_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sas_dynamic_timer_values_monitor
+`include "zi_cw_sas_dynamic_timer_values_monitor.zi_chx.inc"
+`endif
+`endif
+
+
+
+
+`qvlendmodule // end module qvl_sas_dynamic_timer_values_monitor.v
+
+/*************************************************************************
+*
+* PURPOSE      This file is part of 0-In CheckerWare.
+*              It describes the FIFO submodule that is instantiated in the
+*              qvl_sas_dynamic_timer_values_monitor module.
+*
+* DESCRIPTION  This module has a FIFO that enqueues and dequeus all the
+*              signals that flow between Rx link & Tx link modules.
+*
+* Last Modified Date : 19th March 2003 
+**************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+
+`qvlmodule qvl_sas_fifo
+           (reset,
+            areset,
+            write_clk,
+            write_enable,
+            read_clk,
+            read_enable,
+            rd_level_select,
+            empty,
+            input_data,
+            output_data,
+	    transaction_in_g1rate
+	    );
+ 
+  parameter ADD_WIDTH = 20;
+  wire [31:0] pw_ADD_WIDTH = ADD_WIDTH;
+  parameter DATA_BUS_WIDTH = 134;
+  wire [31:0] pw_DATA_BUS_WIDTH = DATA_BUS_WIDTH;
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+  parameter ALMOST_LIMIT = 4; // This is the minimum permissible value.
+  wire [31:0] pw_ALMOST_LIMIT = ALMOST_LIMIT;
+ 
+  input reset;
+  input areset;
+  input write_clk;
+  input write_enable;
+  input read_clk;
+  input read_enable;
+  input rd_level_select;
+  input [DATA_BUS_WIDTH-1:0] input_data;
+  output [DATA_BUS_WIDTH-1:0] output_data;
+  output empty;
+  input transaction_in_g1rate;
+
+  //reg [ADD_WIDTH:0] write_pointer_posedge;
+  //reg [ADD_WIDTH:0] write_pointer_negedge;
+  reg [ADD_WIDTH:0] write_pointer;
+
+  reg [ADD_WIDTH:0] read_pointer_posedge;
+  reg [ADD_WIDTH:0] read_pointer_negedge;
+  wire [ADD_WIDTH:0] read_pointer = rd_level_select ? read_pointer_posedge :
+                                                     read_pointer_negedge;
+  reg [DATA_BUS_WIDTH-1:0] fifo_memory [0:(1<<ADD_WIDTH)-1];
+
+  reg read_enable_pos, read_enable_neg;
+ 
+// Compare Read and Write pointers
+ 
+  wire compare_flag = (read_pointer[ADD_WIDTH-1:0] ==
+                         write_pointer[ADD_WIDTH-1:0]);
+
+//  Flag goes high if the lower order n-1 bits are equal
+                
+  wire [ADD_WIDTH:0] difference = (write_pointer - read_pointer);
+ 
+// Set Flags
+
+   wire empty = (compare_flag &&
+                  (write_pointer[ADD_WIDTH] === read_pointer[ADD_WIDTH]));
+                 // Empty goes high if the pointers ar equal and if the MSBs
+                 // are also equal.
+ 
+  wire full = (compare_flag &&
+                 (write_pointer[ADD_WIDTH] != read_pointer[ADD_WIDTH]));
+                 // Full goes high if the pointers ar equal and if the MSBs
+                 // are not equal (meaning that one pointer has wrapped and
+                 // the other has not).
+
+  wire [ADD_WIDTH-1:0] test = read_pointer[ADD_WIDTH-1:0]-1;
+  wire [DATA_BUS_WIDTH-1:0] previous_data_out = fifo_memory[test];
+
+ 
+ wire condition = (DOUBLE_DATA_RATE == 1) ? 
+       (read_enable && (read_enable ^ (read_enable_pos || read_enable_neg))) : 
+       read_enable;
+
+ wire [DATA_BUS_WIDTH-1:0] output_data = (read_enable === 1'b1) ? 
+                              fifo_memory[read_pointer[ADD_WIDTH-1:0]] :
+      {6'b0,previous_data_out[127:122],{4{1'b0}},previous_data_out[117],1'b0,previous_data_out[115:100],{2{1'b0}},previous_data_out[97:93],{21{1'b0}},previous_data_out[71:53], {3{1'b0}}, previous_data_out[49:10],{2{1'b0}},previous_data_out[7:4],{2{1'b0}}, previous_data_out[1], 1'b0}; 
+
+  reg write_on_negedge;
+  reg [DATA_BUS_WIDTH-1:0] write_data_negedge;
+
+  `protected
+
+    MTI!#2\D5k]u\=>W!-pVO7~\aBIu\#x?<RBQ{|%7$N"?^n$ksi=~=\oR[!$!X*G![RY/H<CpAoK-
+    PrDke|UT<BTrAo5H>HVIR7Bdi}B1lq1-NBi+Z$>s-,rnD.XUd_7Ci{e;}#j~^VUzC0Os-3ploRC?
+    WBTs@l-BR2Y#LAvEB7;,+Do\O+Iv#)gl$ZJ0?$ZEz,#_jeE^L'-VkH-u?^XI]1^oK+ju^HDvkA7<
+    [n$Z\F7OY[;1\{KrATz\ZGtR0$ow[K{o^U}-5e_;;~rEI/?+JIJ7<GgM[KnW_!px=R??:=7A'\Uu
+    ^ob~rr3***+$?^*#DnZYxzxUDsGnzn^XopnFFKXOJin7i0+R~#'TW\'n[,aCWr+T'+Z1JX#'vB"Q
+    K;BKH]x=@oE=Tx;,~Kjxk'@{=<$OrT2aRVon>nCC!D_jJ7#{U!J*;VIX'*HzGvVt5*?HrDZlAp\~
+    !z,IT_Q=7^Ri^ea=@1[xa}~^LLH5llT*]I[5X!*7m2GeHXAr!CG\A,OC_]B+7kgAEaCGkjv{R*{O
+    V@s<AOJ@9G*-JYe7v0]EvJKBOJ=C,Y^@V[t!X[,*,oCUR1=p3_{RI\W,W5XrBJI$Yi,R^D+QXvlW
+    +$;3n-CFQ?SkTmnv5i32oK2/rT\YO?aZ*]{TqXREzr2lr]JUVa}#l4K,e@}ZO$Y*THXBOofFpOG=
+    va{xITTK|]>JvxX]B!8ur\Tn>wJOI,?sl2XR!ZRzTxX_EE<B$*H1mXZ^@!<aa!A^siR<+uv1#'C-
+    <I]_2R;;1CZO*AJ{w[G7OTw-V_$JB,oB1i@]-',i=?3OV^D@aj=O@>$Tn@IP>Tevn[e2-nxoun~B
+    "blA~@p~BH_k7'yFRP{{O>aU2[7jYKn{2sC'~p'O-mTHBv^AJAqE{7'T><]^7]7Q;X@JR{@M-QAn
+    ?jv#~>u~Bi\rT[\2wsU?fhY~'eXIJH=]W*m7e-IaXCvO-xfnoG!$ijzCjXGYksT#Ci-XO??$,{eT
+    l;s#$@=pk=Hann$XR'{$#J~oA~@Lv=+kTllDeReZD=:_5'l-\w=J1;w/^Y~V5Jj$AHvwPK=<;2Qu
+    r#x<\H+Vpc&U.BiuErjR^U}w]iU~1CAou^s?#*u'1o'Eaiw3s+sCT3}|'!~lG#Vr#+YBV?v[V2,D
+    3H\aJ7
+`endprotected
+ 
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sas_fifo.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sas_fifo.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sas_fifo
+`include "zi_cw_sas_fifo.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_sas_fifo
+
+
+
+
+
+/*************************************************************************
+* PURPOSE     This file is part of 0-In CheckerWare.
+*             It describes the speed negotiation block that is
+*             instantiated in the qvl_sas_dynamic_timer_values_monitor module.
+*
+* DESCRIPTION This module tracks the Speed Negitiation Sequence.
+*
+* Last Modified Date : 07th May 2004
+**************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+
+`qvlmodule qvl_sas_speed_negotiation(clock,
+				   areset,
+				   reset,
+				   rate_change_delay,
+				   spd_neg_lock_time,
+				   spd_neg_transmit_time,
+				   align0_rcvd,
+				   align1_rcvd,
+                                   align0_xmtd,
+				   align1_xmtd,
+                                   disable_scr_count,
+                                   sas_valid,
+                                   electrical_idle_detected, 
+                                   transaction_in_g1rate,
+                                   level_select,
+				   start_rcd,
+				   parallel_rcd,
+                                   next_start_speed_neg,
+                                   next_speed_negotiation_status,
+                                   next_reset_expect,
+				   current_negotiated_rate,
+				   collect_stats
+                                  );
+
+  // ------------------------
+  // Parameter Declarations
+  // ------------------------
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  parameter DOUBLE_DATA_RATE = 0;  
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  parameter MAX_SUPPORTED_RATE = 0;
+  wire [31:0] pw_MAX_SUPPORTED_RATE = MAX_SUPPORTED_RATE;
+
+  // -------------------------------------------
+  // Parameter declarations for state variables
+  // -------------------------------------------
+
+  parameter ZI_RCD_STATE = 0;
+  parameter ZI_AWAIT_ALIGN_STATE = 1;
+  parameter ZI_AWAIT_ALIGN1_STATE = 2;
+  parameter ZI_AWAIT_SNW_STATE = 3;
+  parameter ZI_PASS_STATE = 4;
+  parameter ZI_FAIL_STATE = 5;
+  parameter ZI_SNG_RCD_STATE = 6;
+  parameter ZI_SNG_FINAL_STATE = 7;
+  parameter ZI_IDLE_STATE = 8;
+
+  // --------------------------
+  // Input port declarations
+  // --------------------------
+
+  input clock;
+  input areset;
+  input reset;
+
+  input [31:0] rate_change_delay;
+  input [31:0] spd_neg_lock_time;
+  input [31:0] spd_neg_transmit_time;
+
+  input align0_rcvd;
+  input align1_rcvd;
+  input align0_xmtd;
+  input align1_xmtd;
+  input [2:0] disable_scr_count;
+  input sas_valid;
+  input electrical_idle_detected;
+  input transaction_in_g1rate;
+  
+  input level_select;
+  input start_rcd;
+  input parallel_rcd;
+
+  output next_start_speed_neg;
+  output next_reset_expect;
+  output [2:0] current_negotiated_rate;
+  input collect_stats;
+
+  // ----------------------------
+  // Output port declaration
+  // ----------------------------
+
+  output next_speed_negotiation_status;
+
+  // ------------------
+  // Wire declarations 
+  // ------------------
+  wire [31:0] rcd_timer_value;
+  wire [31:0] spd_neg_lock_time_value;
+  wire [31:0] spd_neg_transmit_time_value;
+
+  wire [31:0] ZI_RCD_TIMER;
+  wire [31:0] ZI_SPD_LOCK;
+  wire [31:0] ZI_SPD_TRANSMIT;
+
+  wire [31:0] ZI_NEG_RCD;
+  wire [31:0] ZI_NEG_LOCK;
+  wire [31:0] ZI_NEG_TRANSMIT;
+
+  reg next_reset_expect;
+  reg reset_expect_posedge;
+  reg reset_expect_negedge;
+  wire reset_expect;
+
+  wire rcd_timer_expired;
+  wire snlt_timer_expired;
+  wire sntt_timer_expired;
+  wire neg_rcd_timer_expired;
+  wire neg_snlt_timer_expired;
+  wire neg_sntt_timer_expired;
+
+  reg r_sntt_timer_expired_posedge;
+  reg r_sntt_timer_expired_negedge;
+  wire r_sntt_timer_expired;
+
+  reg r_neg_sntt_timer_expired_posedge;  
+  reg r_neg_sntt_timer_expired_negedge;
+  wire r_neg_sntt_timer_expired;
+
+  wire [31:0] RCD_VALUE;
+  wire [31:0] SNTT_VALUE;
+  wire [31:0] SNLT_VALUE;
+
+  wire [31:0] NEG_RCD_VALUE;
+  wire [31:0] NEG_SNTT_VALUE;
+  wire [31:0] NEG_SNLT_VALUE;
+
+  wire [31:0] rcd_timer;
+  wire [31:0] snlt_timer;
+  wire [31:0] sntt_timer;
+  wire align1_rcvd_final_flag;
+  wire align1_xmtd_final_flag;
+  wire [2:0] window_count;
+  wire [2:0] speed_neg_status;
+  wire trans_pulse;
+
+  reg [2:0] current_negotiated_rate_posedge;
+  reg [2:0] current_negotiated_rate_negedge;
+  wire [2:0] current_negotiated_rate;
+
+  // ----------------------
+  // Register declarations
+  // ----------------------
+
+  wire start_speed_neg;
+  wire speed_negotiation_status;
+
+  reg start_speed_neg_posedge;
+  reg start_speed_neg_negedge;
+
+  reg speed_negotiation_status_posedge;
+  reg speed_negotiation_status_negedge;
+
+  reg next_start_speed_neg;
+  reg next_speed_negotiation_status;
+
+  reg [2:0] next_window_count;
+
+  reg next_start_sntt_timer;
+  reg next_start_snlt_timer;
+
+  reg start_snlt_timer_posedge;
+  reg start_snlt_timer_negedge;
+  wire start_snlt_timer;
+
+  reg start_sntt_timer_posedge;
+  reg start_sntt_timer_negedge;
+  wire start_sntt_timer;
+
+  reg start_neg_snlt_timer_posedge;
+  reg start_neg_snlt_timer_negedge;
+  wire start_neg_snlt_timer;
+
+  reg start_neg_sntt_timer_posedge;
+  reg start_neg_sntt_timer_negedge;
+  wire start_neg_sntt_timer;
+
+  reg next_start_neg_snlt_timer;
+  reg next_start_neg_sntt_timer;
+
+  reg [31:0] rcd_timer_posedge;
+  reg [31:0] rcd_timer_negedge;
+  reg [31:0] snlt_timer_posedge;
+  reg [31:0] snlt_timer_negedge;
+  reg [31:0] sntt_timer_posedge;
+  reg [31:0] sntt_timer_negedge;
+
+  reg [31:0] neg_rcd_timer_posedge;
+  reg [31:0] neg_rcd_timer_negedge;
+  wire [31:0] neg_rcd_timer;
+
+  reg [31:0] neg_snlt_timer_posedge;
+  reg [31:0] neg_snlt_timer_negedge;
+  wire [31:0] neg_snlt_timer;
+
+  reg [31:0] neg_sntt_timer_posedge;
+  reg [31:0] neg_sntt_timer_negedge;
+  wire [31:0] neg_sntt_timer;
+
+  reg align1_xmtd_flag_posedge;
+  reg align1_xmtd_flag_negedge;
+  wire align1_xmtd_flag;
+
+  reg r_align1_xmtd_flag_posedge;
+  reg r_align1_xmtd_flag_negedge;
+  wire r_align1_xmtd_flag;
+
+  reg rr_align1_xmtd_flag_posedge;
+  reg rr_align1_xmtd_flag_negedge;
+  wire rr_align1_xmtd_flag;
+
+  reg align1_xmtd_flag1_posedge;
+  reg align1_xmtd_flag1_negedge;
+  wire align1_xmtd_flag1;
+
+  reg r_align1_xmtd_flag1_posedge;
+  reg r_align1_xmtd_flag1_negedge;
+  wire r_align1_xmtd_flag1;
+
+  reg align1_rcvd_final_flag_posedge;
+  reg align1_rcvd_final_flag_negedge;
+
+  reg align1_xmtd_final_flag_posedge;
+  reg align1_xmtd_final_flag_negedge;
+
+  reg align_detect_posedge;
+  reg align_detect_negedge;
+  wire align_detect; 
+
+  reg [2:0] window_count_posedge;
+  reg [2:0] window_count_negedge;
+
+  reg [2:0] speed_neg_status_posedge;
+  reg [2:0] speed_neg_status_negedge;
+
+  reg [2:0] next_speed_neg_status;
+
+  reg [3:0] present_state_posedge;
+  reg [3:0] present_state_negedge;
+  wire [3:0] present_state;
+
+  reg [3:0] next_state;
+
+  reg [100:0] present_state_string;
+  reg [100:0] next_state_string;
+
+  // -----------------------------
+  // Declaration for fire signals
+  // -----------------------------
+
+  // ---------------------------------------------------------------------
+  // This signal will ensure that primitives other than align0 and
+  // align1 should not be transmitted inside the speed negotiation window.
+  // ---------------------------------------------------------------------
+
+  wire non_align_primitive_in_spd_neg_window;
+
+  // ---------------------------------------------------------------------
+  // This signal will ensure that align0 to align1 transition should
+  // happen within the SNLT timer period.
+  // ---------------------------------------------------------------------
+
+  wire align0_to_align1_trans_violation;
+
+  // --------------------------------------------------------------------
+  // This signal will ensure that electrical idle should not be detected
+  // within SNTT period, if the particular rate is supported
+  // --------------------------------------------------------------------
+
+  wire electrical_idle_detected_within_SNTT;
+
+  // --------------------------------------------------------------------
+  // This signal will ensure that align should be transmitted in the G1
+  // phase of the speed negotiation window, if the MAX_SUPPORTED_RATE is
+  // set to 0.
+  // --------------------------------------------------------------------
+
+  wire rate_supported_without_align_for_g1;
+
+  // --------------------------------------------------------------------
+  // This signal will ensure that align should be transmitted in the G2 
+  // phase of the speed negotiation window, if the MAX_SUPPORTED_RATE is
+  // set to 1.
+  // --------------------------------------------------------------------
+
+  wire rate_supported_without_align_for_g2;
+
+  // ------------------------------------------------------------------
+  // This signal will ensure that electrical idle should be detected 
+  // immediately after SNTT timer expires.
+  // ------------------------------------------------------------------
+
+  wire spd_neg_win_violation;
+
+  `protected
+
+    MTI!#Z$Ak_Y]17G>GlwTa^o+Iq(*_OZlV*G>9xZ7A=m7xihu[3u};pUQ,{!WDrr/:Kj!<CwT^HD#
+    =[K5XC_#*ezo[^E+2*}Yeqc.L(-_>;3Q[=KaQ{'-alr3CuHE+'6!Rip[1n$C1*_ke{ks2C7qBg!R
+    ;p3_n7!XAlsOXvKDO>-UE[~tV~Ra=i!;*v@rGCp$Bn*CI~Rv|'J\s\\Al]X+\[C,$|i[BvvJGvpi
+    Di!D>#=\,D\xJV2}X\.r1*C~$O@w<{#&'mn{wj}Tx1?ze1B}<\x2IQ^z7a**GoI~W][D1DkD?}$#
+    !=$kJt=ju[1~p\eEU>BaYk<ETHinwunUp!Q@K]#BiRB\#~R3xHIQeEI]$pID\J3AYABpKek7k7d5
+    $WxYO~].Ik\K,B@<k=G,?sYvi'^{BEn]ln<2}-e!$9]D=!=<m_Il\~aEvYr!QV<sJWm'_oYpn==,
+    WonRT>fO?!-+=lKE-^k2]OB62'x?\x;s+7W^s*53V[VB{+3$[i}p^wTzi'!~!UXKyZ*v1[;Z{TwA
+    1>Hv,KVTIkDwX]*+_o-^J'a>,2_swDjK!-jp7([}\}eE$rKj\zTselHjnuM~$K=x+C2#*ZuxRXo1
+    ZZ5E^A}exA]e'op]z*[ZeAIOFCM}jn]zwmpGG,$eUO$9Aa;'1nUzE\i3i5?]Jp$k*>$uOjU$$LdD
+    Y]_zvsrk[K<}JWmTs{_w-7?Eu1lsJxj,--$F#{~{4E]^uY-ens^*HNoH2@JrOkun\~8xEo}Kv=Dy
+    K]YosEW[U5@n}w=kBxa$ZU};ln=HMZ]j-8G2<uQI#s5,BiDZ>Jj7AAr]-?w<$r~x<@:.g^G<D[,;
+    Z8GWjkVH!{^C}{ap+ClWriv{np7ZnPYrkZuE#a*J@{K'\[T5J$h7WY+eTEjY8
+`endprotected
+
+`ifdef QVL_ZIN
+  // ---------------------------
+  // Fire signal Declarations
+  // ---------------------------
+
+  wire FIRE_SAS_NON_ALIGN_PRIMITIVE_IN_SPD_NEG_WINDOW_P;
+  wire FIRE_SAS_NON_ALIGN_PRIMITIVE_IN_SPD_NEG_WINDOW_N;
+ 
+  wire FIRE_SAS_ELECTRICAL_IDLE_DETDCTED_DURING_SNTT_P;
+  wire FIRE_SAS_ELECTRICAL_IDLE_DETDCTED_DURING_SNTT_N;
+
+  wire FIRE_SAS_ALIGN0_TO_ALIGN1_TRANS_VIOLATION_P;
+  wire FIRE_SAS_ALIGN0_TO_ALIGN1_TRANS_VIOLATION_N;
+
+  wire FIRE_SAS_G1RATE_SUPPORTED_WITHOUT_ALIGN_P;
+  wire FIRE_SAS_G1RATE_SUPPORTED_WITHOUT_ALIGN_N;
+
+  wire FIRE_SAS_G2RATE_SUPPORTED_WITHOUT_ALIGN_P;
+  wire FIRE_SAS_G2RATE_SUPPORTED_WITHOUT_ALIGN_N;
+
+  wire FIRE_SAS_SPD_NEG_WINDOW_VIOLATION_P; 
+  wire FIRE_SAS_SPD_NEG_WINDOW_VIOLATION_N;
+`endif //QVL_ZIN
+
+  // -------------------
+  // Signal Assignments
+  // -------------------
+
+  assign rcd_timer_value = rate_change_delay;
+
+  assign spd_neg_lock_time_value = spd_neg_lock_time;
+
+  assign spd_neg_transmit_time_value = spd_neg_transmit_time;
+
+  assign ZI_RCD_TIMER = rcd_timer_value;
+
+  assign ZI_SPD_LOCK = spd_neg_lock_time_value;
+
+  assign ZI_SPD_TRANSMIT = spd_neg_transmit_time_value;
+					      
+  assign current_negotiated_rate = level_select ? 
+				     current_negotiated_rate_posedge :
+				     current_negotiated_rate_negedge;
+
+  assign trans_pulse = (align1_xmtd_flag1 === 1'b1 &&
+                        r_align1_xmtd_flag1 === 1'b0);
+
+  assign non_align_primitive_in_spd_neg_window = 
+             ((next_state === ZI_AWAIT_ALIGN_STATE ||
+              next_state === ZI_AWAIT_ALIGN1_STATE ||
+              next_state === ZI_AWAIT_SNW_STATE ||
+	      next_state === ZI_SNG_FINAL_STATE) &&
+              disable_scr_count === 2 && sas_valid &&
+              !align0_xmtd && !align1_xmtd);
+
+  assign electrical_idle_detected_within_SNTT =
+            (electrical_idle_detected === 1'b1 &&
+             (align1_xmtd_flag === 1'b1 || align_detect === 1'b1));
+
+  assign align0_to_align1_trans_violation = (trans_pulse === 1'b1);
+
+  assign rate_supported_without_align_for_g1 =
+            (pw_MAX_SUPPORTED_RATE === 0 && sntt_timer_expired == 1'b1 &&
+             align_detect === 1'b0 && window_count == 0);
+
+  assign rate_supported_without_align_for_g2 =
+            (pw_MAX_SUPPORTED_RATE === 1 && sntt_timer_expired == 1'b1 &&
+             align_detect === 1'b0 && window_count === 1);
+
+  assign spd_neg_win_violation = 
+	      (r_align1_xmtd_flag === 1'b0 && rr_align1_xmtd_flag === 1'b1 &&
+              electrical_idle_detected === 1'b0 && sas_valid);  
+
+  assign RCD_VALUE = window_count == 0 ? ZI_RCD_TIMER :
+		    window_count == 1 ? 2 * ZI_RCD_TIMER :
+		    window_count == 2 ? 4 * ZI_RCD_TIMER : 
+					    ZI_RCD_TIMER;
+
+  assign SNTT_VALUE = window_count == 0 ? ZI_SPD_TRANSMIT :
+		      window_count == 1 ? 2 * ZI_SPD_TRANSMIT :
+		      window_count == 2 ? 4 * ZI_SPD_TRANSMIT :
+					      ZI_SPD_TRANSMIT; 
+
+  assign SNLT_VALUE = window_count == 0 ? ZI_SPD_LOCK :
+                      window_count == 1 ? 2 * ZI_SPD_LOCK :
+                      window_count == 2 ? 4 * ZI_SPD_LOCK :
+                                              ZI_SPD_LOCK; 
+
+  assign NEG_RCD_VALUE = speed_neg_status[2] === 1'b1 ? 4 * ZI_RCD_TIMER :
+                         speed_neg_status[1] === 1'b1 ? 2 * ZI_RCD_TIMER :
+                         speed_neg_status[0] === 1'b1 ? ZI_RCD_TIMER :
+                                                       ZI_RCD_TIMER;
+
+  assign NEG_SNTT_VALUE = speed_neg_status[2] === 1'b1 ?
+                            4 * ZI_SPD_TRANSMIT :
+                          speed_neg_status[1] === 1'b1 ?
+                            2 * ZI_SPD_TRANSMIT :
+                          speed_neg_status[0] === 1'b1 ?
+                            ZI_SPD_TRANSMIT : ZI_SPD_TRANSMIT; 
+
+  assign NEG_SNLT_VALUE = speed_neg_status[2] === 1'b1 ?
+                            4 * ZI_SPD_LOCK :  
+                          speed_neg_status[1] === 1'b1 ? 
+                            2 * ZI_SPD_LOCK :
+                          speed_neg_status[0] === 1'b1 ?
+                            ZI_SPD_LOCK : ZI_SPD_LOCK; 
+
+  assign rcd_timer_expired = rcd_timer === RCD_VALUE;
+  assign snlt_timer_expired = snlt_timer === SNLT_VALUE;
+  assign sntt_timer_expired = sntt_timer === SNTT_VALUE;
+
+  assign neg_rcd_timer_expired = neg_rcd_timer === NEG_RCD_VALUE; 
+  assign neg_snlt_timer_expired = neg_snlt_timer === NEG_SNLT_VALUE;
+  assign neg_sntt_timer_expired = neg_sntt_timer === NEG_SNTT_VALUE;
+
+  assign r_sntt_timer_expired = level_select ?
+                           r_sntt_timer_expired_posedge :
+                           r_sntt_timer_expired_negedge;
+
+  assign r_neg_sntt_timer_expired = level_select ?
+                           r_neg_sntt_timer_expired_posedge :
+                           r_neg_sntt_timer_expired_negedge;
+ 
+  assign rcd_timer = level_select ? rcd_timer_posedge : rcd_timer_negedge;
+
+  assign sntt_timer = level_select ? sntt_timer_posedge : sntt_timer_negedge;
+
+  assign snlt_timer = level_select ? snlt_timer_posedge : snlt_timer_negedge;
+
+  assign neg_rcd_timer = level_select ? neg_rcd_timer_posedge :
+                                        neg_rcd_timer_negedge;
+
+  assign neg_snlt_timer = level_select ?
+				       neg_snlt_timer_posedge :
+                                       neg_snlt_timer_negedge;
+
+  assign neg_sntt_timer = level_select ? neg_sntt_timer_posedge :
+                                         neg_sntt_timer_negedge;
+
+  assign align1_rcvd_final_flag = level_select ? 
+                                           align1_rcvd_final_flag_posedge :
+                                           align1_rcvd_final_flag_negedge;
+
+  assign align1_xmtd_flag = level_select ? align1_xmtd_flag_posedge :
+                                           align1_xmtd_flag_negedge;
+
+  assign r_align1_xmtd_flag = level_select ? r_align1_xmtd_flag_posedge :
+                                           r_align1_xmtd_flag_negedge;
+
+  assign rr_align1_xmtd_flag = level_select ? rr_align1_xmtd_flag_posedge :
+                                           rr_align1_xmtd_flag_negedge;
+
+  assign align1_xmtd_flag1 = level_select ? align1_xmtd_flag1_posedge :
+                                           align1_xmtd_flag1_negedge;
+
+  assign r_align1_xmtd_flag1 = level_select ? r_align1_xmtd_flag1_posedge :
+                                           r_align1_xmtd_flag1_negedge;
+
+  assign align_detect = level_select ? align_detect_posedge :
+                                       align_detect_negedge;
+
+  assign align1_xmtd_final_flag = level_select ?
+                                            align1_xmtd_final_flag_posedge:
+                                            align1_xmtd_final_flag_negedge;
+
+  assign window_count = level_select ? window_count_posedge : 
+                                       window_count_negedge;
+
+  assign speed_neg_status = level_select ? speed_neg_status_posedge :
+                                           speed_neg_status_negedge;
+
+  assign present_state = level_select ? present_state_posedge : 
+                                        present_state_negedge;
+
+  assign start_speed_neg = level_select ? start_speed_neg_posedge :
+                                          start_speed_neg_negedge;
+
+  assign speed_negotiation_status = level_select ?
+                                      speed_negotiation_status_posedge :
+                                      speed_negotiation_status_negedge;
+
+  assign start_snlt_timer = level_select ? start_snlt_timer_posedge : 
+                                           start_snlt_timer_negedge;
+
+  assign start_sntt_timer = level_select ? start_sntt_timer_posedge : 
+                                           start_sntt_timer_negedge;
+
+  assign start_neg_snlt_timer = level_select ? start_neg_snlt_timer_posedge :
+                                               start_neg_snlt_timer_negedge;
+
+  assign start_neg_sntt_timer = level_select ? start_neg_sntt_timer_posedge :
+                                               start_neg_sntt_timer_negedge;
+
+  assign reset_expect = level_select ? reset_expect_posedge :
+                                       reset_expect_negedge;
+
+  `protected
+
+    MTI!#xspk[rs^$<$_U5Qj{TD*B~Be\2,WDX!z7?*pF["5E2=kr#'qA=7a['#{NpNHErEF:o+5[!X
+    $D{XeZpM]K'~b['1o=$w#R~*7+]+[#rwaxxk>-^;U+73!z#@<~_G$%yv$KDGZDV\{\[EwziV;jj|
+    iXs]}~AjR{u>gBkaZQX~~=231f[@o'2xYB;I{x#TKB;E;A'p%w-jJVnKrOA]==[|1v~?^;EEz[l2
+    'G[TVu{\];}+EA-,Ozv>1QA;\QlVE;7uAwVn$3W;j*ET^1'jnHQK\ACmX=,AX^ua1y+E#Qvz>Q77
+    YWmG;vEYZDpHW+H*+*J'Zjvl![?$+J_Q@;=JI}iaO_s@}K2*EJ}Ta~#}YC!}H5rv{D,1\QDYU@w]
+    il,J<O@UEU6oSwDv}B@^Yk_'{kE]ikV+$9+[3$p[XQLFp[~$l=~p[Cw,eve{oKjv,v@O[REQRE@k
+    DRmuwzluKzTm7xWTIWGW+e[};_!@WUUI$\CsB!HC'+R2iU_TzD~1'5Q'}R-'*Q]oo@[sx3rV3ED3
+    O{OuorB<xJ}=G+m{v5$m5oF\jwA-[QDelCQ}/*{wsn,+z<Ds'UvA#2|yYGO@2onC{5-v@Y\\VQ>Y
+    I<s#A5XQ]YDJ95#x1zo53jJpzok5W,1k[T1E@>*Q2IU[J#,K=<E_i*/^?-Us\JJHAABK<JQ\i=kv
+    YX7YOk+-$$?,{TV={UBU-jBT7#Y;<+Yaj!^IGXIG7U!=EB#gViJK3UH<7A~uU.w7qeJaBY+mk53z
+    i.ATZ*b~]Xx}ImpF_1-T!ruvo5ZQ>I{m*>_[s>ajp^w>fK]p_}p.'3[ES,oVE']u1x2=_@-W@3Ei
+    _o}!m;H];[JzK5D?r!Y+Ei,?T5Eu7r?X2I-z+9"hHzA!v[{BG?;>B.T'ium<z!\+HO7!]$aRnV[}
+    krl_{KOvKDA{Erxx^R7~lJn{c6I<>!-O3n8f~+AnxUH?T=;u5z3[;'k#p'OAzb=oERnEO3U{EYq#
+    BC3~V}[G}:sZ[#xH\5,=\;Trk1^A;OABZVHe\vEssD'uIuGa_nADY!6ee$mT=vm$UJ[k_@5KXHY1
+    aR<1k*ZvQas#U[jCVwQCKv$;_JHGQ,~u]\lQn,GrAz$IZ{XUVps&eV#QE0pO_rx!;T0+[o!5Av#[
+    wVQAHX=jX]i;As<Q2<B6H\l"=xEZjzQ'\YpIuEBE2BT<;te^WD'+@sBuDIJ55~O1I$$nX?+<lX>_
+    jj=@zXa[IQ7OG--5+'<\T*Yu^Ol3x+z"AG#~^YXTG~\$#=peU5VT{{oEJ<*Vxu~+B!7moGJEr$[7
+    G-]@^iVVCRnw?15;=$;{~Yx=euWw2}7nUTJZ,#{$kv_hi_mpQK;R;esD\!VITv~GvP;nj}G7]mi7
+    -_qX_lCg\EJ?_Io@~x[x#{s~nav<=wjH[T[1Tw^RATvD|5Ws}*X;$EIr1,jE,H']-{jlWuAV=lxJ
+    lura>YY-^'_or7_omX6<=;@$_iUvYE#*k5iIl2nI.[-H[\uO[HEI^}<^OuvinI#~eT]K*qzkp-rw
+    7#VXarU+p+'+nYUwm}eBI!vmG+Ce~_BQ$X{oJ1EauBLvj$1YiTA77<ept9?UBip7EvZ--=C;_=NG
+    j*x-1+u3nv2IQ{KE_AH5TX[wX{^#-v3$W5+I2>5,sz;7>3D,^nCz;alC=rl>rTK%jaRjml?wEA;e
+    S+>wD;5{DAUuw+*\+@eu;Jlnj>[j'lzBUk$Q[DU3k1sikKTRjb-7CmI5mQ_@_K^rArf75A*QC_lk
+    ]v7Ca]OO~vCi$Ba_zU#$"IX5i[@x\;x=H7I?}2[3{[-{=4k\T@I1*;|{5H<o_ua3-[1^@A'eVaJ%
+    }u;Q[4e=em/DArZCOr#,vYQsZw^j4'='5Gv[kD>ou#TlH#=ZKT}>Qliw12=>B4us!uV_\\wAs{v_
+    J1#xsxsB3!zTW@'iu#s7J#h#U7sIO--Geo;jpW;aAa1TB5#oCzkz!Gkb%6H|=3VXpgXlQuvC;EXG
+    3Auso$5!!T-<,\EX@;P;\Dz_*v;h7>~*E>xrAUJ2=ppaVzn[zv1w>qOHKo_?2U7m<k\%ED}_5\VU
+    #Au-\#,]weH;UjjR1H^WE8n,m7Ye?>3\>mI@KTT7Z,YB}x5WEa-joT@Iv*LNoB^k/"pZKD1IKK7*
+    T$X}s$=WeHnQQuKpQKrEr'Wx3KA-wCvQu+i\lJZxzG5n>wv{~?EE'#X-wDhovTKQH^E5QQ7*mRpl
+    DDWeOoA5{^Y>5BGK_OwB{p;mjpenp'o]J\#h\E3@aQJpAHpVA}vElpK=Aam-IH-JyO#=;g@DTC{Q
+    krlTjoer!K7nC;3BUkC\YYkIV{n]T!m,_<sX$DC<lplo\II}KvoT_EIa'Vh*>O{o#Z-sM$A3]EUW
+    m<UuCv+AWp\=B1@K*21D}me#zq^UZ='p[r#jIKY5Vn#jRr$<mTk=l#8Fm'7uB?U}C"K7s-Bh9aX~
+    n=V'C1Di]nlJ#iHU#_YBYD#ABBZ>TTOa#}n~['3\UwXn[VvJxe7XXRK;C8eR3~^xB2f3HoV#9Un1
+    HQ-$ntXTI_$YO^B2OkJ\xson5G!xmGO_Tp=KHaGezAH+Z,JXEn]Qv@b.o\<-]ICa~pjJDOElEn~#
+    ?EGJpR^E2O]5'7nw{<D;E^IKOjwT\Ke^HYnZe">]aZHO$7$_\@DB=%m7pH@<5R^~QZBIlaO2K5rB
+    oi+G<~F/az{{5^jwuTssOBe+KHWKle3R">*zK'Z2a~CYJXBVx++!jRkmpoH-}91Tvpz^Hv5?5{VC
+    ''V}[xGoksR1zWupAHVw^{*peo_1!R}kCeX]5TT^w?jpDVZ'B-x?G7x+l\Vu@3,pT-,UopXwjmXe
+    {;><Qrxn+UvjlwrK1e@{Ee3vu~@BTu273~tARz\3]_r<{w{X_jCeDX;[v2<oo!+WE-~VIBD*H}ew
+    D3#>5V1;GlI<C2wAj7u=a2z}HTU[EJoIk}wsW!}*O2,uEBVTNCk]Dl*+EFpB}>-YDa,3~]1uKXBT
+    mnY\}r(\^DokG#w=3o[?h*WeuX<+I5DzB]R'w~(Kri1TXj>tZO]Q|~YsWa_ZO/;1<]'=>@&BDp*_
+    H3ll_B'a{omI$>$sRil$AI'Dj'3R{OAQX>VnTV^Du]^_u;T!CjT1H_IRm5$$u_a-[H<|Iss?_#n2
+    KYU^{lExO=laq#TK,vzu-Dv1lAe?r->E,,\7vp\7TpC@5xaK;;]KX3CxK1z<vQZ5Qp[ooR7pVWw5
+    =_#nR1n2D%AOD@H+J2JUr@C+j!Q}Q[m,j,@1GB$=rrY<[WB_5jKjiCa'jnDjAYD@\][@lRHU_pUE
+    11:EA~<X--E3{1Q*'AZ-sEAOE_H,r~GkjC[u+X\7~aT'zJnxs[A<r^jWH\O7hCDI~+]i5=>=w<-Y
+    7I]-^>-1KIrV~3RQ5<_X2nanmo?5]Z73]:0KE7OdxvCI*V2;(5?YmnXVJPLU=u\v@=zYEnRl]Z!_
+    2w{3jIUalA#UB~~lsT>Y_!mE'[pI27XmIOV7v1Cal3xsp;Z5nm;BC]DkXR>EU{Kk[-rJjKl<]>BG
+    1x,l+1>,<5e0**_Z^5s;)6n7kHU-VxQ,JzBIr3y*Hp#aRUGu{!Cea5@-sWw@VYT*;$-un2K#UCBB
+    enOZw]Ul2*2j'm2U\7DkD$BBT$T2{j]ew<<7?Jzk^Xw%1\$QlCikpD]HQn,$gemvCt}<^@@7~Yp{
+    m{$Qn1',Vpa-^Woe@?lpv@N)P*<sT_\KQ{oTn)IJ*T~Uw-J9YH[Wl$aE&1B[A[eZTn5*=~szC1zu
+    o2,!\O#_RFcax,W!Rok-Alz,e{@wxWR;NK1o{u\AnVIWKlU}nk^rpgX_]l,']#eA2<?X!=\=aZ{r
+    U<Fw>ln.R[1]-\]YunlunT1W5^?Kbo.;r#r^{+eK\r;$5OE@TjoHxIV3GXB$HHR2w*ze{E=o-n?\
+    2e2_Ckr-RbtGD@]3IK?$r#*KTXJ]++k(>v=psmx@#O3]){O\A,\Wu83_IVTYe]'jjQY@Uze}@VB,
+    +EpG=Eur1lYwZuOX=]>sGsZ{RA9z,T705'}>$T35HwoIB<r\guoB}xlT,neBV2\\3=VoX1w3nzVT
+    sevZ~^'osxQ'[2BM7XG<6poHX1UUlH5TJ^aXZVsYzT+!O!V;AZo=3]B!v!*GYO!7ky_JB$]]O}C'
+    ]wkaaT=k3>7Q?!<Ij,vk>{,j@<eUp;>1ZX!x}o;*,]@=^ziOxXR2r-wO#z@1o'=+$lX-Qux<lJ-o
+    u2E"8^7V+{[\w#s51R^~19)xzZJx,mpEKDH!-$>5^J1ElAkVluURYO3^=Q]\1o'PY[pOo@lH'{I$
+    sGTKXU<X.DKepdJIo[<lrV*[Kj}I_$,OOQ,m\x[Y}\=2-\Qoe_n+Hs@osvalA+<TpEIpYZk]Eo4+
+    ]jr=qt>$]B53!31A5@G-m$G7_Qmz\GO2{E$zR^xjIT-*7V~o,GQ@;vm<]>}/\+vR=+vZ'D7OjXr5
+    Q5#~(xU3r@\1^o^Q1y7ED@O;WakVj1_!>mO\sJV>mR6\~@U8G'IsmYDikU-XBppkj}'>vaX,,?v-
+    1x@R\z3(s1wV.g*]@5>$[VsHKC:>Qx\r3[n^ww[lC+Y~e-UaADV'oROzAjeBZm3v,DR[~1zUxZ>I
+    \,B4rx;nOYCTQe\p7CEec,Jm1Da=n7a>p"N6N+H+?nOX~^Tw]QjT?lb'as>5o-Rf7B2WW7YTDGiG
+    zA!aDm\~DWao_m}WoCxKIo_1a^wu6pyw[jsoHZAIOlp]$RQ^5=n7\1Bl^UCqmEa1IH5vV!=vHxH_
+    ;n^=,OG';Anpq8rYiA3'DsCw>#WCUInXxJ+r1TVJAIT}z,$Tj5,GX$m$IjCXB>_Clee2Za3v'3J=
+    mjl2K^<+}l$=\5BTRX9(TlGjoHvr*5E7x2-pgGzsOvmj1l{+X7pk<I#s_*jm2#]p]^a[111KpB_I
+    >'Y^TC}Zr,[3;B[u,UvJ^nG*+3O@{;<C=]K3]p9CkEaZCADzxR,u,]jo>o_5j;Zz$j'eToJ#s1k_
+    Iv35rA]InW~VjwK5k,1x5vs_=Cn--sOB?5pUo{AjWrKCRxmGeBs5nTw)mz>ne<J#N+Xu}AQx!II^
+    WiDevp}Q=Xl-K)~-]Rz2_p!|2$oO5iexv^2,CO*^Y@<}m+wa125}J*=UUx5~^G[\#pxE+H,!sBjj
+    |qzpa;+rmV(r7eH+-Vn}U5jH=IizijiI?a=I^#Jkj-]X[UW+D[R}CX$l$=Z!QGWE}_UPoeEH*.Js
+    XC}*ru!7_]n13*WC?xBx7xETva:z';xlvw--l-m]1ir'n]D#Q_\k=E$,+Z3<=V,QX{'.?QR@t>Hz
+    [Q]>OX5raEne3wUrOe!T}p+T5Q\A@^EeY2]7Yxn^CO*7~VlGG}!;-T*2p]O1TzaVmYKTGazH~H7T
+    v'sjQs[-{7@n}zH-',^@Jna<'&>oTXRvi@7Wr7H[_C'i+p'#,mVX^^e-WroRvG>a>\x7avEX-a3[
+    {?nXOm$w6Z>$H1@_nI?n3o@R2C}[>\kI_Wa-1,T-Rl}7EeQA5N"n>+$zKviGWa$ji]?L:r1wZs$E
+    vyHA1oElu?z$>j{$;?#oe-*TKa^+$alKvT.=HRW?OXHq'#Im}^@r[uI^$FZOX;zXeI]pIpR[;*AO
+    ~ax$>vS#]k+r=ka?(U=Vs$J<$Jl-a]5s52e_@kCknx3}<s5D=g_21eScQxRs~v,u@E'v_E=uBCR-
+    j$viI77=v1ViCI,<mY+]5[K#sU{ExA-?e@Z-I*@!LVsTU*EjOxGHX1C$RjJ>5nz1J=>jXjTV=;l\
+    =~=I$*1;*3DHECpsT%<*jkj7Xuplv=D[YVUxU-[R_>[QWkOD*Q1aZ1u\Xx=Dn_?<<[a]{{]*mQ$;
+    H\vuWV^pO{^r'O%$Q?T_7~_!rR^'ED+XERK\RlV?Av=8M\X7B'\=7,5>KxRExk1HIGxl=v1}GZO>
+    J>XGnJeO};\+WeR,uOu<HAoKQuOBp=o5sKlr--C7x)OYY#}$+>]z}DV>'Y-}#*%lcBG{G^,p^Hn$
+    T@-7wz?One}sCI+*UA1<#B=i{G{$JH>U?{lj{>[TQ$_BsL[{G{kC5]DWsp7Y7@Vx;r}J^<W-+{gH
+    CXaUoi@iI^+O'-oVv',,3$D4BGZ[ls*,u]3'w'k@D~n[_J+AY]=j^7
+`endprotected
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_sas_speed_negotiation_assertions.svh"
+
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sas_speed_negotiation.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sas_speed_negotiation.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sas_speed_negotiation
+`include "zi_cw_sas_speed_negotiation.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_sas_speed_negotiation

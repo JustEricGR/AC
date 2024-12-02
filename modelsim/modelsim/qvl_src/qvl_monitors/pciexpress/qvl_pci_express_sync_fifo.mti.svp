@@ -1,0 +1,142 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*****************************************************************************
+*
+* PURPOSE      This file is part of the Questa Verification Library (QVL) .
+*              It describes the FIFO submodule that is instantiated in 
+*              the qvl_pci_express_transaction_monitor.
+*
+*****************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_express_sync_fifo
+           (reset,
+            areset,
+            write_clk,
+            write_enable,
+            read_clk,
+            read_enable,
+            rd_level_select,
+            empty,
+            input_data,
+            output_data);
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+  parameter ADD_WIDTH = 4;
+  wire [31:0] pw_ADD_WIDTH = ADD_WIDTH;
+  parameter DATA_BUS_WIDTH = 5;
+  wire [31:0] pw_DATA_BUS_WIDTH = DATA_BUS_WIDTH;
+  parameter ALMOST_LIMIT = 4; // This is the minimum permissible value.
+  wire [31:0] pw_ALMOST_LIMIT = ALMOST_LIMIT;
+
+  input reset;
+  input areset;
+  input write_clk;
+  input write_enable;
+  input read_clk;
+  input read_enable;
+  input rd_level_select;
+  input [DATA_BUS_WIDTH-1:0] input_data;
+  output [DATA_BUS_WIDTH-1:0] output_data;
+  output empty;
+
+  reg [ADD_WIDTH:0] write_pointer;
+
+  reg [ADD_WIDTH:0] read_pointer_posedge;
+  reg [ADD_WIDTH:0] read_pointer_negedge;
+  wire [ADD_WIDTH:0] read_pointer = rd_level_select ? read_pointer_posedge :
+                                                     read_pointer_negedge;
+  reg [DATA_BUS_WIDTH-1:0] fifo_memory [0:(1<<ADD_WIDTH)-1];
+
+  // Compare Read and Write pointers
+
+  wire compare_flag = (read_pointer[ADD_WIDTH-1:0] ==
+                         write_pointer[ADD_WIDTH-1:0]);
+  // Flag goes high if the lower order n-1 bits are equal
+
+  wire [ADD_WIDTH:0] difference = (write_pointer - read_pointer);
+
+  // Set Flags
+
+   wire empty = (compare_flag &&
+                  (write_pointer[ADD_WIDTH] === read_pointer[ADD_WIDTH]));
+                 // Empty goes high if the pointers ar equal and if the MSBs
+                 // are also equal.
+
+  wire full = (compare_flag &&
+                 (write_pointer[ADD_WIDTH] != read_pointer[ADD_WIDTH]));
+                 // Full goes high if the pointers ar equal and if the MSBs
+                 // are not equal (meaning that one pointer has wrapped and
+                 // the other has not).
+
+  wire [DATA_BUS_WIDTH-1:0] output_data =
+               (read_enable === 1'b1) ? fifo_memory[read_pointer[ADD_WIDTH-1:0]]
+                                      : {DATA_BUS_WIDTH {1'b0}};
+
+  reg write_on_negedge;
+  reg [DATA_BUS_WIDTH-1:0] write_data_negedge;
+
+  integer i;
+
+`protected
+
+    MTI!#j-BU*f[I''[RG3i^BmAzu#+DTZ#1k+;to~D?|QZAlImHV7?n@e3-xIpVr'~_ANesD1BlT#>
+    1DT^G>*1bkRpmB$~^G;V2?o!XoTI#[x\]pQOe7#@@_wC{}JeiG@GQ[-[*<QK=xvQiYc?},}n^{od
+    +5Yx'!-,}-Q<vApD9kG27H^T@}-C[q*eK>e^QzC5eAbl1>n35w;D/?jraHh.,I3vo\YlM~x*D]J'
+    o9!T]HGJri|<+Di~-=a7LnDa_Vx*jc[@D[knu]aBu3E35ih{YO~T]puVVvZ15xYs'2uk-@B!xz7@
+    =i21}eYiA]W*QoDk7\T-He^p$Hr6D~_j}><2Q^\;Cj}![Wnx<IJkD[i\:-}k$a<3@4|2DnQ-n>$u
+    1[T[]?pp7?rRo{}V?I5wzYjDn^U!1uB:I~WD>{*^4Dn-sDpZu#7ku+aXnR,U>e3B5+GJ'}eeTYeu
+    nG]oGR#\JRY8J5Wk:}C[R*O=XBDwBPpmpImtaT~}bn-mXt2Se*h-lz>yCUU?N#\]G(fm=]\Z$I_?
+    <Iu$o?{jvV-'i-l>+Q>mjQQ[IcI5*Bt2UaH]wD!xjr#l!sp0AAI^*s7Dq0x}on{wQ<K&&AxXEHD<
+    l=pBpPB~-;lRu]elK7j!-2'[}IKH~s4DeX2UO@]l!=;'Jv5Cp?,2CH[<DQx5{=+}O?V~o_sx^Ip$
+    $,ej@AO?_'H{VjZdJXO!sI]?I_l>7OGv'kZ@4l_7a~CVCC2B@%C#[]OpAC{1ommxY[nURjWXA,U[
+    \Oc'Q>2p5np+UlIB;--{]k}>+~pSEuJ?BHYJ}]GEIGiVzn1lzT[!v?loD;o^-l]7eV#1D#=Uiv5#
+    ;eR,wp\Ru[eB;vZo[n]Tv{p_[ut8d"l7TJEnTxUIxI$#vxUC;x-j2C>$zl}5_?2wID@j}_H[v'C-
+    Dxl,,{{XHDj-~T-HlZNT7*{\[v$4,7exnAuJ[*\TTU=\_wrHvHs~D_A'Hjmm=*=DHrGEg-*i]^uT
+    rQ'!^Q<Qmt}V;rvY5e7[BQ'd\-+!3A*eC;H3oxj$<Q}\r!p<3]C$|U{u$>Tn0b/OYe1"=<
+`endprotected
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_sync_fifo.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_sync_fifo.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_sync_fifo
+`include "zi_cw_pci_express_sync_fifo.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule //end of qvl_pci_express_sync_fifo

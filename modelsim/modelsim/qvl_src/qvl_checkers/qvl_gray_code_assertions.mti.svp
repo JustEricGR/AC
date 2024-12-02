@@ -1,0 +1,178 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_gray_code_assertions(
+                                    active,
+                                    clock,
+                                    reset,
+                                    areset,
+                                    zivar,
+			            used,
+			            used_cond,
+			            gray_code,
+                                    gray_code_fire,
+                                    values_checked,
+			            support,
+                                    fire_count
+                                    );
+
+ 
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   input		active; 
+
+   input		clock;  
+
+   input		areset; 
+
+   input		reset; 
+
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   parameter 		WIDTH = 1; 
+
+   input [WIDTH-1:0]	zivar; 
+
+   input		used; 
+
+   input		used_cond; 
+
+   input		gray_code; 
+
+   // Outputs:
+ 
+   // Fire signals
+   output               gray_code_fire;
+   reg                  gray_code_fire;
+
+   // Statistics signals
+   output [STAT_CNT_WIDTH-1:0]        values_checked;
+   reg [STAT_CNT_WIDTH-1:0]        	values_checked;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+
+   reg first_check;
+   // internal signals for this checker
+   reg [WIDTH-1:0]      old_value;   // last value
+   reg   [WIDTH-1:0] temp_val;
+   reg var_has_xz;
+   reg old_value_has_xz;
+
+
+   integer              i;
+
+   wire                 xz_detected;
+   wire 		is_used;
+   wire                 xz_detected_var;
+
+`protected
+
+    MTI!#n-C+;^+aC*;~,[3G]_7<1$E\iejxn7R+F:7JF=ixnh>siaYZO+!r3nv?uK^r*l]n8\X$*%a
+    R>Ha'#==7n5F![eip#rDe@Q#72$@Y[lV#Ox_,-sWN!rn'1-,ZaUpTw=$iIBX^En>D8*viW^^iO<o
+    }ZBkAempCB5jnTjl2?Y**=*_WVVj*KOVr#\x<$7\imH1uT!+w=~Iu=Y4s*[BCJvOg|Ye"qiwro;D
+    <EBW[$C@{UAEmYe@<KN#_nlr*\o,];u?jrzoGou^_*J?'#313r]DpQ[feiHlqCY3*JeJQ,'ZaVTY
+    2R2l]&K5X]!+5A{}ix{*n}z,@rlk+XU=J[+=^o,;~U7K7,l,15AXEQO2ED<{,B?x<l5Be*Xp>7VI
+    {kR*w~?zk!V{-YZx?O$Ul;ArRDR2rJwXn+$UnTZT;TG~}YK\WZ3[p~><7pCX,iCjuH+1?7O[f^'^
+    {BmORu7;2C{7?H=J>'Ok,ROkC?<e}Fa=z2lzWA~r*n4zA<O}#$;]*7D2}Qr>TaeAOio^J{'eHmXD
+    eJajlU}Y?znuRe<hsmskT5Z}Z5@=1jXExT1D,lCj+r'+V+K_zAXDx?rVV!]~H+I;r*o'~G7j,'3<
+    C\rmo~vHXYYO^'ewZj>*5{ronHXA/6*u,EF,87z!r1AQp4_aN*<,ZoYWwQ1s2Rlli5TZDO!3jBK*
+    K;zK!xsA2l-@xu1TWp!mK*[}W8rknxY@KRo1HKOev}7Z7D?Qlku-JujV-BpGr#gXTz}BWo=+}W!C
+    ^T@]C-W'-uZs;77{]1}2lE<;CO*?lYG[+TE[AR-=1?Ev$*~nT5aeu='l2!v_=DH$m>ziUp_~*1+'
+    YWY\H>!7WpBpjXUVAflWmoUEX_}lH;vBWss,~O1K;{;='Evmumm*r'_V>-**i={wR~wpQ}\CY['O
+    BQsj#@(V04pGXY\m*rHn1uXYE3RXIWh]kr7tK7u-FM_~FM#Aw#^<~[w5vIY@m!Yu=v7ja!--]xDw
+    wT<<@!sWI}K\YGuoOrlw\i{5u!mO;O[VpIJ517I~c\sDE,n{sWom*k1={+p+RY#[G31o7s7v7+*O
+    'f4pu$]Qp'zO\r=#-IHvi^p1~{@ToA[l&^+~R=A!_}3jR<1}R"s,=3oIXQHsnGzDi\CXwxrxVnKp
+    _=c^Z@e,oX5$5D+gvIs$nU>nc<_ToO;G;JvJlqTajv^kWV2'I\a]C]*3rn_nC?K[~<ynO!vIK<A|
+    f.Y@e2G2=Z^JeXs]p?WvVpPI{}uZ\Xp*#HoYsisO1Q!$uC=~rpVVG<+sXwu~V}najO]<rTkv+Iso
+    Hswh7J\kD!{?]uT*~7jih*=@A$Hz~_Qp]l7IV^!5[>OlY#H*[,-m3!1B@E=Y+e_13A*RuERC]9nB
+    iVU<Ejap~{8sp#C2U@[TwJ_-r>'CTl,*R=XYrB'XA9-p#e?]BWr3a=\A2p1[7?Y>OQeJa}]2J*G@
+    Qm-r~R}=iw*W[DN*ij?\z{1xuHQl@VI=N3a+WlZ7Z6pr5@!a1$}z<1&*O\25YzrzU=KarviFirMQ
+    ei@!DkQr@**!V]}5ZK<@E}XOkw1sBQlJ+BX,Js>}Hz@J$'GlB=eywwYe!vGrJU[is4}u]!xWjm*_
+    Hl=3s+I=HX-G$UG-~DDx@K=ssEBC#DxD@;#7Hss<X$?_]u3>}u]\]~uDr!h1l}X<Xa_oCZC65!O-
+    Gx~T<5@T+|aapZBVHnl2x[QT^3,wlR+Gp>aEYmGn1Q+Ur]Aq+}+zCkXe>Tt#YE[:1YKEk]{!
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire gray_code_fire_combo;
+
+  assign gray_code_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+                                 active == 1'b1 && (old_value != zivar)
+                                 && (gray_code === 1'b1) && (!first_check
+                                 && (!used || (used_cond === 1'b1))) 
+                                 && ((zivar ^ old_value) != {WIDTH{1'b0}} &&
+                                 ((zivar ^ old_value) 
+                                 & ~(~(zivar ^ old_value) + 1))
+                                 != {WIDTH{1'b0}}) && 
+                                 ~((^zivar) === 1'bx || (^old_value) === 1'bx)
+                                 ); 
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_gray_code: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (gray_code_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_gray_code"),
+                          .msg            ({msg,"The value did not change by one bit when it changed"}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_gray_code: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (gray_code_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_gray_code_cover.svh"
+
+`qvlendmodule

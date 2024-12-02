@@ -1,0 +1,51 @@
+#!/bin/csh
+#
+# DESCRIPTION: Script for compiling QVL library
+#
+# OUTPUT: Compiles QVL checkers to qvl_lib
+#
+# QVL Usage for compile library: 
+#	(See QVL documentation for details.)
+#	1) Compile the QVL library
+#		- Specify the QUESTA_HOME environment variable (see below)
+#		- Verify the correct logical to physical library mapping
+#		- Run this compilation script
+#	2) Instantiate the QVL checker in the design.
+#	3) For VHDL designs, specify the QVL libraries and specify 
+#	   the QVL packages.
+#	     library qvl_lib; 
+#	     use qvl_lib.qvl_checkers.all;
+#	     use qvl_lib.qvl_monitors.all;
+#	5) Specify the QVL library during simulation.
+#	     vsim ... -L qvl_lib
+#
+# LAST MODIFIED: 02/22/2009
+# Questa Release: 6.4d and later
+
+if (! $?QUESTA_HOME) then
+  # If QUESTA_HOME environment variable is not previously set,
+  # compile script assumes script is executed from:
+  #   <Questa installation>/qvl_src/bin
+  setenv QUESTA_HOME "../../"
+endif
+
+vlib qvl_lib
+           
+# Compile the VHDL QVL wrapper components into the qvl_lib library.
+\rm -rf compile_qvl_lib.log
+vcom -work qvl_lib -novopt \
+  $QUESTA_HOME/qvl_src/vhdl_pkgs/qvl_checkers.vhd \
+  $QUESTA_HOME/qvl_src/vhdl_pkgs/qvl_monitors.vhd > compile_qvl_lib.log
+           
+# Compile the Verilog QVL checker components into the qvl_lib library.
+vlog -work qvl_lib -novopt -mfcu +define+QVL_ASSERT_ON+QVL_COVER_ON \
+  +incdir+$QUESTA_HOME/qvl_src/qvl_checkers \
+  $QUESTA_HOME/qvl_src/qvl_checkers/*.sv >> compile_qvl_lib.log
+           
+# Compile the Verilog QVL monitor components into the qvl_lib library.
+foreach mon ( $QUESTA_HOME/qvl_src/qvl_monitors/* ) 
+  vlog -work qvl_lib -novopt -mfcu +define+QVL_ASSERT_ON+QVL_COVER_ON \
+    +incdir+$QUESTA_HOME/qvl_src/qvl_checkers \
+    $QUESTA_HOME/qvl_src/qvl_checkers/std_qvl_defines.h \
+    +incdir+$mon $mon/*.sv  >> compile_qvl_lib.log
+end

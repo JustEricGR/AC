@@ -1,0 +1,185 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_mutex_assertions (active,
+                                 clock,
+                                 reset,
+                                 areset,
+                                 zivar,
+                                 used,
+                                 used_cond,
+                                 mutex,
+                                 mutex_fire,
+                                 values_checked,
+                                 mutex_checked,
+                                 mutex_bitmap,
+                                 all_off,
+                                 all_mutex_checked,
+                                 support
+                                );
+   
+  //module level pragmas to specify tags for this checkerware type
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+   
+
+  //Instantiation dependant parameters
+  parameter WIDTH = 2;            
+
+  parameter VAR_ITEM_WIDTH = 1; 
+  parameter VAR_ITEM_COUNT = 1; 
+
+  parameter INV = 0; 
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input active; 
+  input	clock;  
+  input	areset; 
+  input	reset;  
+
+  //required user specified inputs
+  input [WIDTH-1:0] zivar; 
+  input	used;            
+  input	used_cond;       
+ 
+  input mutex; 
+  output mutex_fire;
+
+  output [63:0] values_checked;
+  output [63:0] all_off;
+  output all_mutex_checked;
+  output [WIDTH-1:0] mutex_checked;
+  output [WIDTH-1:0] mutex_bitmap;
+
+  reg [WIDTH-1:0] tmp_var;
+
+  reg [63:0] values_checked;
+  reg [63:0] all_off;
+  reg all_mutex_checked; 
+  reg [WIDTH-1:0] mutex_checked;
+  reg [WIDTH-1:0] mutex_bitmap; 
+
+  reg mutex_fire;
+
+
+  reg force_stats_check;
+  reg [WIDTH-1:0] last_var;
+  reg [WIDTH-1:0] all_mutex_checked_stats;
+  integer i1;
+
+`ifdef QVL_ASSERT_ON
+  wire mutex_fire_combo;
+`else
+  // do nothing
+`endif
+  
+`protected
+
+    MTI!#ZDi3]e<uV@'GaV,]*R5iIu[!VA[=^V+{7m[VJ'ia!59JD!^HD-@!Ei<Uzm2QIZGZ1+Cpk-D
+    A{V~XDRiCJDBC/is\jfmwaIm'{'tLzi~@IQYAz|;^TE-q'V>!6,V~m!+^5AXriBJX}$OoBko>^<7
+    H!,K!7HXooY!J@,;*eTDZG*nKWs#Z*!<l@[XwECqTeQi$ip;2rD\wTwr,(2,lpSsze^i]=hjHQDl
+    Q,Ok1?T\DW3)6wn>p<Y>n=$<YkTQnDZG#Ci\C{aTpF=k=eit'@nQliv-:(%]I{QspGJ6Qm\2k=n~
+    l^!='awU4\K;CE2j$DUv_Lp-TkNRIp?-HlnB*AO#$Y$EEwY[j#l<EBafe=TQ+v\s8e#sDUAO]Jz=
+    wJEVH+_>@X=^AZj-k!UY,Dj@#-CQ>wnrJI7?okl]@w_5Vo3A7ORYTB*;@C!=OoH_3/e<De=5X2Bn
+    'O2'1l9[Aru7#{DQ!AIu]'2zl<Al^#G=kD#xDzx#<C@*}RW7rli5OGG=1{,=w+lvVZKz<';9cWXw
+    #Q}2Vm{T~n$nx'o:1;ce}e>?IICAaK}*s?RV75,=Cv[kl=xp^H1{1#Z{nKIf$@AaDG{lD{s@dR>'
+    [v!'s3>]x^7
+`endprotected
+`ifdef QVL_ASSERT_ON
+  assign mutex_fire_combo = ((active == 1'b1 && (zivar^zivar) == {WIDTH{1'b0}}
+    && mutex && (zivar !== last_var || mutex_fire || force_stats_check)) &&
+    (INV == 0 && ((WIDTH == 2 && zivar == 2'b11) ||
+    (WIDTH > 2 && (zivar & ~(~zivar +1)) != {WIDTH{1'b0}})))
+  );
+`endif
+`protected
+
+    MTI!#xK_@\^<YI_QUml=}-<XI-Q_<_w5\G;K'7;[_VDi2*6#E}[}mJX3=]umIWUn'}7I=!,7#lF[
+    ;_5Ww3=NHUxDirJ<bil,p7x2Y1+Ymp'XQu'Z[*-_K|7H251;rK=$kGQu;[oHB*[DoOo=#T{[?n73
+    3s\Q=m1@~B=2<x7~o_sBT2\DA#@BGiVV;?e;DEY$maVNw}Q$G<-2%w=#sAvxJAo#{+$H@3[i3Pw5
+    '=-1s[_[jrx3[zlk5YGHx!Bi1E=]VZ8[!-AG,xE[D1[hrl@>]xuVyB?O2=w]Dnps}Yl!D~Vsk-CG
+    7;>-H$R__2o!,-wAv7,[~$*Dl\3>{u,B>WD<3Db}lB?<5,$5$A~YsEY{w*{2DA}#*p^~-3x>={mT
+    '1wR%=>Q}GK*-H7z!+{<UwCH-rR5aaY3[655k<g;^>^seVCz)\z1T$X7,lk\i_zE~EnAEW1R_,Vl
+    }#=!VxBj{+e'X_7B>'7I2~5'E(3D,eBw^Vv1'[(7m2#;n]DiBuI1A<Tx7?~C-7\}J2@$j!5xk[i#
+    -E~Fs'V@~}saH1;'Q1zx\1T_F!x4/%<TJ;AY#_/$n,ZS-hzB5*zUD1x>j#=v5],rCKMOAC^1a~Y7
+    ED!U(CHoQrSu}#J*$U#GI!<wepWpO@{kRG[1>s'X]oopv-+$?QVn{O-W_O}MoQ>D$mBA-s7--^X$
+    pQz{J*\O=a,lVxu\*#mWIp^ZO*a}p-KITE^rBCT>c_u1W[FaY5YP]}1#@[O!S}_3E8,,wR=s^BEs
+    u#ew-1^u$BF[mXWI3Q{sEr@QD}3'nvv'E$pLeIYC5I'<=Knz!O[}QBUJkH!xYQaxDA>a<DzBGwn}
+    ,\'7qTDV5J+IOK-YvE#z$V>G15A<\I}oTa,uYGE;uXEr[}YD<W'\kVOp3IEARpe{[8eo^K'o*>ZR
+    -T8R^XvzKDHwRwDZB-}^*^lJ{+>1X*Z90eT_+!lBu9[z;[@l<254SV(wUBU7C-?mp;J^x{m}o3u,
+    Wx#/&*u+aWHEus?'#IB1J+1?~Rp,l9coJa*!T][D5!j}><Vy?'eA$p<XAGKo~E[\pG2pY$JHa5?<
+    dpnj;317nlw>}C7'ReWRmRsO,O}J=s2llR~+]nI+C>a@$m=W~:,=<?5JGi03j{7w}{k]wEA[>~[l
+    iv~?nZ{-<T$<v<^rU,nY[R<$u<[-a[x'*B$.|fyFu7i!CQ\]-lo}C'e,E[Qo8RC}T}>Ym|7KD,o,
+    nAf|[;'WJX]nG}k'J,zxdCx3^]U*2B>pz#xvnGG?3YE<OOWIp#1RUj\]lZA\,5km]\vDD"*$+\k9
+    'EJv!T5UZA~[a]J#z*@;(x3]HN=~T,uvW1Tn2sDJ*+NvRGT7uTUVI?~AYZJ{Y!OF|<sOv_YwV"DZ
+    He,'l{}wT']-o!O1,<gs+UVUV+pYEpn,G[}yE>T_J]1;)KG~l{5eQ2wVU%1vkVCem[BkXWRB?A9L
+    vArr,jjKJI>m1;pJ7VXl!'ToZ$ZxJl2^mjknSM$m2?5C$BUD+xlx$iCeE~71lXv3vZ;[A}_aCxkL
+    $jD=EI<TY-j2p3DApb5~}2CAJ^C<
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_mutex_chx0: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (mutex_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_mutex_chx0"),
+                          .msg            ({msg,"The bits of test_expr are not mutually exclusive."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_mutex_chx0: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (mutex_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_mutex_cover.svh"
+
+`qvlendmodule 

@@ -1,0 +1,228 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_maximum_assertions (zivar, 
+			           used, 
+			           used_cond, 
+			           clock, 
+			           reset, 
+			           areset, 
+			           maximum, 
+			           val, 
+			           active, 
+			           maximum_fire, 
+			           values_checked, 
+			           largest_value, 
+			           current_value, 
+			           value_is_max,
+			           support,
+			           fire_count
+			          );
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  //Instantiation dependent parameters
+  //WIDTH is the number of bits in the checked register
+  parameter WIDTH = 4; 
+  parameter VALWIDTH = 32; 
+
+  parameter TWOSCOMP = 0; 
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  //Checker clock
+  input clock; 
+  //Checker synchronous Reset
+  input reset; 
+  //Checker asynchronous Reset
+  input areset; 
+  //Activation Condition
+  input active; 
+  //Checked register value
+  input [WIDTH-1:0] zivar; 
+  input used; 
+  input used_cond; 
+  //maximum value
+  input [VALWIDTH-1:0] val; 
+  //maximum check
+  input maximum; 
+
+  output maximum_fire; //Fire signal asserted when violation is seen
+  output [STAT_CNT_WIDTH-1:0] values_checked; //Statistic, the total number of loads
+  output [WIDTH-1:0] largest_value; //Maximum value seen in sim so far
+  output [WIDTH-1:0] current_value;
+
+  reg maximum_fire;             //Asserted when violation is found
+
+  reg [STAT_CNT_WIDTH-1:0] values_checked;    //Statistic, the total number of loads
+  reg [WIDTH-1:0] largest_value;//Maximum value seen in sim so far
+
+  wire [WIDTH-1:0] current_value = zivar;
+
+  output [STAT_CNT_WIDTH-1:0] value_is_max;
+  reg [STAT_CNT_WIDTH-1:0] value_is_max;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+
+  wire check_used;
+  wire is_used;
+
+  reg [WIDTH-1:0] last_value;   /*Holds previous state value of checked
+                                 register*/
+
+  reg last_active;
+//  reg [31:0] max_seen_count;    Statistic, the number of times max value was
+//                                  reached*/
+
+  wire flag_xz;			//flag when a x (or z) is found 
+  reg [31:0] last_max_value;
+  
+  wire new_value_stats = ((zivar !== last_value) || 
+			  (last_max_value !== val) ||
+                          (last_active !== active) || 
+		//	  (force_checking === 1'b1) || 
+		          (check_used === 1'b1 && zivar !== last_value));
+
+  //Detect if the register is below the maximum value
+  //wire above_max = (zivar > val);
+
+  wire[WIDTH-1:0]twoscomp_var = (~(zivar)+1'b1);
+  wire[VALWIDTH-1:0] twoscomp_val = (~(val)+1'b1);
+
+  wire above_max = ((!TWOSCOMP && zivar > val) ||
+                    (TWOSCOMP && val[VALWIDTH-1] === 1'b1 &&
+                     zivar[WIDTH-1] === 1'b0) ||
+                    (TWOSCOMP && val[VALWIDTH-1] === 1'b0 &&
+                     zivar[WIDTH-1] === 1'b0 && zivar > val) ||
+                    (TWOSCOMP && val[VALWIDTH-1] === 1'b1 &&
+                     zivar[WIDTH-1] === 1'b1 && (twoscomp_var < twoscomp_val)));
+
+
+  assign check_used = ((used === 1'b1) && (used_cond === 1'b1));
+  assign is_used = ((used === 1'b0) || 
+		  ((used === 1'b1) && 
+		   (used_cond === 1'b1)));
+
+//  reg force_checking;
+`protected
+
+    MTI!#Olxa}[w[n7$RI1[mUUIB$^Ou;aX@r;5D7Z[;}/B#K]N1~Y=^#$~m_u$t%+$;VK'j_s\;Ezm
+    G1?Ynx<TppQ3AYGHVX=^~_lb%-^okYv{3Ld)#[?z-'W$l,io~X*W+rXDln=;E#\D&mY;^U$]\0!}
+    7$7bY$2sR!x]HDia*mX7t;7Tu^pTDlmB1Iu}~_=uuCjw@BjO]sxV<_p$#OZ\+~_OnIoA}_-Lv'HJ
+    i-7~VD3Kp!C+K{BGx;l3GRC1'oTkZ{x^[m{5z=iKEmlAbrIRX~r'T~ri2)Aooi]JvuK-u[b$HY_R
+    #B[pn~Q}@X]aIBi,p?W<{Ba!Xvn{nr<CDroHNsv+BCKjE}!Bw,}3!eE=Z55$H'vA};p!\EYk*OUr
+    wIx2kAxuHslmZ|noBAX1ksZn5O*3Y<N][>-pIp;{]]#w<rslDpoNsVN/}Rxi-YQ$jJ-335zI]]kG
+    0&/*;C,yNE_IJqX=7i^}Hj_aGma^!U!=@sIc1KlHvQ'[kUEnEoVWX+*}X}5#,pJO&O[3*xn1D6ms
+    #-HX*,i(wo,\l],]T-I]mGWC,G?sGhv<{s)s;<w|kwJKARwvm'eAp<T<(DQmTuUV#l.%75irrk\n
+    ^A1\
+`endprotected
+
+  assign flag_xz = ((^zivar) === 1'bx);
+   
+`protected
+
+    MTI!#uzlB,uQRI,\xFrZC=5Xm_V!!W~o_u;nV[4[IbNu>}[f}?R}$+-[e_pX[<,j7@Rex7i?~op?
+    +X_rHN,#B]B5YjiQ*^OU]{>}[io^@RGx*~x}7^mr][Q#nx=@^Y#X1i]K{pW=,$vB@WAN$zl,)m{\
+    B6.B-w[h?s@?,#TGEvvnL7Zp-IWIzpGoE|BQ;ZCinX};@D=Yx17C*^'KV1i[i}><=uFWX>#k[W=0
+    iviJ$OB+eeoHZjia1H+?s1'v|1wVD[?2=)<6^-AHfar#W^3AvmDEzn7k@\0uo],zN<Yv!U]TEkYR
+    K]2qEH+![aTrEj#r>_BOToJ2H=K-V-n-,Uji@YGs{T}Jj}![7bguEp=GR{C1Gv'j*Ei@*=}K[$?O
+    7k~hwYl~nB?_]AuVzkn?Q3E7;$]V.=#~v^Q*?B8!\ul"G,!o7@UT1e]zUYV^K5Ir^IACGKp+zbg2
+    15#3wvXVDY~GUnaQ,[[,L(B_j7n7Jm}Up~ETmeTEKTY\5_7aOTIR~,N^poOR;eaA$aAx,l'Ikmk@
+    rj\nTw#!aDsC1_}E}C#Wra-^TTub=1\*yX1@nuV>GW5XoJRGR{7aD%*>r5Dn_pC\^Z5k*~jXWGkp
+    {<*Bm#j{z;.ASX[Y5=xT^mCpViRV?lnn3$<UGL[Z\]GJTDo2_^C#ZECzr{^-mVnXY<zvH!tQ)Z*@
+    *iT!aE@A]oP[1o$Owri}VlB'_z?Dv=TFAv}I[j$_6TX@]^Q$nLU_'VCU!w$YO^}jTs=;A\ix-jiw
+    RIx^p*,AXI\D{'kR=~wGC2@O[la'TAz1]W_$TJ2}*U!\^Bk>piH\Yz/[?,_,u5Xz;xH{zDRSIl3v
+    15=~aT;loa_$z!>m+<CmH{YRdDC'>zaDXQIK3VzOkKsm3jRuE-o;B/kDaDF<a>!z7Aej*HZI~K*b
+    ;,}aKI<@D#[<NK55'a{5VGCYWO\3XIkJu1J\A[E?3Z7?'z(1]i3:/Y!p<9L)HADxw{]#%7AY*w*o
+    2W925G,Gs-C{rUa;_jBl!'XIWE,7Bjlt!*}nZ_^_<$XW+[327+e[zr>^s'2uCsv<JDX4~w~J[!2@
+    1GTJ7Q=CqCfv?GoSD7=>!os*<G@$mIOX<rOYRB;>mjBW&w<v^TDnr]Gm;f~rBu~_oGK<wIGDw,oZ
+    [VI{~n[II<]1ik'VY~?$1,nR7$^oI!Hqb'uzv)$l!@@D$v#G'_L=3ju!+e-i>Up<$QJ|cm+jomRm
+    ux+Q7J^,7#V5m{Vvnma*xx@Vi4EGY~pvuWzVX-5?;Je2_e(J<^C-[Hr3[H1QU~~='sHBG[^o&?v<
+    DT5*>y(?O$JnsE5xKnmY[lo5D$vVspB1s'J#'@!6ev;?;IE31ZWQ5*lO[!u;jl~BKEaHZEQQ^pA[
+    #vYAin\Q}*-G/=euEpYZ+M7E-X!$ZOOVou]+[7mXnWrCE_YmAwlV7n[T^D^6kXW}6rG*EO'xmvDU
+    O,]H*,7VX=K]o6JURHZva\om+?r[o+Y}HWMVx[,~}+3v_2!~_w[^WO!@C]EdQU$H]e*aGiReCI\H
+    eoIRyE,'V}OCVB1H\\E}>5uY=Y^GeIT+HOn_VERVE_2Qi2*EJYw*+vGvCY#rm=2Jx>llrBBpj<zH
+    [bo@2D>Tn+TpzOyeU>}-^3]ve^O1mwWe,vCTH@3nH>+H]UxzaB1i}77bIaz#_AC\epaWOaVAOEHW
+    ^DAeJzI$os$W3zJ}spl}sKK7jU{ss\5TK'AJ7vovnBk]Ue@1-Ona]#lwe!]Y=R~\o$D<1]J-VpE2
+    lJYO+z}5iETeVRBKxEziBe=ifBQJT-$3j1Clr4rr]7w'K2!p-roO_jBsZJZv5{'Ie$d,CX'NjiIR
+    3_DT2[
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire maximum_check_fire_combo;
+
+  assign maximum_check_fire_combo = ((areset === 1'b0 && reset === 1'b0 &&
+                                      active === 1'b1) && (above_max &&
+                                      !flag_xz && (is_used === 1'b1)));
+                                       
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_maximum_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (maximum_check_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_maximum_check"),
+                          .msg            ({msg,"The test expression had a value greater than the maximum value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_maximum_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (maximum_check_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_maximum_cover.svh"
+
+`qvlendmodule

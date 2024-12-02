@@ -1,0 +1,322 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+ 
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_bits_off_assertions (active,
+			            clock,
+			            reset,
+			            areset,
+			            zivar,
+			            used,
+			            used_cond,
+			            min_check,
+			            max_check,
+			            min_fire,
+			            max_fire,
+			            values_checked,
+			            fewest_bits_deasserted,
+			            most_bits_deasserted,
+			            min_bits_count,
+			            max_bits_count,
+                                    bits_deasserted,
+                                    bits_deasserted_bitmap,
+			            support,
+			            fire_count
+			           );
+   
+   
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = " QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter WIDTH = 1;            
+  parameter MAX = 1;  
+  parameter MIN = 1;
+  parameter CNTWIDTH = 1;         
+  parameter MAX_IS_SPECIFIED = 0; 
+  parameter MIN_IS_SPECIFIED = 0; 
+  parameter MAX_BITS_OFF = (MAX_IS_SPECIFIED == 1 ? MAX : 
+			   (MIN_IS_SPECIFIED == 0 ? 1 : WIDTH));  
+/*****
+  parameter MIN_BITS_OFF = (MIN_IS_SPECIFIED ? MIN : 1);  
+*****/
+
+  parameter MIN_BITS_OFF = (MIN_IS_SPECIFIED ? MIN : 1); 
+  parameter CHECK_MIN_BITS_OFF = (MIN_IS_SPECIFIED ? (MIN ? MIN : (MAX_IS_SPECIFIED ? 1 : MIN)) : 1);  
+
+  parameter MAX_CHECK_IS_ON = 1; 
+  parameter MIN_CHECK_IS_ON = 1; 
+
+  parameter BIT_VEC_WLOG2 = 1; 
+  parameter CW_FOR_FPGA = 0;
+  parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIT_VEC_WLOG2 : 63;
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input active; 
+  input	clock;  
+  input	areset; 
+  input	reset;  
+  
+  input [WIDTH-1:0] zivar; 
+  input	used;            
+  input	used_cond;       
+  
+  input min_check; 
+  input max_check; 
+   
+  output min_fire;
+  output max_fire;
+  
+  output [STAT_CNT_WIDTH-1:0] values_checked;
+  output [BIT_CNT_WIDTH:0] fewest_bits_deasserted;
+  output [BIT_CNT_WIDTH:0] most_bits_deasserted;
+  output [STAT_CNT_WIDTH-1:0] min_bits_count;
+  output [STAT_CNT_WIDTH-1:0] max_bits_count;
+  output [BIT_CNT_WIDTH:0] bits_deasserted;
+  output [WIDTH-1:0] bits_deasserted_bitmap;
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [2:0] fire_count_tmp;
+
+
+  wire xz_detected = (^zivar === 1'bx);   
+  wire check_used = ((used === 1'b1) && (used_cond === 1'b1));
+  wire is_used = ((used === 1'b0) || 
+		  ((used === 1'b1) && 
+		   (used_cond === 1'b1)));
+
+  reg min_fire;
+  reg max_fire;
+
+  reg last_active;
+  reg [WIDTH-1:0] old_value;
+  //reg [WIDTH-1:0] value_bits_deasserted;
+  reg [BIT_CNT_WIDTH:0] bits_deasserted;
+  reg force_checking;
+  //wire [WIDTH-1:0] bits_deasserted_bitmap = value_bits_deasserted;
+  reg [WIDTH-1:0] bits_deasserted_bitmap;
+  wire value_change_stats; 
+    
+  reg first_value_change;
+  //reg [STAT_CNT_WIDTH-1:0] valueCount;
+  reg [BIT_CNT_WIDTH:0] fewest_bits_count;
+  reg [BIT_CNT_WIDTH:0] most_bits_count;
+  reg [STAT_CNT_WIDTH-1:0] min_bits_count;
+  reg [STAT_CNT_WIDTH-1:0] max_bits_count;
+  //wire [STAT_CNT_WIDTH-1:0] values_checked = valueCount;
+  //wire [BIT_CNT_WIDTH:0] fewest_bits_deasserted = fewest_bits_count;
+  //wire [BIT_CNT_WIDTH:0] most_bits_deasserted = most_bits_count;
+  reg [STAT_CNT_WIDTH-1:0] values_checked;
+  reg [BIT_CNT_WIDTH:0] fewest_bits_deasserted;
+  reg [BIT_CNT_WIDTH:0] most_bits_deasserted;
+  integer i;
+  
+  reg [BIT_CNT_WIDTH:0] current_count;
+
+
+  integer loop_idx1;
+  reg one_cold_err;
+      
+`ifdef QVL_ASSERT_ON
+  wire bits_off_min_fire_default_combo;
+  wire bits_off_min_fire_specified_combo;
+  wire bits_off_max_fire_default_combo;
+  wire bits_off_max_fire_specified_combo;
+  wire bits_off_min_fire_combo;
+  wire bits_off_max_fire_combo;
+`endif
+
+
+`ifdef QVL_ASSERT_ON
+assign bits_off_min_fire_default_combo = ((active === 1'b1) && (xz_detected !== 1'b1) && (reset === 1'b0)) && 
+                                         (MIN_BITS_OFF == 1) &&
+                                         (MIN_CHECK_IS_ON == 1) && 
+				         (zivar === {WIDTH{1'b1}}) &&
+ 				         ((used !== 1'b0) || (used_cond === 1'b1));
+
+assign bits_off_min_fire_specified_combo = ((active === 1'b1) && (xz_detected !== 1'b1) && (reset === 1'b0))&& 
+	                                   (MIN_BITS_OFF > 1) &&
+                                           (min_check === 1'b1) &&
+				  	   (current_count < MIN_BITS_OFF) &&
+                                           (is_used === 1'b1);
+
+assign bits_off_max_fire_default_combo = ((active === 1'b1) && (xz_detected !== 1'b1) && (reset === 1'b0)) && 
+                                         (MAX_BITS_OFF == 1) &&
+                                         (MAX_CHECK_IS_ON == 1) && 
+			         	 (one_cold(zivar) == 1) &&
+ 		               		 ((used !== 1'b0) || (used_cond === 1'b1));
+
+assign bits_off_max_fire_specified_combo = ((active === 1'b1) && (xz_detected !== 1'b1) && (reset === 1'b0))&& 
+                                           (MAX_BITS_OFF > 1) &&
+                                           (max_check === 1'b1) &&
+				           (current_count > MAX_BITS_OFF) &&
+                                           (is_used === 1'b1);
+
+assign bits_off_min_fire_combo = bits_off_min_fire_default_combo ||
+			bits_off_min_fire_specified_combo ;
+
+assign bits_off_max_fire_combo = bits_off_max_fire_default_combo ||
+			bits_off_max_fire_specified_combo ;
+
+`endif
+
+
+`ifdef QVL_COVER_ON
+  assign value_change_stats = ((zivar !== old_value) || 
+			     (last_active !== active) || 
+			     (force_checking === 1'b1) || 
+			     (check_used === 1'b1));
+`endif
+
+ `protected
+
+    MTI!#YrJV~E^pYd?ssiC5$OY[7T~][EK[T[z|]~K;N"iAH]=;pT<E+R2ly+DV>7v'T>nK[{j$W[B
+    GY|w{@}xV@,'o:=;[}[^nm]1;,vDkGED[@ZODTqlYU;,v@D]k\it(^CzRVb=Hu,N.\?T#lQYRNCR
+    ]=<E\!%!7~x5E??jvat}ri~li;5lx,Z!,v?mY5<'\v7|F<{]xPDQj'Te+nD,vZ#sk_2[K{0},pE~
+    sV\}k'\G"DUp?=3DzlG@voC\oqe?X\t[unl~13pB@We|Q\imr?\#V+G[H]v}-[1[r<CiEk];d&HE
+    ?7XDEi[Wn*pa$w77
+`endprotected
+
+`protected
+
+    MTI!#pG#mX}}U'{HI2oD2j^Cs,D7{z+CVeO!\7;YzKs"\j$s=~*j_*U^hrYi]}3A1D<*s]*ls1J~
+    @ij+sW}<N7;GDu*1~Gu=7GI,;[qmI{UYew\;TRYiE#R]t*nn;mr7_E/=>C1f*nG\rTeOw'kAQT7G
+    i'V-0q[>;fB,Q2'Xe?[7AZE"N,m$<?{!3_v5@sjYpDVRmDT$a*+;Zr|52[_7aC+L7B{Oh!]ie@I*
+    T~C@rE2u+lH]>2jiE7mW[iwmx}+_^B=3TAD*'W(C5C1HzDinYR1Uv{,_;w-T*K@<$ir]Z@27RX<[
+    lr#e}Gx))Y}$E<CjX?zn5Ro2[HC5i==m>c3==+CWAQ<s]<+}p>#CI2z<$G$!'$e_Hp3ov^<eAX\,
+    {eC+j>c*,>~v2G+o'$X=CA}ZEZ@kE1R<_iRwX}+<{<G~H{Jqj[xp-XnQ7Z;pipEpsY2z-^zJQC-p
+    JTo}7=53E'1+3=jx7=*]hvkVIbZD~3WO{eiwx#JYl~?{~Bt2V=^+[irFHs'Ya$p<v)~w2+-Rxaux
+    Z-}e#vIn2\-TC=xw>sjnOBO]!u$;j,tv$^YMu5K+]jIevv!{IHvOUw]DW1~-^\D\s!azwp;XZ\H]
+    >n_zX$7a#7u50h>,3CL=<oriR?5vwGvlxGr|*!$CI?Y-k{7Dj'Any_oCrl-nr}UZJ73_U,_G^|A'
+    #XBzkeDC[Yz<$?.w}*v*sYx$\x[B=xx7;\Oz^!Hn1<tz#j!GBe;==\A;=B@r^uI[Ol2!'oxzDj*}
+    zjne5;m=3{O2*mW}vm!3=x~1nGX*ZRYlH3@Eep?-TBZvK{C}~>#DXRe,Ra^g];zj\RZ2<jJ7E+QY
+    VB_Hiw+r[r='<\3x6b#r?7EO>,_C,CoYYa<'YJCBlB^}B\V2}*#^[[=?vsGiEvlw-l7s<~7vZvIf
+    ,[V+r^kK!55UAD#G]3Je_D#^Pb,WWVY+W]}?+j!<<_31B!DrWD~T<~f1^VQh7pxZv}AlUBWRk^aG
+    Z,$C+'3es>s^*ZX>lZZ\{{!YlZ@Jr3lQT5XHkIQ'sVRa~O<-l9VjX?*plTOJV-RJTHmC!vUo_JwL
+    ~osV>_E]^,z_!BU2B+DsCk^rYw-,en~UYBx't7xBsJ1Y*|G1;7^eezJ}ajkR2\![??&-a3A+opC2
+    <EK\,_oN[Q;>L1vXCx2ZB}3Qw}3vCA[sJrDkJ<ImBskBu>>l7{R=7k+uDBTO1uYp]G*js!VIwD'O
+    B]Z5o;-r;_[V^@zH\/Q<@WQE]ml#Tulo]3BOkkKB-p!IC7AR>G\>A7pvK;bTp5iZ+72nIKJ<+BWN
+    j-<!OK1~peRmGETUiAY[<Qei+]iza]sEjA@Y)V[+5-z>@OuHJ_m}i{=a^$DX@'JnJQQEH!},nv}x
+    sRs_aCB2Z1*5AV37wIC[Hf*wsxY=>+\]x?~=!1/8^5?{Hp-H}*sxD\*3_i-w*3T#+Y>JIl*U'l@[
+    sc1UU?!o\r*1x}O+VA<A[@Y?!oOsKZoCVHRC?;p{YCmC-1rOYCR,^+>[E,7-O;$T*a_iH@C3A~oo
+    CC2x_Wo<'DBUjoQzI2[>Z]nnp?,1Alv?~@_u\!eBVKG+XB&[+^vK^nOGKGXAjZG[>=-BsEU@l!Y5
+    -D*sipB<EJ[pUV'BX'\lkDHv25Tcw,${&>HV];=kRt2R!IUr~5-GrXYOKjT\[e&G!+vp2Ql#1~TU
+    p]k7a3jtx?}\C#xs@[?lrX$Ep_oDEm~ptn_uQY]osxk;rCv*ei*'\]]OZkzIA'muW2j$-E~Q[>-'
+    k[;jz>1_G[tjJlJrV3rZ}K_UwZXe_e}A7a[^2YwbpJ\?pjKx2l[DI57+1Bm3*GQ$S^Cj]lO}jA>*
+    ~Z[kv1er!x][OD#au*7-e=:v5l-,5I},{O+ouR!kUe5Uz5s0_->lh,57#ALz[BO2,,<9-AmeT_Z$
+    x>[?KB]YvYR3vK;sG;Q}OwV=\Jw1x1!zYWe5$C,sZ1v#J5uo[B$>_viJ\CZ7I^rs]O\E@OeIl{ex
+    K7mO,<+Er}-v^^j5r(o>@EW1Q7)[T+19+=B1}zH{AX3?Vv1Ep}j<}Gm?=wlC^#5~;VU?DC?ToXW[
+    <7}]HA;Q2_w<T,uCjvl?5l}]Y3+^G}X~E+H[\!-'nBr*QQlBkUX#iE2AmC{kDi@<G>>=2l{pxpvi
+    pvE3=p*?1>EiwRZQ4NpXDsY!Rn/>x!YWs\E25@UE>5UI7woz+-Z_klk\__AM2a_m$znXQ[D}B,VB
+    {Y#Y+^{v2{K[++-[QJ-T[ED[|7D~~Se\J>;T=7o5o<C\{~3T>?tE:<wO!gkHJ2DVKzZY*?$:z=Ul
+    A-;rHDJxsH=TJQ@W]HuT|WTUDKR$Hul],J_pIY}}Y}GYpB23^HR-1>YDsBiJwe{'zU]T[^C?WTX$
+    1$^<R[Yl\e}B_YHB\a]vO%bz,Y$>plpwjrR}aaY>UIoBW7wrz$=K=+B'xWkOVOk{[lJVs<mn\2}l
+    WxG'x*nK>VTkwj<ZIAURr=z*R{XE'AEl}2}!=<BG7E_Tt-]BjKw{{=uG=Lr@Q#?vzDT5#r#z'KzE
+    iv
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+   // Instance for min fire violation
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+	 if(MIN_IS_SPECIFIED == 1)
+           begin:assert_bits_off_min_fire 
+              A_qvl_bits_off_min_fire: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (bits_off_min_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_bits_off_min_fire"),
+                          .msg            ({msg,"The expression had fewer than the specified minimum number of bits deasserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (MIN_IS_SPECIFIED == 1)
+	 if(MAX_IS_SPECIFIED == 1)
+           begin:assert_bits_off_max_fire
+              A_qvl_bits_off_max_fire: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (bits_off_max_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_bits_off_max_fire"),
+                          .msg            ({msg,"The expression had more than the specified maximum number of bits deasserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+	 if(MIN_IS_SPECIFIED == 1)
+           begin:assume_bits_off_min_fire 
+              M_qvl_bits_off_min_fire: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (bits_off_min_fire_combo)));
+	   end
+	 if(MAX_IS_SPECIFIED == 1)
+           begin:assume_bits_off_max_fire
+              M_qvl_bits_off_max_fire: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0)),
+                      .enable    (1'b1),
+                      .test_expr (bits_off_max_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+   // Instance for max fire violation
+
+
+
+
+`endif
+
+
+`include "qvl_bits_off_cover.svh"
+
+`qvlendmodule // qvl_bits_off_checker
+

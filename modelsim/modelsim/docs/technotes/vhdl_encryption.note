@@ -1,0 +1,672 @@
+Mentor Graphics Technical Note
+Copyright 1991-2009 Mentor Graphics Corporation
+All Rights Reserved.
+
+This document contains information that is proprietary to Mentor Graphics
+Corporation. The original recipient of this document may duplicate this
+document in whole or in part for internal business purposes only, provided
+that this entire notice appears in all copies. In duplicating any part of
+this document, the recipient agrees to make every reasonable effort to
+prevent the unauthorized use and distribution of the proprietary information.
+
+Trademarks that appear in Mentor Graphics product publications that are not
+owned by Mentor Graphics are trademarks of their respective owners.
+
+Purpose of Protection
+
+Suppose that an IP supplier, called the "provider", wants to deliver
+IP to a designer, called the "user", and create an environment in
+which the user can simulate the design elements while insuring that
+the user has no access to certain details of the IP.
+
+The provider achieves this by protectting parts of his design source
+file. ModelSim creates an encrypted version of the file, which the
+user can compile and execute or which the provider can compile into a
+library.  Protected declarations and statements are executed by the
+simulator but are hidden from inspection by the user. In particular,
+the user can not get access to protected information through the GUI,
+command line, list generation, or the FLI. In addition, error and
+warning messages do not provide significant information about
+protected regions.
+
+Method of Protection
+
+The provider achieves code protection by surrounding each source code
+region to be encrypted with `protect directives. These directives
+provide information about the chosen encryption and encoding methods.
+
+Encryption and encoding methods.
+
+There are two basic encryption techniques: symmetric and
+asymmetric. Symmetric encryption uses the same key for both encrypting
+and decrypting the code region. For symmetric encryption, security of
+the key is critical and information about the key must be supplied to
+ModelSim. Under certain circumstances (described below) ModelSim will
+generate a random key for use with a symmetric encryption method or
+will use an internal key.
+
+The symmetric encryption algorithms which ModelSim supports are:
+
+des-cbc
+3des-cbc
+aes128-cbc
+aes192-cbc
+aes256-cbc
+blowfish-cbc
+cast128-cbc
+
+The default method ModelSim uses for encrypting IP source code
+(called the data_method) is aes128-cbc.
+
+Asymmetric encryption methods use two keys: a public key for
+encryption, and a private key for decryption. The public key is openly
+available and is published using some form of key distribution
+system. The private key is secret and is used by the decrypting tool,
+such as ModelSim. Asymmetric methods are more secure than symmetric
+methods, but take much longer to encrypt and decrypt data.
+
+The only asymmetric method ModelSim supports is:
+
+rsa
+
+This method is only supported for specifying key information, not for
+encrypting IP source code (i.e., only for key methods, not for data
+methods) as described below.
+
+For testing purposes, ModelSim also supports 
+
+raw
+
+encryption, which doesn't change the protected source code (the
+simulator still hides information about the protected region).
+
+All encryption algorithms (except raw) produce byte streams that
+contain non-graphic characters, so there needs to be an encoding
+mechanism to transform arbitrary byte streams into portable sequences
+of graphic characters which can be used to put encrypted text into
+source files. The encoding methods supported by ModelSim are:
+
+uuencode
+base64
+raw
+
+Base 64 encoding, which is technically superior to uuencode, is the
+default encoding used by ModelSim, and is the recommended encoding for
+all applications.
+
+Raw encoding must only be used in conjunction with raw encryption for
+testing purposes.
+
+Digital Envelopes
+
+Symmetric and asymmetric keys can be combined in what are called
+"digital envelopes" to provide the safety of asymmetric keys with the
+efficiency of symmetric keys. Digital envelopes can also be used by
+the IP provider to produce encrypted source files that can be safely
+decrypted by multiple vendors. For these reasons, digital envelopes
+are the preferred method of protection.
+
+Digital envelopes work as follows: The encrypting tool generates a
+random key for use with a symmetric method, called a "session key". The
+IP protected source code is encrypted using this session key. The
+encrypting tool needs to communicate the session key to the decrypting
+tool, which could be ModelSim or some other tool.  It does this by
+means of a KEY_BLOCK. For each potential decrypting tool, information
+about that tool must be provided in the encryption envelope. This
+information includes the owner of the key (the key_keyowner), the name
+of the key (the key_keyname), and the asymmetric method for
+encrypting/decrypting the key (the key_method). The encrypting tool
+uses this information to encrypt and encode the session key into a
+KEY_BLOCK.  The occurrence of a KEY_BLOCK in the source code tells the
+encrypting tool to generate a digital envelope.
+
+The decrypting tool reads each KEY_BLOCK until it finds one that
+specifies a key it knows about. It then decrypts the associated
+KEY_BLOCK data to determine the original session key and uses that
+session key to decrypt the IP source code.
+
+Examples
+
+Example 1. Suppose the provider has a design, IP1, which he wants to
+protect. He needs to make the entity visible to the user, so the user
+knows how to instantiate the design, but wants to hide the
+architecture implementation from the user. In addition, suppose that
+IP1 instantiates entity IP2, which the provider wants to hide
+completely from the user.  This is a simplified version of a very
+common use case. The easiest way to encrypt this is to surround the
+protected regions with "`protect begin" and "`protect end" and let
+ModelSim choose default actions. For this example, assume that all the
+source code exists in a single file, example1.vhd.  That file will
+look like:
+
+========== file example1.vhd ==========
+
+-- The entity "ip1" is not protected
+...
+entity ip1 is
+...
+end ip1;
+
+-- The architecture "a" is protected
+-- The internals of "a" are hidden from the user
+`protect begin
+architecture a of ip1 is
+...
+end a;
+`protect end
+
+-- Both the entity "ip2" and its architecture "a" are completely protected
+`protect begin
+entity ip2 is
+...
+end ip2;
+architecture a of ip2 is
+...
+end a;
+`protect end
+
+========== end of file example1.vhd ==========
+
+The provider compiles this file as follows:
+
+vcom +protect=example1.vhdp example1.vhd
+
+The compiler produces an encrypted file, example1.vhdp which looks
+like the following:
+
+========== file example1.vhdp ==========
+
+-- The entity "ip1" is not protected
+...
+entity ip1 is
+...
+end ip1;
+
+-- The architecture "a" is protected
+-- The internals of "a" are hidden from the user
+`protect BEGIN_PROTECTED
+`protect encrypt_agent = "Model Technology", encrypt_agent_info = "DEV"
+`protect key_keyowner = "Mentor Graphics Corporation" , key_keyname = "MGC-VERIF-SIM-RSA-1" , key_method = "rsa"
+`protect encoding = ( enctype = "base64" )
+`protect KEY_BLOCK
+  <encoded encrypted session key>
+`protect data_method="aes128-cbc"
+`protect encoding = ( enctype = "base64" , bytes = 224 )       
+`protect DATA_BLOCK
+   <encoded encrypted IP>
+`protect END_PROTECTED
+
+-- Both the entity "ip2" and its architecture "a" are completely protected
+`protect BEGIN_PROTECTED
+`protect encrypt_agent = "Model Technology", encrypt_agent_info = "DEV"
+`protect key_keyowner = "Mentor Graphics Corporation" , key_keyname = "MGC-VERIF-SIM-RSA-1" , key_method = "rsa"
+`protect encoding = ( enctype = "base64" )
+`protect KEY_BLOCK
+   <encoded encrypted session key>
+`protect data_method = "aes128-cbc"
+`protect encoding = ( enctype = "base64" , bytes = 224 )       
+`protect DATA_BLOCK
+   <encoded encrypted IP>
+`protect END_PROTECTED
+
+========== end of file example1.vhdp ==========
+
+When the IP provider surrounds a text region using only "`protect
+begin" and "`protect end", ModelSim uses default values for both
+encryption and encoding. The first few lines following the "`protect
+BEGIN_PROTECTED" region in file ip.vhdp contain the key_keyowner,
+key_keyname, key_method and KEY_BLOCK directives The session key is
+generated into the key block and that key block is encrypted using the
+"rsa" method. The data_method indicates that the default data
+encryption method is aes128-cbc and the enctype value shows that the
+default encoding is base64.
+
+* The IP provider can compile file example1.vhd with the alternative command
+
+vcom +protect example1.vhd
+
+Here, he does not supply the name of the file to contain the protected
+source. Instead, ModelSim creates a protected file, gives it the name
+of the original source file with a 'p' placed at the end of the file
+extension, and puts the new file in the current work library
+directory. With the command described above, ModelSim creates file
+work/example1.vhdp.
+
+* The IP user compiles the encrypted file work/example1.vhdp the
+ordinary way. The +protect switch is not needed and the IP user does
+not have to treat the .vhdp file in any special manner. ModelSim
+automatically decrypts the file internally and keeps track of protected
+regions.
+
+* If the IP provider compiles the file example1.vhd and does not use
+the +protect argument, then the file is compiled, various `protect
+directives are checked for correct syntax, but no protected file is
+created and no protection is supplied. IP providers might use this as
+part of their testing process, but in general this usage is not
+recommended.
+
+* Encryptions done using ModelSim default encryption methods are
+portable to other decryption tools - if they support the "rsa" method and if
+they have access to the public key used by ModelSim.
+
+This key is published in the User's Manual in the section "Using the
+Mentor Graphics Public Encryption Key".
+
+Example 2. Suppose that the IP provider wants to produce the same code
+as in Example 1, but that he wants to provide specific values and not
+use any default values. To do this he would add `protect directives
+about keys, encryption methods and encoding, and would place them
+before each "`protect begin" directive. His input file would look like
+the following:
+
+========== file example2.vhd ==========
+
+-- The entity "ip1" is not protected
+...
+entity ip1 is
+...
+end ip1;
+
+-- The architecture "a" is protected
+-- The internals of "a" are hidden from the user
+`protect data_method = "aes128-cbc"
+`protect encoding = ( enctype = "base64" )
+`protect key_keyowner = "Mentor Graphics Corporation" , key_keyname = "MGC-VERIF-SIM-RSA-1" , key_method = "rsa"
+`protect KEY_BLOCK
+`protect begin
+architecture a of ip1 is
+...
+end a;
+`protect end
+
+-- Both the entity "ip2" and its architecture "a" are completely protected
+`protect data_method = "aes128-cbc"
+`protect encoding = ( enctype = "base64" )
+`protect KEY_BLOCK
+`protect begin
+library ieee;
+use ieee.std_logic_1164.all;
+entity ip2 is
+...  
+end ip2;
+architecture a of ip2 is
+...
+end a;
+`protect end
+
+========== end of file example2.vhd ==========
+
+In Example 2, the data_method directive indicates that the encryption
+algorithm "aes128-cbc" should be used to encrypt the source code
+(data). The encoding directive selects the "base64" encoding method,
+and the various key directives specify that the Mentor Graphic key
+named "MGC-VERIF-SIM-RSA-1" and the "RSA" encryption method are to be
+used to produce a key block containing a randomly generated session
+key to be used with the "aes128-cbc" method to encrypt the source
+code.
+
+Example 3. Suppose that the IP provider wants to use "raw" encryption
+and encoding to help with debugging. Suppose that the entity is the
+following:
+
+entity example3_ent is
+  
+  port (
+    in1  : in  bit;
+    out1 : out bit);
+
+end example3_ent;
+
+Then the architecture he wants to encrypt might be this:
+
+========== File example3_arch.vhd
+
+`protect data_method = "raw"
+`protect encoding = ( enctype = "raw")
+`protect begin
+architecture arch of example3_ent is
+
+begin 
+
+out1 <= in1 after 1 ns;
+  
+end arch;
+`protect end
+
+========== End of file example3_arch.vhd ==========
+
+If (after compiling the entity) this file were compiled using the command:
+
+vcom +protect example3_arch.vhd
+
+Then the following file would be produced in the work directory
+
+========== File work/example3_arch.vhdp ==========
+
+--`protect data_method = "raw"
+--`protect encoding = ( enctype = "raw")
+`protect BEGIN_PROTECTED
+`protect encrypt_agent = "Model Technology", encrypt_agent_info = "DEV"
+`protect data_method = "raw"
+`protect encoding = ( enctype = "raw", bytes = 81 )
+`protect DATA_BLOCK
+architecture arch of example3_ent is
+
+begin
+
+out1 <= in1 after 1 ns;
+
+end arch;
+`protect END_PROTECTED
+
+========== End of file work/example3_arch.vhdp
+
+Notice that the protected file is very similar to the original file.
+The differences are that "`protect begin" is replaced by "`protect
+BEGIN_PROTECTED", "`protect end" is replaced by "`protect
+END_PROTECTED", and some additional encryption information is supplied
+after the "BEGIN PROTECTED" directive. Also, any protect directives which
+occur before the "`protect begin" directive are repeated as comments in the vhdp file.
+
+Example 4.
+
+This example shows the use of symmetric encryption. It also
+demonstrates another common use case, in which the IP provider
+encrypts several parts of his source file. The IP provider chooses the
+encryption method for encrypting his source (the data_method) and uses
+a key automatically provided by ModelSim. This is very similar to the
+`protect method in Verilog.
+
+========== file example4.vhd ==========
+
+entity ex4_ent is
+  
+end ex4_ent;
+
+architecture ex4_arch of ex4_ent is
+  signal s1: bit;
+`protect data_method = "aes128-cbc"
+`protect begin                              
+  signal s2: bit;
+`protect end
+  signal s3: bit;
+
+begin  -- ex4_arch
+ 
+`protect data_method = "aes128-cbc"
+`protect begin
+s2 <= s1 after 1 ns;
+`protect end
+
+s3 <= s2 after 1 ns;
+
+end ex4_arch;
+
+========== end of file example4.vhd
+
+If this file were compiled using the command:
+
+vcom +protect example4.vhd
+
+Then the following file would be produced in the work directory
+
+========== File work/example4.vhdp ==========
+
+entity ex4_ent is
+  
+end ex4_ent;
+
+architecture ex4_arch of ex4_ent is
+  signal s1: bit;
+--`protect data_method = "aes128-cbc"
+`protect BEGIN_PROTECTED
+`protect encrypt_agent = "Model Technology", encrypt_agent_info = "DEV"
+`protect data_method = "aes128-cbc"
+`protect encoding = ( enctype = "base64" , bytes = 18 )        
+`protect DATA_BLOCK
+<encoded encrypted declaration of s2>
+`protect END_PROTECTED
+  signal s3: bit;
+
+begin  -- ex4_arch
+
+ 
+--`protect data_method = "aes128-cbc"
+`protect BEGIN_PROTECTED
+`protect encrypt_agent = "Model Technology", encrypt_agent_info = "DEV"
+`protect data_method = "aes128-cbc"
+`protect encoding = ( enctype = "base64" , bytes = 21 )        
+`protect DATA_BLOCK
+<encoded encrypted signal assignment to s2>
+`protect END_PROTECTED
+
+s3 <= s2 after 1 ns;
+
+end ex4_arch;
+
+========== End of file work/example4.vhdp
+
+* Example 4 shows that a provider can encrypt both declarations and
+statements. Also, note that the signal assignment
+
+s3 <= s2 after 1 ns;
+
+is not protected. This assignment compiles and simulates even though
+signal s2 is protected. In general, executable VHDL statements and
+declarations simulate the same whether or not they refer to protected
+objects.
+
+Portable Encryption for Multiple Simulators.
+
+Currently there do not exist procedures for key exchange between tool
+suppliers or for publishing public keys. Portable encryption depends
+on some form of key publishing, but we describe it here because key
+exchange standards are expected to be developed in the near
+future. Also, keys can currently be exchanged by using the
+non-standard key_public_key described below.
+
+An IP provider can use the concept of multiple key blocks to produce
+code that is secure and portable across different simulators.
+
+Suppose the provider wants to modify Example 2 so the encrypted model
+can be decrypted and simulated by both ModelSim and by a hypothetical
+company named "XYZ inc". The provider does this by writing a key block
+for each decrypting tool. If XYZ publishes a public key, the two key
+blocks in the IP source code might look like the following:
+
+`protect key_keyowner = "Mentor Graphics Corporation", key_method = "rsa", key_keyname = "MGC-VERIF-SIM-RSA-1"
+`protect KEY_BLOCK
+`protect key_keyowner = "XYZ inc", key_method = "rsa", key_keyname = "XYZ-keyPublicKey"
+`protect KEY_BLOCK
+
+The encrypted code would look very much like Example 2, with the addition of another key block:
+
+`protect key_keyowner = "XYZ inc", key_method = "rsa", key_keyname = "XYZ-keyPublicKey"
+`protect KEY_BLOCK
+   <encoded encrypted key information for "XYZ inc">
+
+Mentor Graphics Corporation would use its key block to determine the
+encrypted session key and XYZ inc would use the second key block to
+determine the same key. Consequently, both implementations could
+successfully decrypt the VHDL source code.
+
+Restrictions, Comparison with Verilog, Unresolved and Ambiguous Issues
+
+* If an IP provider has many source files containing entities and
+architectures which he wants to protect he either has to add `protect
+directives at the beginning and end of each entity or architecture or
+he has to concatenate many source files into a single file and add
+`protect directives to the beginning and end of the file. Both of
+these methods are cumbersome. ModelSim implementers are developing a
+mechanism to automatically add provider specified `protect information
+to the beginning and end of a file.
+
+* ModelSim applies `protect directives to entire declarations and
+statements; so if only part of a declaration or statement is protected
+the results are unpredictable.
+
+The major difference between VHDL encryption and Verilog is that VHDL
+uses the syntax `protect ... where Verilog uses `pragma protect ....
+However, there are a few other differences:
+
+* Both Verilog (using its own syntax) and VHDL allow multiple keyword
+expressions on the same line. For example:
+
+`protect data_keyowner="ACME corp.", data_keyname="secret-1"
+
+is equivalent to
+
+`protect data_keyowner="ACME corp."
+`protect data_keyname="secret-1"
+
+Both Verilog and VHDL require a comma between the two keyword
+expressions.  However, many examples in the Verilog LRM do not contain
+these commas; so, for maximum compatibility, ModelSim's implementation
+treats these commas as optional both for Verilog and for VHDL.
+
+* There is a potential ambiguous case in determining key
+information. The example below uses VHDL syntax, but the problem
+also exists in Verilog. Suppose the source code from the IP provider
+contains the following:
+
+`protect key_keyowner = "Mentor Graphics Corporation" 
+`protect key_method = "rsa"
+`protect key_keyname = "MGC-VERIF-SIM-RSA-1"
+`protect key_keyowner = "XYZ inc" 
+`protect key_method = "rsa" 
+`protect begin  
+
+There are two key keyowners, two key methods, but only one key
+keyname. To which set of keys does this key keyname apply?  VHDL
+solves this problem by requiring that a collection of key information
+be ended by a KEY_BLOCK protect keyword in the encryption envelope.
+However, in Verilog it is an error if a KEY_BLOCK protect keyword
+occurs in an encryption envelope. For compatibility, ModelSim treats
+the KEY_BLOCK directive as optional in the encryption
+envelope. However, ModelSim expects that all three keywords,
+key_keyowner, key_method and key_keyname will be supplied for each key
+description.
+
+* It is not clear from the LRM rules whether any directives can be
+placed in the IP source code on the same line as the "`protect begin"
+directive after that directive. Similarly, it is not clear whether
+there can be any information on the same line as the "`protect end"
+directive preceding that directive.  Therefore, ModelSim ignores any
+information after the "`protect begin" directive on the same
+line. Also, ModelSim expects the "`protect end" directive to occur as
+the first thing on the line.
+
+* Digest directives are parsed for correct syntax, but digests are not
+supported.
+
+* `protect comments are echoed in the source code when they occur with
+other `protect keywords, but they cause a syntax error when they occur
+within in a `protect begin ... `protect end region.
+
+* `protect license directives are not supported.
+
+* `protect viewport directives are not supported.
+
+* Verilog supports a key_public_key directive. VHDL officially does not, but
+ModelSim has added this feature to its VHDL implementation.  Here is
+an example:
+
+`protect key_keyowner = "XYZ inc", key_method = "rsa", key_keyname = "XYZ-keyPublicKey"
+`protect key_public_key
+< encoded (NOT encrypted) public key goes here>
+`protect begin
+
+An IP provider could use the key_public_key directive to tell ModelSim
+about another vendor's public key.
+
+* Nested decryption envelopes are not supported. (Nested encryption
+envelopes are illegal.)
+
+Some special considerations for IP providers and testers.
+
+A natural flow could be to first write and test unencrypted IP source
+code. Next, add `protect directives to the source code and recompile
+using the +protect command line switch and then compile, simulate and
+test the design units which were created using the "vcom +protect..."
+command. However, the IP provider must be very careful about library
+issues when compiling protected versions of unprotected code.
+
+Protected designs are entered into the library with encrypted names
+such as:
+
+vdir
+...
+PROTECTED DU d3f715d
+...
+
+The encrypted name is called a "short name". Protected designs can be
+removed from the library using the "-sn" command line option in vdel:
+
+vdel -sn d3f715d
+
+The IP provider must never compile both protected and unprotected
+versions of the same design into the same library. This restriction is
+in effect because post-compile tools such as vopt and vsim would not
+be able to determine which version of the design to use. If the
+provider tries to compile both encrypted and unencrypted versions into
+the same library he would get one of the following messages:
+
+** Error: <file>.vhd(<line number>): Can't recompile existing protected design unit "<design unit name>" as unprotected.
+
+Or
+
+** Error: <file>.vhd(<line number>): Can't recompile existing unprotected design unit "<design unit name>" as protected.
+
+The best way to avoid this problem is to either compile unprotected
+and protected versions of the same design into different libraries or
+use to vdel to delete the unencrypted versions after creating the
+encrypted source files and before compiling these new files.
+
+Finally, consider what happens when the IP provider compiles as in Example 1:
+
+vcom +protect=example1.vhdp example1.vhd
+
+A file, example1.vhdp is created, but, in addition, design units ip1
+and ip2 are also written into the work library. These design units can
+be directly simulated, but this is not generally recommended. One
+reason for not recommending this is that these design units will refer
+back to the original unencrypted source files. Remember, the only
+thing the user will have access to is the encrypted vhdp file or a
+library into which the vhdp file has been compiled. So the encrypted
+design units created by the "vcom +protect..." command should either
+be deleted or should be compiled into a different library and the IP
+provider should compile and test the example1.vhdp file instead.
+ 
+Other references:
+
+VHDL 2008 Language Reference Manual, clause 24.1, "Protect tool
+directives" and Annex H, "Guide to use of protect directives".
+
+Verilog 2005 Language Reference manual, section 28, "Protected
+envelopes".
+
+ModelSim User's Manual: "Protecting Your Source Code".
+
+
+
+
+
+
+                            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1220 @@
+# Mapped Scrollbar
+# ----------------------------------------------------------------------
+# Implements a scrollbar with colored image map
+#
+#  Adds two methods to what otherwise looks like a
+#  standard Tk scrollbar widget.
+#
+#    setmap _map_  Defines the colormap for the scrollbar.  A _map_ is a
+#                  list of ranges which may have one of these 3 forms:
+#
+#      frac                 Range is frac to frac of color -mapcolor
+#
+#      frac1 frac2          Range is frac1 to frac2 of color -mapcolor
+#
+#      frac1 frac2 color    Range is frac1 to frac2 of color color
+#
+#
+#    refreshmap   Recreate the color map from the data.
+#
+#  Also, these options are provided in addition to the normal scrollbar
+#  options:
+#
+#    -mapcolor   Defines the default color to use in the colormap
+#
+#    -mapcmd     Defines a callback command for colormap definition.
+#                The callback is made when the scrollbar set method
+#                is called and the range has changed.  The return
+#                value of the function is used as the new _map_ (see
+#                setmap above.)
+#    
+#
+# ----------------------------------------------------------------------
+#   AUTHOR:  Brian Griffin            E-mail: bgriffin@model.com
+#
+#   @(#) $Id: //dvt/mti/rel/6.5b/src/tkgui/mapsb.itk#1 $
+# ----------------------------------------------------------------------
+#              Copyright 1991-2009 Mentor Graphics Corporation
+#
+# ======================================================================
+# See the file "license.terms" for information on usage and
+# redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+#
+# Portions of this code was taken from tkdiff
+#
+# TkDiff -- A graphical front-end to diff for Unix and NT.
+# Copyright © 1994-1998 by John M. Klassa.
+#
+# TkDiff Home Page: http://www.ede.com/free/tkdiff
+# Mailing list, mail archive, etc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+#
+# ======================================================================
+
+#
+# Usual options.
+#
+itk::usual Mapscrollbar {
+	keep -activebackground
+	keep -borderwidth 
+	keep -cursor 
+#	keep -foreground
+	keep -highlightbackground
+	keep -highlightcolor
+	keep -highlightthickness
+	keep -relief
+    keep -background 
+}
+
+# ------------------------------------------------------------------
+#                              MAPPED SCROLLBAR
+# ------------------------------------------------------------------
+class ::mtiwidgets::Mapscrollbar {
+	inherit ::itk::Widget
+
+	# STANDARD OPTIONS 
+	#  -activebackground, activeBackground, Foreground 
+	#  -background or -bg, background, Background 
+	#  -borderwidth or -bd, borderWidth, BorderWidth 
+	#  -cursor, cursor, Cursor 
+	#  -highlightbackground, highlightBackground, HighlightBackground 
+	#  -highlightcolor, highlightColor, HighlightColor 
+	#  -highlightthickness, highlightThickness, HighlightThickness 
+	#  -jump, jump, Jump 
+	#  -orient, orient, Orient 
+	#  -relief, relief, Relief 
+	#  -repeatdelay, repeatDelay, RepeatDelay 
+	#  -repeatinterval, repeatInterval, RepeatInterval 
+	#  -takefocus, takeFocus, TakeFocus 
+	#  -troughcolor, troughColor, Background
+
+	itk_option define -activebackground activeBackground Foreground black
+	itk_option define -background background Background grey
+    itk_option define -borderwidth borderWidth BorderWidth 1
+	itk_option define -cursor cursor Cursor {}
+	itk_option define -highlightbackground highlightBackground HighlightBackground #d9d9d9
+	itk_option define -highlightcolor highlightColor HighlightColor #000000
+	itk_option define -highlightthickness highlightThickness HighlightThickness 0
+    itk_option define -jump jump Jump false {}
+    itk_option define -orient orient Orient horizontal {}
+	itk_option define -relief relief Relief sunken {}
+    itk_option define -repeatdelay repeatDelay RepeatDelay 300 {}
+    itk_option define -repeatinterval repeatInterval RepeatInterval 100 {}
+    itk_option define -takefocus takeFocus TakeFocus {} {}
+	itk_option define -troughcolor troughColor Background grey50
+
+	#  
+	# WIDGET-SPECIFIC OPTIONS 
+	#  
+	#  -activerelief, activeRelief, ActiveRelief 
+	#  -command, command, Command 
+	#  -elementborderwidth, elementBorderWidth, BorderWidth 
+	#  -width, width, Width
+
+    itk_option define -activerelief activeRelief ActiveRelief raised {}
+    itk_option define -command command Command {} {} 
+    itk_option define -elementborderwidth elementBorderWidth BorderWidth 2 {}
+	itk_option define -mapcolor mapcolor Color red
+    itk_option define -width width Width 15 { }
+	itk_option define -mapcmd mapcmd Command {} {}
+	itk_option define -style style Style classic {} ;# values are "default" or "classic"
+
+	#
+	# Alias options
+	#
+	itk_option define -bd bd BorderWidth 1
+	itk_option define -bg bg Background grey
+
+	#
+	# Constructor / Destructor
+	#
+    constructor {args} {}
+    destructor {}
+
+	#  
+	# DESCRIPTION 
+	# ELEMENTS 
+	#  
+	#  arrow1 
+	#  trough1 
+	#  slider 
+	#  trough2 
+	#  arrow2
+	#  
+	# WIDGET COMMAND 
+	#  
+	#  pathName activate ?element? 
+	#  pathName cget option 
+	#  pathName configure ?option? ?value option value ...? 
+	#  pathName delta deltaX deltaY 
+	#  pathName fraction x y 
+	#  pathName get 
+	#  pathName identify x y 
+	#  pathName set first last
+	#  
+	# SCROLLING COMMANDS 
+	#  
+	#  prefix moveto fraction 
+	#  prefix scroll number unit 
+	#  prefix scroll number page
+	public method activate {args} {}
+	public method delta {deltaX deltaY} {}
+	public method fraction {x y} {}
+	public method get {} {}
+	public method identify {x y} {}
+	public method moveto {fraction} {}
+	public method scroll {number what} {}
+	public method set {first last} {}
+	public method refreshmap {} {}
+	public method setmap {{list "-empty-"}} {}
+
+	proc Enter {w x y}
+	proc Leave {w x y}
+	proc Motion {w x y}
+	proc MWheel {w args}
+
+	protected method _map-move-thumb {yview1 yview2} {}
+	protected method _create-map {mapwidth mapheight} {}
+	protected method _map-resize {args} {}
+	protected method _map-scroll {y} {}
+	protected method _map-seek {y} {}
+	protected method _handleMapEvent {event x y} {}
+	protected method _show-info {args} {}
+
+	private method _repeatEvent {event element repeat} {}
+	private method _repeatCancel {} {}
+
+	protected variable _active
+	protected variable _lockActive 0
+	protected variable _init
+	protected variable _interior
+	protected variable _map
+	protected variable _mapScrolling
+	protected variable _map_list
+	protected variable _mapborder
+	protected variable _mapheight
+	protected variable _mapwidth
+	protected variable _orient
+	protected variable _statusInfo
+	protected variable _thumbBbox
+	protected variable _thumbMinHeight
+	protected variable _thumbsize
+	protected variable _viewcmd
+	protected variable _yview
+	protected variable _yview2
+	protected variable _lightColor
+	protected variable _darkColor
+	protected variable _lightActiveColor
+	protected variable _darkActiveColor
+
+	private variable _repeatAfterId
+}
+
+#
+# Provide a lowercased access method for the Mapscrollbar class.
+# 
+proc ::mtiwidgets::mapscrollbar {pathName args} {
+    uplevel ::mtiwidgets::Mapscrollbar $pathName $args
+}
+
+# ------------------------------------------------------------------
+#                        CONSTRUCTOR
+# ------------------------------------------------------------------
+body ::mtiwidgets::Mapscrollbar::constructor {args} {
+    #
+    # Save off the interior for later use.
+    #
+	::set _init 0
+    ::set _interior $itk_interior
+	::set _mapheight 15
+	::set _mapwidth 15
+	::set _map_list [list]
+	::set _yview 0.0
+	::set _yview2 1.0
+	::set _thumbMinHeight 10
+	::set _orient horizontal
+	::set _lightColor white
+	::set _darkColor black
+	::set _lightActiveColor black
+	::set _darkActiveColor black
+	::set _thumbsize 1
+	::set _repeatAfterId ""
+	::set _active ""
+	::set _lockActive 0
+
+	::set i 0
+	while {[lsearch [image names] map$i] >= 0} {
+		incr i
+	}
+	catch {image create photo map$i} _map
+
+    #
+    # Create real map
+    # 
+    itk_component add mapCanvas {
+		canvas $itk_interior.mapCanvas \
+			-yscrollcommand [code $this _map-resize] \
+			-relief flat -highlightthickness 0 -borderwidth 0
+    } {
+		ignore -relief -highlightthickness -borderwidth
+		rename -background -troughcolor troughColor Background
+    }
+
+    eval itk_initialize $args
+
+	$itk_component(mapCanvas) create image 1 1\
+		-image $_map\
+		-anchor nw
+
+	# Remove the Canvas class bindings
+	bindtags $itk_component(mapCanvas) [list $itk_component(mapCanvas) Mapscrollbar . all]
+
+	bind $_interior <Configure> +[code $this _map-resize]
+
+	bind $itk_component(mapCanvas) <ButtonPress-1> \
+		[code $this _handleMapEvent B1-Press %x %y]
+	bind $itk_component(mapCanvas) <Button1-Motion> \
+		[code $this _handleMapEvent B1-Motion %x %y]
+	bind $itk_component(mapCanvas) <ButtonRelease-1> \
+		[code $this _handleMapEvent B1-Release %x %y]
+	bind $itk_component(mapCanvas) <Control-Button-1> \
+		[code $this _handleMapEvent Control-B1-Press %x %y]
+	bind $itk_component(mapCanvas) <ButtonPress-2> \
+		[code $this _handleMapEvent B2-Press %x %y]
+	bind $itk_component(mapCanvas) <Button2-Motion> \
+		[code $this _handleMapEvent B2-Motion %x %y]
+	bind $itk_component(mapCanvas) <ButtonRelease-2> \
+		[code $this _handleMapEvent B2-Release %x %y]
+	bind $itk_component(mapCanvas) <Control-Button-2> \
+		[code $this _handleMapEvent Control-B2-Press %x %y]
+
+	bind $itk_component(mapCanvas) <B1-Enter> {
+		# Prevent <Enter> binding from firing
+	}
+	bind $itk_component(mapCanvas) <B1-Leave> {
+		# Prevent <Leave> binding from firing
+	}
+	bind $itk_component(mapCanvas) <B2-Enter> {
+		# Prevent <Enter> binding from firing
+	}
+	bind $itk_component(mapCanvas) <B2-Leave> {
+		# Prevent <Leave> binding from firing
+	}
+	bind $itk_component(mapCanvas) <Control-B1-Enter> {
+		# Prevent <Enter> binding from firing
+	}
+	bind $itk_component(mapCanvas) <Control-B1-Leave> {
+		# Prevent <Leave> binding from firing
+	}
+	bind $itk_component(mapCanvas) <Control-B2-Enter> {
+		# Prevent <Enter> binding from firing
+	}
+	bind $itk_component(mapCanvas) <Control-B2-Leave> {
+		# Prevent <Leave> binding from firing
+	}
+
+	switch -glob -- $itk_option(-orient) {
+		vert* {
+			::set _viewcmd yview
+			::set _orient vertical
+			::set width $_mapwidth
+			::set height 0
+			::set fill y
+		}
+		horiz* -
+		default {
+			::set _viewcmd xview
+			::set _orient horizontal
+			::set height $_mapwidth
+			::set width 0
+			::set fill x
+		}
+	}
+	if {![info exists width]} {
+		puts stderr "orient=$itk_option(-orient)"
+	}
+	$itk_component(mapCanvas) configure \
+		-width $width \
+		-height $height
+
+	pack $itk_component(mapCanvas) \
+		-side top\
+		-fill both \
+		-expand 1
+
+    $this _map-resize
+
+}
+
+# ------------------------------------------------------------------
+# OPTION: -borderwidth
+#
+# Change borderwidth
+# ------------------------------------------------------------------
+configbody ::mtiwidgets::Mapscrollbar::borderwidth {
+	::set itk_option(-bd) $itk_option(-borderwidth)
+	$this component hull configure -borderwidth $itk_option(-borderwidth)
+}
+configbody ::mtiwidgets::Mapscrollbar::bd {
+	$this configure -borderwidth $itk_option(-bd)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -relief
+#
+# Change relief
+# ------------------------------------------------------------------
+configbody ::mtiwidgets::Mapscrollbar::relief {
+	$this component hull configure -relief $itk_option(-relief)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -activebackground
+#
+# Change activebackground
+# ------------------------------------------------------------------
+configbody ::mtiwidgets::Mapscrollbar::activebackground {
+	::set shadows [mtiwidgets::3DborderColor $itk_interior both -activebackground]
+	::set _lightActiveColor $itk_option(-activebackground) ;#[lindex $shadows 0]
+	::set _darkActiveColor [lindex $shadows 1]
+	$itk_component(mapCanvas) itemconfigure arrow1BG -activefill $itk_option(-activebackground)
+	$itk_component(mapCanvas) itemconfigure arrow2BG -activefill $itk_option(-activebackground)
+	$itk_component(mapCanvas) itemconfigure thumbBG -activefill $itk_option(-activebackground)
+	_map-resize
+}
+
+# ------------------------------------------------------------------
+# OPTION: -background
+#
+# Change background
+# ------------------------------------------------------------------
+configbody ::mtiwidgets::Mapscrollbar::background {
+	::set itk_option(-bg) $itk_option(-background)
+	$this component hull configure -background $itk_option(-background)
+	::set shadows [mtiwidgets::3DborderColor $itk_interior both]
+	::set _lightColor [lindex $shadows 0]
+	::set _darkColor [lindex $shadows 1]
+	$itk_component(mapCanvas) itemconfigure arrow1UL -fill $_lightColor
+	$itk_component(mapCanvas) itemconfigure arrow2UL -fill $_lightColor
+	$itk_component(mapCanvas) itemconfigure arrow1LR -fill $_darkColor
+	$itk_component(mapCanvas) itemconfigure arrow2LR -fill $_darkColor
+	$itk_component(mapCanvas) itemconfigure arrow1BG -fill $itk_option(-background)
+	$itk_component(mapCanvas) itemconfigure arrow2BG -fill $itk_option(-background)
+	_map-resize
+}
+configbody ::mtiwidgets::Mapscrollbar::bg {
+	$this configure -background $itk_option(-bg)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -elementborderwidth
+#
+# Change borderwidth
+# ------------------------------------------------------------------
+configbody ::mtiwidgets::Mapscrollbar::elementborderwidth {
+	$itk_component(mapCanvas) itemconfig thumbUL -width $itk_option(-elementborderwidth)
+	$itk_component(mapCanvas) itemconfig thumbLR -width $itk_option(-elementborderwidth)
+	$itk_component(mapCanvas) itemconfig arrow1UL -width $itk_option(-elementborderwidth)
+	$itk_component(mapCanvas) itemconfig arrow1LR -width $itk_option(-elementborderwidth)
+	$itk_component(mapCanvas) itemconfig arrow2UL -width $itk_option(-elementborderwidth)
+	$itk_component(mapCanvas) itemconfig arrow2LR -width $itk_option(-elementborderwidth)
+	_map-resize
+}
+
+# ------------------------------------------------------------------
+# OPTION: -width
+#
+# Change width
+# ------------------------------------------------------------------
+configbody ::mtiwidgets::Mapscrollbar::width {
+	::set _mapwidth [expr {$itk_option(-width) - $_mapborder}]
+	::set mapwidth $_mapwidth
+	switch -- $_orient {
+		vertical {
+			$itk_component(mapCanvas) configure -width $_mapwidth
+		}
+		horizontal {
+			$itk_component(mapCanvas) configure -height $_mapwidth
+		}
+	}
+	_map-resize
+}
+
+# ------------------------------------------------------------------
+# OPTION: -highlightthickness
+#
+# Change highlightthickness
+# ------------------------------------------------------------------
+#configbody ::mtiwidgets::Mapscrollbar::highlightthickness {
+#	$_interior configure -highlightthickness 0
+#	$itk_component(mapCanvas) configure -highlightthickness $itk_option(-highlightthickness)
+#	_map-resize
+#}
+
+###############################################################################
+# Activate subwidgets
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::activate {args} {
+	if {[llength $args] == 0} {
+		return $_active
+	} elseif {!$_lockActive} {
+		$itk_component(mapCanvas) itemconfig arrow1UL -fill $_lightColor
+		$itk_component(mapCanvas) itemconfig arrow1LR -fill $_darkColor
+		$itk_component(mapCanvas) itemconfig arrow1BG -fill $itk_option(-background)
+		$itk_component(mapCanvas) itemconfig thumbUL -fill $_lightColor
+		$itk_component(mapCanvas) itemconfig thumbLR -fill $_darkColor
+		$itk_component(mapCanvas) itemconfig thumbBG -fill $itk_option(-background)
+		$itk_component(mapCanvas) itemconfig arrow2UL -fill $_lightColor
+		$itk_component(mapCanvas) itemconfig arrow2LR -fill $_darkColor
+		$itk_component(mapCanvas) itemconfig arrow2BG -fill $itk_option(-background)
+	} else {
+		return
+	}
+	::set element [lindex $args 0]
+	switch -- $element {
+		arrow1 {
+			if {$itk_option(-style) eq "classic"} {
+				$itk_component(mapCanvas) itemconfig arrow1UL -fill $_lightActiveColor
+				$itk_component(mapCanvas) itemconfig arrow1LR -fill $_darkActiveColor
+				$itk_component(mapCanvas) itemconfig arrow1BG -fill $itk_option(-activebackground)
+			}
+			::set _active $element
+		}
+		slider {
+			$itk_component(mapCanvas) itemconfig thumbUL -fill $_lightActiveColor
+			$itk_component(mapCanvas) itemconfig thumbLR -fill $_darkActiveColor
+			$itk_component(mapCanvas) itemconfig thumbBG -fill $itk_option(-activebackground)
+			::set _active $element
+		}
+		arrow2 {
+			if {$itk_option(-style) eq "classic"} {
+				$itk_component(mapCanvas) itemconfig arrow2UL -fill $_lightActiveColor
+				$itk_component(mapCanvas) itemconfig arrow2LR -fill $_darkActiveColor
+				$itk_component(mapCanvas) itemconfig arrow2BG -fill $itk_option(-activebackground)
+			}
+			::set _active $element
+		}
+		default {
+			::set _active ""
+		}
+	}
+}
+
+###############################################################################
+# delta command
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::delta {deltaX deltaY} {
+}
+###############################################################################
+# Convert coor. to scroll fraction
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::fraction {x y} {
+	switch -- $_orient {
+		vertical {
+			::set point $y
+		}
+		horizontal {
+			::set point $x
+		}
+	}
+
+	return [expr {(double($point) / double($_mapheight))}]
+}
+###############################################################################
+# Get current scroll range
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::get {} {
+	return [list $_yview $_yview2]
+}
+###############################################################################
+# Identify subregion (arrow, trough, slider)
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::identify {x y} {
+	switch -- $_orient {
+		vertical {
+			::set p [$itk_component(mapCanvas) canvasy $y]
+		}
+		horizontal {
+			::set p [$itk_component(mapCanvas) canvasx $x]
+		}
+	}
+	if {$p < $_mapwidth} {
+		return arrow1
+	} elseif {$p < [expr {$_mapwidth + $_mapheight}]} {
+		::set ty1 $_thumbBbox(y1)
+		::set ty2 $_thumbBbox(y2)
+		if {$p < $ty1} {
+			return trough1
+		} elseif {$p > $ty2} {
+			return trough2
+		} else {
+			return slider
+		}
+	} else {
+		return arrow2
+	}
+}
+###############################################################################
+# Scroll command moveto
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::moveto {fraction} {
+	_map-scroll [expr {$fraction * double($_mapheight)}]
+}
+###############################################################################
+# handles events over the map
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::scroll {number what} {
+	switch -- $what {
+		unit {
+			_map-scroll [expr {int($number)}]
+		}
+		page {
+			::set size [expr {($_yview2 - $_yview) * $number}]
+			::set amount [expr {$_yview + $size}]
+			moveto $amount
+		}
+	}
+}
+###############################################################################
+# set slider position and size
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::set {first last} {
+	::set _yview $first
+	::set _yview2 $last
+	::set thumbsize [expr {$last - $first}]
+	if {$thumbsize != $_thumbsize && $itk_option(-mapcmd) != ""} {
+		if {![catch $itk_option(-mapcmd) newmap]} {
+			setmap $newmap
+			::set _thumbsize $thumbsize
+		}
+	}
+	_map-move-thumb $_yview $_yview2
+	return ""
+}
+###############################################################################
+# Define the trough color map
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::setmap {{list "-empty-"}} {
+	if {$list == "-empty-"} {
+		return $_map_list
+	} else {
+		::set _map_list $list
+	}
+    _create-map $_mapwidth $_mapheight
+}
+
+###############################################################################
+# Redraw the map 
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::refreshmap {} {
+    _create-map $_mapwidth $_mapheight
+}
+
+body ::mtiwidgets::Mapscrollbar::_repeatCancel {} {
+	if {$_repeatAfterId != ""} {
+		after cancel $_repeatAfterId
+		::set _repeatAfterId ""
+	}
+}
+
+body ::mtiwidgets::Mapscrollbar::_repeatEvent {event element repeat} {
+
+##
+## NOTE:  The repeat scheduling must occur before the scroll commands.
+##        If the scroll command is first, on some system/network configs 
+##        the scroll command causes a recursive call to Tcl_DoOneEvent()
+##        which may process a button up event, and thus the _repeatCancel, 
+##        prior to scheduling the repeat which then causes multiple scroll
+##        event problems.
+##
+	if {[string equal $repeat "again"]} {
+		::set _repeatAfterId [after $itk_option(-repeatinterval) \
+			[code $this _repeatEvent $event $element again]]
+	} elseif {[string equal $repeat "initial"]} {
+		if {$itk_option(-repeatdelay) > 0} {
+			::set _repeatAfterId [after $itk_option(-repeatdelay) \
+				[code $this _repeatEvent $event $element again]]
+		}
+	}
+
+	switch -- $element {
+		arrow1  { eval $itk_option(-command) scroll -1 units }
+		trough1 { eval $itk_option(-command) scroll -1 pages }
+		trough2 { eval $itk_option(-command) scroll 1 pages }
+		arrow2  { eval $itk_option(-command) scroll 1 units }
+		default { _cancelRepeat; return}
+	}
+}
+
+###############################################################################
+# handles events over the map
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::_handleMapEvent {event x y} {
+	switch -- $_orient {
+		vertical {
+			::set p $y
+		}
+		horizontal {
+			::set p $x
+		}
+	}
+	::set element [identify $x $y]
+    switch $event {
+		B1-Press {
+			::set _active $element
+			::set _lockActive 1
+			switch -- $element {
+				arrow1 {
+					$itk_component(mapCanvas) itemconfig arrow1UL -fill $_darkColor
+					$itk_component(mapCanvas) itemconfig arrow1LR -fill $_lightColor
+					_repeatEvent $event $element initial
+				}
+				trough1 {
+					_repeatEvent $event $element initial
+				}
+				slider {
+					::set ty1 $_thumbBbox(y1)
+					::set _mapScrolling [expr {int($p - $ty1 - 3 + $_mapwidth)}]
+					$itk_component(mapCanvas) itemconfig thumbUL -fill $_darkColor
+					$itk_component(mapCanvas) itemconfig thumbLR -fill $_lightColor
+				}
+				trough2 {
+					_repeatEvent $event $element initial
+				}
+				arrow2 {
+					$itk_component(mapCanvas) itemconfig arrow2UL -fill $_darkColor
+					$itk_component(mapCanvas) itemconfig arrow2LR -fill $_lightColor
+					_repeatEvent $event $element initial
+				}
+			}
+	    }
+		B2-Press {
+			::set _active $element
+			::set _lockActive 1
+			switch -- $element {
+				arrow1 {
+					$itk_component(mapCanvas) itemconfig arrow1UL -fill $_darkColor
+					$itk_component(mapCanvas) itemconfig arrow1LR -fill $_lightColor
+					_repeatEvent $event $element initial
+				}
+				trough1 -
+				slider -
+				trough2 {
+					::set ty1 $_thumbBbox(y1)
+					::set _mapScrolling $_mapwidth
+					::set seek [expr {int($p) - $_mapScrolling}]
+					if {$seek < 0} {
+						::set seek 0
+					}
+					_map-seek $seek
+					::set _active slider
+					$itk_component(mapCanvas) itemconfig thumbUL -fill $_darkColor
+					$itk_component(mapCanvas) itemconfig thumbLR -fill $_lightColor
+				}
+				arrow2 {
+					$itk_component(mapCanvas) itemconfig arrow2UL -fill $_darkColor
+					$itk_component(mapCanvas) itemconfig arrow2LR -fill $_lightColor
+					_repeatEvent $event $element initial
+				}
+			}
+	    }
+		B1-Motion -
+		B2-Motion {
+			if {$_active == "slider" && [info exists _mapScrolling]} {
+				::set seek [expr {int($p) - $_mapScrolling}]
+				if {$seek < 0} {
+					::set seek 0
+				}
+				_map-seek $seek
+			}
+	    }
+		B1-Release -
+		B2-Release {
+			::set _lockActive 0
+			_repeatCancel
+			_show-info ""
+			switch -- $_active {
+				arrow1 {
+					$itk_component(mapCanvas) itemconfig arrow1UL -fill $_lightColor
+					$itk_component(mapCanvas) itemconfig arrow1LR -fill $_darkColor
+				}
+				trough1 {
+				}
+				slider {
+					$itk_component(mapCanvas) itemconfig thumbUL -fill $_lightColor
+					$itk_component(mapCanvas) itemconfig thumbLR -fill $_darkColor
+				}
+				trough2 {
+				}
+				arrow2 {
+					$itk_component(mapCanvas) itemconfig arrow2UL -fill $_lightColor
+					$itk_component(mapCanvas) itemconfig arrow2LR -fill $_darkColor
+				}
+			}
+			catch {unset _mapScrolling}
+	    }
+		Control-B1-Press -
+		Control-B2-Press {
+			::set _active $element
+			::set _lockActive 1
+			switch -- $_active {
+				arrow1 -
+				trough1 {
+					::set ty1 $_thumbBbox(y1)
+					::set _mapScrolling [expr {int($p - $ty1 - 3 + $_mapwidth)}]
+					eval $itk_option(-command) moveto 0.0
+				}
+				slider {
+					::set ty1 $_thumbBbox(y1)
+					::set _mapScrolling [expr {int($p - $ty1 - 3 + $_mapwidth)}]
+				}
+				trough2 -
+				arrow2 {
+					::set ty1 $_thumbBbox(y1)
+					::set _mapScrolling [expr {int($p - $ty1 - 3 + $_mapwidth)}]
+					eval $itk_option(-command) moveto 1.0
+				}
+			}
+		}
+    }
+}
+
+###############################################################################
+# move the map thumb to correspond to current shown merge...
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::_map-move-thumb {yview1 yview2} {
+
+	::set bd $itk_option(-elementborderwidth)
+	# 1/2 bd
+	::set bd2 0;#[expr {($bd + 1) / 2}]
+
+	# Validate parameters
+	if {$yview1 < 0} {
+		::set y1 0
+	} elseif {$yview1 > 10.0} {
+		# This is ludicrous since y1 and y2 are
+		# supposed to be between 0.0 - 1.0 (percentages)
+		# 10, although arbitrary, shouldn't cause any problems
+		::set y1 10.0
+	} else {
+		::set y1 $yview1
+	}
+	if {$yview2 < $y1} {
+		::set y2 $y1
+	} else {
+		::set y2 $yview2
+	}
+
+    ::set thumbheight [expr {($y2 - $y1) * $_mapheight}]
+    if {$thumbheight < $_thumbMinHeight} {
+		::set thumbheight $_thumbMinHeight
+    }
+	
+    if {![info exists _mapwidth]} {
+		::set _mapwidth 0
+    }
+    ::set x1 0
+    ::set x2 [expr {$_mapwidth - 1}]
+	
+    if {[catch {expr {int(($y1 * $_mapheight) - 1)}} y1]} {
+		puts stderr "_map-move-thumb: expr error: y1=$y1 _mapheight=$_mapheight"
+		puts stderr "_map-move-thumb: expr double value: [expr {($y1 * $_mapheight) - 1}]"
+		return ""
+	}
+    ::set y2 [expr {$y1 + $thumbheight}]
+    if {$y2 > $_mapheight} {
+		::set y2 $_mapheight
+		::set y1 [expr {$y2 - $thumbheight}]
+    }
+    if {$y1 < 0} {
+		::set y1 0
+    }
+	
+	::set y1 [expr {$y1 + $_mapwidth + $bd}]
+	::set y2 [expr {$y2 + $_mapwidth}]
+    ::set dx1 [expr {$x1 + $bd2}]
+    ::set dx2 [expr {$x2 - $bd2}]
+    ::set dy1 [expr {$y1 + $bd2}]
+    ::set dy2 [expr {$y2 - $bd2}]
+	
+	switch -- $_orient {
+		vertical {
+			$itk_component(mapCanvas) coords thumbUL $x1 $y2 $x1 $y1 $x2 $y1 $dx2 $dy1 $dx1 $dy1 $dx1 $dy2
+			$itk_component(mapCanvas) coords thumbLR $dx1 $y2 $x2 $y2 $x2 $dy1 $dx2 $dy1 $dx2 $dy2 $dx1 $dy2
+			$itk_component(mapCanvas) coord thumbBG $x1 $y1 $x2 $y2
+		}
+		horizontal {
+			$itk_component(mapCanvas) coords thumbUL $y1 $x2 $y1 $x1 $y2 $x1 $dy2 $dx1 $dy1 $dx1 $dy1 $dx2
+			$itk_component(mapCanvas) coords thumbLR $dy1 $x2 $y2 $x2 $y2 $dx1 $dy2 $dx1 $dy2 $dx2 $dy1 $dx2
+			$itk_component(mapCanvas) coord thumbBG $y1 $x1 $y2 $x2
+		}
+	}
+	$itk_component(mapCanvas) lower thumbBG
+	array set _thumbBbox [list x1 $x1 y1 $y1 x2 $x2 y2 $y2]
+    ::set _thumbHeight $thumbheight
+	return ""
+}
+
+###############################################################################
+# Make a miniature map of the diff regions
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::_create-map {mapwidth mapheight} {
+    # We add some transparent stuff to make the map fill the canvas
+    # in order to receive mouse events at the very bottom.
+    $_map blank
+	switch -- $_orient {
+		vertical {
+			$_map put \#000 -to 0 $mapheight $mapwidth $mapheight
+		}
+		horizontal {
+			$_map put \#000 -to 0 $mapwidth $mapheight $mapwidth
+		}
+	}
+
+	# Determine scaling factor for current height
+	::set factor [expr {$mapheight - 1}]
+
+	# map_list is a list of ranges.  A range is a pair of real numbers between 0-1.
+    foreach r $_map_list {
+		switch -- [llength $r] {
+			1 {
+				::set s [lindex $r 0]
+				::set e $s
+				::set color $itk_option(-mapcolor)
+			}
+			2 {
+				::set s [lindex $r 0]
+				::set e [lindex $r 1]
+				::set color $itk_option(-mapcolor)
+			}
+			3 {
+				::set s [lindex $r 0]
+				::set e [lindex $r 1]
+				::set color [lindex $r 2]
+			}
+			default {
+				continue
+			}
+		}
+
+		if {$s > 1.0} {
+			::set s 1.0
+		} elseif {[string equal $s "nan"] || $s < 0.0} {
+			::set s 0.0
+		}
+		if {$e > 1.0} {
+			::set e 1.0
+		} elseif {[string equal $e "nan"] || $e < 0.0} {
+			::set e 0.0
+		}
+		if {[catch {expr {int($s * $factor) + $_mapborder + $mapwidth}} y]} {
+			# Calculation error, ignore this entry
+			break
+		}
+		::set size [expr {round(($e - $s) * $factor)}]
+		if {$size <= 0} {
+			::set size 1
+		} elseif {$size > $mapheight} {
+			::set size $mapheight
+		}
+		::set y2 [expr {$y + $size}]
+
+		# This appears to be a bug in the image command that causes it to fail 
+		# with multi-word color names unless they are surrounded by braces 3
+		# levels deep!  Hence the double list command below.
+		switch -- $_orient {
+			vertical {
+				$_map put [list [list $color]] -to 0 $y $mapwidth [expr {$y + $size}]
+			}
+			horizontal {
+				$_map put [list [list $color]] -to $y 0 [expr {$y + $size}] $mapwidth
+			}
+		}
+
+    }
+
+    # let's draw a rectangle to simulate a scrollbar thumb. The size
+    # isn't important since it will get resized when map-move-thumb
+    # is called...
+	::set c $itk_component(mapCanvas)
+	if {[$c gettags thumbLR] == ""} {
+		$c create line 1 1 1 1 -tags thumbLR -fill $_darkColor -joinstyle miter \
+			-width $itk_option(-elementborderwidth)
+		#$c raise thumbLR
+	}
+	if {[$c gettags thumbUL] == ""} {
+		$c create line 0 0 0 0 -tags thumbUL -fill $_lightColor -joinstyle miter \
+			-width $itk_option(-elementborderwidth)
+		#$c raise thumbUL
+	}
+	if {[$c gettags thumbBG] eq ""} {
+		$c create rectangle 1 1 1 1 -tags thumbBG -fill $itk_option(-background) \
+			-activefill $itk_option(-activebackground) \
+			-width 0
+	}
+
+    # now, move the thumb
+	_map-move-thumb $_yview $_yview2
+
+}
+
+###############################################################################
+# Resize map to fit window size
+###############################################################################
+
+body ::mtiwidgets::Mapscrollbar::_map-resize {args} {
+
+    ::set _mapborder 0 ;#[expr {$itk_option(-borderwidth) + $itk_option(-highlightthickness)}]
+	::set mapwidth $_mapwidth
+	switch -- $_orient {
+		vertical {
+			::set height [winfo height $itk_component(mapCanvas)]
+			::set mapheight [expr {$height - ($_mapborder * 2) - ($mapwidth * 2)}]
+		}
+		horizontal {
+			::set height [winfo width $itk_component(mapCanvas)]
+			::set mapheight [expr {$height - ($_mapborder * 2) - ($mapwidth * 2)}]
+		}
+	}
+
+	# Compute arrow coordinates
+	#     x1 x2      x3 x4
+	#      |  |       |  |
+	# y1-     *       *  
+	#        /|       |\ 
+	# y4-   / |       | \ 
+	# y3-  * <|       |> *
+	# y5-   \ |       | / 
+	#        \|       |/ 
+	# y2-     *       *
+	#
+	# 
+	::set width $itk_option(-elementborderwidth)
+	::set c $itk_component(mapCanvas)
+	::set x1 [expr {$width - 1}]
+	::set x2 [expr {$mapwidth - $x1}]
+	::set x3 [expr {$mapheight + $mapwidth}]
+	::set x4 [expr {$height - $width}] ;#[expr {$mapheight + (2 * ($mapwidth - $x1))}]
+	::set y1 [expr {$width - 1}]
+	::set y2 [expr {$mapwidth - 1}]
+	::set y3 [expr {$mapwidth / 2}]
+
+	if {$itk_option(-style) eq "default"} {
+		# This inner arrow
+		::set dx3 [expr {int((($x2-$x1)/3.0))&(~1)}]
+		::set x5 [expr {$x1 + $dx3 + ($width - 1)}]
+		::set x6 [expr {$x5 + $dx3}]
+		::set x7 [expr {$x3 + $dx3 + ($width - 1)}]
+		::set x8 [expr {$x7 + $dx3}]
+		::set y4 [expr {$y3 - $dx3}]
+		::set y5 [expr {$y3 + $dx3}]
+	}
+
+	# The first time through, create the arrow buttons
+	if {! $_init} {
+		if {$itk_option(-style) eq "classic"} {
+			$c create line $x1 $y3 $x2 $y1          -tags arrow1UL -fill $_lightColor -joinstyle miter -width $width
+			$c create line $x1 $y3 $x2 $y2 $x2 $y1  -tags arrow1LR -fill $_darkColor -joinstyle miter -width $width
+			$c create polygon $x1 $y3 $x2 $y2 $x2 $y1 -tags arrow1BG -fill $itk_option(-background) \
+				-activefill $itk_option(-activebackground) -width 0
+			
+			$c create line $x3 $y2 $x3 $y1 $x4 $y3  -tags arrow2UL -fill $_lightColor -joinstyle miter -width $width
+			$c create line $x3 $y2 $x4 $y3          -tags arrow2LR -fill $_darkColor -joinstyle miter -width $width
+					$c create polygon $x3 $y2 $x3 $y1 $x4 $y3 -tags arrow2BG -fill $itk_option(-background) \
+				-activefill $itk_option(-activebackground) -width 0
+		} elseif {$itk_option(-style) eq "default"} {
+			$c create line $x1 $y2 $x1 $y1 $x2 $y1 -tags arrow1UL -fill $_lightColor -joinstyle miter -width $width
+			$c create line $x1 $y2 $x2 $y2 $x2 $y1 -tags arrow1LR -fill $_darkColor -joinstyle miter -width $width
+			$c create rectangle $x1 $y1 $x2 $y2 -tags arrow1BG \
+				-fill $itk_option(-background) \
+				-width 0
+			$c create polygon $x5 $y3 $x6 $y4 $x6 $y5 -tags arrow1C -fill black \
+				-activefill white -width 0
+
+			$c create line $x3 $y2 $x3 $y1 $x4 $y1 -tags arrow2UL -fill $_lightColor -joinstyle miter -width $width
+			$c create line $x3 $y2 $x4 $y2 $x4 $y1 -tags arrow2LR -fill $_darkColor -joinstyle miter -width $width
+			$c create rectangle $x3 $y1 $x4 $y2 -tags arrow2BG \
+				-fill $itk_option(-background) \
+				-width 0
+			$c create polygon $x7 $y4 $x8 $y3 $x7 $y5 -tags arrow2C -fill black \
+				-activefill white -width 0
+		}
+		$c raise arrow1UL arrow1BG
+		$c raise arrow1LR arrow1BG
+		$c raise arrow2UL
+		$c raise arrow2LR
+		::set _init 1
+	}
+	
+    # We'll get a couple of "resize" events, so don't draw a map
+    # unless we've got the diffs and the map size has changed
+    if {$mapheight == $_mapheight} {
+		return
+    }
+
+    # If we don't have a map and don't want one, don't make one
+    if {$_mapheight == 0} {
+		return
+    }
+
+    # This seems to happen on Windows!? _After_ the map is drawn the first time
+    # another event triggers and [winfo height $w(map)] is then 0...
+    if {$mapheight < 1} {
+		return
+    }
+
+	# Adjust arrow locations
+	switch -- $_orient {
+		vertical {
+			if {$itk_option(-style) eq "classic"} {
+				$c coords arrow1UL $y1 $x2 $y3 $x1
+				$c coords arrow1LR $y3 $x1 $y2 $x2 $y1 $x2
+				$c coords arrow1BG $y3 $x1 $y2 $x2 $y1 $x2
+				
+				$c coords arrow2UL $y3 $x4 $y1 $x3 $y2 $x3
+				$c coords arrow2LR $y2 $x3 $y3 $x4
+				$c coords arrow2BG $y3 $x4 $y1 $x3 $y2 $x3
+			} else {
+				$c coords arrow1UL $y1 $x2 $y1 $x1 $y2 $x1
+				$c coords arrow1LR $y1 $x2 $y2 $x2 $y2 $x1 
+				$c coords arrow1BG $y1 $x1 $y2 $x2
+				$c coords arrow1C  $y3 $x5 $y4 $x6 $y5 $x6 
+
+				$c coords arrow2UL $y1 $x4 $y1 $x3 $y2 $x3
+				$c coords arrow2LR $y1 $x4 $y2 $x4 $y2 $x3
+				$c coords arrow2BG $y1 $x3 $y2 $x4
+				$c coords arrow2C  $y4 $x7 $y3 $x8 $y5 $x7
+			}
+		}
+		horizontal {
+			if {$itk_option(-style) eq "classic"} {
+				$c coords arrow1UL $x1 $y3 $x2 $y1
+				$c coords arrow1LR $x1 $y3 $x2 $y2 $x2 $y1
+				$c coords arrow1BG $x1 $y3 $x2 $y2 $x2 $y1
+				
+				$c coords arrow2UL $x3 $y2 $x3 $y1 $x4 $y3
+				$c coords arrow2LR $x3 $y2 $x4 $y3
+				$c coords arrow2BG $x3 $y2 $x3 $y1 $x4 $y3
+			} else {
+				$c coords arrow1UL $x1 $y2 $x1 $y1 $x2 $y1
+				$c coords arrow1LR $x1 $y2 $x2 $y2 $x2 $y1 
+				$c coords arrow1BG $x1 $y1 $x2 $y2
+				$c coords arrow1C  $x5 $y3 $x6 $y4 $x6 $y5
+
+				$c coords arrow2UL $x3 $y2 $x3 $y1 $x4 $y1
+				$c coords arrow2LR $x3 $y2 $x4 $y2 $x4 $y1 
+				$c coords arrow2BG $x3 $y1 $x4 $y2
+				$c coords arrow2C  $x7 $y4 $x8 $y3 $x7 $y5
+			}
+		}
+	}
+
+    ::set _mapheight $mapheight
+    ::set _mapwidth $mapwidth
+	$itk_component(mapCanvas) yview moveto 0
+	$itk_component(mapCanvas) xview moveto 0
+    _create-map $mapwidth $mapheight
+}
+
+###############################################################################
+# scroll to diff region nearest to y
+###############################################################################
+
+body ::mtiwidgets::Mapscrollbar::_map-scroll {y} {
+	
+    # Show text corresponding to map
+    catch {eval $itk_option(-command) moveto [expr {double($y) / double($_mapheight)}]} result
+    update idletasks
+	
+}
+
+###############################################################################
+# this is called when the user scrolls the map thumb interactively.
+###############################################################################
+body ::mtiwidgets::Mapscrollbar::_map-seek {y} {
+    incr y -2
+	
+    # Scroll widget corresponding to map;
+    eval $itk_option(-command) moveto [expr {(double($y) / double($_mapheight))}]
+}
+
+###############################################################################
+# Put up some informational text.
+###############################################################################
+
+body ::mtiwidgets::Mapscrollbar::_show-info {message} {
+    #    set currdiff $message
+    ::set _statusInfo $message
+    update idletasks
+}
+
+#
+# The following are static methods (i.e. procs)
+#
+body ::mtiwidgets::Mapscrollbar::Enter {w x y} {
+	if {[winfo class $w] eq "Canvas"} {
+		::set w [winfo parent $w]
+	}
+	if {[winfo class $w] ne "Mapscrollbar"} {
+		return
+	}
+	if {$::tk_strictMotif} {
+		::set ::tk::Priv(activeBg) [$w cget -activebackground]
+		$w configure -activebackground [$w cget -background]
+	}
+	$w activate [$w identify $x $y]
+}
+
+body ::mtiwidgets::Mapscrollbar::Leave {w x y} {
+	if {[winfo class $w] eq "Canvas"} {
+		::set w [winfo parent $w]
+	}
+	if {[winfo class $w] ne "Mapscrollbar"} {
+		return
+	}
+	if {$::tk_strictMotif && [info exists ::tk::Priv(activeBg)]} {
+		$w configure -activebackground $::tk::Priv(activeBg)
+	}
+	$w activate {}
+}
+
+body ::mtiwidgets::Mapscrollbar::Motion {w x y} {
+	if {[winfo class $w] eq "Canvas"} {
+		::set w [winfo parent $w]
+	}
+	if {[winfo class $w] ne "Mapscrollbar"} {
+		return
+	}
+	$w activate [$w identify $x $y]
+}
+
+body ::mtiwidgets::Mapscrollbar::MWheel {w args} {
+	if {[winfo class $w] eq "Canvas"} {
+		::set w [winfo parent $w]
+	}
+	if {[winfo class $w] ne "Mapscrollbar"} {
+		return
+	}
+	eval [concat [$w cget -command] $args]
+}
+
+bind Mapscrollbar <Enter>          {::mtiwidgets::Mapscrollbar::Enter %W %x %y}
+bind Mapscrollbar <Leave>          {::mtiwidgets::Mapscrollbar::Leave %W %x %y} 
+bind Mapscrollbar <Motion>         {::mtiwidgets::Mapscrollbar::Motion %W %x %y}
+bind Mapscrollbar <Button-4>       {::mtiwidgets::Mapscrollbar::MWheel %W scroll -1 units}
+bind Mapscrollbar <Button-5>       {::mtiwidgets::Mapscrollbar::MWheel %W scroll  1 units}
+bind Mapscrollbar <Shift-Button-4> {::mtiwidgets::Mapscrollbar::MWheel %W scroll -1 pages}
+bind Mapscrollbar <Shift-Button-5> {::mtiwidgets::Mapscrollbar::MWheel %W scroll  1 pages}

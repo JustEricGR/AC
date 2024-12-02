@@ -1,0 +1,185 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_coverage_assertions (zivar, sop, pos, clock, reset, areset,
+                                    covered_check, active,
+			            covered_count,
+			            subexpressions_covered,
+			            subexpressions_covered_bitmap,
+			            all_subexpressions_covered,
+			            covered_fire, support,
+			            fire_count
+                                   );
+   
+   
+   
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter WIDTH = 1; 
+  parameter ITEM_WIDTH = 1; 
+  parameter ITEM_COUNT = 1; 
+
+  parameter OR_SPECIFIED = 0;  
+  parameter AND_SPECIFIED = 0; 
+  parameter AND_OR_SPECIFIED = OR_SPECIFIED && AND_SPECIFIED; 
+
+  parameter WIDTH_GOOD = (!OR_SPECIFIED && !AND_SPECIFIED) ? 1 : WIDTH;
+  parameter WIDTH_CHECK = WIDTH; 
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0] support; 
+
+  parameter BIT_VEC_WLOG2 = 1; 
+  parameter CW_FOR_FPGA = 0;
+  parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIT_VEC_WLOG2 : 63;
+
+  input clock;  
+  input reset;  
+  input areset; 
+  input active;	
+
+  input [WIDTH-1:0] zivar; 
+  input	sop; 
+  input	pos; 
+   
+  input	covered_check; 
+
+  output [`ZI_CW_STAT_CNT_WIDTH-1:0] covered_count;
+  output [BIT_CNT_WIDTH:0]           subexpressions_covered;
+  output [WIDTH-1:0]                 subexpressions_covered_bitmap;
+  output	                     all_subexpressions_covered;
+  output                             covered_fire;
+
+  output [`ZI_CW_STAT_CNT_WIDTH-1:0] fire_count;
+  reg [`ZI_CW_STAT_CNT_WIDTH-1:0]    fire_count;
+
+  reg [`ZI_CW_STAT_CNT_WIDTH-1:0] covered_count;
+  reg [BIT_CNT_WIDTH:0]	          subexpressions_covered;
+  wire [WIDTH-1:0]                subexpressions_covered_bitmap;
+  wire                            all_subexpressions_covered;
+  reg		                  covered_fire;
+
+//   reg		      enable_firing;
+   
+//   initial
+//     begin
+//	 #0;
+//	 enable_firing = 1'b0;
+//	 if ($test$plusargs("##0in_coverage"))
+//	    enable_firing = 1'b1;
+//     end
+   
+  
+  integer	  i;
+  reg [WIDTH-1:0] bit_stats;
+  wire		  check_var;
+
+`ifdef QVL_ASSERT_ON
+  wire covered_fire_combo;
+`else
+  // do nothing
+`endif
+
+
+  assign subexpressions_covered_bitmap = bit_stats;
+  assign all_subexpressions_covered = &bit_stats;
+
+  assign check_var = (OR_SPECIFIED ? (|zivar) : (AND_SPECIFIED ? (&zivar) : zivar));
+`protected 
+    MTI!#oOvp\7U>wOi}A7cAB2r9T5TJl'_aJ$C[%<TP}~<#N1@D@7#7DIZU[^U@Q7#om&Qpn?yxjwX
+    !_ok;s\aO-=ZBn;\z~lA*e;33axi$iT'^TGT*5R<\Jj_JRi\-Aw}tl;{\]lO]DIr^0uD^s'usvN7
+    >nKY@WRdX${^xi~'cbD,a#HE>V7->}r>sstC1k@!OGPkC@$[$2!D#}[NHXUp"C@G^+q7?jxt>}W~
+    @Tzkj-3D7iTjX'SJ<p[kEk-;Y$\*&_Qk;ln*Z][i<O*HTiTR-R;uXfNs2m\@HVaW7
+`endprotected
+`ifdef QVL_ASSERT_ON
+
+  assign covered_fire_combo = (active == 1'b1 && (zivar^zivar) == {WIDTH{1'b0}}
+    && covered_check == 1'b1 && check_var == 1'b1);
+
+`endif
+`protected
+
+    MTI!#{'mYzF!UD,VzsO71{7mVWXOH<\~=-AltgHa5ir;@Uj#OJBGYozdWUj;.WoxwzVp~}u{K'#}
+    ^B\A+|I(lD?KP*{DEJj,;D~_v'@^<e15<HE2sgWOzpqDAG}#{QDoVu7GjV;]~1pt,>G#@7TWr~ww
+    xs~a9_oi2u+5rPu}j#}@Kzm[l\,9PIp@D1B$xA<OXxv\iJ=kXj<ne^J5Zrj'v#GDiY+H1W'BO*'J
+    ~P,3Al!OJ?x[WnN_1Qav?Yvoi_$\sRCiXQ#7*-;tVR3DaQ-,1Zuslow\]RDlZQYaA'K[,1#Am=>s
+    UQ*5W'_BGVrRisu-$XsUh!<nj[Hpi~DJA-a<^M7UpT^Tu=<>}_x;IlanK@]D?}jwu#.75m#mA]^|
+    %:rJxQBH*\pnI;[v#!^Rr7?+1Ybiv#B"YuQpI#sKr7YEVY?!V$Iiz!o}\+AmNfR^},Nw{X74R+Ye
+    WYo2+zU$1l3n}V[*B_?{mz@wD>j>V\>W1z!+Iizw?E7<,R5Oo\n7)o'v*2}3opVA7,@piwABpk}R
+    m[a{[\~1W-B1]K_A'7\Ci73v+B.'${@z#!7w]{,%2\=-\R<[{*HB"I=-^G^$K]G[R1?<GCkm;W>t
+    }~G_\B}^><];YI_oq|1o~zuD$^TE<G$HUIo3o[nrBxY#4x)3EwU_zAp@Ok{Ser]C''riYK];N[vO
+    B7?YVhdTov{wa!5D1^3i$=J1+VZ'B[^>j-];zeQo$~A'VW\k=Jpblx^GQQX1-A3#+<$WFUI_'~n7
+    ?kX2HpKXT}\rzYip@TOu-W\ea,?<^w$KIR{E?T\=#EnArHXv!1e-{(^vVTx35wBwz>_ri{*o-+fv
+    *+r~>!r}kUEmTxpq=W+$Drs$GI{'f(5CR<r\HHyQXU]7ruad6e*QZuB@?Ox_{j5I2KQ1;EZpuo$n
+    {Z7Z;o25VB7Z<4KwpH>$s=,!A@.<{@BWaCJ?&<-KJ#aXXOWzOzzi<>_3~yhkVOusK^~p1#aEDAlI
+    XTJ1&oGTZ77<nxbj}!#9-Qwknw}jZE_RDux?UY'3c21io8,WB#w>AaIp3$^+7^=!o,/1Ym>W[
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_coverage_chx0: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (covered_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_coverage_chx0"),
+                          .msg            ({msg,"The HDL statement was covered."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_coverage_chx0: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (covered_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_coverage_cover.svh"
+
+`qvlendmodule // qvl_coverage_assertions

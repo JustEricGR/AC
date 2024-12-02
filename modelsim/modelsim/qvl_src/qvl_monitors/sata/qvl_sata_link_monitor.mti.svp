@@ -1,0 +1,2674 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of 0-In CheckerWare.
+*
+* DESCRIPTION This monitor checks the Serial ATA interface for compliance with
+*             Serial ATA specification>.
+*
+* REFERENCES  Serial ATA specification revision 2.5, 27th October 2005
+*             Serial ATA: High Speed Serialized AT Attachment Revision 1.0a,
+*             7-January-2003
+*             Serial ATA II: Extensions to Serial ATA 1.0a Revision 1.2,
+*             27-August-2004
+*             SATA PHY Interface Specification (SAPIS) Draft Rev 0.90, February
+*             8, 2002
+*
+* USAGE       This sub-module is instantiated in qvl_sapis_monitor module 
+*
+* LAST MODIFIED: 27th March 2006
+*
+**************************************************************************/
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_sata_link_monitor (areset,
+                                     reset,
+                                     tx_clk,
+                                     tx_data,
+                                     tx_data_valid,
+                                     tx_first_align_p,
+                                     tx_level_select,
+                                     rx_clk,
+                                     rx_data,
+                                     rx_data_valid,
+                                     rx_first_align_p,
+                                     rx_level_select,
+                                     comwake_detected,
+                                     comreset_detected,
+                                     cominit_detected,
+                                     phy_ready,
+                                     scrambling_off,
+                                     k28_5_detect,
+                                     total_no_of_comreset_count,
+                                     total_no_of_cominit_count,
+                                     tx_total_no_of_comwake_count,
+                                     rx_total_no_of_comwake_count,
+                                     total_no_of_unsolicit_cominit_count,
+                                     tx_dword_valid,
+                                     tx_align_p_detected,
+                                     tx_D10_2_detected,
+                                     tx_D24_3_detected,
+                                     tx_three_non_align_p_detected,
+                                     rx_dword_valid,
+                                     rx_align_p_detected,
+                                     rx_D10_2_detected,
+                                     rx_D24_3_detected,
+                                     rx_three_non_align_p_detected,
+                                     host_dword_valid,
+                                     dev_dword_valid,
+                                     pwr_mgmt_mode_entered,
+                                     four_pmack_detected,
+                                     tx_four_pmack_detected,
+                                     rx_four_pmack_detected,
+                                     collect_stats,
+                                     tx_collect_stats,
+                                     rx_collect_stats, rx_idle, tx_idle
+                                    );
+  //List of parameters
+
+  // This parameter configures the checks in the monitor as constraints
+  // during formal analysis
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // This parameter when set indicates that the monitor is instantiated on the
+  // Link side of the sapis interface
+
+  parameter LINK_SIDE = 1;
+  wire [31:0] pw_LINK_SIDE = LINK_SIDE;
+
+  // Interface type (Location of monitor instance)
+  // 0 => Serial interface
+  // 1 => 10B interface
+  // 2 => SAPIS interface
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // This parameter configures the type of the DUT the monitor is instantiated 
+  // on
+  // 0 => Host
+  // 1 => Device
+
+  parameter DEVICE_TYPE = 0;
+  wire [31:0] pw_DEVICE_TYPE = DEVICE_TYPE;
+
+  // This parameter defines the width of the parallel interface
+
+  parameter PARALLEL_DATA_WIDTH = 10;
+  wire [31:0] pw_PARALLEL_DATA_WIDTH = PARALLEL_DATA_WIDTH;
+
+  // This parameter configures whether data is available on both clock edges or
+  // on single edge of the clock.
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // This parameter is used to enable Native queued commands
+
+  parameter NCQ_COMMAND_ENABLE = 0;
+  wire [31:0] pw_NCQ_COMMAND_ENABLE = NCQ_COMMAND_ENABLE;
+
+  // This parameter is used to enable legacy queued commands
+
+  parameter LEGACY_QUEUED_COMMAND_ENABLE = 0;
+  wire [31:0] pw_LEGACY_QUEUED_COMMAND_ENABLE = LEGACY_QUEUED_COMMAND_ENABLE;
+
+  // This parameter is used to indicate that the monitor sits on the host or
+  // device side of the port multiplier or on the host or device interface
+  // connected to the port multiplier
+
+  parameter PORT_MULTIPLIER_ENABLE = 0;
+  wire [31:0] pw_PORT_MULTIPLIER_ENABLE = PORT_MULTIPLIER_ENABLE;
+
+  // This parameter is used to enable packet command protocol.
+
+  parameter PACKET_COMMAND_ENABLE = 0;
+  wire [31:0] pw_PACKET_COMMAND_ENABLE = PACKET_COMMAND_ENABLE;
+
+  // This parameter enables the reserved field checking when set to "1"
+
+  parameter RESERVED_VALUE_CHECKING_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECKING_ENABLE =RESERVED_VALUE_CHECKING_ENABLE;
+
+  // This parameter when set disables power management.
+  // 0 - Power management mode disabled
+  // 1 - Power management mode enabled
+
+  parameter POWER_MGMT_ENABLE = 1;
+  wire [31:0] pw_POWER_MGMT_ENABLE = POWER_MGMT_ENABLE;
+
+  // This parameter defines the maximum number of commands that can be
+  // outstanding at a particular instant
+
+  parameter MAX_QUEUE_DEPTH = 32;
+  wire [31:0] pw_MAX_QUEUE_DEPTH = MAX_QUEUE_DEPTH;
+
+ // This parameter enables reserved fis type as legal fis type
+
+  parameter RESERVED_FIS_TYPE_ENABLE = 0;
+  wire pw_RESERVED_FIS_TYPE_ENABLE = RESERVED_FIS_TYPE_ENABLE;
+
+ // This parameter enables verdor specific fis type as legal fis type
+
+  parameter VENDOR_FIS_TYPE_ENABLE = 0;
+  wire pw_VENDOR_FIS_TYPE_ENABLE = VENDOR_FIS_TYPE_ENABLE;
+
+  // Internal Parameters
+  parameter ZI_TX_CONSTRAINT = ~LINK_SIDE & Constraints_Mode;
+  parameter ZI_RX_CONSTRAINT = LINK_SIDE & Constraints_Mode;
+
+  parameter ZI_LINK_IDLE_STATE = 5'd0;
+  parameter ZI_X_RDYp_DETECTED_STATE = 5'd1;
+  parameter ZI_R_RDYp_DETECTED_STATE = 5'd2;
+  parameter ZI_SOFp_DETECTED_STATE = 5'd3;
+  parameter ZI_HHOLDp_DETECTED_STATE = 5'd4;
+  parameter ZI_DHOLDp_DETECTED_STATE = 5'd5;
+  parameter ZI_DMATp_DETECTED_STATE = 5'd6;
+  parameter ZI_DATA_DETECTED_STATE = 5'd7;
+  parameter ZI_R_OKp_DETECTED_STATE = 5'd8;
+  parameter ZI_R_ERRp_DETECTED_STATE = 5'd9;
+  parameter ZI_HPMREQp_DETECTED_STATE = 5'd10;
+  parameter ZI_HPMNACKp_DETECTED_STATE = 5'd11;
+  parameter ZI_DPMNACKp_DETECTED_STATE = 5'd12;
+  parameter ZI_POWER_DOWN_STATE = 5'd13;
+  parameter ZI_WAKE_UP_STATE = 5'd14;
+  parameter ZI_ALIGNp_DETECTED_STATE = 5'd15;
+  parameter ZI_DPMREQp_DETECTED_STATE = 5'd16;
+  parameter ZI_EOFp_DETECTED_STATE = 5'd17;
+  parameter ZI_WTRMp_DETECTED_STATE = 5'd18;
+  parameter ZI_WAIT_HPMACKp_STATE = 5'd19;
+  parameter ZI_WAIT_DSYNCp_STATE = 5'd20;
+  parameter ZI_WAIT_HSYNCp_STATE = 5'd21;
+  parameter ZI_HSYNCp_DETECTED_STATE = 5'd22;
+  parameter ZI_DSYNCp_DETECTED_STATE = 5'd23;
+
+  parameter ZI_TRANS_IDLE_STATE = 5'd0;
+  parameter ZI_SOFT_RESET_DETECTED_STATE = 5'd1;
+  parameter ZI_SOFT_RESET_CLEARED_STATE = 5'd2;
+  parameter ZI_DEV_RST_CMD_DETECTED_STATE = 5'd3;
+  parameter ZI_DEV_DIAG_CMD_DETECTED_STATE = 5'd4;
+  parameter ZI_NON_DATA_CMD_DETECTED_STATE = 5'd5;
+  parameter ZI_PIO_CMD_DETECTED_STATE = 5'd6;
+  parameter ZI_DMA_IN_CMD_DETECTED_STATE = 5'd7;
+  parameter ZI_DMA_OUT_CMD_DETECTED_STATE = 5'd8;
+  parameter ZI_PACKET_CMD_DETECTED_STATE = 5'd9;
+  parameter ZI_FPDMA_CMD_DETECTED_STATE = 5'd10;
+  parameter ZI_SERVICE_CMD_DETECTED_STATE = 5'd11;
+  parameter ZI_DATA_FIS_DETECTED_STATE = 5'd12;
+  parameter ZI_PIO_SETUP_DETECTED_STATE = 5'd13;
+  parameter ZI_DMA_ACT_DETECTED_STATE = 5'd14;
+  parameter ZI_SET_DEV_BIT_DETECTED_STATE = 5'd15;
+  parameter ZI_HDMA_SETUP_DETECTED_STATE = 5'd16;
+  parameter ZI_DDMA_SETUP_DETECTED_STATE = 5'd17;
+  parameter ZI_RD_LOG_EXT_DETECTED_STATE = 5'd18;
+  parameter ZI_PIO_SETUP_OF_CMD_STATE = 5'd19;
+  parameter ZI_DATA_FIS_OF_CMD_STATE = 5'd20;
+  parameter ZI_CLR_BSY_STATE = 5'd21;
+  parameter ZI_WAIT_FOR_CLR_STATE = 5'd22;
+  parameter ZI_HBIST_FIS_DETECTED_STATE = 5'd23;
+  parameter ZI_DBIST_FIS_DETECTED_STATE = 5'd24;
+
+
+  // Inputs and Outputs
+  input areset;
+  input reset;
+  input tx_clk;
+  input [39:0] tx_data;
+  input tx_data_valid;
+  input tx_first_align_p;
+  input tx_level_select;
+  input rx_clk;
+  input [39:0] rx_data;
+  input rx_data_valid;
+  input rx_first_align_p;
+  input rx_level_select;
+  input comwake_detected;
+  input comreset_detected;
+  input cominit_detected;
+  input phy_ready;
+  input k28_5_detect;
+  input scrambling_off;
+  input [63:0] total_no_of_comreset_count;
+  input [63:0] total_no_of_cominit_count;
+  input [63:0] tx_total_no_of_comwake_count;
+  input [63:0] rx_total_no_of_comwake_count;
+  input [63:0] total_no_of_unsolicit_cominit_count;
+
+  output tx_dword_valid;
+  output tx_align_p_detected;
+  output tx_D10_2_detected;
+  output tx_D24_3_detected;
+  output tx_three_non_align_p_detected;
+  output rx_dword_valid;
+  output rx_align_p_detected;
+  output rx_D10_2_detected;
+  output rx_D24_3_detected;
+  output rx_three_non_align_p_detected;
+  output host_dword_valid;
+  output dev_dword_valid;
+  output pwr_mgmt_mode_entered;
+  output four_pmack_detected;
+  output tx_four_pmack_detected;
+  output rx_four_pmack_detected;
+  output tx_collect_stats;
+  output rx_collect_stats;
+  output collect_stats;
+  input rx_idle, tx_idle;
+
+  // Internal signals
+  reg [17:0] r_tx_primitive_bitmap_pos;
+  reg [17:0] r_tx_primitive_bitmap_neg;
+  reg [17:0] r_rx_primitive_bitmap_pos;
+  reg [17:0] r_rx_primitive_bitmap_neg;
+  reg host_transmitting_pos;
+  reg host_transmitting_neg;
+  reg [5:0] ll_next_state;
+  reg [5:0] tl_next_state;
+  reg [4:0] ll_present_state_pos;
+  reg [4:0] ll_present_state_neg;
+  reg ll_prev_rok_pos;
+  reg ll_prev_rok_neg;
+  reg [4:0] ll_prev_state_neg;
+  reg [4:0] tl_present_state_pos;
+  reg [4:0] tl_present_state_neg;
+  reg pwr_mgmt_mode_entered_pos;
+  reg pwr_mgmt_mode_entered_neg;
+  reg hpwr_mgmt_mode_started_pos;
+  reg hpwr_mgmt_mode_started_neg;
+  reg dpwr_mgmt_mode_started_pos;
+  reg dpwr_mgmt_mode_started_neg;
+  reg [31:0] cmd_tag_bitmap_pos;
+  reg [31:0] cmd_tag_bitmap_neg;
+  reg [31:0] ncq_tags_bitmap_pos;
+  reg [31:0] ncq_tags_bitmap_neg;
+  reg [31:0] rd_cmd_dir_bitmap_pos;
+  reg [31:0] rd_cmd_dir_bitmap_neg;
+  reg [31:0] wr_cmd_dir_bitmap_pos;
+  reg [31:0] wr_cmd_dir_bitmap_neg;
+  reg [31:0] rd_dma_dir_bitmap_pos;
+  reg [31:0] rd_dma_dir_bitmap_neg;
+  reg [31:0] wr_dma_dir_bitmap_pos;
+  reg [31:0] wr_dma_dir_bitmap_neg;
+  reg [31:0] temp_cmd_tag_bitmap;
+  reg [31:0] temp_wr_cmd_dir_bitmap;
+  reg [31:0] temp_rd_cmd_dir_bitmap;
+  reg [31:0] temp_rd_dma_dir_bitmap;
+  reg [31:0] temp_wr_dma_dir_bitmap;
+  reg [31:0] rd_success_resp;
+  reg [31:0] wr_success_resp;
+  reg [31:0] rd_unsuccess_resp;
+  reg [31:0] wr_unsuccess_resp;
+  reg [5:0] number_of_ones;
+  reg [5:0] rd_success_resp_count;
+  reg [5:0] wr_success_resp_count;
+  reg [5:0] rd_unsuccess_resp_count;
+  reg [5:0] wr_unsuccess_resp_count;
+
+  reg legacy_cmd_ncq_pending_pos;
+  reg legacy_cmd_ncq_pending_neg;
+  reg sof_detected_wo_rrdy_pos;
+  reg sof_detected_wo_rrdy_neg;
+  reg tx_data_count_err_pos;
+  reg tx_data_count_err_neg;
+  reg rx_data_count_err_pos;
+  reg rx_data_count_err_neg;
+  reg [4:0] dword_count_after_rx_sync_pos;
+  reg [4:0] dword_count_after_rx_sync_neg;
+  reg [4:0] dword_count_after_tx_sync_pos;
+  reg [4:0] dword_count_after_tx_sync_neg;
+  reg dummy1;
+  reg dummy2;
+  reg dummy3;
+
+  wire tx_align_p_detected;
+  wire tx_cont_p_detected;
+  wire tx_dmat_p_detected;
+  wire tx_eof_p_detected;
+  wire tx_hold_p_detected;
+  wire tx_holda_p_detected;
+  wire tx_pmack_p_detected;
+  wire tx_pmnack_p_detected;
+  wire tx_pmreqp_p_detected;
+  wire tx_pmreqs_p_detected;
+  wire tx_r_err_p_detected;
+  wire tx_r_ip_p_detected;
+  wire tx_r_ok_p_detected;
+  wire tx_r_rdy_p_detected;
+  wire tx_sof_p_detected;
+  wire tx_sync_p_detected;
+  wire tx_wtrm_p_detected;
+  wire tx_x_rdy_p_detected;
+
+  wire rx_align_p_detected;
+  wire rx_cont_p_detected;
+  wire rx_dmat_p_detected;
+  wire rx_eof_p_detected;
+  wire rx_hold_p_detected;
+  wire rx_holda_p_detected;
+  wire rx_pmack_p_detected;
+  wire rx_pmnack_p_detected;
+  wire rx_pmreqp_p_detected;
+  wire rx_pmreqs_p_detected;
+  wire rx_r_err_p_detected;
+  wire rx_r_ip_p_detected;
+  wire rx_r_ok_p_detected;
+  wire rx_r_rdy_p_detected;
+  wire rx_sof_p_detected;
+  wire rx_sync_p_detected;
+  wire rx_wtrm_p_detected;
+  wire rx_x_rdy_p_detected;
+
+  wire rx_non_ncq_when_ncq_pending;
+  wire tx_non_ncq_when_ncq_pending;
+  wire host_non_ncq_when_ncq_pending;
+  wire [17:0] tx_primitive_bitmap;
+  wire [17:0] rx_primitive_bitmap;
+  wire [17:0] r_tx_primitive_bitmap;
+  wire [17:0] r_rx_primitive_bitmap;
+  wire [17:0] host_primitive_bitmap;
+  wire [17:0] dev_primitive_bitmap;
+  wire [4:0] tl_present_state;
+  wire [4:0] ll_present_state;
+  wire ll_prev_rok;
+  wire [31:0] tx_total_data_dword_count;
+  wire [31:0] rx_total_data_dword_count;
+  wire [23:0] tx_total_tx_dword_count;
+  wire [23:0] rx_total_tx_dword_count;
+  wire [23:0] host_total_tx_dword_count;
+  wire [15:0] dev_pio_tx_count;
+  wire tx_data_tx_complete;
+  wire rx_data_tx_complete;
+  wire [11:0] tx_dword_count;
+  wire [11:0] rx_dword_count;
+  wire tx_fis_count_less;
+  wire rx_fis_count_less;
+  wire tx_fis_count_more;
+  wire rx_fis_count_more;
+  wire tx_data_count_err;
+  wire rx_data_count_err;
+  wire host_primitive_detected;
+  wire dev_primitive_detected;
+  wire host_dword_valid;
+  wire dev_dword_valid;
+  wire four_pmack_detected;
+  wire host_four_pmack_detected;
+  wire dev_four_pmack_detected;
+
+  wire [4:0] tx_hold_p_count;
+  wire [4:0] rx_hold_p_count;
+  wire [4:0] tx_holdn_p_count;
+  wire [4:0] rx_holdn_p_count;
+  wire tx_hold_p_in_prog;
+  wire rx_hold_p_in_prog;
+  wire pwr_mgmt_mode_entered;
+  wire hpwr_mgmt_mode_started;
+  wire dpwr_mgmt_mode_started;
+
+  wire r_tx_dmat_p_detected;
+  wire r_tx_eof_p_detected;
+  wire r_tx_hold_p_detected;
+  wire r_tx_holda_p_detected;
+  wire r_tx_r_err_p_detected;
+  wire r_tx_r_ok_p_detected;
+  wire r_tx_r_rdy_p_detected;
+  wire r_tx_align_p_detected;
+  wire r_tx_pmack_p_detected;
+  wire r_tx_pmnack_p_detected;
+  wire r_tx_sof_p_detected;
+  wire r_rx_pmack_p_detected;
+  wire r_rx_pmnack_p_detected;
+  wire r_rx_sof_p_detected;
+  wire r_rx_dmat_p_detected;
+  wire r_rx_eof_p_detected;
+  wire r_rx_hold_p_detected;
+  wire r_rx_holda_p_detected;
+  wire r_rx_r_err_p_detected;
+  wire r_rx_r_ok_p_detected;
+  wire r_rx_r_rdy_p_detected;
+  wire r_rx_align_p_detected;
+  wire host_align_p_detected;
+  wire host_cont_p_detected;
+  wire host_dmat_p_detected;
+  wire host_eof_p_detected;
+  wire host_hold_p_detected;
+  wire host_holda_p_detected;
+  wire host_pmack_p_detected;
+  wire host_pmnack_p_detected;
+  wire host_pmreqp_p_detected;
+  wire host_pmreqs_p_detected;
+  wire host_r_err_p_detected;
+  wire host_r_ip_p_detected;
+  wire host_r_ok_p_detected;
+  wire host_r_rdy_p_detected;
+  wire host_sof_p_detected;
+  wire host_sync_p_detected;
+  wire host_wtrm_p_detected;
+  wire host_x_rdy_p_detected;
+  wire host_reg_h2d_fis;
+  wire host_dma_setup_fis;
+  wire host_data_fis;
+  wire host_bist_act_fis;
+  wire host_cmd_bit;
+  wire host_srst_bit;
+  wire host_dir_bit;
+  wire host_non_data_cmd;
+  wire host_pio_cmd;
+  wire host_pio_in_cmd;
+  wire host_pio_out_cmd;
+  wire host_dma_in_cmd;
+  wire host_dma_out_cmd;
+  wire host_packet_cmd;
+  wire host_rd_queued_cmd;
+  wire host_wr_queued_cmd;
+  wire host_rd_fpdma_cmd;
+  wire host_wr_fpdma_cmd;
+  wire host_dev_rst_cmd;
+  wire host_dev_diag_cmd;
+  wire host_service_cmd;
+  wire host_rd_log_ext_cmd;
+  wire dev_align_p_detected;
+  wire dev_cont_p_detected;
+  wire dev_dmat_p_detected;
+  wire dev_eof_p_detected;
+  wire dev_hold_p_detected;
+  wire dev_holda_p_detected;
+  wire dev_pmack_p_detected;
+  wire dev_pmnack_p_detected;
+  wire dev_pmreqp_p_detected;
+  wire dev_pmreqs_p_detected;
+  wire dev_r_err_p_detected;
+  wire dev_r_ip_p_detected;
+  wire dev_r_ok_p_detected;
+  wire dev_r_rdy_p_detected;
+  wire dev_sof_p_detected;
+  wire dev_sync_p_detected;
+  wire dev_wtrm_p_detected;
+  wire dev_x_rdy_p_detected;
+  wire dev_reg_d2h_fis;
+  wire dev_set_dev_bit_fis;
+  wire dev_dma_act_fis;
+  wire dev_dma_setup_fis;
+  wire dev_pio_setup_fis;
+  wire dev_data_fis;
+  wire dev_bist_act_fis;
+  wire dev_dir_bit;
+  wire dev_serv_bit;
+  wire dev_rel_bit;
+  wire dev_err_bit;
+  wire dev_notif_bit;
+  wire [7:0] rx_bist_pattern_reg;
+  wire [7:0] tx_bist_pattern_reg;
+  wire dev_data_tx_complete;
+  wire set_host_transmitting;
+  wire rst_host_transmitting;
+  wire host_transmitting;
+  wire dev_good_sts_detected;
+  wire dev_bad_sts_detected;
+  wire [4:0] tx_cmd_tag_reg;
+  wire [4:0] tx_dma_tag_reg;
+  wire [4:0] rx_cmd_tag_reg;
+  wire [4:0] rx_dma_tag_reg;
+  wire [4:0] host_cmd_tag;
+  wire [4:0] dev_dma_tag;
+  wire [31:0] dev_sactive_field;
+  wire [31:0] tx_sactive_field;
+  wire [31:0] rx_sactive_field;
+  wire [31:0] cmd_tag_bitmap;
+  wire [31:0] ncq_tags_bitmap;
+  wire [31:0] wr_cmd_dir_bitmap;
+  wire [31:0] rd_cmd_dir_bitmap;
+  wire [31:0] rd_dma_dir_bitmap;
+  wire [31:0] wr_dma_dir_bitmap;
+  wire tx_D10_2_detected;
+  wire tx_D24_3_detected;
+  wire tx_three_non_align_p_detected;
+  wire [7:0] tx_pio_tx_count_reg0;
+  wire [7:0] tx_pio_tx_count_reg1;
+  wire tx_good_sts_detected;
+  wire tx_bad_sts_detected;
+  wire rx_D10_2_detected;
+  wire rx_D24_3_detected;
+  wire rx_three_non_align_p_detected;
+  wire [7:0] rx_pio_tx_count_reg0;
+  wire [7:0] rx_pio_tx_count_reg1;
+  wire rx_good_sts_detected;
+  wire rx_bad_sts_detected;
+
+  wire legacy_cmd_ncq_pending;
+  wire sof_detected_wo_rrdy;
+  wire [4:0] dword_count_after_rx_sync;
+  wire [4:0] dword_count_after_tx_sync;
+  wire sync_escape_detected;
+  wire bist_state;
+  wire power_down_mode;
+
+  integer i;
+
+  wire tx_holda_p_latency_violation;
+  wire rx_holda_p_latency_violation;
+  wire tx_pmack_wo_pmreq_violation;
+  wire rx_pmack_wo_pmreq_violation;
+  wire tx_pmnack_wo_pmreq_violation;
+  wire rx_pmnack_wo_pmreq_violation;
+  wire tx_r_rdy_wo_x_rdy_violation;
+  wire rx_r_rdy_wo_x_rdy_violation;
+  wire tx_host_back_off_violation;
+  wire rx_host_back_off_violation;
+  wire tx_xrdy_during_pmreq_violation;
+  wire rx_xrdy_during_pmreq_violation;
+  wire tx_hpmreq_while_dpmreq_violation;
+  wire rx_hpmreq_while_dpmreq_violation;
+  wire tx_dpmreq_while_hpmreq_violation;
+  wire rx_dpmreq_while_hpmreq_violation;
+  wire tx_sof_wo_rrdy_violation;
+  wire rx_sof_wo_rrdy_violation;
+  wire tx_hold_outside_eof_sof_violation;
+  wire rx_hold_outside_eof_sof_violation;
+  wire tx_dmat_outside_eof_sof_violation;
+  wire rx_dmat_outside_eof_sof_violation;
+  wire tx_holda_until_hold_violation;
+  wire rx_holda_until_hold_violation;
+  wire tx_holda_wo_hold_violation;
+  wire rx_holda_wo_hold_violation;
+  wire tx_wtrm_until_sts_violation;
+  wire rx_wtrm_until_sts_violation;
+  wire tx_sync_after_rx_sync_violation;
+  wire rx_sync_after_tx_sync_violation;
+  wire tx_rip_after_eof_violation;
+  wire rx_rip_after_eof_violation;
+  wire tx_rok_until_sync_violation; 
+  wire rx_rok_until_sync_violation;
+  wire tx_rerr_until_sync_violation;
+  wire rx_rerr_until_sync_violation;
+  wire tx_sync_until_sync_violation;
+  wire rx_sync_until_sync_violation;
+  wire tx_rok_for_tx_count_err_violation;
+  wire rx_rok_for_tx_count_err_violation;
+
+  // Internal signal declaration for stats
+  wire [63:0] tx_hold_p_2_holda_p_latency_min_count;
+  wire [63:0] tx_hold_p_2_holda_p_latency_max_count;
+  wire [63:0] tx_dmat_p_2_eof_p_latency_min_count;
+  wire [63:0] tx_dmat_p_2_eof_p_latency_max_count;
+  wire [63:0] tx_eof_p_2_r_ok_p_latency_min_count;
+  wire [63:0] tx_eof_p_2_r_ok_p_latency_max_count;
+  wire [63:0] tx_fis_count_exceeded_pio_count;
+  wire [63:0] tx_fis_count_less_pio_count;
+  wire [63:0] rx_hold_p_2_holda_p_latency_min_count;
+  wire [63:0] rx_hold_p_2_holda_p_latency_max_count;
+  wire [63:0] rx_dmat_p_2_eof_p_latency_min_count;
+  wire [63:0] rx_dmat_p_2_eof_p_latency_max_count;
+  wire [63:0] rx_eof_p_2_r_ok_p_latency_min_count;
+  wire [63:0] rx_eof_p_2_r_ok_p_latency_max_count;
+  wire [63:0] rx_fis_count_exceeded_pio_count;
+  wire [63:0] rx_fis_count_less_pio_count;
+  wire [63:0] successful_rd_fpdma_count;
+  wire [63:0] successful_wr_fpdma_count;
+  wire [63:0] un_successful_rd_fpdma_count;
+  wire [63:0] un_successful_wr_fpdma_count;
+  wire [63:0] max_ncq_cmd_outstanding_count;
+  wire [63:0] tx_min_pio_data_fis_len;
+  wire [63:0] tx_max_pio_data_fis_len;
+  wire [63:0] tx_min_dma_data_fis_len;
+  wire [63:0] tx_max_dma_data_fis_len;
+  wire [63:0] rx_min_pio_data_fis_len;
+  wire [63:0] rx_max_pio_data_fis_len;
+  wire [63:0] rx_min_dma_data_fis_len;
+  wire [63:0] rx_max_dma_data_fis_len;
+  wire first_tx_min_pio_data_fis_len;
+  wire first_tx_min_dma_data_fis_len;
+  wire first_rx_min_pio_data_fis_len;
+  wire first_rx_min_dma_data_fis_len;
+  wire incr_no_of_times_srst_set_count;
+  wire incr_total_reg_h2d_fis_count;
+  wire incr_total_reg_d2h_fis_count;
+  wire incr_total_set_dev_bit_fis_count;
+  wire incr_total_dma_act_fis_count;
+  wire incr_total_pio_setup_fis_count;
+  wire incr_total_non_data_cmd_count;
+  wire incr_total_pio_in_cmd_count;
+  wire incr_total_pio_out_cmd_count;
+  wire incr_total_dma_in_cmd_count;
+  wire incr_total_dma_out_cmd_count;
+  wire incr_total_packet_cmd_count;
+  wire incr_total_rd_queued_cmd_count;
+  wire incr_total_wr_queued_cmd_count;
+  wire incr_total_wr_fpdma_cmd_count;
+  wire incr_total_rd_fpdma_cmd_count;
+  wire incr_total_dev_rst_cmd_count;
+  wire incr_total_set_feat_cmd_count;
+  wire incr_total_identify_dev_cmd_count;
+  wire incr_total_rd_log_ext_cmd_count;
+  wire incr_total_regfis_with_err_set_count;
+  wire incr_total_piofis_with_err_set_count;
+  wire incr_total_sdbfis_with_err_set_count;
+  wire incr_total_dmasu_with_auto_act_count;
+  wire incr_total_regfis_with_notif_count;
+  wire incr_total_sdbfis_with_serv_set_count;
+  wire incr_total_regfis_with_rel_set_count;
+  wire incr_total_aborted_transfers_count;
+  wire tx_incr_no_of_times_srst_set_count;
+  wire tx_incr_total_reg_h2d_fis_count;
+  wire tx_incr_total_reg_d2h_fis_count;
+  wire tx_incr_total_set_dev_bit_fis_count;
+  wire tx_incr_total_dma_act_fis_count;
+  wire tx_incr_total_pio_setup_fis_count;
+  wire tx_incr_total_non_data_cmd_count;
+  wire tx_incr_total_pio_in_cmd_count;
+  wire tx_incr_total_pio_out_cmd_count;
+  wire tx_incr_total_dma_in_cmd_count;
+  wire tx_incr_total_dma_out_cmd_count;
+  wire tx_incr_total_packet_cmd_count;
+  wire tx_incr_total_rd_queued_cmd_count;
+  wire tx_incr_total_wr_queued_cmd_count;
+  wire tx_incr_total_wr_fpdma_cmd_count;
+  wire tx_incr_total_rd_fpdma_cmd_count;
+  wire tx_incr_total_dev_rst_cmd_count;
+  wire tx_incr_total_set_feat_cmd_count;
+  wire tx_incr_total_identify_dev_cmd_count;
+  wire tx_incr_total_rd_log_ext_cmd_count;
+  wire tx_incr_total_regfis_with_err_set_count;
+  wire tx_incr_total_piofis_with_err_set_count;
+  wire tx_incr_total_sdbfis_with_err_set_count;
+  wire tx_incr_total_dmasu_with_auto_act_count;
+  wire tx_incr_total_regfis_with_notif_count;
+  wire tx_incr_total_sdbfis_with_serv_set_count;
+  wire tx_incr_total_regfis_with_rel_set_count;
+  wire tx_incr_total_aborted_transfers_count;
+
+  wire rx_incr_no_of_times_srst_set_count;
+  wire rx_incr_total_reg_h2d_fis_count;
+  wire rx_incr_total_reg_d2h_fis_count;
+  wire rx_incr_total_set_dev_bit_fis_count;
+  wire rx_incr_total_dma_act_fis_count;
+  wire rx_incr_total_pio_setup_fis_count;
+  wire rx_incr_total_non_data_cmd_count;
+  wire rx_incr_total_pio_in_cmd_count;
+  wire rx_incr_total_pio_out_cmd_count;
+  wire rx_incr_total_dma_in_cmd_count;
+  wire rx_incr_total_dma_out_cmd_count;
+  wire rx_incr_total_packet_cmd_count;
+  wire rx_incr_total_rd_queued_cmd_count;
+  wire rx_incr_total_wr_queued_cmd_count;
+  wire rx_incr_total_wr_fpdma_cmd_count;
+  wire rx_incr_total_rd_fpdma_cmd_count;
+  wire rx_incr_total_dev_rst_cmd_count;
+  wire rx_incr_total_set_feat_cmd_count;
+  wire rx_incr_total_identify_dev_cmd_count;
+  wire rx_incr_total_rd_log_ext_cmd_count;
+  wire rx_incr_total_regfis_with_err_set_count;
+  wire rx_incr_total_piofis_with_err_set_count;
+  wire rx_incr_total_sdbfis_with_err_set_count;
+  wire rx_incr_total_dmasu_with_auto_act_count;
+  wire rx_incr_total_regfis_with_notif_count;
+  wire rx_incr_total_sdbfis_with_serv_set_count;
+  wire rx_incr_total_regfis_with_rel_set_count;
+  wire rx_incr_total_aborted_transfers_count;
+
+  wire [63:0] tx_total_comreset_cominit_count;
+  wire [63:0] rx_total_comreset_cominit_count;
+  wire [7:0] tx_data_fis_count;
+  wire [7:0] rx_data_fis_count;
+  wire clr_data_fis_count;
+  wire tx_collect_stats;
+  wire rx_collect_stats;
+  wire collect_stats;
+
+  reg [29*8-1:0] tl_present_state_string;
+  reg [23*8-1:0] ll_present_state_string;
+  reg [29*8-1:0] tl_next_state_string;
+  reg [23*8-1:0] ll_next_state_string;
+  reg [7:0] tx_data_fis_count_pos;
+  reg [7:0] tx_data_fis_count_neg;
+  reg [7:0] rx_data_fis_count_pos;
+  reg [7:0] rx_data_fis_count_neg;
+  reg [63:0] no_of_times_srst_set_count;
+  reg [63:0] total_reg_d2h_fis_count;
+  reg [63:0] total_dma_act_fis_count;
+  reg [63:0] total_regfis_with_err_set_count;
+  reg [63:0] total_sdbfis_with_err_set_count;
+  reg [63:0] total_piofis_with_err_set_count;
+  reg [63:0] total_dmasu_with_auto_act_count;
+  reg [63:0] total_regfis_with_notif_count;
+  reg [63:0] total_sdbfis_with_serv_set_count;
+  reg [63:0] total_reg_h2d_fis_count;
+  reg [63:0] total_dev_rst_cmd_count;
+  reg [63:0] total_set_feat_cmd_count;
+  reg [63:0] total_identify_dev_cmd_count;
+  reg [63:0] total_rd_log_ext_cmd_count;
+  reg [63:0] total_non_data_cmd_count;
+  reg [63:0] total_pio_in_cmd_count;
+  reg [63:0] total_pio_out_cmd_count;
+  reg [63:0] total_dma_in_cmd_count;
+  reg [63:0] total_dma_out_cmd_count;
+  reg [63:0] total_packet_cmd_count;
+  reg [63:0] total_rd_queued_cmd_count;
+  reg [63:0] total_wr_queued_cmd_count;
+  reg [63:0] total_rd_fpdma_cmd_count;
+  reg [63:0] total_wr_fpdma_cmd_count;
+  reg [63:0] successful_pio_in_tx_count;
+  reg [63:0] successful_pio_out_tx_count;
+  reg [63:0] successful_dma_in_tx_count;
+  reg [63:0] successful_dma_out_tx_count;
+  reg [63:0] successful_rd_qdma_tx_count;
+  reg [63:0] successful_wr_qdma_tx_count;
+  reg [63:0] successful_rd_fpdma_count_pos;
+  reg [63:0] un_successful_pio_in_tx_count;
+  reg [63:0] un_successful_pio_out_tx_count;
+  reg [63:0] un_successful_dma_in_tx_count;
+  reg [63:0] un_successful_dma_out_tx_count;
+  reg [63:0] un_successful_rd_qdma_tx_count;
+  reg [63:0] un_successful_wr_qdma_tx_count;
+
+  reg [63:0] max_ncq_cmd_outstanding_count_pos;
+  reg [63:0] max_ncq_cmd_outstanding_count_neg;
+  reg successful_pio_in_tx_count_neg;
+  reg successful_pio_out_tx_count_neg;
+  reg successful_dma_in_tx_count_neg;
+  reg successful_dma_out_tx_count_neg;
+  reg successful_rd_qdma_tx_count_neg;
+  reg successful_wr_qdma_tx_count_neg;
+  reg [63:0] successful_rd_fpdma_count_neg;
+  reg [63:0] successful_wr_fpdma_count_pos;
+  reg [63:0] successful_wr_fpdma_count_neg;
+  reg un_successful_pio_in_tx_count_neg;
+  reg un_successful_pio_out_tx_count_neg;
+  reg un_successful_dma_in_tx_count_neg;
+  reg un_successful_dma_out_tx_count_neg;
+  reg un_successful_rd_qdma_tx_count_neg;
+  reg un_successful_wr_qdma_tx_count_neg;
+  reg [63:0] un_successful_rd_fpdma_count_pos;
+  reg [63:0] un_successful_rd_fpdma_count_neg;
+  reg [63:0] un_successful_wr_fpdma_count_pos;
+  reg [63:0] un_successful_wr_fpdma_count_neg;
+  reg no_of_times_srst_set_count_neg;
+  reg total_aborted_transfers_count_neg;
+  reg [63:0] total_aborted_transfers_count;
+  reg total_dev_rst_cmd_count_neg;
+  reg total_dma_act_fis_count_neg;
+  reg total_dma_in_cmd_count_neg;
+  reg total_dma_out_cmd_count_neg;
+  reg total_dmasu_with_auto_act_count_neg;
+  reg total_identify_dev_cmd_count_neg;
+  reg total_non_data_cmd_count_neg;
+  reg total_packet_cmd_count_neg;
+  reg total_pio_in_cmd_count_neg;
+  reg total_pio_out_cmd_count_neg;
+  reg total_pio_setup_fis_count_neg;
+  reg [63:0] total_pio_setup_fis_count;
+  reg total_piofis_with_err_set_count_neg;
+  reg total_rd_fpdma_cmd_count_neg;
+  reg total_rd_log_ext_cmd_count_neg;
+  reg total_rd_queued_cmd_count_neg;
+  reg total_reg_d2h_fis_count_neg;
+  reg total_reg_h2d_fis_count_neg;
+  reg total_regfis_with_err_set_count_neg;
+  reg total_regfis_with_notif_count_neg;
+  reg total_regfis_with_rel_set_count_neg;
+  reg [63:0] total_regfis_with_rel_set_count;
+  reg total_sdbfis_with_err_set_count_neg;
+  reg total_sdbfis_with_serv_set_count_neg;
+  reg total_set_dev_bit_fis_count_neg;
+  reg [63:0] total_set_dev_bit_fis_count;
+  reg total_set_feat_cmd_count_neg;
+  reg total_wr_fpdma_cmd_count_neg;
+  reg total_wr_queued_cmd_count_neg;
+  reg total_regfis_with_good_sts_count_neg;
+  reg [63:0] total_regfis_with_good_sts_count;
+  reg total_regfis_with_bad_sts_count_neg;
+  reg [63:0] total_regfis_with_bad_sts_count;
+  reg [63:0] tx_min_pio_data_fis_len_pos;
+  reg [63:0] tx_min_pio_data_fis_len_neg;
+  reg [63:0] tx_max_pio_data_fis_len_pos;
+  reg [63:0] tx_max_pio_data_fis_len_neg;
+  reg [63:0] tx_min_dma_data_fis_len_pos;
+  reg [63:0] tx_min_dma_data_fis_len_neg;
+  reg [63:0] tx_max_dma_data_fis_len_pos;
+  reg [63:0] tx_max_dma_data_fis_len_neg;
+  reg [63:0] rx_min_pio_data_fis_len_pos;
+  reg [63:0] rx_min_pio_data_fis_len_neg;
+  reg [63:0] rx_max_pio_data_fis_len_pos;
+  reg [63:0] rx_max_pio_data_fis_len_neg;
+  reg [63:0] rx_min_dma_data_fis_len_pos;
+  reg [63:0] rx_min_dma_data_fis_len_neg;
+  reg [63:0] rx_max_dma_data_fis_len_pos;
+  reg [63:0] rx_max_dma_data_fis_len_neg;
+  reg first_tx_min_pio_data_fis_len_pos;
+  reg first_tx_min_pio_data_fis_len_neg;
+  reg first_tx_min_dma_data_fis_len_pos;
+  reg first_tx_min_dma_data_fis_len_neg;
+  reg first_rx_min_pio_data_fis_len_pos;
+  reg first_rx_min_pio_data_fis_len_neg;
+  reg first_rx_min_dma_data_fis_len_pos;
+  reg first_rx_min_dma_data_fis_len_neg;
+
+  //----------------------------------------------------------------------------
+`protected
+
+    MTI!#RK'^CGvTj-OADVxW=k]n?IBm*""[?wR7#*[2|hPxgG?KemDunH5u=1e}[7@B^#{-YKX=kKU
+    {[D@Z5R,QR.\zB,J+z$7GRGj;;>@[]o>'piBevBPGjV;#1=-ZX{H*a5'VA3piD*D><3}j[Al=1I}
+    'Gum-<A#oEi1e7@Ts'z?[HYO\DkkoQGje5rv5'TH6bzE@*rVvG:W[%bUE\j2G?2Wo'~=pEDE+omG
+    Jnk=_X[O#AKQ~7Q_s@5CXTG@>+]l=xBF8v^CAq4-B[;2aTV@UBCTDURv?QWjQp*@p;AjROC\{xZA
+    }rzkv2B>ej=VmmC'C-_QXsrY}U[-Up}"{x_$Qow?CmpnZ+<}n9#x^no{sORW17Q=nBeHzolokAG;
+    <ukHK-Ir{^E$t9-\!7!UrZ+ae{-hA{X!Vr@{]i7sAAEAa1mu{<VHB-YBIawQGV'z:R(-v][7H3DO
+    B5DC-[{GuJ^u$=\WXB*%lzku._{V]5<VoL[Bx^wrAC:l^zl'2-V_o#uG~@3k_RY';^T55VuD+x'H
+    lR=GJ-vVwB\^U2Q',a5kO#=l3\7jO3Tvr[@@1ju~e!Yl,B_LYCxCbAa7=^5D_Q@@5a[D#skr#3wG
+    w<D*O|ZX[OTTmEBYeXB[I=LOABZY25\B1*[smp;ma^=]Az2\*Y_@'u<]w+[5Qpw3zAzGInK*eHe*
+    HjKhr$-mW>!J$Z'@|lzx-(6?1m2'>+{!<r$='jxGA17ZwJC:WEG1omX?jUoG1EQ[[isClt}lrBwU
+    GV*=3^2<-v?w}pcIKrZeH7w[w-]\*^C=BGOp5*A[n,1\ReZ~o_]GHj7x?7;s[w<_vXz\a2_vu*G^
+    /g3,V~XQ\@,OD+IT,ow>CmrCxel4p-v3.rnr]V2+E1eRsG3\mp{G-KH@,qZ7;=^kSW'mG)x\?7RI
+    oBiAIKQxoGd1O2?fuAVR.}3QpmG;#YXIu]5,3{\^Ypa]}pOe7WT5?2xZYJDxRi7Jm;TU>v}[pU^D
+    D\YZ2D2E73w>J^r{{/.W*BmxYl\xm<j5v'ZG^am$Wv_y2,Csux3xQ5vl^kpTDK<^DW2*_X1DI{7Y
+    l;GJ@_W$+X2zrm1K\=OKc's'?5A_o~-_G8K\<VDzEZwsn;~\Iz^pm}jXe?(waVIN;,'>!A**j*?T
+    >Qm-G#p=#{$3Z[H$,j{k!X{RO5!_G25Y@r^z-->z)~-IWDX1[Y>T]*_v2qQ2rX1HuAZHn7l[z+3o
+    7T#nJYl3<lK_vzt}^uZ{wIJYZ]@V1+@5=}E,;'xP_3ZQpDV2^e]v'DI+z>+BHHj|@H3W,s#}KvCB
+    n8evR^aCY;_HwHLEZojE#EX[E]Y1JUox7i>i^\<$rrK;$sVs3*CQ;!J.Z(k>{RVeHTF[r!+i>*a3
+    T-jM|?HWHJG~_5=#?,,DZlB?2z\U#'B5nzCkBKRVGJ'T7l~<spv_DK+C}7@u7N;75KBYzB}7j,3+
+    *$rZekJl^JBuRm3QZ5T-!,1U3TG[UGWz=?X[<oE$-HBXW{*Qr@;XO{drM=#=^\1pW5?w1DoHo+1>
+    2~5RHCCX-w=;w/v=$J,2,j3U$U9OvYvsDB]sEB{i]^-B5Z57OK'V7^mw<_a^>UsPVe+V]hT1EWHj
+    <},YH@EG5}p?TGn$<<]3xT5Or\JxCi~w<3:v<B5k}nk6}U@'}>=YHUQm^T>\l]@@uo\o-YK[3H<\
+    72ne}C-??wBJDH$W{]e[RCm#$*7^cJC^[HEXH_Ve*R@v#wCrnK$QCm]C#;CCA-'2m^{5ZuTW*vz$
+    D$JEKUn+n~]!@+OX<R=R\{_Y*nD+Rz\I\Jjks~X>5'an?!>1i,!vV/.q=iYRJO_2o!U=Qrk[';CJ
+    oO_]C]+pNVs{X<Xm,#TU<@RTukOf*~D5Uze'E$1jW1le#oEv7CXaUXYu~{nvk^u'(2p<Ai^5n[G^
+    Xlwvj,kOCoggH}w@j'J#}X,k,Eer{$H]%xTs>=#\mf${J7EAZYYk}sB5{olG?w*p1ukVl;|1_1-O
+    +GnXlj!zlI?EKj\Do?C?I''Q$DjGo$YXl;_ea^R5]sVnw<J\%CdTTX\[z2-X1<^-ssueiJZO7A?G
+    aUV1$RU:1^ZlwBz*H1zumz2x*?{wy6llsi3$W]Q,B}CXDsTBT!5-[Wi\Y!'$]!aOOOHO+uoC<@E'
+    ~#V7=K,=[Hn^V_mTI=BWCX3ovpjkX=aLna-[!Lg!]w'KH3-}7J<ZY!K7~AVts!s<XR3vL|MACaEj
+    e,+
+`endprotected
+  //----------------------------------------------------------------------------
+
+  qvl_sata_link_layer #(Constraints_Mode,
+                          LINK_SIDE,
+                          INTERFACE_TYPE,
+                          DEVICE_TYPE,
+                          PARALLEL_DATA_WIDTH,
+                          DOUBLE_DATA_RATE,
+                          NCQ_COMMAND_ENABLE,
+                          LEGACY_QUEUED_COMMAND_ENABLE,
+                          PORT_MULTIPLIER_ENABLE,
+                          PACKET_COMMAND_ENABLE,
+                          RESERVED_VALUE_CHECKING_ENABLE,
+                          MAX_QUEUE_DEPTH,
+                          RESERVED_FIS_TYPE_ENABLE,
+                          VENDOR_FIS_TYPE_ENABLE,
+                          1 //TX_INTERFACE
+                         )
+              LINK_LAYER_TX (.areset(areset),
+                             .reset(reset),
+                             .clk(tx_clk),
+                             .data(tx_data),
+                             .data_valid(tx_data_valid),
+                             .first_align_p(tx_first_align_p),
+                             .level_select(tx_level_select),
+                             .phy_ready(phy_ready),
+                             .k28_5_detect(1'b0),
+                             .scrambling_off(scrambling_off),
+                             .tl_present_state(tl_present_state),
+                             .tl_next_state(tl_next_state),
+                             .ll_present_state(ll_present_state),
+                             .ll_next_state(ll_next_state[4:0]),
+                             .legacy_cmd_ncq_pending(legacy_cmd_ncq_pending),
+                             .cmd_tag_bitmap(cmd_tag_bitmap),
+                             .host_pio_in_cmd(host_pio_in_cmd),
+                             .host_pio_out_cmd(host_pio_out_cmd),
+                             .bc_bist_pattern_reg(rx_bist_pattern_reg),
+                             .total_no_of_comwake_count
+                                           (tx_total_no_of_comwake_count),
+                             .hold_p_2_holda_p_latency_min_count
+                                       (tx_hold_p_2_holda_p_latency_min_count),
+                             .hold_p_2_holda_p_latency_max_count
+                                       (tx_hold_p_2_holda_p_latency_max_count),
+                             .dmat_p_2_eof_p_latency_min_count
+                                          (tx_dmat_p_2_eof_p_latency_min_count),
+                             .dmat_p_2_eof_p_latency_max_count
+                                          (tx_dmat_p_2_eof_p_latency_max_count),
+                             .eof_p_2_r_ok_p_latency_min_count
+                                          (tx_eof_p_2_r_ok_p_latency_min_count),
+                             .eof_p_2_r_ok_p_latency_max_count
+                                          (tx_eof_p_2_r_ok_p_latency_max_count),
+                             .fis_count_exceeded_pio_count
+                                           (tx_fis_count_exceeded_pio_count),
+                             .fis_count_less_pio_count
+                                           (tx_fis_count_less_pio_count),
+                             .min_pio_data_fis_len(tx_min_pio_data_fis_len),
+                             .max_pio_data_fis_len(tx_max_pio_data_fis_len),
+                             .min_dma_data_fis_len(tx_min_dma_data_fis_len),
+                             .max_dma_data_fis_len(tx_max_dma_data_fis_len),
+                             .cont_p_in_prog (tx_cont_p_in_prog),
+			     .dword_valid(tx_dword_valid),
+			     .primitive_bitmap(tx_primitive_bitmap),
+			     .reg_h2d_fis(tx_reg_h2d_fis),
+			     .reg_d2h_fis(tx_reg_d2h_fis),
+			     .set_dev_bit_fis(tx_set_dev_bit_fis),
+			     .dma_act_fis(tx_dma_act_fis),
+			     .dma_setup_fis(tx_dma_setup_fis),
+			     .pio_setup_fis(tx_pio_setup_fis),
+			     .data_fis(tx_data_fis),
+			     .bist_act_fis(tx_bist_act_fis),
+			     .cmd_bit(tx_cmd_bit),
+			     .srst_bit(tx_srst_bit),
+			     .dir_bit(tx_dir_bit),
+			     .rel_bit(tx_rel_bit),
+			     .serv_bit(tx_serv_bit),
+			     .err_bit(tx_err_bit),
+			     .notif_bit(tx_notif_bit),
+                             .bist_pattern_reg(tx_bist_pattern_reg),
+			     .non_data_cmd_detected(tx_non_data_cmd),
+			     .pio_in_cmd_detected(tx_pio_in_cmd),
+			     .pio_out_cmd_detected(tx_pio_out_cmd),
+			     .dma_in_cmd_detected(tx_dma_in_cmd),
+			     .dma_out_cmd_detected(tx_dma_out_cmd),
+			     .packet_cmd_detected(tx_packet_cmd),
+			     .rd_queued_cmd_detected(tx_rd_queued_cmd),
+			     .wr_queued_cmd_detected(tx_wr_queued_cmd),
+			     .rd_fpdma_cmd_detected(tx_rd_fpdma_cmd),
+			     .wr_fpdma_cmd_detected(tx_wr_fpdma_cmd),
+			     .dev_rst_cmd_detected(tx_dev_rst_cmd),
+			     .dev_diag_cmd_detected(tx_dev_diag_cmd),
+			     .service_cmd_detected(tx_service_cmd),
+			     .rd_log_ext_cmd_detected(tx_rd_log_ext_cmd),
+                             .dword_count(tx_dword_count),
+			     .total_tx_dword_count(tx_total_tx_dword_count),
+			     .total_data_dword_count(tx_total_data_dword_count),
+			     .cmd_tag_reg(tx_cmd_tag_reg),
+			     .dma_tag_reg(tx_dma_tag_reg),
+			     .sactive_field(tx_sactive_field),
+			     .D10_2_detected(tx_D10_2_detected),
+			     .D24_3_detected(tx_D24_3_detected),
+			     .three_non_align_p_detected
+			                        (tx_three_non_align_p_detected),
+			     .pio_tx_count_reg0(tx_pio_tx_count_reg0),
+			     .pio_tx_count_reg1(tx_pio_tx_count_reg1),
+			     .good_sts_detected(tx_good_sts_detected),
+			     .bad_sts_detected(tx_bad_sts_detected),
+                             .four_pmack_detected(tx_four_pmack_detected),
+                             .hold_p_count(tx_hold_p_count),
+                             .holdn_p_count(tx_holdn_p_count),
+                             .hold_p_in_prog(tx_hold_p_in_prog),
+                             .holda_p_in_prog(tx_holda_p_in_prog),
+                             .x_rdy_p_in_prog(tx_x_rdy_p_in_prog),
+                             .r_rdy_p_in_prog(tx_r_rdy_p_in_prog),
+                             .pmreqp_p_in_prog(tx_pmreqp_p_in_prog),
+                             .pmreqs_p_in_prog(tx_pmreqs_p_in_prog),
+                             .non_ncq_when_ncq_pending
+                                           (tx_non_ncq_when_ncq_pending),
+                             .incr_no_of_times_srst_set_count
+                                           (tx_incr_no_of_times_srst_set_count),
+                             .incr_total_reg_h2d_fis_count
+                                            (tx_incr_total_reg_h2d_fis_count),
+                             .incr_total_reg_d2h_fis_count
+                                            (tx_incr_total_reg_d2h_fis_count),
+                             .incr_total_set_dev_bit_fis_count
+                                          (tx_incr_total_set_dev_bit_fis_count),
+                             .incr_total_dma_act_fis_count
+                                            (tx_incr_total_dma_act_fis_count),
+                             .incr_total_pio_setup_fis_count
+                                            (tx_incr_total_pio_setup_fis_count),
+                             .incr_total_non_data_cmd_count
+                                            (tx_incr_total_non_data_cmd_count),
+                             .incr_total_pio_in_cmd_count
+                                            (tx_incr_total_pio_in_cmd_count),
+                             .incr_total_pio_out_cmd_count
+                                            (tx_incr_total_pio_out_cmd_count),
+                             .incr_total_dma_in_cmd_count
+                                            (tx_incr_total_dma_in_cmd_count),
+                             .incr_total_dma_out_cmd_count
+                                            (tx_incr_total_dma_out_cmd_count),
+                             .incr_total_packet_cmd_count
+                                            (tx_incr_total_packet_cmd_count),
+                             .incr_total_rd_queued_cmd_count
+                                            (tx_incr_total_rd_queued_cmd_count),
+                             .incr_total_wr_queued_cmd_count
+                                            (tx_incr_total_wr_queued_cmd_count),
+                             .incr_total_rd_fpdma_cmd_count
+                                            (tx_incr_total_rd_fpdma_cmd_count),
+                             .incr_total_wr_fpdma_cmd_count
+                                            (tx_incr_total_wr_fpdma_cmd_count),
+                             .incr_total_dev_rst_cmd_count
+                                            (tx_incr_total_dev_rst_cmd_count),
+                             .incr_total_set_feat_cmd_count
+                                            (tx_incr_total_set_feat_cmd_count),
+                             .incr_total_identify_dev_cmd_count
+                                         (tx_incr_total_identify_dev_cmd_count),
+                             .incr_total_rd_log_ext_cmd_count
+                                           (tx_incr_total_rd_log_ext_cmd_count),
+                             .incr_total_regfis_with_err_set_count
+                                     (tx_incr_total_regfis_with_err_set_count),
+                             .incr_total_piofis_with_err_set_count
+                                     (tx_incr_total_piofis_with_err_set_count),
+                             .incr_total_sdbfis_with_err_set_count
+                                     (tx_incr_total_sdbfis_with_err_set_count),
+                             .incr_total_dmasu_with_auto_act_count
+                                     (tx_incr_total_dmasu_with_auto_act_count),
+                             .incr_total_regfis_with_notif_count
+                                        (tx_incr_total_regfis_with_notif_count),
+                             .incr_total_sdbfis_with_serv_set_count
+                                    (tx_incr_total_sdbfis_with_serv_set_count),
+                             .incr_total_regfis_with_rel_set_count
+                                     (tx_incr_total_regfis_with_rel_set_count),
+                             .incr_total_aborted_transfers_count
+                                        (tx_incr_total_aborted_transfers_count),
+                             .collect_stats
+                                        (tx_collect_stats),
+                             .idle (tx_idle)
+			     );
+
+  qvl_sata_link_layer #(Constraints_Mode,
+                          LINK_SIDE,
+                          INTERFACE_TYPE,
+                          DEVICE_TYPE,
+                          PARALLEL_DATA_WIDTH,
+                          DOUBLE_DATA_RATE,
+                          NCQ_COMMAND_ENABLE,
+                          LEGACY_QUEUED_COMMAND_ENABLE,
+                          PORT_MULTIPLIER_ENABLE,
+                          PACKET_COMMAND_ENABLE,
+                          RESERVED_VALUE_CHECKING_ENABLE,
+                          MAX_QUEUE_DEPTH,
+                          RESERVED_FIS_TYPE_ENABLE,
+                          VENDOR_FIS_TYPE_ENABLE,
+                          0 //RX_INTERFACE
+                         )
+              LINK_LAYER_RX (.areset(areset),
+                             .reset(reset),
+                             .clk(rx_clk),
+                             .data(rx_data),
+                             .data_valid(rx_data_valid),
+                             .first_align_p(rx_first_align_p),
+                             .level_select(rx_level_select),
+                             .phy_ready(phy_ready),
+                             .k28_5_detect(k28_5_detect),
+                             .scrambling_off(scrambling_off),
+                             .tl_present_state(tl_present_state),
+                             .tl_next_state(tl_next_state),
+                             .ll_present_state(ll_present_state),
+                             .ll_next_state(ll_next_state[4:0]),
+                             .legacy_cmd_ncq_pending(legacy_cmd_ncq_pending),
+                             .cmd_tag_bitmap(cmd_tag_bitmap),
+                             .host_pio_in_cmd(host_pio_in_cmd),
+                             .host_pio_out_cmd(host_pio_out_cmd),
+                             .bc_bist_pattern_reg(tx_bist_pattern_reg),
+                             .total_no_of_comwake_count
+                                           (rx_total_no_of_comwake_count),
+                             .hold_p_2_holda_p_latency_min_count
+                                        (rx_hold_p_2_holda_p_latency_min_count),
+                             .hold_p_2_holda_p_latency_max_count
+                                        (rx_hold_p_2_holda_p_latency_max_count),
+                             .dmat_p_2_eof_p_latency_min_count
+                                          (rx_dmat_p_2_eof_p_latency_min_count),
+                             .dmat_p_2_eof_p_latency_max_count
+                                          (rx_dmat_p_2_eof_p_latency_max_count),
+                             .eof_p_2_r_ok_p_latency_min_count
+                                          (rx_eof_p_2_r_ok_p_latency_min_count),
+                             .eof_p_2_r_ok_p_latency_max_count
+                                          (rx_eof_p_2_r_ok_p_latency_max_count),
+                             .fis_count_exceeded_pio_count
+                                           (rx_fis_count_exceeded_pio_count),
+                             .fis_count_less_pio_count
+                                           (rx_fis_count_less_pio_count),
+                             .min_pio_data_fis_len(rx_min_pio_data_fis_len),
+                             .max_pio_data_fis_len(rx_max_pio_data_fis_len),
+                             .min_dma_data_fis_len(rx_min_dma_data_fis_len),
+                             .max_dma_data_fis_len(rx_max_dma_data_fis_len),
+                             .cont_p_in_prog (rx_cont_p_in_prog),
+                             .dword_valid(rx_dword_valid),
+                             .primitive_bitmap(rx_primitive_bitmap),
+                             .reg_h2d_fis(rx_reg_h2d_fis),
+                             .reg_d2h_fis(rx_reg_d2h_fis),
+                             .set_dev_bit_fis(rx_set_dev_bit_fis),
+                             .dma_act_fis(rx_dma_act_fis),
+                             .dma_setup_fis(rx_dma_setup_fis),
+                             .pio_setup_fis(rx_pio_setup_fis),
+                             .data_fis(rx_data_fis),
+			     .bist_act_fis(rx_bist_act_fis),
+                             .cmd_bit(rx_cmd_bit),
+                             .srst_bit(rx_srst_bit),
+                             .dir_bit(rx_dir_bit),
+                             .rel_bit(rx_rel_bit),
+                             .serv_bit(rx_serv_bit),
+                             .err_bit(rx_err_bit),
+                             .notif_bit(rx_notif_bit),
+                             .bist_pattern_reg(rx_bist_pattern_reg),
+                             .non_data_cmd_detected(rx_non_data_cmd),
+                             .pio_in_cmd_detected(rx_pio_in_cmd),
+                             .pio_out_cmd_detected(rx_pio_out_cmd),
+                             .dma_in_cmd_detected(rx_dma_in_cmd),
+                             .dma_out_cmd_detected(rx_dma_out_cmd),
+                             .packet_cmd_detected(rx_packet_cmd),
+                             .rd_queued_cmd_detected(rx_rd_queued_cmd),
+                             .wr_queued_cmd_detected(rx_wr_queued_cmd),
+                             .rd_fpdma_cmd_detected(rx_rd_fpdma_cmd),
+                             .wr_fpdma_cmd_detected(rx_wr_fpdma_cmd),
+                             .dev_rst_cmd_detected(rx_dev_rst_cmd),
+                             .dev_diag_cmd_detected(rx_dev_diag_cmd),
+                             .service_cmd_detected(rx_service_cmd),
+                             .rd_log_ext_cmd_detected(rx_rd_log_ext_cmd),
+                             .dword_count(rx_dword_count),
+                             .total_tx_dword_count(rx_total_tx_dword_count),
+                             .total_data_dword_count(rx_total_data_dword_count),
+                             .cmd_tag_reg(rx_cmd_tag_reg),
+                             .dma_tag_reg(rx_dma_tag_reg),
+                             .sactive_field(rx_sactive_field),
+                             .D10_2_detected(rx_D10_2_detected),
+                             .D24_3_detected(rx_D24_3_detected),
+                             .three_non_align_p_detected
+                                                (rx_three_non_align_p_detected),
+                             .pio_tx_count_reg0(rx_pio_tx_count_reg0),
+                             .pio_tx_count_reg1(rx_pio_tx_count_reg1),
+                             .good_sts_detected(rx_good_sts_detected),
+                             .bad_sts_detected(rx_bad_sts_detected),
+                             .four_pmack_detected(rx_four_pmack_detected),
+                             .hold_p_in_prog(rx_hold_p_in_prog),
+                             .hold_p_count(rx_hold_p_count),
+                             .holdn_p_count(rx_holdn_p_count),
+                             .holda_p_in_prog(rx_holda_p_in_prog),
+                             .x_rdy_p_in_prog(rx_x_rdy_p_in_prog),
+                             .r_rdy_p_in_prog(rx_r_rdy_p_in_prog),
+                             .pmreqp_p_in_prog(rx_pmreqp_p_in_prog),
+                             .pmreqs_p_in_prog(rx_pmreqs_p_in_prog),
+                             .non_ncq_when_ncq_pending
+                                           (rx_non_ncq_when_ncq_pending),
+                             .incr_no_of_times_srst_set_count
+                                           (rx_incr_no_of_times_srst_set_count),
+                             .incr_total_reg_h2d_fis_count
+                                            (rx_incr_total_reg_h2d_fis_count),
+                             .incr_total_reg_d2h_fis_count
+                                            (rx_incr_total_reg_d2h_fis_count),
+                             .incr_total_set_dev_bit_fis_count
+                                          (rx_incr_total_set_dev_bit_fis_count),
+                             .incr_total_dma_act_fis_count
+                                            (rx_incr_total_dma_act_fis_count),
+                             .incr_total_pio_setup_fis_count
+                                            (rx_incr_total_pio_setup_fis_count),
+                             .incr_total_non_data_cmd_count
+                                            (rx_incr_total_non_data_cmd_count),
+                             .incr_total_pio_in_cmd_count
+                                            (rx_incr_total_pio_in_cmd_count),
+                             .incr_total_pio_out_cmd_count
+                                            (rx_incr_total_pio_out_cmd_count),
+                             .incr_total_dma_in_cmd_count
+                                            (rx_incr_total_dma_in_cmd_count),
+                             .incr_total_dma_out_cmd_count
+                                            (rx_incr_total_dma_out_cmd_count),
+                             .incr_total_packet_cmd_count
+                                            (rx_incr_total_packet_cmd_count),
+                             .incr_total_rd_queued_cmd_count
+                                            (rx_incr_total_rd_queued_cmd_count),
+                             .incr_total_wr_queued_cmd_count
+                                            (rx_incr_total_wr_queued_cmd_count),
+                             .incr_total_rd_fpdma_cmd_count
+                                            (rx_incr_total_rd_fpdma_cmd_count),
+                             .incr_total_wr_fpdma_cmd_count
+                                            (rx_incr_total_wr_fpdma_cmd_count),
+                             .incr_total_dev_rst_cmd_count
+                                            (rx_incr_total_dev_rst_cmd_count),
+                             .incr_total_set_feat_cmd_count
+                                            (rx_incr_total_set_feat_cmd_count),
+                             .incr_total_identify_dev_cmd_count
+                                         (rx_incr_total_identify_dev_cmd_count),
+                             .incr_total_rd_log_ext_cmd_count
+                                           (rx_incr_total_rd_log_ext_cmd_count),
+                             .incr_total_regfis_with_err_set_count
+                                     (rx_incr_total_regfis_with_err_set_count),
+                             .incr_total_piofis_with_err_set_count
+                                     (rx_incr_total_piofis_with_err_set_count),
+                             .incr_total_sdbfis_with_err_set_count
+                                     (rx_incr_total_sdbfis_with_err_set_count),
+                             .incr_total_dmasu_with_auto_act_count
+                                     (rx_incr_total_dmasu_with_auto_act_count),
+                             .incr_total_regfis_with_notif_count
+                                        (rx_incr_total_regfis_with_notif_count),
+                             .incr_total_sdbfis_with_serv_set_count
+                                    (rx_incr_total_sdbfis_with_serv_set_count),
+                             .incr_total_regfis_with_rel_set_count
+                                     (rx_incr_total_regfis_with_rel_set_count),
+                             .incr_total_aborted_transfers_count
+                                        (rx_incr_total_aborted_transfers_count),
+                             .collect_stats
+                                        (rx_collect_stats),
+                             .idle (rx_idle)
+                            );
+
+  //----------------------------------------------------------------------------
+
+  assign tx_align_p_detected = tx_primitive_bitmap[17];
+  assign tx_cont_p_detected = tx_primitive_bitmap[16];
+  assign tx_dmat_p_detected = tx_primitive_bitmap[15];
+  assign tx_eof_p_detected = tx_primitive_bitmap[14];
+  assign tx_hold_p_detected = tx_primitive_bitmap[13];
+  assign tx_holda_p_detected = tx_primitive_bitmap[12];
+  assign tx_pmack_p_detected = tx_primitive_bitmap[11];
+  assign tx_pmnack_p_detected = tx_primitive_bitmap[10];
+  assign tx_pmreqp_p_detected = tx_primitive_bitmap[9];
+  assign tx_pmreqs_p_detected = tx_primitive_bitmap[8];
+  assign tx_r_err_p_detected = tx_primitive_bitmap[7];
+  assign tx_r_ip_p_detected = tx_primitive_bitmap[6];
+  assign tx_r_ok_p_detected = tx_primitive_bitmap[5];
+  assign tx_r_rdy_p_detected = tx_primitive_bitmap[4];
+  assign tx_sof_p_detected = tx_primitive_bitmap[3];
+  assign tx_sync_p_detected = tx_primitive_bitmap[2];
+  assign tx_wtrm_p_detected = tx_primitive_bitmap[1];
+  assign tx_x_rdy_p_detected = tx_primitive_bitmap[0];
+
+  assign rx_align_p_detected = rx_primitive_bitmap[17];
+  assign rx_cont_p_detected = rx_primitive_bitmap[16];
+  assign rx_dmat_p_detected = rx_primitive_bitmap[15];  
+  assign rx_eof_p_detected = rx_primitive_bitmap[14];   
+  assign rx_hold_p_detected = rx_primitive_bitmap[13];
+  assign rx_holda_p_detected = rx_primitive_bitmap[12];
+  assign rx_pmack_p_detected = rx_primitive_bitmap[11];
+  assign rx_pmnack_p_detected = rx_primitive_bitmap[10];
+  assign rx_pmreqp_p_detected = rx_primitive_bitmap[9];
+  assign rx_pmreqs_p_detected = rx_primitive_bitmap[8];
+  assign rx_r_err_p_detected = rx_primitive_bitmap[7];
+  assign rx_r_ip_p_detected = rx_primitive_bitmap[6];
+  assign rx_r_ok_p_detected = rx_primitive_bitmap[5];
+  assign rx_r_rdy_p_detected = rx_primitive_bitmap[4];
+  assign rx_sof_p_detected = rx_primitive_bitmap[3];
+  assign rx_sync_p_detected = rx_primitive_bitmap[2];
+  assign rx_wtrm_p_detected = rx_primitive_bitmap[1];
+  assign rx_x_rdy_p_detected = rx_primitive_bitmap[0];
+
+  assign host_total_tx_dword_count = (DEVICE_TYPE == 1) 
+                                     ? rx_total_tx_dword_count
+                                     : tx_total_tx_dword_count;
+  assign dev_pio_tx_count = (DEVICE_TYPE == 1)
+                            ? {tx_pio_tx_count_reg1, tx_pio_tx_count_reg0}
+                            : {rx_pio_tx_count_reg1, rx_pio_tx_count_reg0};
+  assign tx_data_tx_complete = (tx_total_data_dword_count == 
+                                                 host_total_tx_dword_count);
+  assign rx_data_tx_complete = (rx_total_data_dword_count == 
+                                                 host_total_tx_dword_count);
+  assign tx_fis_count_less = (((tx_dword_count-2) << 2) < dev_pio_tx_count) &
+                                tx_eof_p_detected &
+                                ((tl_present_state ==
+                                           ZI_PIO_SETUP_DETECTED_STATE) |
+                                 (tl_present_state ==
+                                           ZI_PIO_SETUP_OF_CMD_STATE)) &
+                                ((host_transmitting & ~DEVICE_TYPE) |
+                                 (~host_transmitting & DEVICE_TYPE)); 
+  assign rx_fis_count_less =(((rx_dword_count-2) << 2) < dev_pio_tx_count) & 
+                                rx_eof_p_detected &
+                                ((tl_present_state == 
+                                           ZI_PIO_SETUP_DETECTED_STATE) |
+                                 (tl_present_state == 
+                                           ZI_PIO_SETUP_OF_CMD_STATE)) &
+                                ((host_transmitting & ~DEVICE_TYPE) |
+                                 (~host_transmitting & DEVICE_TYPE)); 
+  assign tx_fis_count_more = (((tx_dword_count-2) << 2) > dev_pio_tx_count) & 
+                                tx_eof_p_detected &
+                                ((tl_present_state ==
+                                           ZI_PIO_SETUP_DETECTED_STATE) |
+                                 (tl_present_state ==
+                                           ZI_PIO_SETUP_OF_CMD_STATE)) &
+                                ((host_transmitting & ~DEVICE_TYPE) |
+                                 (~host_transmitting & DEVICE_TYPE)); 
+  assign rx_fis_count_more = (((rx_dword_count-2) << 2) > dev_pio_tx_count) &  
+                                rx_eof_p_detected &
+                                ((tl_present_state == 
+                                           ZI_PIO_SETUP_DETECTED_STATE) |
+                                 (tl_present_state == 
+                                           ZI_PIO_SETUP_OF_CMD_STATE)) &
+                                ((host_transmitting & ~DEVICE_TYPE) |
+                                 (~host_transmitting & DEVICE_TYPE)); 
+  assign tx_data_count_err = tx_level_select
+                             ? tx_data_count_err_pos
+                             : tx_data_count_err_neg;
+  assign rx_data_count_err = rx_level_select
+                             ? rx_data_count_err_pos
+                             : rx_data_count_err_neg;
+  assign dword_count_after_rx_sync = tx_level_select 
+                                     ? dword_count_after_rx_sync_pos
+                                     : dword_count_after_rx_sync_neg;
+
+  //----------------------------------------------------------------------------
+
+  // The register bitmap value. The bitmap is flopped when there is any change 
+  // in the bitmap value
+
+  assign r_tx_primitive_bitmap = tx_level_select
+                                 ? r_tx_primitive_bitmap_pos
+                                 : r_tx_primitive_bitmap_neg;
+  assign r_rx_primitive_bitmap = rx_level_select
+                                 ? r_rx_primitive_bitmap_pos
+                                 : r_rx_primitive_bitmap_neg;
+
+  assign r_tx_align_p_detected = r_tx_primitive_bitmap[17];
+  assign r_tx_dmat_p_detected = r_tx_primitive_bitmap[15];
+  assign r_tx_eof_p_detected = r_tx_primitive_bitmap[14];
+  assign r_tx_hold_p_detected = r_tx_primitive_bitmap[13];
+  assign r_tx_holda_p_detected = r_tx_primitive_bitmap[12];
+  assign r_tx_pmack_p_detected = r_tx_primitive_bitmap[11];
+  assign r_tx_pmnack_p_detected = r_tx_primitive_bitmap[10];
+  assign r_tx_r_err_p_detected = r_tx_primitive_bitmap[7];
+  assign r_tx_r_ok_p_detected = r_tx_primitive_bitmap[5];
+  assign r_tx_r_rdy_p_detected = r_tx_primitive_bitmap[4];
+  assign r_tx_sof_p_detected = r_tx_primitive_bitmap[3];
+
+  assign r_rx_align_p_detected = r_rx_primitive_bitmap[17];
+  assign r_rx_dmat_p_detected = r_rx_primitive_bitmap[15];
+  assign r_rx_eof_p_detected = r_rx_primitive_bitmap[14];
+  assign r_rx_hold_p_detected = r_rx_primitive_bitmap[13];
+  assign r_rx_holda_p_detected = r_rx_primitive_bitmap[12];
+  assign r_rx_pmack_p_detected = r_rx_primitive_bitmap[11];
+  assign r_rx_pmnack_p_detected = r_rx_primitive_bitmap[10];
+  assign r_rx_r_err_p_detected = r_rx_primitive_bitmap[7];
+  assign r_rx_r_ok_p_detected = r_rx_primitive_bitmap[5];
+  assign r_rx_r_rdy_p_detected = r_rx_primitive_bitmap[4];
+  assign r_rx_sof_p_detected = r_rx_primitive_bitmap[3];
+
+  //----------------------------------------------------------------------------
+  assign host_primitive_detected = host_align_p_detected |
+                                   host_cont_p_detected |
+                                   host_dmat_p_detected |
+                                   host_eof_p_detected |
+                                   host_hold_p_detected |
+                                   host_holda_p_detected |
+                                   host_pmack_p_detected |
+                                   host_pmnack_p_detected |
+                                   host_pmreqp_p_detected |
+                                   host_pmreqs_p_detected |
+                                   host_r_err_p_detected |
+                                   host_r_ip_p_detected |
+                                   host_r_ok_p_detected |
+                                   host_r_rdy_p_detected |
+                                   host_sof_p_detected |
+                                   host_sync_p_detected |
+                                   host_wtrm_p_detected |
+                                   host_x_rdy_p_detected;
+  assign dev_primitive_detected = dev_align_p_detected |
+                                  dev_cont_p_detected |
+                                  dev_dmat_p_detected |
+                                  dev_eof_p_detected |
+                                  dev_hold_p_detected |
+                                  dev_holda_p_detected |
+                                  dev_pmack_p_detected |
+                                  dev_pmnack_p_detected |
+                                  dev_pmreqp_p_detected |
+                                  dev_pmreqs_p_detected |
+                                  dev_r_err_p_detected |
+                                  dev_r_ip_p_detected |
+                                  dev_r_ok_p_detected |
+                                  dev_r_rdy_p_detected |
+                                  dev_sof_p_detected |
+                                  dev_sync_p_detected |
+                                  dev_wtrm_p_detected |
+                                  dev_x_rdy_p_detected;
+  assign host_primitive_bitmap = (DEVICE_TYPE == 1)
+                                 ? rx_primitive_bitmap
+                                 : tx_primitive_bitmap;
+  assign dev_primitive_bitmap = (DEVICE_TYPE == 0)
+                                 ? (rx_primitive_bitmap | rx_primitive_bitmap)
+                                 : tx_primitive_bitmap;
+
+  assign host_dword_valid = (DEVICE_TYPE == 1)
+                            ? rx_dword_valid
+                            : tx_dword_valid;
+  assign host_four_pmack_detected = (DEVICE_TYPE == 1)
+                                    ? rx_four_pmack_detected
+                                    : tx_four_pmack_detected;
+  assign host_align_p_detected = (DEVICE_TYPE == 1)
+                                 ? rx_align_p_detected
+                                 : tx_align_p_detected;
+  assign host_cont_p_detected = (DEVICE_TYPE == 1)
+                                ? rx_cont_p_detected
+                                : tx_cont_p_detected;
+  assign host_dmat_p_detected = (DEVICE_TYPE == 1)
+                                ? rx_dmat_p_detected
+                                : tx_dmat_p_detected;
+  assign host_eof_p_detected  = (DEVICE_TYPE == 1)
+                                ? rx_eof_p_detected
+                                : tx_eof_p_detected;
+  assign host_hold_p_detected = (DEVICE_TYPE == 1)
+                                ? rx_hold_p_detected
+                                : tx_hold_p_detected;
+  assign host_holda_p_detected = (DEVICE_TYPE == 1)
+                                 ? rx_holda_p_detected
+                                 : tx_holda_p_detected;
+  assign host_pmack_p_detected = (DEVICE_TYPE == 1)
+                                 ? rx_pmack_p_detected
+                                 : tx_pmack_p_detected;
+  assign host_pmnack_p_detected = (DEVICE_TYPE == 1)
+                                  ? rx_pmnack_p_detected
+                                  : tx_pmnack_p_detected;
+  assign host_pmnack_p_detected = (DEVICE_TYPE == 1)
+                                  ? rx_pmnack_p_detected
+                                  : tx_pmnack_p_detected;
+  assign host_pmreqp_p_detected = (DEVICE_TYPE == 1)
+                                  ? rx_pmreqp_p_detected
+                                  : tx_pmreqp_p_detected;
+  assign host_pmreqs_p_detected = (DEVICE_TYPE == 1)
+                                  ? rx_pmreqs_p_detected
+                                  : tx_pmreqs_p_detected;
+  assign host_r_err_p_detected = (DEVICE_TYPE == 1)
+                                 ? rx_r_err_p_detected
+                                 : tx_r_err_p_detected;
+  assign host_r_ip_p_detected = (DEVICE_TYPE == 1)
+                                ? rx_r_ip_p_detected
+                                : tx_r_ip_p_detected;
+  assign host_r_ok_p_detected = (DEVICE_TYPE == 1)
+                                ? rx_r_ok_p_detected
+                                : tx_r_ok_p_detected;
+  assign host_r_rdy_p_detected = (DEVICE_TYPE == 1)
+                                 ? rx_r_rdy_p_detected
+                                 : tx_r_rdy_p_detected;
+  assign host_sof_p_detected = (DEVICE_TYPE == 1)
+                               ? rx_sof_p_detected
+                               : tx_sof_p_detected;
+  assign host_sync_p_detected = (DEVICE_TYPE == 1)
+                                ? rx_sync_p_detected
+                                : tx_sync_p_detected;
+  assign host_wtrm_p_detected = (DEVICE_TYPE == 1)
+                                ? rx_wtrm_p_detected
+                                : tx_wtrm_p_detected;
+  assign host_x_rdy_p_detected = (DEVICE_TYPE == 1)
+                                 ?  rx_x_rdy_p_detected
+                                 : tx_x_rdy_p_detected;
+
+  wire host_hold_p_in_prog = (DEVICE_TYPE == 1)? rx_hold_p_in_prog : tx_hold_p_in_prog;
+  wire host_holda_p_in_prog = (DEVICE_TYPE == 1)? rx_holda_p_in_prog : tx_holda_p_in_prog;
+  wire host_x_rdy_p_in_prog = (DEVICE_TYPE == 1)? rx_x_rdy_p_in_prog : tx_x_rdy_p_in_prog;
+  wire host_r_rdy_p_in_prog = (DEVICE_TYPE == 1)? rx_r_rdy_p_in_prog : tx_r_rdy_p_in_prog;
+  wire host_pmreqp_p_in_prog = (DEVICE_TYPE == 1)? rx_pmreqp_p_in_prog : rx_pmreqp_p_in_prog;
+  wire host_pmreqs_p_in_prog =  (DEVICE_TYPE == 1)? rx_pmreqs_p_in_prog : tx_pmreqs_p_in_prog;
+
+  assign host_reg_h2d_fis = (DEVICE_TYPE == 1)
+                            ? rx_reg_h2d_fis 
+                            : tx_reg_h2d_fis;
+  assign host_dma_setup_fis = (DEVICE_TYPE == 1)
+                              ? rx_dma_setup_fis
+                              : tx_dma_setup_fis;
+  assign host_data_fis = (DEVICE_TYPE == 1)
+                         ? rx_data_fis
+                         : tx_data_fis;
+  assign host_bist_act_fis = (DEVICE_TYPE == 1)
+                             ? rx_bist_act_fis
+                             : tx_bist_act_fis;
+  assign host_cmd_bit = (DEVICE_TYPE == 1)
+                        ? rx_cmd_bit
+                        : tx_cmd_bit;
+  assign host_srst_bit = (DEVICE_TYPE == 1)
+                         ? rx_srst_bit
+                         : tx_srst_bit;
+  assign host_dir_bit = (DEVICE_TYPE == 1)
+                        ? rx_dir_bit
+                        : tx_dir_bit;
+  assign host_non_data_cmd = (DEVICE_TYPE == 1)
+                             ? rx_non_data_cmd
+                             : tx_non_data_cmd;
+  assign host_pio_cmd = host_pio_in_cmd | host_pio_out_cmd;
+  assign host_pio_in_cmd = (DEVICE_TYPE == 1)
+                           ? rx_pio_in_cmd
+                           : tx_pio_in_cmd;
+  assign host_pio_out_cmd = (DEVICE_TYPE == 1)
+                            ? rx_pio_out_cmd
+                            : tx_pio_out_cmd;
+  assign host_dma_in_cmd = (DEVICE_TYPE == 1)
+                           ? rx_dma_in_cmd
+                           : tx_dma_in_cmd;
+  assign host_dma_out_cmd = (DEVICE_TYPE == 1)
+                            ? rx_dma_out_cmd
+                            : tx_dma_out_cmd;
+  assign host_packet_cmd = (DEVICE_TYPE == 1)
+                           ? rx_packet_cmd
+                           : tx_packet_cmd;
+  assign host_rd_queued_cmd = (DEVICE_TYPE == 1)
+                              ? rx_rd_queued_cmd
+                              : tx_rd_queued_cmd;
+  assign host_wr_queued_cmd = (DEVICE_TYPE == 1)
+                              ? rx_wr_queued_cmd
+                              : tx_wr_queued_cmd;
+  assign host_rd_fpdma_cmd = (DEVICE_TYPE == 1)
+                             ? rx_rd_fpdma_cmd
+                             : tx_rd_fpdma_cmd;
+  assign host_wr_fpdma_cmd = (DEVICE_TYPE == 1)
+                             ? rx_wr_fpdma_cmd
+                             : tx_wr_fpdma_cmd;
+  assign host_dev_rst_cmd = (DEVICE_TYPE == 1)
+                            ? rx_dev_rst_cmd
+                            : tx_dev_rst_cmd;
+  assign host_dev_diag_cmd = (DEVICE_TYPE == 1)
+                             ? rx_dev_diag_cmd
+                             : tx_dev_diag_cmd;
+  assign host_service_cmd = (DEVICE_TYPE == 1)
+                            ? rx_service_cmd
+                            : tx_service_cmd;
+  assign host_rd_log_ext_cmd = (DEVICE_TYPE == 1)
+                               ? rx_rd_log_ext_cmd
+                               : tx_rd_log_ext_cmd;
+  assign host_non_ncq_when_ncq_pending = (DEVICE_TYPE == 1)
+                                         ? rx_non_ncq_when_ncq_pending
+                                         : tx_non_ncq_when_ncq_pending;
+  assign dev_dword_valid = (DEVICE_TYPE == 0)
+                           ? rx_dword_valid
+                           : tx_dword_valid;
+  assign dev_four_pmack_detected = (DEVICE_TYPE == 0)
+                            ? rx_four_pmack_detected
+                            : tx_four_pmack_detected;
+  assign dev_align_p_detected = (DEVICE_TYPE == 0)
+                                ? rx_align_p_detected
+                                : tx_align_p_detected;
+  assign dev_cont_p_detected = (DEVICE_TYPE == 0)
+                               ? rx_cont_p_detected
+                               : tx_cont_p_detected;
+  assign dev_dmat_p_detected = (DEVICE_TYPE == 0)
+                               ? rx_dmat_p_detected
+                               : tx_dmat_p_detected;
+  assign dev_eof_p_detected  = (DEVICE_TYPE == 0)
+                               ? rx_eof_p_detected
+                               : tx_eof_p_detected;
+  assign dev_hold_p_detected = (DEVICE_TYPE == 0)
+                               ? rx_hold_p_detected
+                               : tx_hold_p_detected;
+  assign dev_holda_p_detected = (DEVICE_TYPE == 0)
+                                ? rx_holda_p_detected
+                                : tx_holda_p_detected;
+  assign dev_pmack_p_detected = (DEVICE_TYPE == 0)
+                                ? rx_pmack_p_detected
+                                : tx_pmack_p_detected;
+  assign dev_pmnack_p_detected = (DEVICE_TYPE == 0)
+                                 ? rx_pmnack_p_detected
+                                 : tx_pmnack_p_detected;
+  assign dev_pmreqp_p_detected = (DEVICE_TYPE == 0)
+                                 ? rx_pmreqp_p_detected
+                                 : tx_pmreqp_p_detected;
+  assign dev_pmreqs_p_detected = (DEVICE_TYPE == 0)
+                                 ? rx_pmreqs_p_detected
+                                 : tx_pmreqs_p_detected;
+  assign dev_r_err_p_detected = (DEVICE_TYPE == 0)
+                                ? rx_r_err_p_detected
+                                : tx_r_err_p_detected;
+  assign dev_r_ip_p_detected = (DEVICE_TYPE == 0)
+                               ? rx_r_ip_p_detected
+                               : tx_r_ip_p_detected;
+  assign dev_r_ok_p_detected = (DEVICE_TYPE == 0)
+                               ? rx_r_ok_p_detected
+                               : tx_r_ok_p_detected;
+  assign dev_r_rdy_p_detected = (DEVICE_TYPE == 0)
+                                ? rx_r_rdy_p_detected
+                                : tx_r_rdy_p_detected;
+  assign dev_sof_p_detected = (DEVICE_TYPE == 0)
+                              ? rx_sof_p_detected
+                              : tx_sof_p_detected;
+  assign dev_sync_p_detected = (DEVICE_TYPE == 0)
+                               ? rx_sync_p_detected
+                               : tx_sync_p_detected;
+  assign dev_wtrm_p_detected = (DEVICE_TYPE == 0)
+                               ? rx_wtrm_p_detected
+                               : tx_wtrm_p_detected;
+  assign dev_x_rdy_p_detected = (DEVICE_TYPE == 0)
+                                ? rx_x_rdy_p_detected
+                                : tx_x_rdy_p_detected;
+
+
+  wire dev_hold_p_in_prog = (DEVICE_TYPE == 0)? rx_hold_p_in_prog : tx_hold_p_in_prog; 
+  wire dev_holda_p_in_prog = (DEVICE_TYPE == 0)? rx_holda_p_in_prog : tx_holda_p_in_prog;
+
+  wire dev_x_rdy_p_in_prog = (DEVICE_TYPE == 0)? rx_x_rdy_p_in_prog : tx_x_rdy_p_in_prog;
+  wire dev_r_rdy_p_in_prog = (DEVICE_TYPE == 0)? rx_r_rdy_p_in_prog : tx_r_rdy_p_in_prog;
+  wire dev_pmreqp_p_in_prog = (DEVICE_TYPE == 0)? rx_pmreqp_p_in_prog : rx_pmreqp_p_in_prog;
+  wire dev_pmreqs_p_in_prog =  (DEVICE_TYPE == 0)? rx_pmreqs_p_in_prog : tx_pmreqs_p_in_prog;
+
+  assign sync_escape_detected = ((ll_present_state == 
+                                   ZI_DATA_DETECTED_STATE ||
+                                  ll_present_state == 
+                                   ZI_HHOLDp_DETECTED_STATE ||
+                                  ll_present_state == 
+                                   ZI_DHOLDp_DETECTED_STATE) && 
+                                 (rx_sync_p_detected | tx_sync_p_detected));
+                                
+  assign dev_reg_d2h_fis  = (DEVICE_TYPE == 0)
+                            ? rx_reg_d2h_fis
+                            : tx_reg_d2h_fis;
+  assign dev_set_dev_bit_fis = (DEVICE_TYPE == 0)
+                               ? rx_set_dev_bit_fis
+                               : tx_set_dev_bit_fis;
+  assign dev_dma_act_fis = (DEVICE_TYPE == 0)
+                           ? rx_dma_act_fis
+                           : tx_dma_act_fis;
+  assign dev_dma_setup_fis = (DEVICE_TYPE == 0)
+                             ? rx_dma_setup_fis
+                             : tx_dma_setup_fis;
+  assign dev_pio_setup_fis = (DEVICE_TYPE == 0)
+                             ? rx_pio_setup_fis
+                             : tx_pio_setup_fis;
+  assign dev_data_fis = (DEVICE_TYPE == 0) ? rx_data_fis
+                                           : tx_data_fis;
+  assign dev_bist_act_fis = (DEVICE_TYPE == 0) ? rx_bist_act_fis
+                                               : tx_bist_act_fis;
+  assign dev_dir_bit = (DEVICE_TYPE == 0) ? rx_dir_bit
+                                          : tx_dir_bit;
+  assign dev_serv_bit = (DEVICE_TYPE == 0) ? rx_serv_bit
+                                           : tx_serv_bit;
+  assign dev_rel_bit = (DEVICE_TYPE == 0) ? rx_rel_bit
+                                          : tx_rel_bit;
+  assign dev_err_bit = (DEVICE_TYPE == 0) ? rx_err_bit
+                                          : tx_err_bit;
+  assign dev_notif_bit = (DEVICE_TYPE == 0) ? rx_notif_bit
+                                            : tx_notif_bit;
+  assign dev_sactive_field = (DEVICE_TYPE == 0) ? rx_sactive_field
+                                                : tx_sactive_field;
+  assign dev_data_tx_complete = (DEVICE_TYPE == 0)
+                                ? rx_data_tx_complete
+                                : tx_data_tx_complete;
+  assign four_pmack_detected = dev_four_pmack_detected | 
+                               host_four_pmack_detected;
+
+  // This signal indicates that X_RDYp was initiated by the host when "1"
+  // This signal indicates that X_RDYp was initiated by the device when "0"
+
+  assign host_transmitting = tx_level_select ? host_transmitting_pos
+                                             : host_transmitting_neg;
+  assign set_host_transmitting = host_x_rdy_p_detected &
+                                 (ll_next_state[4:0] == 
+                                                 ZI_X_RDYp_DETECTED_STATE);
+  assign rst_host_transmitting = dev_x_rdy_p_detected &
+                                 (ll_next_state[4:0] == 
+                                                 ZI_X_RDYp_DETECTED_STATE);
+
+  // Power down logic
+  assign pwr_mgmt_mode_entered = tx_level_select ? pwr_mgmt_mode_entered_pos
+                                                 : pwr_mgmt_mode_entered_neg;
+  assign hpwr_mgmt_mode_started = tx_level_select ? hpwr_mgmt_mode_started_pos
+                                                 : hpwr_mgmt_mode_started_neg;
+  assign dpwr_mgmt_mode_started = tx_level_select ? dpwr_mgmt_mode_started_pos
+                                                 : dpwr_mgmt_mode_started_neg;
+  assign host_cmd_tag = (DEVICE_TYPE==0) ? tx_cmd_tag_reg
+                                         : rx_cmd_tag_reg;
+  assign dev_dma_tag = (DEVICE_TYPE==1) ? tx_dma_tag_reg
+                                        : rx_dma_tag_reg;
+  assign cmd_tag_bitmap = tx_level_select ? cmd_tag_bitmap_pos
+                                          : cmd_tag_bitmap_neg;
+  assign rd_cmd_dir_bitmap = tx_level_select ? rd_cmd_dir_bitmap_pos
+                                          : rd_cmd_dir_bitmap_neg;
+  assign wr_cmd_dir_bitmap = tx_level_select ? wr_cmd_dir_bitmap_pos
+                                          : wr_cmd_dir_bitmap_neg;
+  assign rd_dma_dir_bitmap = tx_level_select ? rd_dma_dir_bitmap_pos
+                                          : rd_dma_dir_bitmap_neg;
+  assign wr_dma_dir_bitmap = tx_level_select ? wr_dma_dir_bitmap_pos
+                                          : wr_dma_dir_bitmap_neg;
+  assign legacy_cmd_ncq_pending = tx_level_select ? legacy_cmd_ncq_pending_pos
+                                                  : legacy_cmd_ncq_pending_neg;
+  assign sof_detected_wo_rrdy = tx_level_select ? sof_detected_wo_rrdy_pos
+                                                : sof_detected_wo_rrdy_neg;
+  assign dword_count_after_tx_sync = tx_level_select 
+                                     ? dword_count_after_tx_sync_pos
+                                     : dword_count_after_tx_sync_neg;
+
+`protected
+
+    MTI!#AeWH/#T*a<sW]@\^C5E[upvZKz;l_Knw[pZZ*7?B;G#o?xWu'\_QH#$1~|*?7p2vQ1pW2xm
+    BHT-T2][Zz7'J<p\Ymu'3WjInK_r_x$[?*|Un>TxAaj~<]R[KE<\C^^pmZwb,u7,w}o{2*~Kz-@>
+    g|uo5>bxeUE>,DoG(Jtona{E5,Xkwa!7\?2P%Y?!JCBoI@BoB!U*}}EJ;WsZm*~~,lX7GG>u+U]]
+    kkv~j^_zwD2-3pCRnuaVa$EslVSr,~n#H'x!vv2}wa\g5Z!]Www$mE2OEi2r"Zz;Ol?WQg11e?s=
+    zlpZerPFH,rTlxlUplnYHaTey711JaoozT_;vr$H2<Eu~!AawmsTm+o*Uc,Iw+6W'l^o\#p,J$vH
+    wo{F75};H';'pnWG$#J['TV2Onv2VDRrQ?l+[pAE'>Z*Opp$$?xl9@l+\I<xGd]3\H1Gn,uxx--[
+    ^v=m{5VzV}=mr~tlX}{q)}IVxxB@lR7rK-DJC1oZmtm}a$;]si{jsxFOTvW'{o<p2AG5\>$KDR~Y
+    O#2r]s2^x_nA_mj7/wl\ahyIkTCiY'ZsBk=qZ$omIQ[#*<{Z3s\Z}^G]lJR{l5'H:J}>B*n]WGke
+    V\?[BXBX-EQ[oq>wBU\G'YQ5\7$7XY\nGGew',o;@vaQr=Jl{{\^!!k-CO35AHU'w_Xo1!VV{*/[
+    ?+G!5X<IT{$VuEvHwV<dIGQ{#V?rz3C#6e>lB\k5;r5]{O7X}N_^?r\z3X=>jT[@-{f'+R<-I~<E
+    eUse=k<-TA{ADe*2oQUZ,=k$]}wok<uR@51WAx#Y#V+m7eVJeWv'v2KY<WawCXne,eHg3]ZxPaYV
+    U7vCXG@v-,p,wQKm;^8*s<@{a7\\A1nz@3s1r}u?'AmK'\l*UnpIlQ3jOO'"E2Yo7{UUB-3Q?oju
+    b^$e}]{CisuO!p;D7k*{3W<Z[)eREEEE!T
+`endprotected
+
+  assign ll_present_state = tx_level_select ? ll_present_state_pos
+                                         : ll_present_state_neg;
+  assign tl_present_state = tx_level_select ? tl_present_state_pos
+                                         : tl_present_state_neg;
+
+  assign ll_prev_rok = tx_level_select ? ll_prev_rok_pos
+                                       : ll_prev_rok_neg;
+
+  assign bist_state = (tl_present_state == ZI_HBIST_FIS_DETECTED_STATE ||
+                       tl_present_state == ZI_DBIST_FIS_DETECTED_STATE);
+                         
+  //----------------------------------------------------------------------------
+`protected
+
+    MTI!#WY-U3*Wmt'WV-Zvij^e\*B<=n@l5Y{]pigBB$i7A[i=?l*iSve+I!j^3=~Qw5^'}RC@@3=$
+    QvkGC'9CAwGFAlar1%1w3$Zl#{$piJXnz7Q,apM*2V%YzD[.qX7i*^Zw*}BC[7I';-e#vU5nlh-l
+    Tp}e#}2'V,t+BlwYrwAY,RQ[_u7LC>3xQ7?Dv{C7._Da7*[3[roQI?{^W]<<;Q#7mo#aT][3s]vK
+    lx=K7brG}?105li#[vEIa{]Rv#A<C5=*H'BT'@**m]zm4h]p,{|ze-G#SEohizs=LpQ;H:'$Xr!<
+    <ufHe'$uY<poKJOYsx>Q=Z+$,nWVQDp\H2r1KlUu_{v5Y>#?=5se$<<M!n\a],>D=YxRGBrzolY#
+    B<ZT#]mAkEuZ;xw~lQH13[oa>}DDisok?\-Y^<}$jG{elx}K4u_=kipE+EQ'#$[G3Q<;>l@*{w^w
+    $[}Q''U;e{1k_$#E+O6'!YaXs7BjBK^I@u~&xl?r8,*+{rWC^1Op>vnrG$:#z1ij<VJkXwWH$\[j
+    ;'p]7ez!_*COQVA1mj?ZHGY-XWKokY]VzZa^=kG}[_WM$#X'R"/}@l2sl$~ge;_\|I'B<wD?JaOx
+    Z/Er[rUo,Y*CXkK51I3E<;CA$o_z}o_@;DY7A1}ZArX}pn%8'7eobUzX[{7a36H5Cil<mWv3~#5x
+    ji6YIZA]n1DI>e=z'\75AX#a7r!~<vX[B#p3l*@=+~uY{so2*[,ipi\*m$<CnTYIIK;K}>3znJ$D
+    5HKXX$YE~5@cv>IpvkmG38o@xWC#>X?<Gj[WwWB5T{R=;;=$C>OxiH~pl'p}riXY$~Xe^o&^iK$^
+    }v^;81CK3'=Kwho]<3-zJ_jYzW]X]<pQvQO_K$oEl]$p$7^K;BBrRuH1Q=aGnTIGE~[iVex>YDPy
+    1a$*{s11_=\wZB$pl|@OHH~]Yr<Y+kw-xIE~;G_*#T=IkY_InrO@nsRKj;O}!AsCw{{\!oXs\x'C
+    '$e}?-q#=oDr@AW*~^Y,ZD!A72]g[pAROe>zz~a[eGwG$uQ=BHp~n-C$*;<+CAE5">pGi5=Hlw|s
+    I-voX<!we1iv>e@BA;a{Xo^y\m=T!erDAnvsckH;wkT<C2{_lpppCDOTDY{apToIrl,7Xv@v2>O=
+    x7K]?B,^+>COlE_{@rzR>{[?B?A,@$vkVI1'CUDwxH'n#<<E_-Q$iNx;{n@[}j2avvek1>uU\Dm$
+    lRIA^ZXBURXr^aP'YD+:O,XZ<A1C,im$QJ-E+E<I>*aU;=,a?E5{7Dlz<Am}U1${Cn@3G2YaG_W]
+    }nGJH7#ZBR{lXemX!O]}V^@khJ\I?<a>Q}I;vR=sTa(Yk{57aY=eaEw,=Tv(k=UCF|nHnwH[X3Oe
+    ^zo{;UMkClus*\,5z'p4,OAe4\[o^!}+G+\YxJO>YGUC!*_z}[W>#Y\JYA-Unp1pohaz=z1T,*IY
+    nrZnnkos,rG}XB\5{@<^aV^U!~+55T_H@2ce55{&jmj=6<+On0Vs=]V_}O<<}GRavZ1~e+W]m-xn
+    KG[IjeB=zwD1zE]u]\l?~B3>\KcMEiG$OuGmBlAHaviDjj\X7CQpl!j3kTwV!Y#A*pZeEAxY+E$O
+    Tn'EurJp$O}wkxO'o@5}J$a;s}_kQ_V1[11@BXz^[~Qke1nO:CkHJ*Y-Bk}oV!'XY.=ol?RA~^@G
+    ,}xT<2;nC5^aeA&o?@CAo=iJlKx5u]}m,vR*{lTz;De_JllXx~'*5R\DnvV|,OWjR]A[!<+?zGG;
+    eos;cUBOprsji~XRp'pH[%QA7OxTGvYX-e2R~z$mWIfL[vu<mYZ5#z1Vi\5!Yzp?V?7$'7G2U,o{
+    V?VnrF_;<-Kx}ra-^a^y-$${D2>-s@O~m$vZCa+;'ZKv:gz=_<o+Hs#1'j~IK-lKE5OX]v~1}+v2
+    CiuUU[DT7AY9;j5Up;@O#R3Yp@G27zou3(tIo-*qCR3ZD+vsB~7Up7H1vI<=5-vH2$>JX,VRTB_>
+    .z<a^:]$-w[Tm@CG@^r;rut,t!CTB?_pR+]?{KXA7H{_XGaV{Z-Y_*3W\eE<+d'X{KzrB+\#$]^Y
+    a7l$A+;vCX+sAeY$evpK<?@*~sInX1f=uYK,3lr^EOHeKs<evWrXxODp}XBzjH+x7el_+\_wA-}z
+    Z}pbG\[vUU;rVBnI12KUo7x#QJ5a<UE'Dvmz)I_+!UeYJhiV*i1mxVY3x]<5pHwvCe>_m!pZa@le
+    ;YL<]j{eR>\DWl'm}{TB!oaUw}Yenz=nj7@fae'^;1j?>BQ]$1awy^aXlExIoJD]2xEkrG7Ao]7#
+    5p}se1--_:,'iRGHswlp~erJ-{D">U!R3p$s:$QAwJX-]^m,rBew}DOJsn<e_lIm1I@l@JCiudV"
+    /=R,Z#=EJ]REi|->_{~A~TbGDmHa[zGvW\$E{l2,'3+xs3KyQ5\Y$DIz'z7+}[pZb*!>!E}l^9@U
+    D_s'\^?D*?Jr1m+sR#9[GDTNZrA;1R1QWEoQV'@]}KlTaw]]"V<_ut1Y3RV,_7z!e}?oszACKlxT
+    {;XwXowT]{Y!<AN=zx*a{j$~_wu^JHunGE$[$As\BEp_{oAXXUwCr\+]'{}>EG7$u'p~VC'le\AO
+    iYx,KR5#,2n_a-*>7m^=,o[7><eVr8!,^u;>'1oO^<2X{'rx^i]~\1nxnwO==ARIBJ7WYwK-OT.-
+    5*![5{a%Z}{!Ma&.Dj3a~j=A%L.I3Z<5wR#PB!B^I~*\YHpAE<>a}JO$s;xln}+oE75'n-aG{+e^
+    B3w<k7{Bjomoh?}3H<EBBb3E;penwZ4E\jJz7X^3}??zBeR+IVQ}U@lrsvQ(r[!l!$1'e3mTB@[H
+    5K<B^-CJIw~'#rnu{5zE8@'a}>B*_Dr=--Q;ehuOCp#{n5XIVY$^s|o'm-=5jiaUupV=OxUsXwkw
+    +[kHZ~c^]vG*X+{NrnHGow**=vC+/_]KKUTB@oEknx3pIRu]^l'B{w5Ox<rR?RxJ-vn23rpis[iH
+    'k{@_vWw7m_>x\TDZVl+}EYsaE1^;p+$?5wX3<ziX~1XvDX{{zTJm5J^@}2>D:Vz>jkz7A=;z]Gh
+    XHmAb1aJWOZeiH\!Q#Ep]kCTI^RWC135ZOoR5m\^2r2[Xno~>zK^2R?VUG;BH*RJ3H[u^U_RK'>!
+    3ze>*;$2]aC>?D7KkO}+a;z++VZnHD]vR?5nWKG1XBje*Mmwn]^pXQ9d{H]HH[~X'OK[tB$I_2GR
+    pbD,s{^mWn'mH<Jzuw]To,xY\<@*oU'}{urn1^~7r1lT<COslW\X+K,]r!uEBOj7_^2=wCe~En{9
+    |CmAJ['[X]mu<zkuz3a_JUa;^|_[2BvCZZe\I,[aRi4>'mBnlGVP'UuV@(Cz5*],ao}>m,\[TR3H
+    UsMJ[}_aXGmr1_zYp73Co#;CZH?aev^RvwXW*H$vDDr3wew^Cw3]@~{HHpCQ@!5?UDovx}5msz#'
+    <s'Y^alx~}D_#{[~esK~T3Zs2-'Z*3QK-A_{^Q;1QkoD>!7-VRi6TRo<}uQG(V!<De[Z*>BYYHj0
+    DulxYjrpzY2\[zjKr>=B\$,eQx$p#<!p~}n}:\2\Yav5}#Qur:'1m#l@pX>}=x2E>Gt;jCz[<Bu_
+    HTj[[}JkB{uzixKb\l[2Bmxn_z3+UGQ'3sYu^jGsV$\BxeK\$xDYDi$!aj}l;s=uE*aRjn[>}zpG
+    piGj<${DS~N0<C!>v#xK7#oDqU_W3A=A>!D'?tE{YxZ6J[<>h5j5!$OVBnHzi\Avo4^xXIQz}{:'
+    Wx2o53^$7ps=RXs\pYWEw+~HsCv_j,]7aW,_*u3CnXwn,GvWs}vCOI1Rpjp@6<Y*>W<\zKY1rbnp
+    u}I*$WGO,RS]oAszX]w2x5WpJ^l\oJ_EW\[iro<ko2'Z<jnn_3R<R?#Ul+A>=z^nOmVp$Kr>,T_I
+    mn#QX]@w5z\=+Tva,en#Un}O'$aj$+$N-Yj'Sn-jo5^n!w{,^q*EulQX;J3nmV-5D\u^=*>=Zo+n
+    B;3|h=uoW]aee,*5xn[}-A[=H\WG3IrOTA}AY_C$W=^KUr1nVQv7!bQs?\$un~bl?VH=zCet[2r1
+    QT[Aj>THAA;[k6CO,U,'xnAB$z_;a3Q3j,B2m~s3X!rDr^Q_]Xa=ok[KaZj~m~er!#iCpQaCW;]#
+    R3>zV2rk{*]TY]Q7C=X$V',1E!'Qr[v{YuzT$sDaR\zw+T![-\PO{U>o781'a\CD=<<>DIMX,JEU
+    G3@ZlE1jlw$]I,{wa!K\PYp]_G$TwVo[XHUDDx!']p#ZZA$}@F]iTHgn\oGzoCkDZ=B}}x^DJ+=U
+    rX3DgQ[n,ao[;RwTQU]Is/U}X?%e+TKsa]!]X~?N+xI]PoHXC9Gop?<\vrjp+YZO<vdrXGI_j3HW
+    VOX1+*;Zr+3=i*EYL,Y\{Cno<x;=+=~xV*J3;saVi1~E$!Rx5mrEUDs{~5_7{Vrw>Ea1#VHpBlnO
+    <2BY3KD~K,sHKWv_-zp+V2T6X\'GnEUj*O=uw}D~0GspoKanTrU<]lEUex$D>[_}3EXmD}j#OF-O
+    ]UWVk@*Cn$OKKSGOa2?$GHQmmGo>X^\UIAp'KE]QU<Gax35\X2+lsRl;}vvQ!peiYW[!_I>l>BX{
+    'u6rnW^-nz2#Apm[n<+_='1p^zGi}R{oosG,2RsT1^XV$>,!l+-GUWE<\_lC-VI\~VThoO=naU21
+    3HU$DzC[OuelNY-nRB7;_G\>sXG^K7,,^xWzRsI+G^>lQo\'Q^1XWq3aD,vu~}+zOkV{^]E{]ElK
+    \m?o,+kvIzkHG;Z7B}Z$X=~o\_Q&B*iAr=sJGs+*!<z_v_JQ$E--D2w)9T}Arr2^o=12po<WXMB#
+    Qx\5WpMmxlC}VH,'A}OKT}TK7^!Ux@pvX5<vVzX]wOiTw7X$}xQ51k[w'jBwHBE${;2W>$GoR_$U
+    xj?!7}w'R\T0vSQ35#^TO@[1}@$_{7eL-GeJOQ5z[[QT%0rB3KpK~xbOo\j;sH<G[}#,sClZGuxQ
+    KBTX1!l=='Q]Q+1G}riBl#m{'I=rsY_1k,?@=sv-l+?T'[z?IC?,_1;z=$w@**+l{nn+pIDzVXBp
+    O5xBo2vopT[]RI2H7sB2A!>.a<vYCM7<O<n{1*;T[-W='7T,539CZ;=/l=3wD{>=*2>UG{BJAx,o
+    ]B'oNo*a\]Gl2m[z=CpD@Nn*RCQ<A@R$1i5nEG,?Z[H\CCfwpaRlWCUuBO![VTQ2{[@x}7H}=As,
+    n,Gk,n+OKr$MxKWTW'Bw?HB}X+WTRijWw{7=*ei;zz1ijWIu:u1kY]TX3Ja}'=wlVpm$i)IVYw35
+    Wx'OAExx~YIAB[]eV,WYE'^^~xvT{[{>H_EiCD^WU,O2w\HpnX&hgG'sB-R<#Y1^u'?2;oJVj**B
+    xvs{-1}HXX$oxo<\?BAIA?7,[KT_K>lCi][T?<_kpE_Xa)4o[;xOG^~~nGKU[=3=HV_YkV_upT>K
+    \j!3j=^IB@H|}_$_#51'['XBI7R*W]^G#Q!7O^$YtJ}VOmG7=z;[2C3^7[_wm7aXU|7W*_=A222B
+    7z"jRAU$WZ\BuXp1~B3$3,zV#eQ%<ETrF!]Y?v3pAWErn@VJXOOlI#UJD?s>#}iH$Sj*>napDl,V
+    BGp~'p:Q<1>VTzewRo7Y=@$7r@rAXHJr5O*G2XWeHKZRlT{E'UW2-x+?}E3JGZ$|VQ;jH>!!G7eJ
+    [sDZ6D?VROBOl}GTAeAe~>D=O*uX_2+jm,GkkUzzA3+;KjI}I,jDsVWr=pQpH#UA'_+TsmeA_e[_
+    ^\Y>Cqo]cJAjW3\j[>{EzAjY1r^DWW<_#s^V*WBp$<oxJ,Govz2HVOCqE@BVBa&'{1#U*lpoR\,\
+    }=e~>7Aiv[#@v*UEEI{@R>mrp_vxH{>\27Ea.,D+>CsQ$q}HIO[aDQ>jo\K\HV]C&GrYD;,5*%d;
+    loIE]e<es1DE>xXHA$^TlE7JpE@[112TVNh^o-~A'A@J,$pY^'^zjYaCj-m{Hp]!w{W,2@BJn+$_
+    lv2[}=zl\DINeBr}>YAE~r]ia+7]#On<+Rr3W(TnEU7l^pl[~{W}*l3jp5r{I}]_$1*2a\#\]Zjz
+    A~F=sER1rWu$j#z_e@z?$r-$WlZI{XUCHumK'slD*'uvIY}eU=nps+ra5nW3&fRFS2nmV7e'DB>,
+    YbQ3elnA$HOu{U-jVs=\xO>AnE4AQEiU-^^>e;uao_O,IwEs'^~>BQk3$BGwr]+~DWvUo!r,6vK+
+    '+wZ>p#@WerkO_ToCKR'}KIW_!wwC7ev,WEWj==rAH,z\I5@ajmu\Kz2C\5OouUXj$~Do'>J5I1#
+    ]AwolVkY^MvR3\VkR^I${,rG^A<C&w1x?x_}r}xU;#o\El|'e]p8='#{}exU*~ZJ*3=Ysv&rXW-I
+    {jk?EybX<C<f'oGDWv@vIp_s'Ww7^mG\"4p'E2kxI+rJJ7&>=IX~<z,]rz[#naB~VU=A$ps}VB}D
+    w_rq@Hjl%rG3XA7;BjG~AuVW,''7z7C?O,oR_\HOT'B+5rn1e2v?]aI]o#e~@$jRnXY^QAawnQVp
+    35iO?^Jas3-EBA<1zx[z[;[;*H+{BIj7aH_Q7}Y[T_1_#eG'rPOG^il#_#[Xow]~!T1Kv!+YR_q\
+    =Yo~+7inEXCB*3QDexon_~v{\GW{<v@pm,aDx$pm=}JHa5#6<,s^*aBUaol+X-o\5wTnLBzaUI,<
+    ,i5Bv\;aY#^s-6[WAmKrAEl\J^Qk2\RDA@JC>X7#>XyAzE];+@7NklHw?plUHjeZs2aV3Y_O5V]]
+    WXDRJ^sT.]J!w{R5ZCv{TRz<wmw@p?*YG17x7D?n}A,'uZI'$CG#v03n=iGzAjvun}1_<eVp{@m\
+    {aERTTiV=5CPoR;+zOn?Q'OX}Re~~=o2D=B,+UK-w^-m'3'u_,?rZX-[Yz+I3z5'?xozv#}B!p'-
+    ox<so@BiG?Bau'AIuj\ECW]*4iE<53O-'E7=vzVWAyl!=;$n@ZBoipJ]?#$;Jp5~E~=UY_Ao@wo]
+    *^zi-@CTO^J*??O,A1z;}J*3ux=]HT^]n2,sVr'}RK;ao,AnV}?]_]Q,-sRJRA82x$UH=#wwa;;q
+    B>I0Yv]J%,XJZ7j\QZ]YkeZx?@zw3:w'>]:j^xoIY+>lc'pEJ#'J#iwj!N<U+mrEUk,Hu<R^$W,'
+    ZUI[s3xNp~Ax^{l[rGsB\rXjO+=ZI@}#jJ$k]CUj<pWRz,32r2t|Kt{r>YCCn\3p5=>\$o8#p#j?
+    'llx{r{_Bn!QZZ@QWJQ!v!I)DGH*]<W>[7{~e[lzYIk_XAZ}=+D;=~5A[2]X\OArGm\*rdW\rYe\
+    ,U\_$7$JwA]!wv=e7zs>_5]Es2k}RRWAe,,E3+rBip~v,n1RBkO_sz_*}+^Zvpcw-Gu3s;7V<$#$
+    ADWTUDa[-wT!EXvxkY~I+={f{jDQ]W~paO>+29O/]>wT'mwoH7Ro#C]'CBV,}wCOE3W}IunE13[1
+    \5BrN~Q,-*m2ej'B*as}V7c10.K1BVE3ARvHD-OI\U4l=Z{Z=355ZR+7?_OfuHD2Kj1;x=~<_<7v
+    >QV5CoR<P!C]@@x[,Q~WUAG'[KAH\3$53kNk+VuQ~C7cHe7~WA]UI_;\p}*,^1-~-11I*va;h,pA
+    O,$D}j_^lZG~oQyQ'EIQo<'?-7+o-AIW57,V!Op*x-\.eR~,,aXAZrrppa5lP*ZEv-I{[ke!seRi
+    rF\sn+WBpH[TuVuG@mGs}[YOxin{\BnOOOa-U$ABA{+x!#!Y*]^~jVRs{5V$}mo15YYXVX5J+3IE
+    '}x<3>qR3GV;Gk*E{$?pDUr~1D_;Q@ZY;72Qw~?x|trij>_*Y-oB}+\17$\,@k=7!oz=<3QKJ7II
+    *WI~5;*H-Kz^UA[iuEAO_H{nZj1<UQH,j53<z~\~z]5]p#pzIvK7l_,>ve^JvcpU5R{R+v'?-3@5
+    JJ/A{Ja,r-]T]p__C{Es*Q+<zD2I!}{tLYO5iGWeG_njBHn}YxnV7g~TER{o<XTj;B['33Qs*nU]
+    $<aVaes3Jz;*nlj^!JnpjV'+2^r[T@l'Y\u<e?I#Qm6H5jk2r~-mBT}*3'v#>,!$YI5.)~B/pznr
+    ]T,ZeVEoAIizRU5WkoRp?{1ZQC*[Q?A>]H]2%8nGes5R$+mYIBlYekJRRB~Qne_E<!p#X=!aUx*W
+    U,i_EacC~Ao~v~^*I_=}QUGz$O=Z>,7|7\$s;v<H?C-U?s2pNsn@U6]W!s3B<aZpk7C-*25v5VJ[
+    \obvUJprzl#XT<oY|.v5oDGJRp@D?IrnH#zTT2%n_$]$l[si[XC6B]i[wzKj'oRa$YTxIr{j0jZ>
+    ms+r~.{rwY53$m'#v2bf)^H<Qr,Jeu{x<KBRim']A<_V!I@>GhTwoHwR};apX?>DDTW_#T2+IKzV
+    IvD@=Ozs=A2,sX*>3$^W{><BD1oeajs$$_B^?r<Q1]5QxvXpZaneZVA$^*q],ICdR~[j?r!75u*T
+    r3C1B~T*DA{Kh]^wWD-2}'3+li\}\@EX;#*Gz?UsvXX!=x_YGD]kQI(Hrs[^m~Y;l,}ru7[uX7'E
+    E[G5!nT7vu!8jp'K}uU2+}-CjOK^+nxk$r2GKBV$EIjD_Dow,Q-1_;$}DYT>V#>*M?5ReWp#sj}\
+    R3'_}2*vlsU2e2Bn'Q,H$V3V}.M-HT,ZQ,m\kaxO<Z-^zQ[om{k*;^,7uW>?Xx<HpI}B\VYH*CCY
+    I?H,r+sR>$=>n\o1uK1Vx@2}3l5,mEn'3X_TC+AnDezo;T@ep>Xo$il.TD}'iA2<,AT]lsWp\n>@
+    +X7-85_5WC@a#Xj^_#[}?=B\ngM?G??[wRWee7UuG{l$vQ7RHO#vOmTH8T[lG,7m3{OsBn[Jx@Yj
+    vj;{ICCEoz3o$k7QT\Er^#T\Hwr?OG5VeOzY>l3mI$>-z~*{sr?l#>Q\^kG$<[UH1r@'X,!px-}l
+    '}E,}%J^\,YZ<3gS^J{-0WRas3llI0rDvsnVnx7^{},[?pKDa+NKvp];R{a+7HQ$;,DTG3-uQ2TR
+    ?l#@\C**^{{AI[j;-77UG=DY+B[^5lKl{+II_x1ACxKl!aJE5-vyr>=#sDiJ)}D[O*X>IwGY,wA;
+    Ih:53RGpx3*iI]sEWbvjraa}XR@,u35]I'U$QDYA$Ie=?A!\C?ZQ-\Us=)<,'23pZ{r-X_7[;I9X
+    e'^su\Iouv]!rBsDYWep1GOeKEA@U;wET*a'>2ZH<7mb@>}@uxEK$7QkwxX;Ge7]Y]@mz;pAvW@1
+    GzarCv=kvwTk125w(I2p[_RREj2^ls[WXQ<rHjx[DKjk],;D[wEE36RK{EY!'~noAlXeQ!MRE{W[
+    [5CZ*aK\7x5B{tt^[IrA>~xRZz1I;A<^iB2Qo$@v>]jB;7HQs=VeV5p/^=vmfY?_V/&QJAYI?CQT
+    -uAo^BvseTVs'-IG_r=OE<W[V{W9iD>j0G[GToHVu>{VrA^#aOCr~CnEAl\xnh2^lj$RsKO\en[D
+    l\,j{3CZQs@Tja[ZHu$pG$CopkGn+eD__$+oAxKIi5r!I*(.=1^T#-I3VZ!vvIRCm'p=X>AQ_Gv$
+    7I;#l_zj^A\Riex1k-\<1rxpn*i!0G'[{]Or;xOQ;J=a[GZ+Ql[$uB&G<}71W7^617+jBW*T#7{p
+    J7mppl+AZCjV!aZnxRpGUV-1_'XClpj!YWJpB(z5R]jjo?L_'5ld,-5lU=e5*!O+>r5wCIBX'=zm
+    /EjR}?^+G=;D}ruTD4uHrpzoz?{U=$C,!;to*QuxxRCG*nr@j3}u*CYy^oUUr$,#lV@H\s3@QEnz
+    lAGVlo>U\=2G5!;{$H}e$>_,;OHT}}>a)'GnsK5e3;C5pI-ROo]$-,JaZ,;<R=OHrGV{w'1rv|v3
+    AROmz'C$\<wlA[,x+#eoR#$;mGJ'sBUVOQxrXHz$\}W'_uK^Ax!lWvK>rZu\\X{8pVl2x{,B,;zA
+    ^xU1)s;X>[~H~Zo25+A\Q~51BvKpY?p2sVCYKOO2ER1AaxIjGSBJ~Wd?r1kiDCAR#o+RTeel@\a>
+    >fCpQeE[5wjKV5'iwl)CCzp#+07]v@1e\=GGv^%n+u!$ITun,Hrya5lpDHu^_Gv$!vDnEROR;Tr=
+    7Dn1n[7Z72ex$s};^lu>[]<Y|jR[E<\zaf11B>5aD!>wV@z[A<Xl~l#IvQ;D1**DQC!TAl=!,,_2
+    z-n,{lOGVA;p7CR9vw7Ys*-GC[Dp\CY5lurHaVl<3a-^_T<n$oREx%?CB'[Yj53V#}le[^]}2R@V
+    1@ZzwkUpjlKRVvZ$^I*SD@@A\anp\l+YJYo*e+sWEVJ<u7DO[K<GU_1K@tO{rivOYsrr~sI+_zN0
+    2^\nH53'MTI!#I2xWaYZEC2\XU]GIok'ZXH;{*GZ-j*]j=#o[R|"#Bu}>UZ]*(~I}C}2[*}7#XgK
+    V5['#WYeC7AB(Y7AH^AYJl~B!dZ1BZV^z}}-2G[>V?Yw}R6i]+l$Npr3vIeQV'}=={5!B}Vwsv3]
+    ,z{u}MXo?[OZ7pm1p$q!j$#FsL<{Q*2X$ogi5}u[EZVr*v>X]+<;Si5}Bi1_l+TKmUw_oE@3<Y<J
+    HcxjiH7p17',V#a5w3@*m@pz;QE;DRp#j7Or':,CAe2v[oxInCKrllaDKmi[@3Ms.:*zTUZnQu@]
+    *$Z,vp=uu}F-X[QH&wa<lu[pxrm$z<1x~7_7iB<UO!_B$sH~7rrE@CwQ'!ADuFB_l<7>zr%AY+Up
+    TU*zZ-J|e^$=TrkB,1[$@1k<mX1'[eY7x>-I3olp[#QIJ]ZR6$#ppDO3-G[DiF'HZp"m=,$c!R*_
+    ==!>mpoG,{T@12<\^>3O^E;'Rs+*UDH\mG$IrxB_RGAD2$<QsmZYy=-x^=#=ZFq-CaH<7+VG_<3j
+    O<~71^oZDB_:Vek@f1Uxir}',nCaT3S$k[}&;TZZZ]$o,i~[>>^l[jkT1>^i>5n}Z<{[Gx_3WeRu
+    DwD]bB-mZO$*_mImI*EZjXampO3&}wRA'lZ%A7R$_Hx<?1{WY,_>TO+B11Haur{W9IQn\eOu_1-[
+    ]GZA?2EQ@_e22{B5iG,1D=W,oV*XGx,p113\Kk-z3VUwaunR<eKUY3R?$_dMaX<YC^B5URiHa9-w
+    CQ9!XwBs#H[s7?O;{3ky"k{T]*uRk<r=_#v-OoJe[l[xrU1i]EH5ie{'Z;e^pjV5CH+Z!drjReNZ
+    &YAZjc_[=,5~o2Nd1{KEYr<=
+`endprotected
+  //----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
+  // Check 37
+  assign tx_holda_p_latency_violation = (rx_hold_p_count > 19) & 
+                                        rx_hold_p_in_prog & 
+                                        ~tx_holda_p_detected &
+                                        ~tx_sync_p_detected &
+                                        ~tx_align_p_detected &
+                                        ~bist_state &
+                                        tx_dword_valid;
+  assign rx_holda_p_latency_violation = (tx_hold_p_count > 19) & 
+                                        tx_hold_p_in_prog & 
+                                        ~rx_holda_p_detected &
+                                        ~rx_sync_p_detected &
+                                        ~rx_align_p_detected &
+                                        ~bist_state &
+                                        rx_dword_valid;
+  // Check 39
+  assign tx_pmack_wo_pmreq_violation = ~(rx_pmreqp_p_in_prog | 
+                                         rx_pmreqs_p_in_prog) &
+                                       tx_pmack_p_detected & 
+                                       ~r_tx_align_p_detected &
+                                       ~bist_state &
+                                       ~r_tx_pmack_p_detected;
+  assign rx_pmack_wo_pmreq_violation = ~(tx_pmreqp_p_in_prog | 
+                                         tx_pmreqs_p_in_prog) &
+                                       rx_pmack_p_detected &
+                                       ~r_rx_align_p_detected &
+                                       ~bist_state &
+                                       ~r_rx_pmack_p_detected;
+  assign tx_pmnack_wo_pmreq_violation = ~(rx_pmreqp_p_in_prog | 
+                                         rx_pmreqs_p_in_prog) &
+                                        tx_pmnack_p_detected &
+                                        ~r_tx_align_p_detected &
+                                        ~bist_state &
+                                        ~r_tx_pmnack_p_detected;
+  assign rx_pmnack_wo_pmreq_violation = ~(tx_pmreqp_p_in_prog | 
+                                         tx_pmreqs_p_in_prog) &
+                                        rx_pmnack_p_detected &
+                                        ~r_rx_align_p_detected &
+                                        ~bist_state &
+                                        ~r_rx_pmnack_p_detected;
+
+  // Check 41
+  assign tx_r_rdy_wo_x_rdy_violation = ~rx_x_rdy_p_in_prog &
+                                       tx_r_rdy_p_detected &
+                                       ~r_tx_align_p_detected &
+                                       ~bist_state &
+                                       ~r_tx_r_rdy_p_detected;
+  assign rx_r_rdy_wo_x_rdy_violation = ~tx_x_rdy_p_in_prog &
+                                       rx_r_rdy_p_detected &
+                                       ~r_rx_align_p_detected &
+                                       ~bist_state &
+                                       ~r_rx_r_rdy_p_detected;
+  // Check 42
+  assign tx_host_back_off_violation = (ll_present_state == 
+                                                 ZI_X_RDYp_DETECTED_STATE) &
+                                   ~host_transmitting & 
+                                   ~bist_state &
+                                    ((tx_sof_p_detected & ~DEVICE_TYPE) |
+                                     (tx_r_rdy_p_detected & DEVICE_TYPE));
+  assign rx_host_back_off_violation = (ll_present_state ==
+                                                 ZI_X_RDYp_DETECTED_STATE) &
+                                   ~host_transmitting & 
+                                   ~bist_state &
+                                    ((rx_sof_p_detected & DEVICE_TYPE) |
+                                     (rx_r_rdy_p_detected & ~DEVICE_TYPE));
+  // Check 43
+  // On receipt of X_RDY while transmitting PMREQ, the host or device must not 
+  // enter power management mode
+  assign tx_xrdy_during_pmreq_violation = (ll_present_state ==
+                                                 ZI_X_RDYp_DETECTED_STATE) &
+                                        ~bist_state &
+                                        (rx_pmreqp_p_in_prog | 
+                                         rx_pmreqs_p_in_prog) &
+                                        (tx_pmack_p_detected | 
+                                         tx_pmnack_p_detected) &
+                                        ((host_transmitting & ~DEVICE_TYPE) |
+                                         (~host_transmitting & DEVICE_TYPE));
+  assign rx_xrdy_during_pmreq_violation = (ll_present_state ==
+                                                 ZI_X_RDYp_DETECTED_STATE) &
+                                        ~bist_state &
+                                        (tx_pmreqp_p_in_prog | 
+                                         tx_pmreqs_p_in_prog) &
+                                        (rx_pmack_p_detected |
+                                         rx_pmnack_p_detected) &
+                                        ((host_transmitting & DEVICE_TYPE) |
+                                         (host_transmitting & ~DEVICE_TYPE));
+  // Check 44 & 46
+  assign tx_dpmreq_while_hpmreq_violation = (ll_present_state ==
+                                                 ZI_WAIT_HSYNCp_STATE) &
+                                           ~bist_state &
+					   (rx_pmreqp_p_in_prog |
+					    rx_pmreqs_p_in_prog) &
+					   (tx_primitive_bitmap !=
+                                                 r_tx_primitive_bitmap) & 
+					   tx_dword_valid &
+					   ~tx_sync_p_detected & 
+					   ~tx_pmreqp_p_detected & 
+					   ~tx_pmreqs_p_detected &
+					   ~tx_cont_p_detected &
+					   ~tx_align_p_detected &
+					   ~DEVICE_TYPE;
+  assign rx_dpmreq_while_hpmreq_violation = (ll_present_state ==
+                                                 ZI_WAIT_HSYNCp_STATE) &
+                                           ~bist_state &
+                                           (tx_pmreqp_p_in_prog |
+                                            tx_pmreqs_p_in_prog) &
+					   (rx_primitive_bitmap !=
+                                                 r_rx_primitive_bitmap) & 
+                                           rx_dword_valid &
+                                           ~rx_sync_p_detected &
+                                           ~rx_pmreqp_p_detected &
+                                           ~rx_pmreqs_p_detected &
+                                           ~rx_cont_p_detected &
+					   ~rx_align_p_detected &
+                                           DEVICE_TYPE;
+
+  // Check 45 & 47
+  assign tx_hpmreq_while_dpmreq_violation = (ll_present_state ==
+                                                 ZI_WAIT_HPMACKp_STATE) &
+                                           ~bist_state &
+                                           (rx_pmreqp_p_in_prog |
+                                            rx_pmreqs_p_in_prog) &
+                                           (tx_primitive_bitmap != 
+                                                 r_tx_primitive_bitmap) &
+                                           tx_dword_valid &
+                                           ~tx_pmack_p_detected & 
+                                           ~tx_pmnack_p_detected &
+                                           ~tx_sync_p_detected &
+                                           ~tx_cont_p_detected &
+					   ~tx_align_p_detected &
+                                           ~DEVICE_TYPE;
+  assign rx_hpmreq_while_dpmreq_violation = (ll_present_state ==
+                                                 ZI_WAIT_HPMACKp_STATE) &
+                                           ~bist_state &
+                                           (tx_pmreqp_p_in_prog |
+                                            tx_pmreqs_p_in_prog) &
+                                           (rx_primitive_bitmap !=
+                                                 r_rx_primitive_bitmap) &
+                                           rx_dword_valid &
+                                           ~rx_pmack_p_detected &
+                                           ~rx_pmnack_p_detected &
+                                           ~rx_sync_p_detected &
+                                           ~rx_cont_p_detected &
+					   ~rx_align_p_detected &
+                                           DEVICE_TYPE;
+  // Check 48
+  assign tx_sof_wo_rrdy_violation = ~rx_r_rdy_p_in_prog &
+                                    tx_sof_p_detected &
+                                    ~r_tx_align_p_detected &
+                                    ~bist_state &
+                                    ~r_tx_sof_p_detected;
+  assign rx_sof_wo_rrdy_violation = ~tx_r_rdy_p_in_prog &
+                                    rx_sof_p_detected &
+                                    ~r_rx_align_p_detected &
+                                    ~bist_state &
+                                    ~r_rx_sof_p_detected;
+  // Check 51 
+  assign tx_hold_outside_eof_sof_violation = tx_hold_p_detected & 
+                                ~bist_state &
+                                ((ll_present_state !=
+                                                 ZI_SOFp_DETECTED_STATE)&
+                                 (ll_present_state != 
+                                                 ZI_HHOLDp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_DHOLDp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_DMATp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_HSYNCp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_DSYNCp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_EOFp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_WTRMp_DETECTED_STATE)&
+                                 (ll_present_state != 
+                                                 ZI_DATA_DETECTED_STATE)); 
+  assign rx_hold_outside_eof_sof_violation = rx_hold_p_detected &
+                                ~bist_state &
+                                ((ll_present_state !=
+                                                 ZI_SOFp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_HHOLDp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_DHOLDp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_DMATp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_HSYNCp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_DSYNCp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_EOFp_DETECTED_STATE)&
+                                 (ll_present_state !=
+                                                 ZI_WTRMp_DETECTED_STATE)&
+                                 (ll_present_state != 
+                                                 ZI_DATA_DETECTED_STATE));
+  // Check 52
+  assign tx_dmat_outside_eof_sof_violation = tx_dmat_p_detected & 
+                                ~bist_state &
+                                ((ll_present_state !=
+                                                 ZI_DATA_DETECTED_STATE) &
+                                 (ll_present_state != 
+                                                 ZI_HHOLDp_DETECTED_STATE) &
+                                 (ll_present_state != 
+                                                 ZI_DHOLDp_DETECTED_STATE) &
+                                 (ll_present_state !=
+                                                 ZI_DMATp_DETECTED_STATE) &
+                                 (ll_present_state !=
+                                                 ZI_EOFp_DETECTED_STATE) &
+                                 (ll_present_state !=
+                                                 ZI_WTRMp_DETECTED_STATE)); 
+  assign rx_dmat_outside_eof_sof_violation = rx_dmat_p_detected &
+                                ~bist_state &
+                                ((ll_present_state !=
+                                                 ZI_DATA_DETECTED_STATE) &
+                                 (ll_present_state != 
+                                                 ZI_HHOLDp_DETECTED_STATE) &
+                                 (ll_present_state != 
+                                                 ZI_DHOLDp_DETECTED_STATE) &
+                                 (ll_present_state !=
+                                                 ZI_DMATp_DETECTED_STATE) &
+                                 (ll_present_state !=
+                                                 ZI_EOFp_DETECTED_STATE) &
+                                 (ll_present_state !=
+                                                 ZI_WTRMp_DETECTED_STATE)); 
+
+  // Check 53
+  assign tx_holda_until_hold_violation = (((ll_present_state == 
+                                                 ZI_DHOLDp_DETECTED_STATE)|
+                                          (ll_present_state ==
+                                                 ZI_HHOLDp_DETECTED_STATE)) &
+                                        rx_hold_p_in_prog & 
+                                        tx_dword_valid & 
+                                        tx_holda_p_in_prog & 
+                                        ~(tx_holda_p_detected | 
+                                          tx_cont_p_detected | 
+					  tx_align_p_detected |
+                                          tx_sync_p_detected)) & 
+                                         ~bist_state &
+                                         (rx_holdn_p_count == 5'h0);
+  assign rx_holda_until_hold_violation = (((ll_present_state ==
+                                                 ZI_HHOLDp_DETECTED_STATE)|
+                                          (ll_present_state ==
+                                                 ZI_DHOLDp_DETECTED_STATE)) &
+                                        tx_hold_p_in_prog &
+                                        rx_dword_valid &
+                                        rx_holda_p_in_prog &
+                                        ~(rx_holda_p_detected | 
+                                          rx_cont_p_detected | 
+					  tx_align_p_detected |
+                                          rx_sync_p_detected)) &
+                                         ~bist_state &
+                                         (tx_holdn_p_count == 5'h0);
+  // Check 54
+  assign tx_holda_wo_hold_violation = ~rx_hold_p_in_prog &
+                                      tx_holda_p_detected & 
+                                      ~r_tx_align_p_detected &
+                                      ~r_tx_holda_p_detected &
+                                      ~bist_state &
+                                      (rx_holdn_p_count == 5'h0);
+  assign rx_holda_wo_hold_violation = ~tx_hold_p_in_prog &
+                                      rx_holda_p_detected &
+                                      ~r_rx_align_p_detected &
+                                      ~r_rx_holda_p_detected &
+                                      ~bist_state &
+                                      (tx_holdn_p_count == 5'h0); 
+
+  // Check 57
+  assign tx_wtrm_until_sts_violation = (ll_present_state ==
+                                                 ZI_WTRMp_DETECTED_STATE) &
+                                      ~bist_state &
+                                     ((host_transmitting & ~DEVICE_TYPE) |
+                                      (~host_transmitting & DEVICE_TYPE)) &
+                                     tx_dword_valid &
+                                     ~(tx_wtrm_p_detected |
+                                       tx_sync_p_detected |
+                                       tx_align_p_detected |
+                                       tx_cont_p_detected |
+                                       tx_cont_p_in_prog);
+  assign rx_wtrm_until_sts_violation = (ll_present_state ==
+                                                 ZI_WTRMp_DETECTED_STATE) &
+                                      ~bist_state &
+                                     ((host_transmitting & DEVICE_TYPE) |
+                                      (~host_transmitting & ~DEVICE_TYPE)) &
+                                     rx_dword_valid &
+                                     ~(rx_wtrm_p_detected |
+                                       rx_sync_p_detected |
+                                       rx_align_p_detected |
+                                       rx_cont_p_detected |
+                                       rx_cont_p_in_prog);
+  // Check 58
+  assign tx_sync_after_rx_sync_violation = (((~DEVICE_TYPE & 
+                                              (ll_present_state == 
+                                               ZI_DSYNCp_DETECTED_STATE)) |
+                                             (DEVICE_TYPE &
+                                              (ll_present_state ==
+                                               ZI_HSYNCp_DETECTED_STATE))) &
+                                            ~bist_state &
+                                            dword_count_after_rx_sync == 0);
+
+  assign rx_sync_after_tx_sync_violation = (((~DEVICE_TYPE & 
+                                              (ll_present_state == 
+                                               ZI_HSYNCp_DETECTED_STATE)) |
+                                             (DEVICE_TYPE &
+                                              (ll_present_state ==
+                                               ZI_DSYNCp_DETECTED_STATE))) &
+                                            ~bist_state &
+                                            dword_count_after_tx_sync == 0);
+  // Check 61
+  assign tx_rip_after_eof_violation = ((ll_present_state ==
+                                                 ZI_EOFp_DETECTED_STATE) |
+                                     (ll_present_state ==
+                                                 ZI_WTRMp_DETECTED_STATE)) &
+                                     ((host_transmitting & DEVICE_TYPE) |
+                                      (~host_transmitting & ~DEVICE_TYPE)) & 
+                                     ~bist_state &
+                                     tx_dword_valid &
+                                     ~(tx_hold_p_detected |
+                                       tx_holda_p_detected |
+                                       tx_dmat_p_detected |
+                                       tx_r_ip_p_detected |
+                                       tx_r_ok_p_detected |
+                                       tx_r_err_p_detected |
+                                       tx_sync_p_detected |
+                                       tx_align_p_detected |
+                                       tx_r_rdy_p_detected |
+                                       tx_cont_p_detected | 
+                                       tx_cont_p_in_prog);
+  assign rx_rip_after_eof_violation = ((ll_present_state ==
+                                                 ZI_EOFp_DETECTED_STATE) |
+                                     (ll_present_state ==
+                                                 ZI_WTRMp_DETECTED_STATE)) &
+                                     ((host_transmitting & ~DEVICE_TYPE) |
+                                      (~host_transmitting & DEVICE_TYPE)) &
+                                     ~bist_state &
+                                     rx_dword_valid &
+                                     ~(rx_hold_p_detected |
+                                       rx_holda_p_detected |
+                                       rx_dmat_p_detected |
+                                       rx_r_ip_p_detected |
+                                       rx_r_ok_p_detected |
+                                       rx_r_err_p_detected |
+                                       rx_sync_p_detected |
+                                       rx_align_p_detected |
+                                       rx_r_rdy_p_detected |
+                                       rx_cont_p_detected |
+                                       rx_cont_p_in_prog); 
+  // Check 62
+  assign tx_rok_until_sync_violation = (ll_present_state ==
+                                                 ZI_R_OKp_DETECTED_STATE) &
+                                     ~bist_state &
+                                     ((host_transmitting & DEVICE_TYPE) |
+                                      (~host_transmitting & ~DEVICE_TYPE)) &
+                                     tx_dword_valid &
+                                     ~(tx_r_ok_p_detected | tx_cont_p_detected | tx_cont_p_in_prog |
+                                       tx_align_p_detected );
+  assign rx_rok_until_sync_violation = (ll_present_state ==
+                                                 ZI_R_OKp_DETECTED_STATE) &
+                                     ~bist_state &
+                                     ((host_transmitting & ~DEVICE_TYPE) |
+                                      (~host_transmitting & DEVICE_TYPE)) &
+                                     rx_dword_valid &
+                                     ~(rx_r_ok_p_detected | rx_cont_p_detected | rx_cont_p_in_prog |
+                                       rx_align_p_detected );
+  // Check 63
+  assign tx_rerr_until_sync_violation = (ll_present_state ==
+                                                 ZI_R_ERRp_DETECTED_STATE) &
+                                      ~bist_state &
+                                      ((host_transmitting & DEVICE_TYPE) |
+                                      (~host_transmitting & ~DEVICE_TYPE)) &
+                                     tx_dword_valid &
+                                     ~(tx_r_err_p_detected | tx_align_p_detected |
+                                       tx_cont_p_detected); 
+  assign rx_rerr_until_sync_violation = (ll_present_state ==
+                                                 ZI_R_ERRp_DETECTED_STATE) &
+                                      ~bist_state &
+                                      ((host_transmitting & ~DEVICE_TYPE) |
+                                      (~host_transmitting & DEVICE_TYPE)) &
+                                     rx_dword_valid &
+                                     ~(rx_r_err_p_detected | rx_align_p_detected |
+                                       rx_cont_p_detected); 
+  // Check 108
+  // This signal is asserted when sof comes wo rrdy and the receiving interface
+  // should continue to transmit syncp until sync is detected from the other 
+  // side
+  assign tx_sync_until_sync_violation = sof_detected_wo_rrdy &
+                                     ~bist_state &
+                                     (((ll_present_state ==
+                                                  ZI_HSYNCp_DETECTED_STATE) &
+                                       ~DEVICE_TYPE) |
+                                      ((ll_present_state ==
+                                                  ZI_DSYNCp_DETECTED_STATE) &
+                                       DEVICE_TYPE)) &
+                                     tx_dword_valid &
+                                     ~(tx_sync_p_detected | tx_align_p_detected |
+                                       tx_cont_p_detected);
+  assign rx_sync_until_sync_violation = sof_detected_wo_rrdy &
+                                        ~bist_state &
+					(((ll_present_state ==
+                                                  ZI_HSYNCp_DETECTED_STATE) &
+				 	 DEVICE_TYPE) |
+					((ll_present_state ==
+                                                  ZI_DSYNCp_DETECTED_STATE) &
+					 ~DEVICE_TYPE)) &
+                                     rx_dword_valid &
+                                     ~(rx_sync_p_detected | rx_align_p_detected |
+                                       rx_cont_p_detected); 
+  // Check 112
+  assign tx_rok_for_tx_count_err_violation = tx_r_ok_p_detected &
+                                             ~bist_state &
+                                             rx_data_count_err; 
+  assign rx_rok_for_tx_count_err_violation = rx_r_ok_p_detected &
+                                             ~bist_state &
+                                             tx_data_count_err; 
+  //----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
+  // Stats block
+  qvl_sata_stats   #(DOUBLE_DATA_RATE)
+             STATS_TX (.areset(areset),
+                       .reset(reset),
+                       .clk(tx_clk),
+                       .level_select(tx_level_select),
+                       .collect_stats(tx_collect_stats),
+                       .hold_p_detected(tx_hold_p_detected),
+                       .holda_p_detected(rx_holda_p_detected),
+                       .eof_p_detected(tx_eof_p_detected),
+                       .dmat_p_detected(rx_dmat_p_detected),
+                       .r_ok_p_detected(rx_r_ok_p_detected),
+                       .r_err_p_detected(rx_r_err_p_detected),
+                       .r_hold_p_detected(r_tx_hold_p_detected),
+                       .r_holda_p_detected(r_rx_holda_p_detected),
+                       .r_eof_p_detected(r_tx_eof_p_detected),
+                       .r_dmat_p_detected(r_rx_dmat_p_detected),
+                       .r_r_ok_p_detected(r_rx_r_ok_p_detected),
+                       .r_r_err_p_detected(r_rx_r_err_p_detected),
+                       .fis_count_less(tx_fis_count_less),
+                       .fis_count_more(tx_fis_count_more),
+                       .hold_p_2_holda_p_latency_min_count
+                                       (tx_hold_p_2_holda_p_latency_min_count),
+                       .hold_p_2_holda_p_latency_max_count
+                                       (tx_hold_p_2_holda_p_latency_max_count),
+                       .dmat_p_2_eof_p_latency_min_count
+                                       (tx_dmat_p_2_eof_p_latency_min_count),
+                       .dmat_p_2_eof_p_latency_max_count
+                                       (tx_dmat_p_2_eof_p_latency_max_count),
+                       .eof_p_2_r_ok_p_latency_min_count
+                                       (tx_eof_p_2_r_ok_p_latency_min_count),
+                       .eof_p_2_r_ok_p_latency_max_count
+                                       (tx_eof_p_2_r_ok_p_latency_max_count),
+                       .fis_count_exceeded_pio_count
+                                       (tx_fis_count_exceeded_pio_count),
+                       .fis_count_less_pio_count(tx_fis_count_less_pio_count)
+                      );
+  qvl_sata_stats   #(DOUBLE_DATA_RATE)
+             STATS_RX (.areset(areset),
+                       .reset(reset),
+                       .clk(rx_clk),
+                       .level_select(rx_level_select),
+                       .collect_stats(rx_collect_stats),
+                       .hold_p_detected(rx_hold_p_detected),
+                       .holda_p_detected(tx_holda_p_detected),
+                       .eof_p_detected(rx_eof_p_detected),
+                       .dmat_p_detected(tx_dmat_p_detected),
+                       .r_ok_p_detected(tx_r_ok_p_detected),
+                       .r_err_p_detected(tx_r_err_p_detected),
+                       .r_hold_p_detected(r_rx_hold_p_detected),
+                       .r_holda_p_detected(r_tx_holda_p_detected),
+                       .r_eof_p_detected(r_rx_eof_p_detected),
+                       .r_dmat_p_detected(r_tx_dmat_p_detected),
+                       .r_r_ok_p_detected(r_tx_r_ok_p_detected),
+                       .r_r_err_p_detected(r_tx_r_err_p_detected),
+                       .fis_count_less(rx_fis_count_less),
+                       .fis_count_more(rx_fis_count_more),
+                       .hold_p_2_holda_p_latency_min_count
+                                       (rx_hold_p_2_holda_p_latency_min_count),
+                       .hold_p_2_holda_p_latency_max_count
+                                       (rx_hold_p_2_holda_p_latency_max_count),
+                       .dmat_p_2_eof_p_latency_min_count
+                                       (rx_dmat_p_2_eof_p_latency_min_count),
+                       .dmat_p_2_eof_p_latency_max_count
+                                       (rx_dmat_p_2_eof_p_latency_max_count),
+                       .eof_p_2_r_ok_p_latency_min_count
+                                       (rx_eof_p_2_r_ok_p_latency_min_count),
+                       .eof_p_2_r_ok_p_latency_max_count
+                                       (rx_eof_p_2_r_ok_p_latency_max_count),
+                       .fis_count_exceeded_pio_count
+                                       (rx_fis_count_exceeded_pio_count),
+                       .fis_count_less_pio_count(rx_fis_count_less_pio_count)
+                      );
+  //----------------------------------------------------------------------------
+  // Stats logic block
+  assign dev_good_sts_detected = (DEVICE_TYPE == 1)
+                                 ? tx_good_sts_detected
+                                 : rx_good_sts_detected;
+  assign dev_bad_sts_detected = (DEVICE_TYPE == 1)
+                                 ? tx_bad_sts_detected
+                                 : rx_bad_sts_detected;
+  assign max_ncq_cmd_outstanding_count = tx_level_select 
+                                   ? max_ncq_cmd_outstanding_count_pos
+                                   : max_ncq_cmd_outstanding_count_neg;
+  assign ncq_tags_bitmap = tx_level_select ? ncq_tags_bitmap_pos
+                                           : ncq_tags_bitmap_neg;
+  assign successful_rd_fpdma_count = tx_level_select
+                                   ? successful_rd_fpdma_count_pos
+                                   : successful_rd_fpdma_count_neg;
+  assign successful_wr_fpdma_count = tx_level_select
+                                   ? successful_wr_fpdma_count_pos
+                                   : successful_wr_fpdma_count_neg;
+  assign un_successful_rd_fpdma_count = tx_level_select
+                                   ? un_successful_rd_fpdma_count_pos
+                                   : un_successful_rd_fpdma_count_neg;
+  assign un_successful_wr_fpdma_count = tx_level_select
+                                   ? un_successful_wr_fpdma_count_pos
+                                   : un_successful_wr_fpdma_count_neg;
+  assign tx_min_pio_data_fis_len = tx_level_select
+                                   ? tx_min_pio_data_fis_len_pos
+                                   : tx_min_pio_data_fis_len_neg;
+  assign tx_max_pio_data_fis_len = tx_level_select
+                                   ? tx_max_pio_data_fis_len_pos
+                                   : tx_max_pio_data_fis_len_neg;
+  assign tx_min_dma_data_fis_len = tx_level_select
+                                   ? tx_min_dma_data_fis_len_pos
+                                   : tx_min_dma_data_fis_len_neg;
+  assign tx_max_dma_data_fis_len = tx_level_select
+                                   ? tx_max_dma_data_fis_len_pos
+                                   : tx_max_dma_data_fis_len_neg;
+  assign rx_min_pio_data_fis_len = rx_level_select
+                                   ? rx_min_pio_data_fis_len_pos
+                                   : rx_min_pio_data_fis_len_neg;
+  assign rx_max_pio_data_fis_len = rx_level_select
+                                   ? rx_max_pio_data_fis_len_pos
+                                   : rx_max_pio_data_fis_len_neg;
+  assign rx_min_dma_data_fis_len = rx_level_select
+                                   ? rx_min_dma_data_fis_len_pos
+                                   : rx_min_dma_data_fis_len_neg;
+  assign rx_max_dma_data_fis_len = rx_level_select
+                                   ? rx_max_dma_data_fis_len_pos
+                                   : rx_max_dma_data_fis_len_neg;
+  assign first_tx_min_pio_data_fis_len = tx_level_select
+                                   ? first_tx_min_pio_data_fis_len_pos
+                                   : first_tx_min_pio_data_fis_len_neg;
+  assign first_tx_min_dma_data_fis_len = tx_level_select
+                                   ? first_tx_min_dma_data_fis_len_pos
+                                   : first_tx_min_dma_data_fis_len_neg;
+  assign first_rx_min_pio_data_fis_len = rx_level_select
+                                   ? first_rx_min_pio_data_fis_len_pos
+                                   : first_rx_min_pio_data_fis_len_neg;
+  assign first_rx_min_dma_data_fis_len = rx_level_select
+                                   ? first_rx_min_dma_data_fis_len_pos
+                                   : first_rx_min_dma_data_fis_len_neg;
+
+  assign tx_data_fis_count = tx_level_select ? tx_data_fis_count_pos
+                                             : tx_data_fis_count_neg;
+  assign rx_data_fis_count = rx_level_select ? rx_data_fis_count_pos
+                                             : rx_data_fis_count_neg;
+
+  // The below signal clears the data_fis_count register when a new command 
+  // comes
+  assign clr_data_fis_count = (tl_present_state == ZI_DATA_FIS_DETECTED_STATE) &
+                              (tl_next_state[5:0] == 
+                                                  {1'b1, ZI_TRANS_IDLE_STATE});
+
+`protected
+
+    MTI!#ilxB\QQ;7k+TAO!pQ=^j?vX{1{]^~.I}?<s_e[8nVUs#|x_,@!>uE1$?r+A1O{$f[;_VT*{
+    7IO{2_gsT'X.Q?u]B<,p[vsQo->BzFh%Y2_CCF7eZ+ZED5\nG*vB\DV{Z?_m@+QiX*xl3Y-=l$iE
+    Jalv5_O\m7;jzBGVTWdUE?e@}~'G+@EJ]ZJ$ZUu?5znT7KG"(BaXl$u>}Y?*+l={BJ=WA\BKOp^#
+    n5$uOT=#'zM5{[u_I=pnBXa,+J1n+RKRH2a0@e^T-LJhE7^x$uJ?6tth)zx#Qr}Jae3Y~KI?CH(Q
+    ml*r?peORz?T[uU.QFrG<RY+7xhQ2X,p'B$}xHA]!;,c\^Ql]luD+($;v'~$]r+o%n+<~oxA3c%]
+    u][T\iZc-&EZ=uCX'ucA-XJ@r*UZ[Q~G}#@xCoAxDXe^}^EH_=nanYmB^ap>D<E,!oJs^1s\_*Jg
+    C=#3zo~s>}+x~'H[-l{K(H+5H]smJzn~WLVm2n,rI]Q_[R{Ei*wG}i=CTUkXaWAHr>HB;Z~<AOO-
+    [UrOQ7Ddw9Y3Hp<'k\J|9B+'QvUE_8e1}a*/HYRCiG~E!]n\ZExJ3+K[_Q+?AwBp=pzJHR,@l_n<
+    q#Iw]0e#T}CG>x^AI?H_{[kwYAkxmQ!\#Q{,o\!YEk27KedD*\m]C,5e3A59F*xm>*m]=o2=!3ED
+    ^1i1u'+Q#]k3,VjZW@=Ii_,#I^#3A[VQ^:ioQ<5wR\E#aE&Fll=_BAACzJJadi^?*67EV''}QuYX
+    vjew2XQziBaYmv+T-#'^#3m{H+Qeep!R^3\^A>C,[Zkr<]BaHIG{oEjwUEe@@[mnR=HzGI!AEDZB
+    sn_!V$TDaAzEA;VQ[m9?+lGX5^;,V@z[Ea3t><J@=OE7rwG}OVnGEaQ-|5Y<3j7,[nArBQz]Y#Yn
+    '7CWTb]5w+zw3>Djj7$|eZZ;GJ1DUGWOs\}]*ZV~91mA75X=lL}UC?Bw;x"me35'*l_qnRoYRQ;}
+    5@$O=7oxV;J]T\]!]esuw=me0$XIUI$ov=Gaj(O@Bw{rvYBKRreZeU-pp3u{xiH*-Vov\vx\lI%^
+    Aoz+sC*J\+kVuexTCT<QQ-p*jz]ddouO=]fO~]mPDCGR7?W<V1w{ovOwh;\T]gx2xRLR';V&i<Y+
+    GE{7Zw}'Z>er3a{vAsEZv-Ro~$u=#DoJwxKU,7EV]o7K@w'[Y;n\-r2O$7QB1aHjTr1$^!@Ce'pO
+    6_Q1no@=+M[^{Z7nZz>,+#/8Z^I>NR],Wzu<u@'lX$C'O15$2R=z7Q;F]p*_[XOD@n[])mRlOIU{
+    lt:V5>\BAUo"G\Ek;+1[zVs#\@I#?7J3=CwxupUO^\eA^Z1Go$K3Rmsr@xIIjOj5A{<v!^v2{TZK
+    zG~GzU^nR*2;]5KnlvlWcu}{KJAG<\^=~OR+XBz$#',w]${>RmX,=vp!H{$1X$A1l}1I,2t1U2ur
+    |~]}=qUA@Jx~ZABs1Qa*G#r,ojo5H_7;_5'Om2qZxx]X}#$hJaH#z27!Y]Ex8~Gx^V\AvADGmsu^
+    \[xxOiI'n7;'a;U<}iVWnEC,Q'WVuDHju7unAmU~W!jaV?\J*Fx+,x31T>+oI#21[$~ox*#\1l^+
+    u~1=i@YI!{Z>~Rmqe{Co@-21I*iRo\w;wC<OvXsT>}RE_l7[=j+$xl\2b-x!,nRs@^*UV,vWu?e<
+    \B_}+>^JGaIpKMnx}!o\}$TeX#}Du'HBEzn[reI-WDeKC2gW}{2B7KQGrZRY3EJC=kVGRaEA+ei=
+    nw>jjYz75=~,wEUYKKRblW'mYZETT+}1no;C|n]*?kG++^{Ts!C~x!^,jX5wsCW-*s\K3C{GZXDo
+    2D-vOQYRvKX--j=Ho>=HvR}\-CL,Kxx5D}VR]_2xxVEQ=w-#YQ}\RvG(IA=[Q12{6D]D!nQjftbz
+    G_rZ51p})!A[W=s3kD>HOHj$mv~VAC=XO:0upRpsXZvl\vm,!<?^-zamROe*s>T2v\1NE}\AOwp^
+    'isJB-epp*^j\e[;EzZ7O'=BB3Q>T}GY,x~==WxQ]_J7^a1CmlH3kr!OZsWQp+3ndGwpU/])1(VC
+    Il5T*a-a>3mDK>j\>HUo+\O{,n$I-K1$A'REXZ8AxT2,C]eZ^a'7K@aXwu5ypl-HU[#>a]v]L"{v
+    v#e{AxvIlx$1XTYYCY-nr\zi{Z*D~AgvAVik5BJ3YTj]#eTC{XrpzVOnOB*rTxH|NnaX_^!''7Ce
+    2>EewGzXKr}$-Qe],@]WZ_C27relwj-ADr_p#Vu3Uo3pp?]eCpT=EnUYi^~WnQlepOHR]*i'7_Ia
+    >xO5?XnIoaTj{I@nI-+w2&+$REozGa^UO;$[ZemXVz^3e,YOxwkXmw~D;;V22Ealz1^~D=Uja<>1
+    ,+Az*'JjW@5,m,s;xIBD3*->pXmC#AOpu~*uWJiCn!{e!E9jroDw<[nWj?XW+H]@A73~-2@J^+Y<
+    ^TlSQmuo3HXX8^UTm,[ABnxWEvW<j1ECxH>DVsl2-pA<{s[w\m,wnYeBOHQo+KOp-kT!J}#X}--v
+    H(u*+o~{nUGvv{u+s#BVYJdoO?nmYlsIBIxBv-[G)pK_J'npD^[V#GRG^=$C}2I2][B[mSo{pZPB
+    p@pwQ13=E,2\xAv^a_Wrs{Iu]is!YBmg$D}DX_lJXCv~#s!O}~>5{rOo6,zk+1e'2xfG+snonv[2
+    zYR3_Q[]w=TR_T!YzuxYG=sQa*GOnTa>>z<;sYH?8D9I?xJm51_%sw@=*U{rrl}W*rZl@wuDY=Km
+    &E3wDaRV]OV;ouO^v'<7DuC?@E^7*5z}K-o3vG@li\AQ'GE#$z7nCz!Yl(vj#H.EeW;oxW\K}v\{
+    A>W'mm*T}p[Duv~[iar;}uoYu\;1a*sEWEl@srEuVRZQ'o*#BuCC?DzfS^1_W*<;l3DH@~{\7[^s
+    GHCj{ZTuZ?QW~k-[1@C-G+Ip?HR7^%}B_nTs@]'RGE'C+AT=+'xaU~E}#Ck5@<+o{~oG'lI{75'B
+    BpEan\$?lC==oB'[kT>E+,oWZDy[Y+;]o@5w]B}xCgZ,ne}]{ov5BXP\[_{9|;,wvM]n]#x}TRu7
+    A\>[Cjtko?Zl<BTx,Ds2QRxA<J~YRo{C_<=2CT~]-pnZ[x[BoB=J^j@\1a7!eo@W7$]2[T>aX,WB
+    $_21VVx;oX$pV*Ao\5HK773}}T;j-!Oxr~nIH7,_JnX7*[Wi+vl7]pO7p3#5i~p$7km}H!mnGUpX
+    eueBV=;#ADZGoG#5mX5E5peP1EEknHG{5NVw!Wm,5'?^<oCi1@=i5Wa5@>A'+H7*,Q==A-x<'u1o
+    XIVT7rECE<l!T=#^l1y"eRkV,Jz,-YB<CgI-7Wrz'x#pv*-X=AQ1rv1HwuY@Y>-sVXARjXl$v2ir
+    vY-AHR\DRQ-V#-lwru*i>7vDwO~Xww}T>w\i];iaVq=?C^wE7G,W!B2rvOm]z$%oK-n5p$'QXRpa
+    C+3U{pGeTl2'rav#$uT5\zo;CVCjx~^E^T'n7z5*wlXW7w{~rjZEp-TpG-K1#e?l+aJj;}-VIvMT
+    z~=wxm7@CZwS!B!Wd*<Ysz7X3_-1j@1#z\\XxY;RJevW_,mET_Y'>*C3o>D5pzK[1$CJ!3O'oo~;
+    J3aU<$^7O8I?IX-5#^?j_o5i=K<D~7;jQAjE7@EW}TIw$pezjY_m'_IXZrHQ~\~xG-]{QGBg]vD-
+    a{{BElEesI_?C!]AVJu\>se,+^{zYoI{jspu,=#BSsOAKvU{W!T$ZUE577=B5j-vC>w5Q7>\ATA}
+    EK7@_5~QH)1<w+k>=n_UDk~_sHj$wUevCkpZ*#Y_T^urHel1O25iHE4{p?G1,w7VZQC_X1]?v$K3
+    EAV@O^owVzXTH11neYYo]G@1p+pQ5BzI3B25#KODexzc$A^T1[lu3s,Ao~n*]V]{{G7{qlZEZY+D
+    +x^zA-R$JUVEwdrIwpTwK=[m<j_j}V}ZD!v]k#,<Z*LUBulOR2jjiDYvQ=7_;uE/#$7z?Ci7aeIa
+    '$1eWGVwSwT,s{E-z'2zH@a;(HTBEVRTW7~j^a+l$^eWI=$Viu>*@(e!VTnjT\RD-=lEtHQ'zXTZ
+    1ARcoZ>lEX}$6WBG![ODss=2W?1Yvw{Jp2x~uj]k;\OV#r!~\oY7^'ErWjO,KY[;@f,Qv5E}ZCHz
+    Rk^D]D#GUJnYU$_~rx$pCaznEvl==;=H~linw,-[;;^O=OwYa]5WVky/u*${vnAm-}e\{pC^;vV]
+    dK*lk,e_T&tLpkUODo}H$V#@l[3o]{A7TI[Y=G^T\HvK#j;[~Y+k=iU\=7vpl;5xna}r'~<+4j'n
+    '1WITUsO12XD'E^1V]KY3K*$X-X75tRO3<IvmXj{~3ue2#-sW~MuvXA?^|^X5aB_^-M^*5}O5Twt
+    VE$p1.K_k*ksv1]oXIX[Cnv]l_*LWQIoTz>3>=pYxQK]G5Du>jikeYsB;,,H<lVp_X=@H}+[yGiZ
+    H1u<GI,?u3UQ=3s]3%HBJ\~s7'$5Tw.kok\v-p3Te5EpTe_#Xa]B*!-Wa~]mDTlDUmm<'$@^?'_R
+    $Jp_{~mRj2G,ke=q$_,Qf~_v1=*XHR<x]_#Z>ea{['Cx?R}<asD\rB_]*xi_zW\U;\A,Cj^3m*VX
+    eGjEW6!}Kj<p{+5GKras,i1j_K$j\ZH<3[,lWa5!G@$J1CLk}QmG=;kj,oR=|Y-\$_imu}Q~{7vB
+    wI^d7Z>-&l\=V},\3HC$_xF(i1n@#]JHzu71m^e-a<@2xC1w_1^D+pr7k1$_kLIwsW_Yuw${E2Al
+    '<:$U^?GQ>$fe~^+Ko+IO[v^{1OpW=G3fZpjW^@XCE;Hw;51m,vGl\D+HozYTQ=o[GZ\'1U{p@6w
+    Gj@<j^juxwu$Un[oH<HVT+u1'Wz{>52J+Z>'5w@X>\G+77mOJv7nQE@cnaD,_@YoU\I~VT$e[$\+
+    <s-$AjCZBsYp5i'*<vT+VK>7P'u]sVT1's__XQ7eH=^^\H<Qsu+xHDBKmQm>UKATB1;>1ClvVu-Y
+    5sTDTox_=1HI>2wxkA^Dn\?wYQ[muI@K5Ks5xLm,>'BxemuoJ]?A-Un[YB.EaXEErw5]=mzk=@*x
+    Yi$on7AKG{DL,B#+W_n7d]}l^a<a><RnIjU^>B=jjTYJQTn5j*uR$ji!AsJK{i+,o5XK5ZOWu!IK
+    EEOrvvz~JxAmj7R'wsRYI-sG1JRjQle~~$[{J\lI!5{<Tz]_w^2^Ggu_I;j'vxPTCoJRk<@C!$!H
+    x;!sKK*RInVG?Ae=F5wOjF'+<%vT<$Fk$^mNJt:UABu}G!s}\?r,f)[G#5Ws\^yBY?+zv>1#Yp'8
+    <DTE%oHGz8}+B_5']JCKJ=QRJV#+\@OW@{2YAX{juH<T)PY2IwieQCnH!?$Ri3slz7[V_R!ww7V?
+    I-OWCx3$7}GanwW\EeYi^1GUHI!U]l<l^O@,iX0xl@*D}np[pDV=Ov@)vQ3}RkW;E,@@ZrVGVzJW
+    =^YG]V5$='p-MLGI<DZv{H?V2zO-Ua2}R$/7@X29CxBnz,T-,3G^@-~JQo2@2o2lIj'K~n{_GYlp
+    }sA!uae][B3HKT]W*3*^jvQ1v<@!1?I?'=@]RKr;jG-[zqCa=2#{U]+^={'eTDeK,\>+Qu_wvvGC
+    av8RCE[v2xj]YB+V!eoaDR-=<$~1sz1x7s+i'IlHeOUEO-<8*BEE+peK=e-p|Ier^71pxI$C>G[]
+    <u'Dw7~Ox,sp7[H{<hVW}3wx+=x2UXs5sw-tsUmv'<>]V2e#Es'RpDDR'ZGG\3p1zeBl@pCj'Y<Y
+    ,_}w'pT<C{sv4TO15,DjU3V^rYwS1\<,,7BR5}Q}sj@m'Vk[?Ra~k$D=e?nCTH^a,pYE^\2^LpKz
+    #<wZH0E2luY!D@K^sIC}2*!s{*i{{u5aKkLI{'_^WGl[1A3QR_@wsw@+*H<]#xx]}i5R=J+v>>3N
+    ZU}_\[#v5?un5DBYmH2CJT<}QVBAa=Z!K='jVHU},;TKCV~$1va5'<RVe_=\QOQ^+o75zGA@Ek2D
+    ZO[,(OXH>oeU?BK;n$396Ha~K>SlED;Q<Hn\0s-U>\!T1Q=EK>CaOTr<*j{Rm9r+]TJs{A?nVpl\
+    <jF\a$KxmAnmrUAA>eTUns{*5D[]~puxujA\-x-A53^pn!7QCHKV;7E1-2*I+RZ+_Q-Xp=J)VIjT
+    z=[ofGD,@*1{TspRsJBzUNV?Xp?UA;J7lxi]?<>\'{5$+^<xQ;3T_TRmo'sjlOF7{};O[\~[3J}>
+    am3(EOXeR>Te0VG*$,HG1ZjTWfCCp$AeaBjrD~Z>3Xs^p_n1vxkY*\,,3+_Yu{\xI21}T3oEwp#z
+    URlWenp^1z7+7ZKvozs$1ol2p+&ONCk*-sK>EZAT{p#'v[2IY9UDJ2ziXZ5pO2I5}x-'x}ZEY>k[
+    HWd)7+jD,E;Tp]^R]2J1zwO~^G2OE12KOI}k*v>@[omj[AaU1eneClwkUY{G~o$5?j$XhQr#e~p(
+    ]^GG~12GD*}ub#IQzWHxjXl]1Z}i~Biwu!R*YXz[^v=DH,v2sp3-+z?mKApk,Mv{umZ6*s5l}<u_
+    <zW}<I7i>]11r;rnooJk)~UK@rU\}*U31A+zWu-$a=+re=^?u'$V7@+Hl*liYYuDwETuX+}oTJCG
+    KyQ_rs__]vn+*Z@IA^kYnUp7<Zs]!^s1kD*=p1'$RWQ}?RLgBDOE@+D2;>EvPAp\zg^H=~TUAo#l
+    !vPcLDr?sD2\'U}v}\=3!).p[z\]wI_Bp731,+C[AHGzwesLQXs#*ZH?mXl>60H_<W\2oxl,UHzO
+    ;+\iVsqHo2+y~^rTp~X\VVxRweGk{Dk@!n>5_oaI=T^Tfm-,EV7OvIo7-'2Bzb=u~v_^]Hp5-]15
+    U#?7!EQ_wZ,>{nIK+{tW*Z!KpnDQi>k%AXQ_#7rR}@U1v*'5G+=^.Yo7v>azE~[,$JHA~[J>A6pD
+    Y>B5\rBjkV,~\~'!]D5O<K'l7,Hv-@nB*m=3vm_++r;<mJDWaV?YT7_2oHqsuX!Os?@\3wRY-*e<
+    <R=z?^olz;T|z~T3{e>AR[
+`endprotected
+//------------------------------------------------------------------------------
+
+  assign incr_total_aborted_transfers_count = (DEVICE_TYPE == 1)
+                                       ? tx_incr_total_aborted_transfers_count
+                                       : rx_incr_total_aborted_transfers_count;
+  assign incr_no_of_times_srst_set_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_no_of_times_srst_set_count
+                                       : rx_incr_no_of_times_srst_set_count;
+  assign incr_total_reg_d2h_fis_count = (DEVICE_TYPE == 1)
+                                       ? tx_incr_total_reg_d2h_fis_count
+                                       : rx_incr_total_reg_d2h_fis_count;
+  assign incr_total_pio_setup_fis_count = (DEVICE_TYPE == 1)
+                                       ? tx_incr_total_pio_setup_fis_count
+                                       : rx_incr_total_pio_setup_fis_count;
+  assign incr_total_dma_act_fis_count = (DEVICE_TYPE == 1)
+                                       ? tx_incr_total_dma_act_fis_count
+                                       : rx_incr_total_dma_act_fis_count;
+  assign incr_total_set_dev_bit_fis_count = (DEVICE_TYPE == 1)
+                                       ? tx_incr_total_set_dev_bit_fis_count
+                                       : rx_incr_total_set_dev_bit_fis_count;
+  assign incr_total_regfis_with_err_set_count = (DEVICE_TYPE == 1)
+                                      ? tx_incr_total_regfis_with_err_set_count
+                                      : rx_incr_total_regfis_with_err_set_count;
+  assign incr_total_sdbfis_with_err_set_count = (DEVICE_TYPE == 1)
+                                      ? tx_incr_total_sdbfis_with_err_set_count
+                                      : rx_incr_total_sdbfis_with_err_set_count;
+  assign incr_total_piofis_with_err_set_count = (DEVICE_TYPE == 1)
+                                      ? tx_incr_total_piofis_with_err_set_count
+                                      : rx_incr_total_piofis_with_err_set_count;
+  assign incr_total_dmasu_with_auto_act_count = (DEVICE_TYPE == 1)
+                                      ? tx_incr_total_dmasu_with_auto_act_count
+                                      : rx_incr_total_dmasu_with_auto_act_count;
+  assign incr_total_regfis_with_notif_count = (DEVICE_TYPE == 1)
+                                       ? tx_incr_total_regfis_with_notif_count
+                                       : rx_incr_total_regfis_with_notif_count;
+  assign incr_total_regfis_with_rel_set_count  = (DEVICE_TYPE == 1)
+                                     ? tx_incr_total_regfis_with_rel_set_count
+                                     : rx_incr_total_regfis_with_rel_set_count;
+  assign incr_total_sdbfis_with_serv_set_count  = (DEVICE_TYPE == 1)
+                                     ? tx_incr_total_sdbfis_with_serv_set_count
+                                     : rx_incr_total_sdbfis_with_serv_set_count;
+  assign incr_total_reg_h2d_fis_count   = (DEVICE_TYPE == 0)
+                                          ? tx_incr_total_reg_h2d_fis_count
+                                          : rx_incr_total_reg_h2d_fis_count;
+  assign incr_total_dev_rst_cmd_count = (DEVICE_TYPE == 0)
+                                        ? tx_incr_total_dev_rst_cmd_count
+                                        : rx_incr_total_dev_rst_cmd_count;
+  assign incr_total_set_feat_cmd_count = (DEVICE_TYPE == 0)
+                                         ? tx_incr_total_set_feat_cmd_count
+                                         : rx_incr_total_set_feat_cmd_count;
+  assign incr_total_identify_dev_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_identify_dev_cmd_count
+                                       : rx_incr_total_identify_dev_cmd_count;
+  assign incr_total_rd_log_ext_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_rd_log_ext_cmd_count
+                                       : rx_incr_total_rd_log_ext_cmd_count;
+  assign incr_total_non_data_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_non_data_cmd_count
+                                       : rx_incr_total_non_data_cmd_count;
+  assign incr_total_pio_in_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_pio_in_cmd_count
+                                       : rx_incr_total_pio_in_cmd_count;
+  assign incr_total_pio_out_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_pio_out_cmd_count
+                                       : rx_incr_total_pio_out_cmd_count;
+  assign incr_total_dma_in_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_dma_in_cmd_count
+                                       : rx_incr_total_dma_in_cmd_count;
+  assign incr_total_dma_out_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_dma_out_cmd_count
+                                       : rx_incr_total_dma_out_cmd_count;
+  assign incr_total_packet_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_packet_cmd_count
+                                       : rx_incr_total_packet_cmd_count;
+  assign incr_total_rd_queued_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_rd_queued_cmd_count
+                                       : rx_incr_total_rd_queued_cmd_count;
+  assign incr_total_wr_queued_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_wr_queued_cmd_count
+                                       : rx_incr_total_wr_queued_cmd_count;
+  assign incr_total_rd_fpdma_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_rd_fpdma_cmd_count
+                                       : rx_incr_total_rd_fpdma_cmd_count;
+  assign incr_total_wr_fpdma_cmd_count = (DEVICE_TYPE == 0)
+                                       ? tx_incr_total_wr_fpdma_cmd_count
+                                       : rx_incr_total_wr_fpdma_cmd_count;
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_sata_link_monitor_assertions.svh"
+`include "qvl_sata_link_monitor_cover.svh"
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sata_link_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sata_link_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sata_link_monitor
+`include "zi_cw_sata_link_monitor.zi_chx.inc"
+`endif
+`endif
+  //----------------------------------------------------------------------------
+`qvlendmodule

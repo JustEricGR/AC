@@ -1,0 +1,314 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_data_loaded_assertions (clock, reset, areset, active, 
+				  zivar, start, stop,
+				  start_count, stop_count,
+				  load_cond,
+				  data_loaded,
+				  no_restart_check,
+				  data_loaded_fire,
+				  no_restart_fire,
+				  windows_checked,
+				  longest_wait,
+				  shortest_wait,
+				  window,
+                                  data_loaded_at_window_open_count,
+                                  data_loaded_at_window_close_count,
+				  support,
+				  fire_count);
+   
+   
+
+  
+ parameter severity_level = `QVL_ERROR;
+ parameter property_type = `QVL_ASSERT;
+ parameter msg = "QVL_VIOLATION : ";
+ parameter coverage_level = `QVL_COVER_NONE;
+ 
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   parameter			 VAR_WIDTH = 3;	
+   parameter			 ACTION_ON_NEW_START = 0; 
+                                      // default is IGNORE_RESTART
+   parameter			 P_RESTART = 1;
+   parameter			 P_NO_RESTART = 2;
+
+    parameter			 START_COUNT_WIDTH = 1;	
+   parameter			 STOP_COUNT_WIDTH = 1;	
+   
+   parameter			 START_COUNT_DECLARED = 0; 
+   parameter			 STOP_DECLARED = 0; 
+
+   parameter			 STOP_COUNT_DECLARED = 0; 
+   parameter			 STOP_OR_STOP_COUNT_DECLARED = STOP_DECLARED || STOP_COUNT_DECLARED;
+
+   parameter                     NO_RESTART_CHK_ON = 0;
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   parameter CW_FOR_FPGA = 0;
+   parameter STATS1_W = CW_FOR_FPGA ? 32 : 64;
+
+   input			 clock;	
+   input			 reset;	
+   input			 areset; 	
+   input			 active;	
+   input [VAR_WIDTH-1:0]	 zivar; 
+   input			 start; 
+   input			 stop; 
+   input [START_COUNT_WIDTH-1:0] start_count; 
+   input [STOP_COUNT_WIDTH-1:0]	 stop_count; 
+   input			 load_cond; 
+   input			 data_loaded;	
+   input			 no_restart_check;	
+   
+   output			 data_loaded_fire;
+   reg				 data_loaded_fire;
+   output			 no_restart_fire;
+   reg				 no_restart_fire;
+   output [STAT_CNT_WIDTH-1:0]	 windows_checked;
+   reg [STAT_CNT_WIDTH-1:0]	 windows_checked;
+   output [STATS1_W-1:0]	 longest_wait;
+   output [STATS1_W-1:0]	 shortest_wait;
+   output			 window;
+   wire				 window;
+   output [STAT_CNT_WIDTH-1:0]	 data_loaded_at_window_open_count;
+   output [STAT_CNT_WIDTH-1:0]	 data_loaded_at_window_close_count;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [2:0] fire_count_tmp;
+   
+   reg [STATS1_W-1:0]		 longest_wait;
+   reg [STATS1_W-1:0]		 shortest_wait;
+   reg [STAT_CNT_WIDTH-1:0]	 data_loaded_at_window_open_count;
+   reg [STAT_CNT_WIDTH-1:0]	 data_loaded_at_window_close_count;
+   reg				 shortest_wait_set;
+   integer			 within_range;
+   reg [STAT_CNT_WIDTH-1:0]	 stop_within_range_count;
+   reg [31:0]			 counter;
+
+
+   wire  xz_detected = (^{start,stop,start_count,stop_count} === 1'bx);
+
+   
+   
+   reg [STOP_COUNT_WIDTH-1:0]	 latched_stop_count;
+   
+  //State machine parameters.
+
+  parameter OPEN_WINDOW = 0;
+  parameter CLOSED_WINDOW = 1;
+  parameter WINDOW_PENDING = 2;
+
+   reg [1:0] present_state;
+   reg [1:0] next_state;
+
+   reg z_valid_start_event;
+   reg last_window;
+   reg [31:0] start_counter;
+   reg [31:0] stop_counter;
+
+`ifdef QVL_ASSERT_ON
+  wire data_loaded_stop_fire_combo;
+  wire data_loaded_no_stop_fire_combo;
+  wire no_restart_fire_combo;   
+`endif
+
+`ifdef QVL_ASSERT_ON
+
+  assign data_loaded_stop_fire_combo= (reset === 1'b0) && (areset === 1'b0) &&
+			              (active === 1'b1) && 
+                                      (xz_detected !== 1'b1) &&
+                                      (data_loaded === 1'b1) &&
+                                      (present_state == OPEN_WINDOW && 
+                                       next_state == CLOSED_WINDOW) && 
+                                      (load_cond !== 1'b1 && stop === 1'b1);
+
+  assign data_loaded_no_stop_fire_combo= (reset === 1'b0) & (areset === 1'b0) &
+			              (active === 1'b1) && 
+                                      (xz_detected !== 1'b1) &&
+                                      (data_loaded === 1'b1) &&
+                                      (present_state == OPEN_WINDOW && 
+                                       next_state == CLOSED_WINDOW) && 
+                                      (load_cond !== 1'b1 && stop === 1'b0);
+
+  assign no_restart_fire_combo= (reset === 1'b0) & (areset === 1'b0) &
+			              (active === 1'b1) && 
+                                      (xz_detected !== 1'b1) &&
+                                      (data_loaded === 1'b1) &&
+                                      (ACTION_ON_NEW_START == 2) &&
+                                      (start === 1'b1) && 
+                                      (present_state == OPEN_WINDOW || 
+                                       present_state == WINDOW_PENDING); 
+
+`endif //  `ifdef QVL_ASSERT_ON
+
+`protected
+
+    MTI!#>Cpm;Q]Js^^;]RI=,rQx@vZvqk[E#u1qY@uKNEiX\6YY\W]nsDjuI*3r#slHCZ**h^m>+7m
+    Xnv^A'3E}2%Bz\\JU7VFw=lv[j{}>E~A?p+~R*mHrVjV^jW!DCR?@=E;zI]-1R#H,l^Y[5'wix7>
+    Y'kR$xpo13XK]x*R{$\G*>5@rOzL(,CV~]O{CV*nm${!ON@-b~1{~b7rO^\*}u@xR$r^j'R'Lpzv
+    2G?v>OD;Kf>^zOzeKT]F*s?>O{rCu>H,KU{au=J}j}Y22jGrl@ZY>jw^1[u@(HT['~>1T,*Rn{$X
+    +(^7uR\>sIx?V]@T!lQ+K#v?@QX}$=}UTTY=zop?,r5bGi@p@U\7h3_V_HjmJ[UWRpAKUEue?mY1
+    DBHzmEY?*UpWu{-^V79^>7Wz"fb{TO,KHmm*)%lJaka7@#nl3B:=z7xs{TO!<R~bxa{ue7[Op'Bz
+    k}5aU$b5H{E;]YA!GwnT]1u7I~^d,T5?e^@UKrGmi>v!,ZZl-Cz;o~~Dr;=ojz]CIk3vy4va&bq+
+    n@tEC+T+TAn=l*p#sT<WGV[XEHAvj2-'oKspBEaYiEkl#n-&uarzKI'<n'\7];HGg<>X!Bu_?~-Y
+    #HUH<h<ej,bH[UO[m,{N&oa_~3IDQ,1?R{riJ~=pD};Ye7!O_s=T<*pVH6lR9WET3Fl2'ZB>x{=a
+    ]=~]7+}IT7kT*VoTl[A'V<XI+;1HKo{7n2XaE,,-,KETm\$W[nArz{e!p3$@a3h|5aXJarKB5VX3
+    j_1W_ElIAaJ'RP)\]DiB!=G-UB1iz^}CQ]~=TC'<|VpDVj77_q^CCXQvR\Msp7ka7l*lnGeI$?W@
+    _xQ+]?jU,^[KnZB!Uwl/YZ{EEEi@WrOi,#R;}xVRW6R@[{is*X[5@rR7Q^z-s;RviDJ\NIi]E>CQ
+    pP/'Ew~a[Y]v}WV$\_Ozn{!^Q1?e77$,szBQ^ye;BTe#VH2XS08N^3@r7^J1qK<!jzo?vD#$@&]V
+    X]?1kw^FoF|>nr7{-wDLfo;YKCQ7\skxhQz{=&@r?}CxZK-*jZ
+`endprotected
+   assign window = (present_state == OPEN_WINDOW);
+`protected
+
+    MTI!#O;,5]xK2'\;!@,VrTBOElU3-BK5\p#}'N/a{oiPKYra[$?G;-$B$THJ=@[?('RAAL7koe_p
+    ~]RRn;neBw~j<'J*#VAnZsp!-$AG*UB5;?p#j<5*uO[fusG#oC!Y<Ds]7nKBE1r@[E]]|*]p@B-v
+    Ig,V@J-|{Xo]K<m+OWKnR_}W-rV.kE]#~U$'sr#_*ICA~w*xz12VawAQNXTJ2vXo_mD}Gf>U<vQE
+    ~sML1U_jDOBJ?'k3P"hr,A{[?rEX]XuM-QU~/BKRz!<}IlO^k2'*jil#GU7@r,@nE<]5#0H*n]<Y
+    pi~<5[@>emWD{-XoW;N~TB~i[X'03{[xOH!+UXB#lnQuXr^iE|C]WY^*2CTjj1Up<xIj?D-sr]KX
+    ARLC3eH,azQ[WmCnvo$MoP+7WZeJ17_)^;]$=}ZE]D}uo3OH1YnQVR<xe)K&,U1T~,]^[XCmjkW-
+    X+B3^;}-,,T_YY=[<UZ#91eb]Us=ia~O{zm\u12BYJ;Z|I)>YP?A-uLVxV@sGIXw]3Y1nA2\wV[4
+    kBD}$n+{7m=,<j?;_Tl[jo3s$-$se~K<!$BoT$<>1CQw^[xaE@q*\[Z)<[YAi[#rQj,rKnB[Fxn>
+    >3Q}wlwUw^>5Agz]$Yaz]@W+X]C_~#R0HV+BQ}HY\]xQvICT<7K?RATA1?\<U}{o3na3%a^2$_'-
+    Z'oA@V,nWrO$E1J!!EITx/#5Ce@n!XMwaxvHC]I!7U~dyJ,{x#C1X<DeB*B,1bGQ7C7!=H7?Qjq$
+    x!\TIQaEzRTQ_W$'>@X[xR[o{^[1nwXkTUOr=J7C/B5x}3C?2'r{T5]aI9RRwQ7GnR~\WU^=Z^V1
+    '_K7$KLu{l'8joCwC{7O;$[R+[^7pH\oTEe}\i1^_!AI;l>@xK-~5l\^\E2AI=H\({v*Atsoo<ZH
+    QU_B>Bw<j,;pz+se##XoB,RaZv^[@*nT{Tm=x}81m-m|jXU7A^2}G}-WEv=ZEpJ31jpUez][rU'>
+    Zxw{m$7OFOKHlv5o^D!lZ\]mu>^@H1rruv'wn)!D'+uvzVF(iQ^kOQ@^v{YR-nnkr<\Y=;u'UlwU
+    *jWJ95ZWwp'5[hm*HwT5iKBHwG.*k{!*;-DBiZ}N=}#sez~o!eT~ixVI}Tp_[3\GLmDV<5xJlI?_
+    Eg[@CKoR;,r7~],TV,VW{DzQ<Glk!=7~n-H]R<!7k3{-mlIHjC1Xr#5oepO#Du;_R<_=Te7exwA*
+    oZ]!1m=mY#]Y;rY^s@Z^}1I#uR5UuGsQ+O<HEnQer@7o<@M/-IpT{Y\W'AUDSYTAjdws#j}mXr[!
+    C'*J]'".KRiU)5*'Av5^<[G-*JCAz;Or[o/v1#p3=@Q#7Rj-Em'$A[X#RkVZI}v_-nA1TI;GV>lX
+    Y?]PCa}5c5_1H[2a]Q{2eH+++{O9,^uG$IH;Oz[A;*e@,pw??VA?,$wCZ][7w={s{R\C[!2B%Y3p
+    TQX\=Bu=J!CI]Y!-@={;]wjD~O2G+g3ok_V5p^1$>eJUJsVQKm{TTuH_<'mBUk[2[iT-3R=^eTi<
+    wOor2{R=jOZ*?aen;Zj+}G]?w#Xo@C9Y+xmx#nse@V?,pj[*+{B8oV3@}7JEUAB7vzvwUv#j\W^B
+    9eIIeAsn7pK!R^3o?i(fOSlReZx_1xR5'GxtJ>YBCTZ71XH[ZTX2*HJ2!$Iew[5lz53Vy9fKjk>x
+    Zv7.gQATx/]i{lsI'xU>_R+{+;AV]n<QWn~nUK[f-EvT5jB22na~7e['-wl<pH<]QE*E.}e+x5Q'
+    Jw$m[o{+TsQz\X*nB/Y-Y!OOZ[{<IQ>^?W1m\RC_jm~5n#;\Iw)#5^Cv+l-}m{TAw,I\@lH[\-xv
+    K>X#zRiVnB1[aG7*Hj73{Qo>\AXBr3RZ'[;x\#VOvu>7'pYY$Es9vW5U6=ZKHSeUJA3zzk#<^\vB
+    ~ewHR@'}@@>>Q\n<vC[!\{K{<3THu~!HA-9VKVm]oji}GJnT+^^Q2[CGWA2@Ev<qtQiEUv@vB{Tz
+    nCv<m}aB1)I}oosvkG\w$pB;R{Q'XuRXsKGE7^#e_s>Y\kY+A28X7u\WwRY}uUsOu<*oHXGaz![=
+    *w-E_VK[W\n'\~Ze_zAFk73ecVwXla><^xBU<vG{easIa|nR}UB@j?Xl$z1s{r1#3zg}7$Upo?T3
+    zr{piYopJxrC{jsH5A-B2-Al-nO5~YjD5O]Nps[?%5x$T5}1~XajEnr]Ji<]GazTu}sI@E{^Jm*T
+    oIEmEg8\G<v<e1#;]R3-}^,Qn1UG7XngEEHKYZZokpHW))\#QV${JX=mJpHR^^}@m+lK'V='}*{X
+    @v}*A[D'-AEu~{QCoZCso2ExT>;5ea''17D!U-[W7{[jG!2]w!_T<mY;{B73A?@=_{;TaY:x#IT/
+    *HT$*[RDrY*uB~!s2,xC=Ae~v"5EX7sBi@e7-TT]W7MdQUrHD!{^wp^upJZC{O#3-D#Epo_#CW5a
+    .V}@JA{eYmnxzQYIe'VXe2EA^Q+u7pEwQ}*Qa^jFJA!];D+^V=uX^R~jXoG~&,?BZ^]!ulHX-;-;
+    wriIx2zz^>x$K'xoZ\mWK{rRHRO7;rn$#9Q-H?rlxAUpkI~,^Z@D\}1uEpUE_J'C*eJrQ+B>AZ(3
+    H5JDvveYDBTDE-p%0s{TCpm!Jyp@K\v1;T:?52Xsenrg$-G{U\={#1k!ZD-ptapX<2H>7lun+_Tv
+    {'H_rUX;ZV-DT?R*n+=\rHDrnKRGkg~eK[GwI^3<eTKG5'/>[!v^C=eYn5jyeXl2V+z!K1k!3HYa
+    f,XR#\_+3}:z-+X=$sQ_a=jQ5ns@}1ilO5I^}-$Tr*l+GCD}AE,=Uek@w,lZ>lom<H}Gps\]nAKC
+    ]ZwQ5x2E_V7A+O11A-=C,BE3_oW>}?+OJl*A|;EE_@{xo?zuVU^w#x]ovEWEK,Xl]3Ev?W+*-/*\
+    ZKXp5'uwlo+<mDWwEj%noku];,i]D_n[G;5!T'n\Kj!saU>n{o2jkRmNj@]lY-7#~Lhl_51V-3k1
+    rA-cp+lKHo~TZBD~[C_*-H-~aV5v2G;*QD}}>\WU@Xl5BO=#{E1H=VoUZ+url,sO$1vTl{AasD_V
+    C7U[ye2EEKe^X
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  //Instance for data_loaded check with stop specified.
+  //
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_data_loaded_data_loaded_stop: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (data_loaded_stop_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_data_loaded_data_loaded_stop"),
+                          .msg            ({msg," The register was not loaded before 'stop' asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_data_loaded_data_loaded_no_stop: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (data_loaded_no_stop_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_data_loaded_data_loaded_no_stop"),
+                          .msg            ({msg," The register was not loaded before stop_count cycles after start asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 if(NO_RESTART_CHK_ON)
+	   begin : assert_data_loaded_no_restart
+              A_qvl_data_loaded_no_restart: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (no_restart_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_data_loaded_no_restart"),
+                          .msg            ({msg," Illegal restart, start asserted before the window closed."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_data_loaded_data_loaded_stop: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (data_loaded_stop_fire_combo)));
+        M_qvl_data_loaded_data_loaded_no_stop: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (data_loaded_no_stop_fire_combo)));
+	 if(NO_RESTART_CHK_ON)
+	   begin : assume_data_loaded_no_restart
+              M_qvl_data_loaded_no_restart: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (no_restart_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+  //Instance for data_loaded check with not stop specified.
+  //
+
+`endif
+`include "qvl_data_loaded_cover.svh"
+`qvlendmodule

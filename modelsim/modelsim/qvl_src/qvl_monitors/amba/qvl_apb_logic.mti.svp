@@ -1,0 +1,169 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+ /***********************************************************************
+ * 
+ * PURPOSE      This file is part of 0-In CheckerWare.
+ *              It describes the bus monitor for the AMBA APB bus 
+ *              standard.
+ *
+ * DESCRIPTION  This monitor checks the AMBA APB protocol.
+ *
+ * REFERENCE    AMBA Specification Rev 2.0, ARM IHI0011A.
+ * 
+ * INPUTS       pclk          - Clock signal
+ *              presetn       - Asynchonous Reset signal (active low)
+ *              paddr         - Address Bus
+ *		pselx         - Select Input
+ *		penable       - Enable Input
+ *		pwrite        - Read/Write Input (Write is active high)
+ *		pwdata        - Write Data Bus
+ *		prdata        - Read Data Bus
+ *
+ * NOTES        The PWDATA and PRDATA buses can be implemented as a single
+ *		bi-directional bus with tri-state capability.  Under such
+ *		circumstances, the single data bus should be connected to both
+ *		the PWDATA and PRDATA inputs of the interface checker.
+ *
+ * USAGE        The monitor should be instantiated within the target design.
+ *
+ *                 +----------+               +---------------+
+ *                 |          | -- paddr   -->| +----------+  |
+ *                 |          | -- pselx   -->| | apb_mon  |  |
+ *                 |  Bridge  | -- penable -->| |          |  |
+ *                 |          | -- pwrite  -->| +----------+  |
+ *                 |          | -- pwdata  -->|  APB Slave    |
+ *                 |          | <- prdata  ---|               |
+ *                 +----------+	              +---------------+
+ *                             
+ ***********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_apb_logic (pclk, presetn, paddr, pselx, penable, 
+		   	  pwrite, pwdata, prdata);
+   
+  parameter Constraints_Mode = 0; 
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  parameter ADD_BUS_WIDTH  = 32; 
+  wire [31:0] pw_ADD_BUS_WIDTH = ADD_BUS_WIDTH;
+
+  parameter DATA_BUS_WIDTH = 32; 
+  parameter pw_DATA_BUS_WIDTH = DATA_BUS_WIDTH;
+   
+  input	pclk;
+  input presetn;
+  input	[ADD_BUS_WIDTH-1:0] paddr;
+  input	pselx;  
+  input penable;  
+  input pwrite;  
+  input	[DATA_BUS_WIDTH-1:0] pwdata;
+  input [DATA_BUS_WIDTH-1:0] prdata;
+
+  parameter IDLE_STATE    = 0; 
+  parameter SETUP_STATE   = 1;
+  parameter ENABLE_STATE  = 2;
+  parameter UNKNOWN_STATE = 3;
+
+  wire	       bus_idle = (pselx === 1'b0 && penable === 1'b0);
+  wire         bus_setup = (pselx === 1'b1 && penable === 1'b0);
+  wire         bus_enable = (pselx === 1'b1 && penable === 1'b1);
+
+  reg [1:0] bus_state, next_state;
+
+  reg [ADD_BUS_WIDTH-1:0] latched_paddr;
+  reg [DATA_BUS_WIDTH-1:0] latched_pwdata;
+  reg latched_pwrite;
+
+// The following signals are also used to check the monitor from the test bench.
+// These signals, when set, denote the fire condition.
+
+  reg bus_idle_to_unknown;
+  reg bus_setup_to_unknown;
+  reg bus_enable_to_unknown;
+  reg bus_unknown_to_unknown;
+  reg penable_pselx_fire;
+  reg paddr_fire;
+  reg pwrite_fire;
+  reg pwdata_fire;
+
+`protected
+
+    MTI!#\OXT==xoIjX}=GEA#v;-I{R>bQ''H-H$iFlK7"c[ei[=;*,k<E^\/[G7pEw;Ijm~UcJDnpx
+    \_!j^;QC'Q,'2xU}-mW]qHsj'$vWrEzI7Crjxl,JK3IkBMyz'+Y[DT;^^'H|>Vsu-xx7;_uk3Q$[
+    'GnRGW]i~x+vzO!7^=re7@,eB9ZT_W[B{[QX,[;z'~<1s=w<,2>Nk+Y}_j[~(=v+!HRT;1-][}Cs
+    'o?X@,Cn$W}pA$K>Am}zCR7a~%5CnJ=l#_mYD]-<V_OCITV[p]1JDOp1n{X[W\1lKo+{IZ[@A7CK
+    -,rR;[z~G1*B*D]T>]3Rlik^^a[p@1vuTQ5TDw:EI1K$_~-Y<*JyQ#{KG'TQi7W^jkwX=RBA@XQm
+    pzu+pl-OmRYV%IJ*Y]T1>El=TI=]+B{,T_u'[>a][^E^$!lz[2$@]jvkkR?^?.:T}VG]ZeC'm*W%
+    ,3YG1v~=FI5K$<A!kE^WA.O+en^}en,CK}$)I523K>e3C1;>YpJUUBkoi$*rs!3B+xROa7JYG$]<
+    QpKpFzVWl,>G=$jTGww]X_N^*Y[sJJ75syO+KAcmR-wi]l]\Hus^B,x,#=1.kwBVAR<am7OaW73-
+    Xe[5=TuKk[-[FQ_;[OprI7?R?-X@,9<$z-S7m{1\<R=X>$7x;_vt^p]mFBFUwrCaX@Bk}Ta,*!DH
+    au7}e-DKn[+{HCTZG<_Xs#p>[{J>\\~,<pKriR~72DW=IC{'V<-$+++Re1s{Co^iQGZ#zj@}%I~R
+    r$A,i'7K+m$n>3$Dx>rrl!>_WY#*<piAuH7?o3Q_uG5s2YA{~kUj@ymo+uz;;j\=r;{*-^Y!5[mD
+    jI6iOIR,~uKQoE']$J7JXOpa\>!]{U!@Xaop*;UXBRxRUbmj7,B'Hz7Y??}iUDQ]uBCml5B)_\7T
+    =I@33{>YV$RQG^~}?zG5<CoO7^?w5T7@<r{j3nUrEhN$x~ud{Xl<vz@o)r2ank>=7}m}a>Ae1jBY
+    ,rOG<p]<l,\j{v7]2,worsOvZ&oQ^OQ\Qk#{>J[!_<lYv;H{T*u'Ca\'Rs2DiG~+I#+__aF"N}#{
+    Tsn=oomQU1rKYSeZzrr,^JjZn[oR1elZvZ[7Dv-5n72$Br]I<[0$]usqb#[o^p_@>.z-}<p9uDX~
+    pmB>QY*#h1'!>lCQ*7i>>7;wKBnG=Ip]H5TzR*B<rsZ2}w'QBh)Y[Qib<^R125!D_<V;YABrl}]O
+    #1wKarUooXDjg[<T<FFZzJo2AxHjj<1-{~^RHVW>nI';j@zNv@n<>wvT~[C#:,m_E%5B3J[!pm^I
+    +XdIiR2i}-uaR-r7k{BJTY@'B3mqs>^[}}1x'.x;KARw[jx\AOR#rua<>uE^>eqWC[AI#uUIons*
+    A+$*_ZC!<,\m<\Ba-mwl*3j]w$2=O$=i+1x^CH,;>[UtE-svElC{jElYAUDBw]i17YwUlDCidBCW
+    -v!eABO-7IsDr1veK_3ZIl;z#Re@^>xW^?[z=tz$iYiYEU~${@C5uw{>rr5]{Dlm+zX[2nMsw$Xj
+    oR^KVxVw,Trw5?1GJD!R^Ve6]XIJH[7H[rX<seX>K5X7eHmD12VG_Y7Q05ZpuI;ElW$]oi*o@a5W
+    awwIwKe[@<V_U->I1K+,ko6{l_~I3UQEp#a^e-eXAR?f$H@CQ7eKmHnux3^u;G-l'Y+RU>uZZ$iB
+    R-JsI~V,U1?3u*QKHC!=@xN#=?J]zr?;=$U<^Z>]1<I17}-L+1wjeY#*uo=eOaGi_UT@]{_E3>vp
+    Yi\X3X>5+\V=TB*@MCXw2C-K5ZQOxu_ToZ=5V*tejD2,,oDn}-a}*a~>t}aBJpZCo=BXj3T'DMF!
+    _H''Q\GO$u5:0.|Y{T@=pmw]@v]?|;ee;6w\>rHh<$aKAAQiz;wD$?J'X,E@Wz#^$p{^];EwzxHC
+    >C+Tl,[AC'{VlIvI(V'#QnYT;XT!5wNDUwa3CQ)RGYO)[_3RArG?ImnC-VJ5rpUA[1?AJTm[R=w,
+    1TrB_?e,jl-$$?^[OR$^K[GuToG<JEuXoOju<{U$KpDi{UaU}H2vjxi}~elY*ijzxu{;Z=<AJxH_
+    ZGW'7mXIA765w\[*;Oi1[!v^[
+`endprotected
+   reg [63:0] setup_count; 
+   reg [63:0] idle_count;
+   reg [63:0] enable_count;
+   reg [63:0] read_count;
+   reg [63:0] write_count;
+   reg [63:0] back2back_count;
+   wire	      collect_stats;
+`protected
+
+    MTI!#I%;D]o9j_*uX11s!{o_H,5*^$n@1~l,|(1XD[C!$C!DA}OUDwGjx[#XoyI^XIEno#@1@p?}
+    !}~VkA#w}\e$#U]WQ_uoZ'AY{7S;hkB;Zx#~nXoZ3XU+q1<+YBARY_>;v$*@m<w+JbxA~B3C$@'I
+    aW}-r]sou[7#aW#w!,qIwzk%R,#1WHrC-'Br.U7#pI;Cp|0w]oi>$]?AAT@7;Jn+s*<QQW{sHsQ?
+    D7TlH$^7Yj\u*'!F^mwT|=m}$%.7_??Fpa^TBCYm]zG]{1XvmE5m;UO=ks-x1a,HmzG?B:Q!BlH$
+    *2CCD?6iAlpIH$'lR!=<1D2DJ}+|E;+}Karsm7+W3AW\8lO*BK_rTf5YUBu<w,'*{ppKo@nrRIz@
+    <3e*AI~<sCZ|4iCep-LFouKuAv*_AXXzl)_#HJzQCT#}AO{zrrOnmunjOr-w+vEH]^2U^@bwq2o\
+    mfx1EUNsx-!YKP~\${KY7l;>sCv-!Y<G{*ED{2g2]k<5*a>ma+p@-o#kT$HCIX2#$ACW}OIeUXa'
+    R<7w7Xopkv'7-ur:mokvR1?JoY~^BGJj1z[e5<xa@wpaH5-1[P>_Kvon~E
+`endprotected
+
+  `include "qvl_apb_monitor_assertions.svh"
+  `include "qvl_apb_monitor_cover.svh"
+
+`qvlendmodule // qvl_apb_logic

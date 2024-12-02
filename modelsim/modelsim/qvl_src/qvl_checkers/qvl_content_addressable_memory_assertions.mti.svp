@@ -1,0 +1,451 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_content_addressable_memory_assertions (
+			      clock,
+			      reset,
+			      areset,
+			      active,
+			      write,
+			      write_data,
+			      match,
+			      match_data,
+			      match_found,
+			      write_address,
+			      match_address,
+			      match_data_mask,
+			      match_check,
+			      single_match_check,
+			      match_address_check,
+			      match_fire,
+			      single_match_fire,
+			      match_address_fire,
+			      single_matches,
+			      multiple_matches,
+			      no_matches,
+			      memory_accesses,
+			      memory_writes,
+			      match_cycles,
+			      checker_match,
+			      checker_multiple_match,
+			      checker_match_address,
+			      support
+			      );
+
+
+
+
+  //Parameter declarations
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraint_Mode = 0; 
+  parameter DEPTH = 1; 
+  parameter LATENCY = 0; 
+  parameter WRITE_DATA_WIDTH = 1; 
+  parameter MATCH_DATA_WIDTH = WRITE_DATA_WIDTH; 
+  parameter WRITE_ADDRESS_PORT_WIDTH = 1; 
+  parameter WRITE_ADDRESS_WIDTH_BASED_ON_DEPTH = 1; 
+  parameter DEPTH_BASED_ON_WRITE_ADDR = 1 << WRITE_ADDRESS_PORT_WIDTH;
+  parameter WRITE_ADDRESS_SPECIFIED = 0; 
+  parameter MEMORY_DEPTH = (WRITE_ADDRESS_SPECIFIED ) ? DEPTH_BASED_ON_WRITE_ADDR : DEPTH;
+  parameter BINARY_ENCODED = 0; 
+  parameter TERNARY_CAM = 0; 
+  parameter WRITE_ADDRESS_WIDTH = (WRITE_ADDRESS_SPECIFIED) ? WRITE_ADDRESS_PORT_WIDTH : WRITE_ADDRESS_WIDTH_BASED_ON_DEPTH;
+
+  parameter ONE_HOT = 0; 
+  parameter ANY_ONE_OF_BINARY_ENCODED_OR_ONE_HOT = (BINARY_ENCODED && ONE_HOT); 
+  parameter LOWEST_ADDRESS = 0; 
+  parameter INVALID_LOWEST_ADDRESS_OPTION = (LOWEST_ADDRESS) ? (BINARY_ENCODED || ONE_HOT) : 1; 
+
+  parameter MATCH_DATA_MASK_WIDTH = WRITE_DATA_WIDTH; 
+
+  parameter MATCH_DATA_SPECIFIED = 0; 
+  parameter MATCH_ADDRESS_SPECIFIED = 0; 
+
+  parameter SINGLE_MATCH_CHK_ON = 0;
+  parameter ADDRESS_CHK_ON = 0;
+
+  parameter EXPECTED_MATCH_ADDRESS_PORT_WIDTH = (BINARY_ENCODED) ? WRITE_ADDRESS_WIDTH_BASED_ON_DEPTH : DEPTH;
+
+  parameter MATCH_ADDRESS_PORT_WIDTH = DEPTH; 
+
+  parameter ILLEGAL_BIN_ONE_HOT = (ONE_HOT || BINARY_ENCODED) ? MATCH_ADDRESS_SPECIFIED : 1; 
+
+  // Input port declarations 
+
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+  input clock; 
+  input reset; 
+  input areset; 
+  input active; 
+  input write; 
+  input [WRITE_DATA_WIDTH - 1 :0] write_data; 
+  input match; 
+  input match_found; 
+  input [MATCH_DATA_WIDTH - 1 :0] match_data; 
+  input [WRITE_ADDRESS_WIDTH - 1:0] write_address; 
+  input [MATCH_ADDRESS_PORT_WIDTH - 1:0] match_address; 
+  input [MATCH_DATA_MASK_WIDTH - 1:0] match_data_mask; 
+						// By default, none of the bits
+						// are masked.
+
+  // Check ports
+
+  input match_check; 
+
+  input single_match_check; 
+
+  input match_address_check; 
+
+  // Output ports
+
+  // Fire signals
+
+  output match_fire;
+  output single_match_fire;
+  output match_address_fire;
+
+  // Statistics and corner cases
+
+  output [63:0] memory_accesses;
+  output [63:0] no_matches;
+  output [63:0] memory_writes;
+  output [63:0] match_cycles; 
+  output [63:0] single_matches;
+  output [63:0] multiple_matches;
+
+  output checker_match;
+  output checker_multiple_match;
+  output [MATCH_ADDRESS_PORT_WIDTH-1:0] checker_match_address;
+
+  // Declarations for PLI calls
+
+    // Wire declarations
+
+  wire [WRITE_ADDRESS_WIDTH - 1:0] cam_write_address;
+  wire pipelined_match;
+  wire [WRITE_DATA_WIDTH - 1:0] pipelined_data;
+  wire compare;
+  wire [WRITE_DATA_WIDTH - 1:0] compare_data;
+  wire xz_detected;
+  wire multiple_match_found;
+
+
+  // Register declarations
+
+  reg match_fire;
+  reg single_match_fire;
+  reg match_address_fire;
+
+  reg [63:0] match_cycles;
+  reg [63:0] no_matches;
+  reg [63:0] single_matches;
+  reg [63:0] memory_writes;
+  reg [63:0] multiple_matches; 
+
+  reg [MEMORY_DEPTH - 1:0] cam_memory_valid_entry;
+  reg [MEMORY_DEPTH - 1:0] temp_expected_match_address;
+  reg [MATCH_ADDRESS_PORT_WIDTH - 1:0] expected_match_address;
+  reg checker_match_found;
+  reg [WRITE_DATA_WIDTH - 1:0] data_pipeline [0:LATENCY + 1];
+  reg [WRITE_DATA_WIDTH - 1:0] temp_data;
+
+  // Register which will indicate whether an entry in the CAM is valid or not
+  // This is required as the checker may misfire if the memory is initialized
+  // to 00 when the simulation starts and a match operation is performed 
+  // with match_data set to 00. This behavior can be seen after reset also.
+
+  reg [WRITE_DATA_WIDTH - 1 :0] cam_memory [0 : MEMORY_DEPTH - 1];
+
+  reg [WRITE_ADDRESS_WIDTH - 1:0] address_counter;
+
+  reg [LATENCY + 1 : 0] match_pipeline; // Match signal pipeline
+
+  reg low_match_address_set;
+  reg [WRITE_ADDRESS_WIDTH - 1:0] match_count;
+  reg [WRITE_ADDRESS_WIDTH - 1:0] binary_match_address;
+  reg stop_flag;
+
+
+  // Integers
+
+  integer i, j, k;
+
+  reg dummy_reg; // To remove warning from csl
+  reg dummy_reg1; 
+  reg dummy_reg2; 
+
+`ifdef QVL_ASSERT_ON
+  wire qvl_cam_match_check_fire_combo1;
+  wire qvl_cam_match_check_fire_combo2;
+  wire qvl_cam_single_match_fire_combo;
+  wire qvl_cam_match_addr_check_fire_combo;
+`endif //QVL_ASSERT_ON
+		 
+`protected
+
+    MTI!#5_##AQ3]>B!+/8D}YauT_7IkGs>DjO;E#Tks[[B~<,N7pp~[\BD#Yo#[na2GI,VK12C,Qku
+    UNmUHU}g'l!2,@GkBIB1)N#7@]}l<{;=!+^Y#^NH\IA=5A3!o?~M<7z~lzRI3Tru{<jD=\Jl2&i7
+    ,^[?>Yz=?klY*AtmIu~BC@E~<H~m'?n]\a^ee;jV]IzS=\tX7<Z+SFHEi>'O*A{G?\D,5~zWU>mw
+    \<M|\si!^#p,'5Yn$[Gxi{H<ka{1V12I#Gm3TUan>I~@V!p#=x[xNpReoOa^5|2$piCun_v$]i:M
+    &[2R\IQ^?WnvHBju[|wTE<wx#v,?DKB+zBZ\Eo<aa~G2A=CnAWjZWum[G]TVC_<jzv_[}$>_2+H7
+    Z2rX<X*X^QIV>WHs+'Y}iHWo^!5$mus*<J*/2TrI#XOI{lk^5r2T1-+le>^v=$A3C$X#.,xz!m'G
+    ]hEjB-y/=l!?CRIaTEJC3ADzh?{*e+a;uQzU#H+vzo+R#r;!*rH^ABa'Razk1BC1u5X,,QpspQkv
+    +$IvX$Ts5K7;TnACw.xi<U{pvr10jQ?31sxzY_R>N/#^V@j~R77H>O#sov1^Ks4gvFZj>I?p\pYW
+    XC*[#7dA\Z#J1eVbp;1>}p*jz<uRPlEJ#xvsWeIB*-aeo.v?U1cXTJK?-K2emVCezre*7l7}'lv#
+    XDWnpE^GQnD3HDxav=*_JY]\A-EI?+^.'Gx',Ga]eV3nz+On^CQ{7n~1^*jITrr[?v@EOVviS<+U
+    K+D,3
+`endprotected
+`ifdef QVL_COVER_ON
+  assign memory_accesses = memory_writes + match_cycles;
+`endif
+
+  assign cam_write_address = (WRITE_ADDRESS_SPECIFIED) ? write_address :
+							address_counter;
+
+  assign xz_detected = (write === 1'bx || match === 1'bx ||
+                        match_found === 1'bx || ^match_data_mask === 1'bx ||
+			compare === 1'bx || ^write_address === 1'bx ||
+			^match_address === 1'bx || (TERNARY_CAM === 0 &&
+			(^write_data === 1'bx || ^match_data === 1'bx ||
+			 ^compare_data === 1'bx)) ||
+			(TERNARY_CAM === 1 && &write_data === 1'bx &&
+			 |write_data === 1'bx) || (TERNARY_CAM === 1 &&
+			 &match_data === 1'bx && |match_data === 1'bx));
+
+  //Note : In ternary mode of operation when 'x' or 'z' is detected on
+  //       all bits of write_data, match_data, checker is inactive.
+
+
+  assign compare = (LATENCY === 0) ? match : pipelined_match;
+  assign compare_data = (LATENCY === 0) ? ((MATCH_DATA_SPECIFIED) ? match_data
+                         : write_data) : pipelined_data; 
+  assign pipelined_match = match_pipeline[LATENCY];
+  assign pipelined_data = data_pipeline[LATENCY];
+  assign multiple_match_found = match_count > 1;
+  assign checker_match = checker_match_found;
+  assign checker_multiple_match = multiple_match_found;
+  assign checker_match_address = expected_match_address;
+
+  // Combinatorial block which will scan through the memory and
+  // finds if any matching entry is there or not.
+
+  // Registers to be assigned.
+  // checker_match_found
+  // expected_match_address
+`protected
+
+    MTI!#Ua]wMO25{+5>xGplls=ZQ^cB5ZBO#j-N/!Tjiba<7![AABMz(XAU}B5k$R\]O#_v-<Aa3>U
+    xJ#[kK]3VTa>{IWXzr_J=zaX<y,'~;\1,1_7\2,{I@ErlpDn7Y={}37@oit<oATC'ejeM^AK#?'{
+    T]C{xw$]<w{[E#-ViaDnZQ51{jx^[&?r+@vII-~HECvXZx5aD;o-pE=iXZ[?J\2O^,/=H1iB?rJb
+    'v?JsJBJHz-vH[<}"=H-]rBVU=rx+=?GpFi|_z-3Vl-;r+&0@UdoEO,C5R]}rHWv"VQ\Op;r_YBx
+    rB2l#;lG[KskAs{<xoH-3\{;xBnGv7NCuw]#XTJU1,~T5Zs%$oTxaYIirsjIDsAkWpz[5Yl1g{Ap
+    :s5]2Fl!=iXoQ}eXp{a=}WK$-BuE]jz'<Zh}$,HYG2C$x5zwDX;<{oYk1ye;<57D?'jk;ZoK}B=T
+    ,IY2oYxRa\QQ&na$_|O;J>-r^xQ${RIHgv~!p3rB5e'DUR?n[~D~B6^i{erpwJC@57$xYusnQ{WE
+    #K+QaYKYwB1B?$M1iX;xe_v'$Z{^mvxIZDDmVIJz$5##opG,Volw5>Ce]]#*IvvYJ\RjQRWVJ\73
+    =E]S-wUlvBV5,+o?SEwxmw'-x@*!J!zXCJ<nU-n;#GZe2\K]or^~1n$@_IQ+3jsK?,i[Y<o$o1ww
+    ~mC{XQ$>vpoZG&5[?wYe^;K=3oVrk2-$^6eK>oURe2*]?^A$Ar\-@\$VipQHlYU5!G]F.B-su{+H
+    G1?a+=XD'h-D#>nx\XZQ+lwT;E5n;Uj^DVz+V;O7zK}|Vr*}BdkD1B#]uuAIumWt+zWxv~TpmE<U
+    'o{@YjB*\vz#+HDI73aV>e5_[}~?u6&XviT%;=<<IzvTkUv[^[V7;Cl?=pz5=J+RwrR'ZR_#^[pG
+    Wp*2xK>e![5CV^?Gl\_IUUBwwXA,z]',EB}mRpZvv6IMeTI,WwnIEIDD'U!nJ1A}o5Ww+wVIi<8<
+    a5;2Y_<0l;AAw,ZB+=kC4vWXB}i^o1;{vk{D3U=i[e\V~~1EJ{w[T,'?W]*EvJ$Ep[dK]$[QBQ+N
+    I@*nGmY$+o1[R2u#z!<,m+1aej@rTo]]fvcCmT=va,IGx}O*^GsoX<__*X$~D;@'xi+$ZQVANYm*
+    U37]wV{V-vT!2b?T5s]\w~0>$H,tInUm#]Z]lr->4_#J7X'?p7e=xK*=zvH{B$OxxZO{Cve]piw<
+    -]Zu@$![KCW^~7/\5,{-\+Z<<5>EslT{EmzI1AZ]XnXe<<z?<Akpnp'i-*RZEK2\!QE5#_Dv?Jow
+    \,=G*uOjBC<,^[=pm3E#zjwe*'[o5n7ml?ZHAzp)?=EjV;p4}ZmYk'[_z^?DuIJ3P{CA?#Cu3sYo
+    avl~Gn1U;IEV?D[7[Q2VG6[$Q[ZeXH'aXs;Rkn_Dxi>sVa>12QH^wr-TDQz_Cn~5[m$JZX/[XT'a
+    CB>/zmn+Uj7Yww_sXVp~2s2J>AAvOQjGEjXoju;Cz#R\s\X[{'{nZrun1lT;)oUlk'+Bp^e~]}VQ
+    jIk]rq[l1?[2e^X_W-Z*C~4YGJa?GDQ}G{lDi\ku[ErV<!!-=HDB_lxk{D\KD7XQu-;6ItzBrse>
+    +=az{V+e-r[3@If&,wpIXjCC7~T?7kGz>p#>H}l$=HCwzoK>Q!sG*\uD@H-v]O<w$HYx$ren1^iX
+    !AJ}p#uU7@-RCKo}f=K_w!*nz[KQx3a-TXw!R}X$V){UZj*pjrV+GoC2_IEF\0n$L}apa>[_v^Kp
+    VF=uV7k[n{+v>K5}!a'C+ImokGWp<3jO?3;v*7ooe\4#$,^ZwG\posoQ]QkXwA$7}<[f@CeezOKp
+    )2ApGIQH2i=53C]pu-YI3C@Oe}@j2VzKn2$~<KU'K)IWEvp1@$2o<!i{=EIxeQT*>KIgGe-{hZUR
+    Zl_k'Za'2IB?[;{T\"-_l=}E^HqH{{U[qwe?}AQ!a*j[;)@Ck~v3OlW\~Oo@ClBE!K\ln7wA!B!}
+    W@iT]!Q3om2_T_2Tp$zi<IU>-*FB~+Dp~OI7kV;>jo,V,7jYwG+OQ3#5!7UsmKm*pKB2QTIB'7=-
+    TYBHT$X=ME!}lj,[#+\BCC:>=I,wHVB[<CQv}K!x73*ZG3jsCG+ZEC,H]AvIp#DGVvB^H<}1*_~*
+    >,,\m>->V'+kGJ]-p~H$U'p7l>XKrC#0|+Hmef,'jp=KK^v7@2Is?lVXKO{BAnrVRwC7pxX\O3N3
+    RmZDUxll*TnVk<;y]u-C}&HAlZ3V>!9,uD~]&N*p^@Xw@Bw[1wQ'cL>$K3pa7+$s-a[e!}i=!C}7
+    Dpr#KuVrp!zZ!!jxnO5!rG69XaOGk_#VkHl'GT3!t6*5VvWD1B+*IIsD$!>]5InEw]e5\>5]I11n
+    ;<n_{$h!R7?e~VAG.rz}T(qG'Tj+aB;'GuwHs2,[!O<_A{p}QnmMv7v}6Dx!;=ZZ_3oJ+0Q^2<ZR
+    >['u2o[$X]).BH\TUO>oJ|iSvXB2zCR~_wlX2E$]$zQuK^;e*CnkB2l,Yu<1=+_{Iw*s[AOE$eA$
+    vZYQxKuT\ju2OoUIj_Rx&o?Knz3;?Yw7V,]#B*2]k=;Yz0jKRe{=TRd1Cnx^j;G1\^]_B\Ze1j<v
+    !nT<_p~>rlKS]{Q\]7nnZ|B#I$B+vlij[ibCwBVCDl]"E'B$BW,etEG};2r7ip=p}[OKo->QZa\R
+    2:;>{W:[a-r?emQaGm1P~[eoU\OO>Y1]ZYvHlEo}2R!x7^~@V~sk]Gs3{OY1lC[TE{Ulv}-3!<Rr
+    q;p\#W\u{aHH-doUxu5Im^^sWl]nrr,*-?RT}~!*1IF--C!fW+mZT\]Jeps~weE,&=~2Ij\j~w72
+    EeE?7@xj^V,\wq*~-n<nQWH}<\,$\,Q+[rQKX!7'J,7o2r~EaKfpOW{HT>,@&,jBi>*w]zE+X2A=
+    ?pNm+KJQ-luT_>1QVz27u-,8=$E<KrO3bO]AGzEepGmT^vk1-Js,s*}>=)s+UIn1aKvvnJn5^oD*
+    <#C=w+Z$+*^^@usjEK1B+5o.JvGllzT5P=tnG>EMso?mJBz{BP+\!kwVsi*-C=GRjsp}s>UD@+Yj
+    [2}UKJza&\~<QH_7>3Yi\LxTW@v$;C,XI!pl!=KDYrU,r${5sm1w>jp{QQlr+Tm$j}*wur>R\vy8
+    #TDs\?}Ux}EuzZIXCi@7O=+l_oUa7Za_1+-n5x+m>A~]?O,'r,G,&R\W;-RJ7XwCuR5ln$n<O_wY
+    ]pZZ=g~[3^\Jz=w1xB6e?vT>I~}~w_p^2ERwz#Bx{AU<VJ[wY2vw}u;]V$EYxYi\urIgG5?[VxHJ
+    \Cks$,1=Dpl'[v>_#}=H*}J72Q$a17xZWpmw_5v;}5o3k=n@n=XU?}>@zB-p>$$WW${J*RJK$-+u
+    Lm1wje*k3-Ypa!T}EyxunZRR3G+HuXBiE#JpIv2R]@zptza]i@IKIP+Y^29z'7*'+uKbaH+xFYAZ
+    >{1BuFa-<sX<{*|WrO#\MWne{kC!lXBT?2O]T!HepulV},U}iev[zV}JVNNQ7-?7;CmV*BnsD*3~
+    O'I?}[]VA5jHRGZ*HB]'-Ir0<z^?!X@7+,QkZU;pUD#O'nVATEQppB\?,U^-.,[uzRaHTRs#R-Yi
+    wB@vvtYIJro,\r{ee2Bx=R!O],wCOJXQX^\^E<]xm!)kCeJQ#p\I,xp5maU>sJA55]ZUa5{rjUD|
+    _kX,Ys1kr<
+`endprotected
+  
+  // Initial block for checker statistics and corner cases.
+
+
+`ifdef QVL_ASSERT_ON
+
+  assign qvl_cam_match_check_fire_combo1 = (areset ===1'b0) && (reset ===1'b0)
+                         && (active ===1'b1) && (xz_detected ===1'b0) && 
+                         (match_check === 1'b1 && compare ===1'b1 && 
+                         stop_flag === 1'b0) && (checker_match_found === 1'b1 &&
+                         match_found ===1'b0);
+  
+  assign qvl_cam_match_check_fire_combo2 = (areset===1'b0) && (reset ===1'b0) &&
+                       (active === 1'b1) && (xz_detected ===1'b0) && 
+                       (match_check === 1'b1 && compare ===1'b1 && 
+                        stop_flag === 1'b0) && (checker_match_found === 1'b0 && 
+                        match_found === 1'b1);
+
+  assign qvl_cam_single_match_fire_combo = (areset ===1'b0) && (reset ===1'b0)
+                         && (active ===1'b1) && (xz_detected ===1'b0) && 
+                         (single_match_check === 1'b1 && 
+                          multiple_match_found === 1'b1 && compare === 1'b1 &&
+                         stop_flag === 1'b0); 
+ 
+  assign qvl_cam_match_addr_check_fire_combo = (areset ===1'b0) && 
+                         (reset ===1'b0) && (active === 1'b1) && 
+                         (xz_detected ===1'b0) && (match_address_check === 1'b1 
+                         && expected_match_address !== match_address && 
+                         compare === 1'b1 && checker_match_found === 1'b1 && 
+                         stop_flag === 1'b0);
+
+`endif
+
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_cam_match_when_not_match_found_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~ reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_match_check_fire_combo1)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_cam_match_when_not_match_found_check"),
+                          .msg            ({msg,"Specified value matched a data item in memory, but match_found did not assert."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_cam_not_match_when_match_found_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_match_check_fire_combo2)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_cam_not_match_when_match_found_check"),
+                          .msg            ({msg,"Specified value did not match a data item in memory, but match_found asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 if(SINGLE_MATCH_CHK_ON)
+	   begin : assert_cam_single_match_check
+              A_qvl_cam_single_match_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_single_match_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_cam_single_match_check"),
+                          .msg            ({msg,"Specified value matched more than one data item in memory."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+	 if(ADDRESS_CHK_ON)
+	   begin : assert_cam_match_address_check
+              A_qvl_cam_match_address_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_match_addr_check_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_cam_match_address_check"),
+                          .msg            ({msg,"Specified location in match_addr was not the address of the matching data item."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_cam_match_when_not_match_found_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~ reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_match_check_fire_combo1)));
+        M_qvl_cam_not_match_when_match_found_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_match_check_fire_combo2)));
+	 if(SINGLE_MATCH_CHK_ON)
+	   begin : assume_cam_single_match_check
+              M_qvl_cam_single_match_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_single_match_fire_combo)));
+	   end
+	 if(ADDRESS_CHK_ON)
+	   begin : assume_cam_match_address_check
+              M_qvl_cam_match_address_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cam_match_addr_check_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+`endif // QVL_ASSERT_ON 
+        
+`include "qvl_content_addressable_memory_cover.svh"
+
+`qvlendmodule // End of module qvl_content_addressable_memory_assertions

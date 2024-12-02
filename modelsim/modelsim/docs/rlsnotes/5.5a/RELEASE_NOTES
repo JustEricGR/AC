@@ -1,0 +1,513 @@
+
+                   Release Notes For ModelSim Altera 5.5a
+                                      
+   
+   
+                                Apr 06 2001
+   ______________________________________________________________________
+   
+     Product Installation and Licensing Information
+   For brief instructions about product installation please visit the
+   "install_notes" file on the Model Technology web site. The
+   install_notes file can be viewed at:
+   [1]http://www.model.com/products/release.asp
+   For detailed information about product installation and licensing see
+   the ModelSim Start Here Guide. The manual can be downloaded from:
+   [2]http://www.model.com/support/documentation.asp
+   
+   
+     Release Notes Archives
+   For release notes of previous versions visit the release notes archive
+   at: [3]http://www.model.com/support/default.asp
+   
+   
+     How to get Support
+   
+   This OEM product is supported by Altera Corporation
+     * Telephone Support
+       Call 800-800-3753 or 408-544-7000
+       
+       
+     * Email Support
+       [4]support@altera.com
+       
+       
+     * World-Wide-Web Support
+       [5]https://websupport.altera.com/
+       
+   
+   ______________________________________________________________________
+   
+  Index to Release Notes
+  
+     [6]Key Information
+   
+     [7]User Interface Defects Repaired in 5.5a
+   
+     [8]Verilog Defects Repaired in 5.5a
+   
+     [9]PLI Defects Repaired in 5.5a
+   
+     [10]VHDL Defects Repaired in 5.5a
+   
+     [11]FLI Defects Repaired in 5.5a
+   
+     [12]VITAL Defects Repaired in 5.5a
+   
+     [13]Mixed Language Defects Repaired in 5.5a
+   
+     [14]General Defects Repaired in 5.5a
+   
+     [15]Mentor Graphics DR's Repaired in 5.5a
+   
+     [16]Known Defects in 5.5a
+   
+     [17]Product Changes to 5.5a
+   
+     [18]New Features Added to 5.5a
+   ______________________________________________________________________
+   
+   Key Information
+     * You must recompile or refresh your models if you are moving
+       forward from 5.5 Beta's or 5.4x or earlier release versions. See
+       "Regenerating your Libraries" in the ModelSim Start Here Guide for
+       more information on refreshing your models.
+     * The Windows 95 platform will no longer be supported starting with
+       the next major ModelSim release, version 5.6
+     * The following lists the supported platforms:
+          + win32aloem - Windows 95, 98, Me, NT, 2000
+          + sunos5aloem - Solaris 2.6, 7, 8
+          + hp700aloem - HP-UX 10.2, 11
+   ______________________________________________________________________
+   
+   User Interface Defects Repaired in 5.5a
+     * If a Wave or List Window was open during a checkpoint, the
+       simulator crashed during a cold restore.
+     * The when command syntax now supports bit selects and part selects
+       of scalared verilog nets.
+       Vectored nets resulting from the use of the -fast switch require
+       the use of the 'event qualifier to avoid false activations when
+       other bits of the vectored net are changing.
+       For example, the following now works in vsim, but may produce
+       extra messages if the net remains vectored as a result of having
+       been compiled with -fast:
+       For a declaration : wire [15:0] a;
+       The command
+       when {a(3:1) = 3'h7} {echo "matched at time" $now}
+       will activate when those bits match and any other bits of the wire
+       "a" change.
+       To avoid this when using -fast, use the syntax:
+       when { a(3:1) = 3'h7 and a(3:1)'event} {echo "matched at time"
+       $now}
+     * If the restart command was renamed to mti_restart, it would cause
+       a kernalUnknownError error during excution. MTI does not
+       recommended this command name change.
+     * The scroll bar up and down arrow buttons on the Source Window
+       stopped working with large source files (>150,000 lines).
+     * Moving Verilog memories from the Variables Window to the Wave or
+       List Window did not get logged correctly if the process name was
+       included in the path.
+     * It is now possible to add slices of the results of virtual
+       functions to the Wave and List Windows. Events on bits other than
+       the chosen slice are filtered out in the Wave Window, but not in
+       the List Window.
+     * If Edit->Signal Breakpoints->Edit Breakpoint was selected from
+       either the Wave or Signals Windows, with the following entries:
+        Condition : sim:
+        Opt.Label: sim:
+        Command(s): echo "Break on sim:" ; stop
+       In the Edit When dialog box the always specifies the Condition: ,
+       even if an existing breakpoint had a different condition. This now
+       indicates the current condition expression.
+     * A crash was triggered from using the Compile dialog box. The crash
+       was intermittent and only affected the PE product.
+     * If the -env option on the examine command was executed "No Data"
+       was returned.
+     * The library view now displays all design units by default. The
+       previous default was to display only loadable design units. The
+       view mode can be toggled via the popup menu. A problem with the
+       compile order dialog was corrected. The dialog was also enhanced
+       to support many files without a performance degredation. The vlib
+       and vdir commands have been modified to support FPGA vendor
+       properties.
+     * The simulator intermittently crashed while zooming/scrolling the
+       Wave Window during active simulation.
+   ______________________________________________________________________
+   
+   Verilog Defects Repaired in 5.5a
+     * Compiling an event list having an expression involving parameters
+       resulted in an internal error.
+     * An incorrect .asm file was created when a UDP was refreshed from
+       5.4 to 5.5. This resulted in obsolete file format messages when
+       loading the design.
+     * Information collected about BLOCKs has changed from 5.4 to 5.5. As
+       a result, when refreshing a 5.4 library under these cases, the
+       vlog compiler must turn off some 5.5 optimization.
+     * In some cases, Verilog casex and casez statements were not
+       optimized correctly, resulting in default branches being taken
+       erroneously. Incorrect optimizations occurred when at least one
+       pattern could be disambiguated from all other patterns on the
+       basis of certain bits, leaving at least one bit position with X
+       (or Z) values.
+     * The PATHPULSE statement in SDF allow explicit specification or
+       omission of the in_out_path argument. vsim did not handle the
+       latter (see example below) and that caused a segmentation
+       violation. This is fixed.
+( CELL
+    ( CELLTYPE "CTS10" )
+    ( INSTANCE test_inst )
+    (DELAY
+        ( ABSOLUTE
+            ( IOPATH A Y ( 10.000:10.000:10.000 ))
+        )
+        (PATHPULSE ( 0 ) )
+    )
+)
+     * Using the +multisource_int_delays switch could cause a crash when
+       the load port in the SDF annotation was not driven by the source
+       port.
+   ______________________________________________________________________
+   
+   PLI Defects Repaired in 5.5a
+     * A defect was fixed in vpi_get_delays() for vpiModPath and vpiTchk
+       objects where using vpiScaledRealTime either gave invalid results
+       or crashed.
+     * While using vpi_iterate() a null pointer dereference could occur
+       when iterating on vector ports.
+   ______________________________________________________________________
+   
+   VHDL Defects Repaired in 5.5a
+     * Use of operators or functions from the package STD_LOGIC_ARITH,
+       STD_LOGIC_SIGNED, and STD_LOGIC_UNSIGNED, returned incorrect
+       values if used in the return statement of a subprogram.
+       This problem occurred when the return statement was either:
+          + a qualified expression or
+          + a type conversion and the operator/function occurred
+            immediately within the qualified expression or type
+            conversion.
+       For example,
+       return std_ulogic_vector( a + b); -- this statement shows the
+       defect
+       return a+b; -- this statement does not show the defect
+     * The examine command sometimes returned incorrect results when
+       examining the value of a std_logic_vector (also signed and
+       unsigned) type function argument where that argument in the call
+       to the function was an expression involving std_logic_arith
+       functions that return vectors. Simulation results were not
+       affected.
+     * In ModelSim 5.5 and all previous releases, vcom erroneously
+       considered a slice or single bit of a constant to be locally
+       static. This has been corrected for 5.5a.
+       For example:
+       constant A : std_logic_vector(3 downto 0) := "1100";
+       alias Addr : std_logic_vector(1 downto 0) is A(1 downto 0);
+       alias Xyz : std_logic is A(2);
+       constant B : std_logic_vector(2 downto 1) := A(2 downto 1);
+       constant C1 : std_logic := A(3);
+       Addr, Xyz, B and C1 are not locally static.
+       The VHDL compiler performs checks for the usage of such locally
+       static expressions in certain constructs. The default behavior of
+       vcom has been changed for 5.5a.
+         1. The choice in a case statement must be a locally static
+            expression. This condition produces a compiler WARNING by
+            default (pre-5.5a gave an ERROR). If the '-nocasestaticerror'
+            vcom switch is specified, the WARNING message is suppressed.
+         2. An array aggregate with multiple choices must have a locally
+            static others choice. This condition produces a compiler
+            WARNING by default (pre-5.5a gave an ERROR). If the
+            '-noothersstaticerror' vcom switch is specified, the WARNING
+            message is suppressed.
+       A '-pedanticerrors' vcom switch has been added in 5.5a. If this
+       switch is specified, the '-nocasestaticerror' or
+       '-noothersstaticerror' settings are ignored, and conditions 1 and
+       2 above are treated as ERRORs.
+   ______________________________________________________________________
+   
+   FLI Defects Repaired in 5.5a
+   ______________________________________________________________________
+   
+   VITAL Defects Repaired in 5.5a
+   ______________________________________________________________________
+   
+   Mixed Language Defects Repaired in 5.5a
+     * The VHDL compiler issued an "incompatible mode" error if the VHDL
+       component port mode was "buffer" and the corresponding Verilog
+       port mode was "out".
+   ______________________________________________________________________
+   
+   General Defects Repaired in 5.5a
+     * When using the Windows Default printer, the ModelSim setup options
+       (e.g. orientation) were not used unless the user opened the
+       printers Properties page. If the printer was not the Windows
+       Default printer, the setup options were applied.
+     * There was a problem in postscript printing where it produced only
+       a printout of the grid; no waveforms, no time line, no title.
+       An internal Tcl error caused the printing routines to use a font
+       size of 0 and consequently not print anything with text since the
+       waveform height is based on text height, etc.
+       The reason for the Tcl error is not exactly clear; it may have
+       been caused by a bad entry in the PrefPostscript array used for
+       mapping screen fonts to Postscript fonts. In any event, the
+       printing routines now fall back to Helvetica 12 if there is any
+       problem resolving which font to use for printing.
+     * This was a ModelSim PE only problem. Typing "vcd2wlf" at the
+       Modelsim (or VSIM) command prompt produced the error:
+       "# channel transcript1 wasn't opened for writing"
+       There were two issues:
+          + vcd2wlf is not a Modelsim command, but a shell command
+          + Modelsim attempted to execute shell commands if no Tcl
+            command was found, in PE only, and it ran into a problem with
+            the stdin/stdout streams.
+       The shell commands "vcd2wlf", "wlf2log", and "tssi2mti" have been
+       added as ModelSim commands as well so that Windows users don't
+       have to open a DOS Prompt to execute these programs.
+       Furthermore, the behavior of executing shell commands if no
+       matching Tcl command was found has been fixed to work correctly
+       vis-a-vis stdin/stdout streams. The feature has also been enabled
+       for ModelSim SE.
+       This feature can be disabled by the command "set auto_noexec 1"
+       and subsequently re-enabled via "unset auto_noexec" (The command
+       "set auto_noexec 0" will do nothing.)
+     * Bad machine code was generated for large modules or architectures
+       in some cases. This occurred only when the OS allocated memory in
+       an unexpected manner. The resulting behavior was that some code
+       was skipped and/or the Variables Window showed an incorrect
+       context.
+     * vcd2wlf was in some cases creating corrupted .wlf files on all
+       platforms.
+     * ModelSim PE was not able to auto-refresh libraries that were
+       previously compiled using ModelSim SE with the "-fast" switch.
+     * The simulator crashed when opening more than one dataset if the
+       datasets where not from the same design.
+   ______________________________________________________________________
+   
+   Mentor Graphics DR's Repaired in 5.5a
+     * DR297263 - ModelSim detects a fatal exception at run time caused
+       by dereferencing a NULL access type, or when a divide by zero
+       occurs. On ModelSim SE 5.5 win32, this caused the simulator to
+       crash.
+   ______________________________________________________________________
+   
+   Known Defects in 5.5a
+     * In the Project Compiler Settings dialog box, the text "Exclude
+       File from Build" runs into the text "Compile to library:"
+     * A virtual signal containing a verilog bit is expanded within a
+       signals window. Double clicking on this verilog bit to invoke a
+       view declaration does not bring up the source window. If the
+       source window is already opened, it does not highlight this
+       signal.
+     * On Win32 platforms when using Mentor Graphics Licensing,
+       inappropriate queueing may take place when more than one license
+       feature could fulfill a request (e.g., When a VHDL simulator
+       license is requested, the user may get queued for a qhsimvh when
+       there is an msimhdlsim available). The workaround in GUI mode is
+       to cancel the queueing dialog and then the available feature will
+       be checked out. The only workaround in command line or batch mode
+       is to invoke with the "-lic_noqueue" switch.
+     * Virtual signals which are concatenation of a signal from a view
+       dataset and a sim dataset show "-No Data-" in the Signals Window
+       even after simulation.
+     * Virtuals concatenations which contain a virtual constant always
+       display a value, even when non-constant children are "-No Data-".
+       For example:
+       virtual signal {'1' & clk & prdy} foo
+     * No waves are displayed in the Wave Window for virtual constants or
+       virtual functions that are children of virtuals.
+     * In the Source Window select Edit > Find
+       The Find dialog box comes up on top of the Source Window. If you
+       enter some text and hit Find Next and then move the Find dialog
+       box out of the way, the text that was found is not highlighted.
+       Highlighting appears to happen only when the next occurrence is
+       found and the Find dialog box is not covering it.
+     * In the compare wizard, an opened dataset and a sim dataset was
+       specified to be compare started.
+       Simulation signals had been logged but no simulation run was done
+       yet. Also, the button "Update after simulation run" is NOT
+       checked.
+       On clicking the "Compute Diffs Now" button in the wizard, This
+       message was given "Null time range for signal compare". This
+       message was not obvious. Maybe the message can be improved to
+       "Cannot compare run because No simulation data available yet"
+       Now I run 500. If I do a compare info command now, this message is
+       given: "No comparison differences" This message was misleading.
+       Does it mean my comparisons were all matches? Shouldn't it be "No
+       available compare data, please do a compare run or compare update
+       first"
+       I had not done a compare run or compare update, so there should be
+       no compare results or data. The Wave Window is correct at this
+       point, the compare signal does not show any compare result.
+     * There is an inconsistency in how the path separator works when
+       parsing commands. Given that the path separator in the example
+       below is "/ ".top.clk should work.
+          echo $PathSeparator
+              # /
+             exa /top/clk
+             # 1
+              exa /clk
+              # 1
+              exa clk
+             # 1
+              exa .top.clk
+              # 1
+             exa .clk
+             # evaluating expression ".clk"
+            # No object found matching clk in context /
+            # Item '.clk' not found
+     * This bug also exists in 5.4e. A virtual signal foo is defined.
+       checkpoint command is issued. Then, virtual count gives a count
+       of 0. Shouldn't it be 1?
+       Nothing is saved during virtual save command. The virtual count
+       and save commands before the checkpoint give the correct expected
+       results. Also virtual show and virtual describe foo after the
+       checkpoint give the correct expected results. virtual count and
+       save are not working correctly.
+     * Issue with Source Window
+       If a src file is in DOS format (with CONTROL M's), it appears as
+       double-spaced in the Source Window. This messes up view
+       declaration functionality, breakpoints functionality, Process
+       Window functionality.
+     * Create a List Window with some signals, choose Prop > Display
+       Props, select the Triggers page, click on Trigger Gating:
+       Expression and press the Use Expression Builder button.  Select a
+       signal in the List Window and press the Insert Selected Signal
+       button in the Expression Builder.  Nothing happens. The selected
+       signal should be added to the expression.
+     * When single-stepping in a .coverage_source window, as long as the
+       context stays within the current file the coverage numbers can be
+       seen to increment with each step. If a step causes another source
+       file to be brought up, then the coverage numbers in the first
+       column are all screwed up. The only way to fix them is to click on
+       the name of the current source file in the coverage_summary
+       window, but even this does not always work.
+     * In some cases, redhat 6.0 did not have coverage for the entire
+       source file. There is no problem with redhat 6.1, 6.2 and 7.0.
+     * List Window scrolling problems
+          + When using the Find dialog box to find signals, when the next
+            signal is outside of what is currently showing in the List
+            Window, the window is not scrolled to show the next item
+            found.
+          + If you do a find to the left and the search goes past the
+            beginning of the list to wrap around to the end of the list
+            and there's a lot of stuff in the list window that is out of
+            view, then the List Window scrolls right only one page even
+            though that does not bring the next selected item into view.
+          + When doing a search forward on an item's values, the next
+            line to match is scrolled to be the top line but the scroll
+            bar stays the full length of the scroll bar region.  (This is
+            in a List Window where there aren't very many lines of data.)
+          + The documentation for the List Window says that the up and
+            down arrow keys are supposed to move the line selection up or
+            down one line.  The current behavior is that the up and down
+            arrow keys behave exactly the same as the TAB and shift-TAB
+            keys (searches for next transition).
+     * List Window Marker problems
+          + If I add a bunch of signals to the List Window then select
+            Markers > Add Marker with nothing selected in the List
+            Window, then the 2nd list line is highlighted (?).  If I then
+            click on another line then no marker outline is left on the
+            supposedly added marker line.
+          + If I click on some line and do Markers > Add Marker then the
+            line I had selected is marked with an outline but the second
+            list line is highlighted(!).
+          + With a marker added on a particular line, if I then click on
+            various lines in the List Window then the marker outline
+            occasionally moves to some other line (usually the previously
+            selected line). Markers don't stay put.
+     * The List Signal Search dialog does not always display the name of
+       the selected signal.  Names of the format /top/signame do not
+       display.  Names of the format signame do.  If I select multiple
+       signals of the first format, all I see are commas in the Signal
+       Name(s) box.
+     * Loading a tcl shared library fails on rs64.
+       ERROR: couldn't load file " testload.sl": readExports: bad magic
+     * Compare commands are Wave Window specific.
+       In one Wave Window, add some compare signals Compare > Run to
+       generate some data. In a new wave window, add some other compare
+       signals with some other criteria Compare > Run in this new window.
+       The output of the Compare > Differences > Show command gives data
+       for both runs. I would think the compare information is Wave
+       Window specific since the two windows I have are comparing signals
+       with different criteria. Also, the compare (see -prev -next
+       buttons) behaves as if both runs are the same.
+       That is, if I keep doing -next, the DIFF report will take me from
+       one window and jumps to the second. Other commands that are not
+       window specific are:
+        Compare > Differences > Save
+            Compare > Differences > Write Report...
+            Compare > Rules > Show
+            Compare > Rules > Save
+       One behavior which was consistent with what I expect were commands
+       like Compare > Differences > Clear. They only cleared the compare
+       information in the active Wave Window.
+     * In the Projects source area, Windows 95 drag and drop from windows
+       explorer does not work.
+     * This problem only affects Windows environment. When trying to
+       compile a source file within ModelSim, you may get a dialog
+       message similar to below:
+       "foo.vhd" was modified after it was compiled
+       Compiled at Wed Apr 04 14:53:38 Pacific Daylight Time 2001
+       (986421218),
+       file modified Wed Apr 04 13:53:38 Pacific Daylight Time 2001
+       (986417618)
+       This is a problem due to a difference in time reporting between
+       single and multi threaded libraries on the Windows platform. The
+       compiler uses one, and the GUI uses the other, resulting in a
+       disagreement in the current time.
+       Please disregard this dialog box. After you OK the dialog box for
+       a particular file, it should not appear again for that file in the
+       current ModelSim session.
+     * Vish crashed when the following sequence of commands were used in
+       a compare session. The crash occurred at compare end.
+       vsim design
+       view signals
+       add wave some_signals
+       run some_time
+       dataset open gold.wlf gold
+       add wave gold:/signal_foo
+       compare start gold sim
+       compare add -wave -tolL {0 ns} -tolT {0 ns} /signal_foo
+       compare run
+       compare end
+     * Only in win32 and linux platforms, the output of a vlog -refresh
+       command prints out garbage characters in the following text.
+       -- Scanning library directory 'x&'
+   ______________________________________________________________________
+   
+   Product Changes to 5.5a
+     * There is a change in the default behavior on how regions in a
+       design are saved in the WLF file. In 5.5a, only the hierarchical
+       regions containing the logged signals are saved.
+       The user can toggle between this default and saving all regions in
+       a design using the WLFSaveAllRegions variable in the modelsim.ini
+       file, or from the Simulation Options dialog on the WLF Files tab.
+       This change affects the current behavior in the following ways:
+         1. Some regions in the design may not exist in -view mode.
+         2. The WLF file in large designs with few logged signals may be
+            significantly smaller. (In one test case there were only 25
+            logged signals which had a few hundred thousands of event
+            data but 40Meg of region information.)
+   ______________________________________________________________________
+   
+   New Features Added to 5.5a
+     * VPI function vpi_iterate is now supported for net objects.
+
+References
+
+   1. http://www.model.com/products/release.asp
+   2. http://www.model.com/support/documentation.asp
+   3. http://www.model.com/support/default.asp
+   4. mailto:support@altera.com
+   5. https://websupport.altera.com/
+   6. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#keyinfo
+   7. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#uidefects
+   8. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#verilogdefects
+   9. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#plidefects
+  10. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#vhdldefects
+  11. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#flidefects
+  12. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#vitaldefects
+  13. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#mixeddefects
+  14. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#generaldefects
+  15. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#mgcdefects
+  16. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#knowndefects
+  17. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#productchanges
+  18. file://localhost/s/mod/nightly/dev/src/misc/altera_oem/rlsnotes.html#newfeatures

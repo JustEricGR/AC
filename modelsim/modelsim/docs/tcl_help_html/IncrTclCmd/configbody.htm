@@ -1,0 +1,113 @@
+<HTML><HEAD><TITLE>{[incr Tcl]} - configbody manual page</TITLE></HEAD><BODY>
+<H3><A NAME="M2">NAME</A></H3>
+configbody - change the &quot;config&quot; code for a public variable
+<H3><A NAME="M3">SYNOPSIS</A></H3>
+<B>configbody </B><I>className</I><B>::</B><I>varName body</I><BR>
+<H3><A NAME="M4">DESCRIPTION</A></H3>
+The <B>configbody</B> command is used outside of an <B>[incr&nbsp;Tcl]</B>
+class definition to define or redefine the configuration code
+associated with a public variable.  Public variables act like
+configuration options for an object.  They can be modified
+outside the class scope using the built-in <B>configure</B> method.
+Each variable can have a bit of &quot;config&quot; code associate with it
+that is automatically executed when the variable is configured.
+The <B>configbody</B> command can be used to define or redefine
+this body of code.
+<P>
+Like the <B><A HREF="../IncrTclCmd/body.htm">body</A></B> command, this facility allows a class definition
+to have separate &quot;interface&quot; and &quot;implementation&quot; parts.
+The &quot;interface&quot; part is a <B><A HREF="../IncrTclCmd/class.htm">class</A></B> command with declarations
+for methods, procs, instance variables and common variables.
+The &quot;implementation&quot; part is a series of <B><A HREF="../IncrTclCmd/body.htm">body</A></B> and
+<B>configbody</B> commands.  If the &quot;implementation&quot; part
+is kept in a separate file, it can be sourced again and
+again as bugs are fixed, to support interactive development.
+When using the &quot;tcl&quot; mode in the <B>emacs</B> editor, the
+&quot;interface&quot; and &quot;implementation&quot; parts can be kept in the
+same file; as bugs are fixed, individual bodies can be
+highlighted and sent to the test application.
+<P>
+The name &quot;<I>className</I><B>::</B><I>varName</I>&quot;
+identifies the public variable being updated.
+If the <I>body</I> string starts with &quot;<B>@</B>&quot;, it is treated
+as the symbolic name for a C procedure.  Otherwise, it is
+treated as a Tcl command script.
+<P>
+Symbolic names for C procedures are established by registering
+procedures via <B>Itcl_RegisterC()</B>.  This is usually done
+in the <B>Tcl_AppInit()</B> procedure, which is automatically called
+when the interpreter starts up.  In the following example,
+the procedure <TT>My_FooCmd()</TT> is registered with the
+symbolic name &quot;foo&quot;.  This procedure can be referenced in
+the <B>configbody</B> command as &quot;<TT>@foo</TT>&quot;.
+<PRE>int
+<A HREF="../TclLib/AppInit.htm">Tcl_AppInit</A>(interp)
+    <A HREF="../TclLib/Interp.htm">Tcl_Interp</A> *interp;     /* Interpreter for application. */
+{
+    if (Itcl_Init(interp) == TCL_ERROR) {
+        return TCL_ERROR;
+    }
+
+    if (Itcl_RegisterC(interp, &quot;foo&quot;, My_FooCmd) != TCL_OK) {
+        return TCL_ERROR;
+    }
+}</PRE>
+<H3><A NAME="M5">EXAMPLE</A></H3>
+In the following example, a &quot;File&quot; class is defined to represent
+open files.  Whenever the &quot;-name&quot; option is configured, the
+existing file is closed, and a new file is opened.  Note that
+the &quot;config&quot; code for a public variable is optional.  The &quot;-access&quot;
+option, for example, does not have it.
+<PRE>class File {
+    private variable fid &quot;&quot;
+
+    public variable name &quot;&quot;
+    public variable access &quot;r&quot;
+
+    constructor {args} {
+        eval configure $args
+    }
+    destructor {
+        if {$fid != &quot;&quot;} {
+            close $fid
+        }
+    }
+
+    method get {}
+    method put {line}
+    method eof {}
+}
+
+body File::get {} {
+    return [gets $fid]
+}
+body File::put {line} {
+    puts $fid $line
+}
+body File::eof {} {
+    return [::eof $fid]
+}
+
+configbody File::name {
+    if {$fid != &quot;&quot;} {
+        close $fid
+    }
+    set fid [open $name $access]
+}
+
+#
+# See the File class in action:
+#
+File x
+
+x configure -name /etc/passwd
+while {![x eof]} {
+    puts &quot;=&gt; [x get]&quot;
+}
+delete object x</PRE>
+<H3><A NAME="M6">KEYWORDS</A></H3>
+<A href="../Keywords/C.htm#class">class</A>, <A href="../Keywords/O.htm#object">object</A>, <A href="../Keywords/V.htm#variable">variable</A>, <A href="../Keywords/C.htm#configure">configure</A>
+<HR><PRE>
+<A HREF="../copyright.htm">Copyright</A> &#169; 1993-1998 Lucent Technologies, Inc.
+<A HREF="../copyright.htm">Copyright</A> &#169; 1995-1997 Roger E. Critchlow Jr.</PRE>
+</BODY></HTML>

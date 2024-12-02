@@ -1,0 +1,372 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_assert_timer_assertions( 
+				   active,                // activation condition
+				   clock,                 // clock signal
+				   reset,                 // synchronous reset signal
+				   areset,                // asynchronous reset signal
+				   
+				   zivar,                   // signal to be timed
+				   min,                   // min no. of clock cycles
+				   max,                   // max no. of clock cycles
+				   
+				   min_check,             // minimum time check enable
+				   max_check,             // maximum time check enable
+				   
+				   min_fire,              // min check fire signal
+				   max_fire,              // max check fire signal
+				   min_gt_max_fire,      // min greater than max fire signal
+
+				   assertions_checked,    // assertions checked statistic
+				   shortest_assertion,    // shortest assertion statistic
+				   longest_assertion,      // longest assertion statistic
+                                   asserted_for_min_count,
+                                   asserted_for_max_count,
+				   support,
+				   fire_count
+				   );
+
+   // module level pragmas to specify tags for this checkerware type
+   
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+   parameter MIN_WIDTH_DEFAULT = 1;
+   parameter MAX_WIDTH_DEFAULT = 32;
+   parameter MIN_SPECIFIED = 0; 
+   parameter MAX_SPECIFIED = 0; 
+   parameter MIN_WIDTH = MIN_WIDTH_DEFAULT;
+   parameter MAX_WIDTH = MAX_WIDTH_DEFAULT;
+
+   parameter MIN_IS_CONST = 0; 
+   parameter MIN_CONST_VAL = 1; 
+   parameter MAX_IS_CONST = 0; 
+   parameter MAX_CONST_VAL = 1; 
+   parameter MAXINT = 2147483647; // 2^32 - 1
+   parameter MINI = (MIN_IS_CONST) ? MIN_CONST_VAL : 1;
+   parameter MAXI = MAX_IS_CONST ? MAX_CONST_VAL : MINI;
+   parameter MAX_DUMMY = MAXI;
+   parameter SMALLSIZE = 31;
+
+   parameter CNT_WIDTH = MAX_WIDTH > MIN_WIDTH ? MAX_WIDTH : MIN_WIDTH;
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   input active;               
+   // help "Activation condition"
+   input clock;                
+   // help "Posedge clock signal name"
+   input areset;               
+   // help "Active high asynchronous reset signal name"
+   input reset;                
+   // help "Active high synchronous reset signal name"
+
+   // required user specified inputs
+   input zivar;                  
+
+   input [MIN_WIDTH-1:0] min;
+   input [MAX_WIDTH-1:0] max;
+
+   // help "Signal to check."
+
+   wire [31:0] mini = MINI;
+   wire [31:0] maxi = MAXI;
+
+   // by default these are off:
+
+   input min_check; 
+   input max_check; 
+
+   parameter MIN_CHECK_ON = 0; 
+   parameter MAX_CHECK_ON = 0; 
+
+   // Outputs:
+
+   // Fire signals
+   output min_fire;
+   output max_fire;
+   output min_gt_max_fire;
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [2:0] fire_count_tmp;
+
+
+   // Statistics signals
+   output [STAT_CNT_WIDTH-1:0] assertions_checked;
+   output [63:0] shortest_assertion;
+   output [63:0] longest_assertion;
+   
+   // the assertions for this checker.  
+   reg min_fire;
+   reg max_fire;
+   reg min_gt_max_fire;
+
+   // internal signals for this checker
+   reg last_var;
+   reg [MIN_WIDTH-1:0] last_min;
+   reg [MAX_WIDTH-1:0] last_max;
+   wire [MAX_WIDTH-1:0] final_max_value;
+   
+   reg assert_timer_started;
+
+`ifdef ZI_FOR_FEV
+   reg [CNT_WIDTH:0] assertCount;
+`else
+   reg [31:0] assertCount;
+`endif
+
+   integer assertCount_for_stats;
+   reg first_assert_completed;
+       
+   // Timer statistics info
+   reg [STAT_CNT_WIDTH-1:0] timerStartCount;
+   integer shortestAssertTime;
+   integer longestAssertTime;
+   wire xz_detected = (((^zivar) === 1'bx) || 
+		       ((^min) === 1'bx) || 
+		       ((^max) === 1'bx));
+
+   output [STAT_CNT_WIDTH-1:0] asserted_for_min_count;
+   output [STAT_CNT_WIDTH-1:0] asserted_for_max_count;
+ 
+   reg [STAT_CNT_WIDTH-1:0] asserted_for_min_count;
+   reg [STAT_CNT_WIDTH-1:0] asserted_for_max_count;
+
+   integer min_within_range;
+   integer max_within_range;
+ 
+   reg [STAT_CNT_WIDTH-1:0] min_within_range_count;
+   reg [STAT_CNT_WIDTH-1:0] max_within_range_count;
+
+
+`ifdef QVL_COVER_ON
+   wire [STAT_CNT_WIDTH-1:0] assertions_checked;
+`endif
+   wire [63:0] shortest_assertion;
+   wire [63:0] longest_assertion;
+   wire [31:0] assertCountInt;
+   wire [31:0] assertCounteqMAX;
+   wire [31:0] assertCountlsMIN;
+
+`ifdef QVL_ASSERT_ON
+  wire max_fire_combo;
+  wire min_fire_combo;
+  wire min_gt_max_fire_combo;
+`endif
+
+`ifdef QVL_COVER_ON
+   assign assertions_checked = timerStartCount;
+`endif
+   assign shortest_assertion = shortestAssertTime;
+   assign longest_assertion = longestAssertTime;
+   assign assertCountInt = get_int_value(assertCount);
+   assign assertCounteqMAX = is_equal(assertCount,last_max);
+   assign assertCountlsMIN = is_less(assertCount,last_min);
+
+`protected
+
+    MTI!#[KXk>Bb"1W_l!rXwZrn<VG!n$xW1Tr^igB{[iN--u[l3j<^m$CA,J'=>E_D1QieA;;Z{^u*
+    ZQW;+I#{X+2vWKv\C>Y]pzuN%-^okYv{3Ld)#[?z-'W$l,io~X*W+rXDln=;E#\D&mY;^U$]\0!}
+    7$7bY$2sR!x]HDia*mX7t;7Tu^pTDlmB1Iu}K_=uu5J>ZBJvV\!5<+Y@[[QeY2V7i%']<D@j\$j@
+    .e@2k7;ew:^CY>^!],#aQ2lj>sev=#A,'<i}AG]3I}X=Y!GO@zKUjk^XA3,nJR~7+Vm\m<VJu*IK
+    <?=$B$HCF$@Z#&V%>lZ~l*wQO5\Z;,[7^D]rOr=@naKT}uvs,\e!pC1Q%b+$ZXcn[}3$,5=]~]$@
+    <~Hl,E7BpsoC?Apzz~Cp~Ra~n1${=!u]]?eB_T<WaB*AoDa.l5w17]x]ja{3ciAG^"rV-^[RR[c!
+    apWiQ?}H$T<egT&>Dn?#_i[aBD2'G+5^$?uO9?j7ud$,>k\<]$!*3@Gi<rIXK]$a!WTO#^,vAwN$
+    Rak[<Q$GEkweYkVG_s?E#=<(ju\>_V;{rr5AyfX7?<U_u${UODTeA$=sn?V1W;T}ka\w~?+XB#=@
+    mx{HO#7IYTT>+KFKwX*x}KA)Us2#7rae5zYi}U!G1{Az'W][hjGCYv,YD!x~2iD@n*WAx*57KI[Q
+    *p*p]YXT#qIPg:Im$jXeGO8--O#]3-~7H}H9o*-$lZW-=eO,^A{@?U,7(Ilx}'@<BaVBi2\Y@VL8
+    p}ph~ppJ_Q&Y7k#{zipV[Tncg.1U+k*-]!mA$X1lZ=y-'o;}7O^yDD?~CH1*[>7+#U7jy}We{se6
+    C@V;#}Ip*-vuI|'@_uG_xQ<va}(kOAvvH;kE\*?OxRHE}^?oOox/$zj,G_,-=@mYYzmIv-U=+aC'
+    CoZla[iuF}61=3,^#';ld9A$_er~!2ar$^lOEU$>32'{<O"%In5-hkVY?Pr#JwnlWlF5Zn^N_]V\
+    xI!X1zVrb[EJ'?*z_oXm2U1<v1]@O_xnx37i!aT37Y+>pt)zAG~{<-sxx*V_P+HZ;uG-oM1,ueVU
+    W\w\Te}TwlGprHi1j,[kuH9z$_s$J]DVJe{r+VR[aoa$)*ws>|Gj1wX^o!jY;2YwVYw'<?}h+BX^
+    aR@,[!m@|~aVmPglwQ#I2YxWeKE}VVp[Kp_!Vze-aDCv\,{7w_x1KT}!s?xRVEA]T@D{A[>1$TA'
+    [?]R;~7\JTQ^U{1n7HC*Z;A<Dk}^!@+q]$=iBw]Iz[zo}*IB,OkT{To]EW$Ak\7{o?p^uT7@anm>
+    IXuE,Xu2<rDucQDna:)w'li#lxAinY@?A+!C;I[@$,ip?,\jeQQ($GWGxR]k=BWu#=}xRxXo!DA+
+    =*G3R*nVa_,ZVRjee5eaz\Q1oHY,-I^C+s@C[kOs[HnJ]Ria7+E[T{Ee2r\+ZTA>5~@TsmZJGvlH
+    d}moI'UnKjeZEDZwRulzYCWev1@@p?<T@TpX}=~}zxv\Z5m}=PZY#W,p]EE~sx=kB!e_mZsODKr3
+    +A+p[~H*GT_flo>p25eneS'iTQd-w,+eJ^;ORi_Ymj?-6c~OElp1mW!rnen^mH['wW?{>1YT,'p;
+    !_j~;aRksA\XXV'a+Q,j,Uo?I@<U]7U\JC\szJB3ll{1E~}_A~jY\]R3-C-}@suY'o\IlZ1;riyV
+    s>E1,uu-UYk1_1e7wYR~'Bv;O:W'#vOu$x}kwJ$#[^<lo21wBisZQ~AIpa@D{^X7<3ra!#Ilkk$n
+    RC1*nJE{!*V_2JRV13[u+wlj{r1TjI)-7/3^;~{wBG_@]U*$Jur#{*Q*mAeBi_#ADZ'{,+<>xZ}H
+    ]<IG$Top=Wqv_u7?'T}HV;mBXJGnOp=&Y-!]BndR'?azsE[s7C#o6=waY}r_U1_}olo''cRu+*Z5
+    7~,U_5&-D$Y"}isD7i$KHpA}y0|NQR?R[sZHPDGm?TaH7]5#rHQWKQr,I
+`endprotected
+`ifdef QVL_ASSERT_ON
+
+  assign max_fire_combo = (reset === 1'b0) && (areset === 1'b0) &&
+                          (active === 1'b1) && (xz_detected !== 1'b1) &&
+                          (max_check && (assert_timer_started && 
+                          (is_greater(assertCount,last_max) || 
+                           is_equal(assertCount,last_max)) && zivar === 1'b1));
+
+  assign min_fire_combo = (reset === 1'b0) && (areset === 1'b0) &&
+                          (active === 1'b1) && (xz_detected !== 1'b1) &&
+                          (min_check && ((zivar===1'b0) && assert_timer_started
+                           && assertCountlsMIN));
+
+  assign min_gt_max_fire_combo = (reset === 1'b0) && (areset === 1'b0) &&
+                          (active === 1'b1) && (xz_detected !== 1'b1) &&
+                          ((last_var === 1'b0) & (zivar === 1'b1)) &&
+                          ((MIN_SPECIFIED || MAX_SPECIFIED) && 
+                            (min > final_max_value));
+`endif  
+`protected
+
+    MTI!#xuza1lrZ5V-^p?lx'VlVx}Wmepx_o,Zk=@QeI9"\*R1{rBxE7crp]iD5zQFLo{V;C@Vil;W
+    V5Y2u>Te?z,mx2]IH1TZXunjpQ?U[wa]z<Y\s]>A}VurE+-JpN2X_KBw;25}rk{w~->s}n=D#zr\
+    vocQlInl3a*7d@]8Q*!;[RzVU1!G.iX-B.}+]l72Rk7OIGjVH;Qg'ea_~r*r}wQU^moOEe^3OQ2C
+    ?o~>}iw[nT,m_$!e9UO'ZXEZ2IZa2l[RQ1?s\9"){Us['?Gr{YZ^U+;[zJIX^Xe\d\V#]RQBG~5V
+    HR!$D!-j_l>~n#E4'?Vu51s56>X<#I>K+pmAxJ{eJwj=JJl?RGZ_Z}Qa^,ZW=GxTVs}*?C*5-B5m
+    !No?{z*-vV:uTH#Ri5lXTs>AvJjVI?#R+,Q'oJ13{Rw=$2xwrzYoT!Jdm[osGK'+7K_Q-7*urI2{
+    mwCR-AGO8mU^>q$$A*}3RAGJG3R-;CEx72{w^'@lET%YxT!~[ZIC_<A[0wa-E=*DCX\A2W}m$UH'
+    }:v>HXUpA<M,v*KN]wJ7Q/il,rO*'<#Qlec-l#<U*E^jV*;P_mVzn[v_V!Iv*J2T\E-JjxR-3vYw
+    OT+OWT_j2\Zam{3pUQ]5ZR_Jt$@c73,zjEO^1&XBkC}#-p@oD[c}_{l'iHA72{_j#zr'<!*{naC#
+    \s2~s$JAe<U'X5W}HH=OK-}7^7XXe?X,Ra]W=v'vx{x'3V+^~pX=VZ>\>1pp\Rz/{U+J^~D}R7,u
+    l1r@Vz+Qm][p7d7,lj|kT2Ba^k{I2-=[r=uv?J*55e}VU~7I7E<X];[<aQ@_JOnh='#THT[}}xp{
+    $BYw_!p5}Q*nB^2p^U$Js/ABwlIY>H[J[WaU}^x_QW^pZ~@5o{Q\5XOCUYBXCY<Rapl_Z3o@*Z}X
+    !]Zr#xLeU>H3je[EmuT|1H*YKU1E@lro_@J~3-2ugA5?]^CwI'=!C+sB~g?}1#~}H7"GD!*o1p}h
+    {HG?rH{j!zeO*us#TXA$I#-nO![_tvu$TC[^s2*{E=>o{+exuuaux<E]p,j[=1xe1z-_zL1nn>{{
+    v$hveERD2~Cm-[5e2@*-C-Uz?GD-{*uhrYj[]]GDTxGvTB2prszspJwU]2xsqw+;^j7'{s;Qp!*s
+    '2>{7o1<Xs>A>m$*-CDx+Orppk[[lV5\j=<Zu2Az!J<p;s"Q$l7O+>~x<<D3wp}[7nA2Y#^-Gke$
+    KK_do;Y<Z'pv]oT^"k5x'~AUZT}QwiQ?1EuI2~UU#uA]TU[?X}W2GlQZ]I~U?,='iU5$T?'ip$vz
+    KO{Eo8k[DWRI<eQma<%?\Q1-$B@''DG|O-QUx0AV@u?Hx}z@uH[,~5$3}mV'\m2n$$G~+,moH^K]
+    B#lQAeGXB*%a'aCueW,nsmI=J-]VTAwXEeB,skruao=nHW\)){T;;xJ~kf,UKpD2_Iv5WuDxe^vB
+    #,x]l?lC+I]mso5E3x[~Oav=Wpd71JTYE!BXRv2Y#J5BaAwC!V^e=nKaX$n#aBC=mz7>e353}v*I
+    +>Wk=;C[uT?Cr{kDeD=<YU2rEWJ%}UZJ2=?z;I+UEXT-|%>}*Re;p>^@aD'**$,k$Z:s$Q*l#=#=
+    _[~Lo@}}k{]Y=*!C7BXJ0$ranX\HV]pEj{'~-]\a{0WGv1CJ,7Q77B,TBUj$$<7Z*-pQ-T7\[alU
+    ^[#+-R<RoiS5rAKpDv355}^jo^^rpvDvk*p}G~UCQz?a,EX#O!mO__?sa^K[aHQ-$Js/pwu=_Bs{
+    ]+1=ZBlZvTJWj>W~Wnn3LZ5YeYCv{z+5p1!$JO+'U@\p3o3AD,<}}F*>Gm'3JweE-J:3lwUUDl$Y
+    ~!73Qj3q$Iknp37zp1w{pl2*A51Bs(5kGzmXvX5je^K}vJYr=p\[>kW[Qj_a}5AIYTw=i-{_a\O1
+    !~Wz~uOO*{.GJQ[O2B^p5<v2Tw2x?CpHOl3;*Elz<=2B,mGpvJ?>xk[!=Ju+nlGfrwpEwUV*]O}@
+    _EsT>eQ2u_@rQOk@5=WKe^'@IW!EYXC_oJj#j=3V+o;mT+Vr<7$Y*W*5zcQ1v1>zxu2Yl]Er_nXo
+    ,zdvGa1R*R1UG*=al*GE-XIo3+<x;$o\1-[r7Ysf}uIuuvKI~==HwT~a{157ALp>ov]_D*A<mQOu
+    EHJz~Una[\irQa-e-K@oVoYenJFIh~BxB*}]2EG]Y@Qjs2O5;goYD];oI*W[mo-D,AFl<VI#sKe^
+    QUIJHX?[;xuYsi^$sTj&\5\I*x^*ava3!w=i*3X$tv}CrVeRnrm5T)aVJWLEOU7H_V3WCTYpKTEB
+    #X$L#ewa3+V]!QRR>a$>..KXV3+VC3CHr>zB2v{<K7?}^{e*B'<UO@jE{~e[lDFY;3n$<$Kv!<7Z
+    RT!7z17'GU[x^5GeT=!L@VppQ<=+bYe3\C~eroU~}$&lXWRzmQ>{A,3ws-{1^\>5-37uXYa]1jvv
+    H\3R}7m[\}I\waZYp'H5qAx>1:XH+-O5?jkA'A}oGpe]l~,uoDAHmU#_K2k\'isk~>*U;u_R#aOD
+    *C*CvJ^GS2<-z8$Zwu~,#{4m\X=nzHBIWj'jUrY3pZ]r!ZZmT3EXUTX\MOVY]eiZ1pvr_5#@I>U*
+    Kh^5XaV$^p,Bk$G}QR?wnz=2Av5}2~IC^Ej,;$eJBs>j'>Aa1wI~D>Jp@{P[XAau*m'B+n2Hj2@W
+    [iZYBi^qf~j2O;slX7/WBssjL{HDRAB5v,OY]9oVx-,7He"G*Y;M_D>w~EHeBV{-CT{k$n,QuD2v
+    e>J1&3[?7Gu\K~\ZW
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+   //Instance for MAX Violation.
+   //
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        if (MAX_SPECIFIED == 1)
+          begin : assert_timer_max_check
+            A_qvl_assert_timer_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_assert_timer_max_check"),
+                              .msg            ({msg,"Expression asserted for more than the maximum number of cycles."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MIN_SPECIFIED == 1)
+          begin : assert_timer_min_check
+            A_qvl_assert_timer_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_assert_timer_min_check"),
+                              .msg            ({msg,"Expression asserted for less than the minimum number of cycles."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+              end
+        if (MIN_SPECIFIED == 1 && MAX_SPECIFIED == 1)
+          begin : assert_timer_min_gt_max_check
+            A_qvl_assert_timer_min_gt_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_gt_max_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_assert_timer_min_gt_max_check"),
+                              .msg            ({msg,"Min value was greater than max value."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        if (MAX_SPECIFIED == 1)
+          begin : assume_timer_max_check
+            M_qvl_assert_timer_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (max_fire_combo)));
+          end
+        if (MIN_SPECIFIED == 1)
+          begin : assume_timer_min_check
+            M_qvl_assert_timer_min_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_fire_combo)));
+          end
+        if (MIN_SPECIFIED == 1 && MAX_SPECIFIED == 1)
+          begin : assume_timer_min_gt_max_check
+            M_qvl_assert_timer_min_gt_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (min_gt_max_fire_combo)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif
+`include "qvl_assert_timer_cover.svh"
+`qvlendmodule 

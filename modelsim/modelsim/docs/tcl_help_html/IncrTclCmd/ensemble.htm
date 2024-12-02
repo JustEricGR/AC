@@ -1,0 +1,166 @@
+<HTML><HEAD><TITLE>{[incr Tcl]} - ensemble manual page</TITLE></HEAD><BODY>
+<DL>
+<DD><A HREF="ensemble.htm#M2" NAME="L56">NAME</A>
+<DL><DD>ensemble - create or modify a composite command</DL>
+<DD><A HREF="ensemble.htm#M3" NAME="L57">SYNOPSIS</A>
+<DL>
+<DD><B>ensemble </B><I>ensName</I> ?<I>command arg arg...</I>?
+<DD>or
+<DD><B>ensemble </B><I>ensName</I> {
+<DD>    <B>part </B><I>partName args body</I>
+<DD>    <I>...</I>
+<DD>    <B>ensemble </B><I>partName</I> {
+<DD>        <B>part </B><I>subPartName args body</I>
+<DD>        <B>part </B><I>subPartName args body</I>
+<DD>    <I>...</I>
+<DD>    }
+<DD>}
+</DL>
+<DD><A HREF="ensemble.htm#M4" NAME="L58">DESCRIPTION</A>
+<DD><A HREF="ensemble.htm#M5" NAME="L59">WHAT IS AN ENSEMBLE?</A>
+<DD><A HREF="ensemble.htm#M6" NAME="L60">EXAMPLE</A>
+<DD><A HREF="ensemble.htm#M7" NAME="L61">KEYWORDS</A>
+</DL><HR>
+<H3><A NAME="M2">NAME</A></H3>
+ensemble - create or modify a composite command
+<H3><A NAME="M3">SYNOPSIS</A></H3>
+<B>ensemble </B><I>ensName</I> ?<I>command arg arg...</I>?<BR>
+or<BR>
+<B>ensemble </B><I>ensName</I> {<BR>
+    <B>part </B><I>partName args body</I><BR>
+    <I>...</I><BR>
+    <B>ensemble </B><I>partName</I> {<BR>
+        <B>part </B><I>subPartName args body</I><BR>
+        <B>part </B><I>subPartName args body</I><BR>
+    <I>...</I><BR>
+    }<BR>
+}<BR>
+<H3><A NAME="M4">DESCRIPTION</A></H3>
+The <B>ensemble</B> command is used to create or modify a composite
+command.  See the section <B>WHAT IS AN ENSEMBLE?</B> below for a
+brief overview of ensembles.
+<P>
+If the <B>ensemble</B> command finds an existing ensemble called
+<I>ensName</I>, it updates that ensemble.  Otherwise, it creates an
+ensemble called <I>ensName</I>.  If the <I>ensName</I> is a simple name
+like &quot;foo&quot;, then an ensemble command named &quot;foo&quot; is added to the
+current namespace context.  If a command named &quot;foo&quot; already exists
+in that context, then it is deleted.  If the <I>ensName</I> contains
+namespace qualifiers like &quot;a::b::foo&quot;, then the namespace path is
+resolved, and the ensemble command is added that namespace context.
+Parent namespaces like &quot;a&quot; and &quot;b&quot; are created automatically, as needed.
+<P>
+If the <I>ensName</I> contains spaces like &quot;a::b::foo bar baz&quot;, then
+additional words like &quot;bar&quot; and &quot;baz&quot; are treated as sub-ensembles.
+Sub-ensembles are merely parts within an ensemble; they do not have
+a Tcl command associated with them.  An ensemble like &quot;foo&quot; can
+have a sub-ensemble called &quot;foo bar&quot;, which in turn can have a
+sub-ensemble called &quot;foo bar baz&quot;.  In this case, the sub-ensemble
+&quot;foo bar&quot; must be created before the sub-ensemble &quot;foo bar baz&quot;
+that resides within it.
+<P>
+If there are any arguments following <I>ensName</I>, then they are
+treated as commands, and they are executed to update the ensemble.
+The following commands are recognized in this context:  <B>part</B>
+and <B>ensemble</B>.
+<P>
+The <B>part</B> command defines a new part for the ensemble.
+Its syntax is identical to the usual <B><A HREF="../TclCmd/proc.htm">proc</A></B> command, but
+it defines a part within an ensemble, instead of a Tcl command.
+If a part called <I>partName</I> already exists within the ensemble,
+then the <B>part</B> command returns an error.
+<P>
+The <B>ensemble</B> command can be nested inside another <B>ensemble</B>
+command to define a sub-ensemble.
+
+<H3><A NAME="M5">WHAT IS AN ENSEMBLE?</A></H3>
+The usual &quot;info&quot; command is a composite command--the command name
+<B><A HREF="../TclCmd/info.htm">info</A></B> must be followed by a sub-command like <B><A HREF="../IncrTclCmd/body.htm">body</A></B> or <B>globals</B>.
+We will refer to a command like <B><A HREF="../TclCmd/info.htm">info</A></B> as an <I>ensemble</I>, and to
+sub-commands like <B><A HREF="../IncrTclCmd/body.htm">body</A></B> or <B>globals</B> as its <I>parts</I>.
+<P>
+Ensembles can be nested.  For example, the <B><A HREF="../TclCmd/info.htm">info</A></B> command has
+an ensemble <B><A HREF="../TclCmd/info.htm">info namespace</A></B> within it.  This ensemble has parts
+like <B>info namespace all</B> and <B>info namespace children</B>.
+<P>
+With ensembles, composite commands can be created and extended
+in an automatic way.  Any package can find an existing ensemble
+and add new parts to it.  So extension writers can add their
+own parts, for example, to the <B><A HREF="../TclCmd/info.htm">info</A></B> command.
+<P>
+The ensemble facility manages all of the part names and keeps
+track of unique abbreviations.  Normally, you can abbreviate
+<B><A HREF="../TclCmd/info.htm">info complete</A></B> to <B><A HREF="../TclCmd/info.htm">info comp</A></B>.  But if an extension adds the
+part <B><A HREF="../TclCmd/info.htm">info complexity</A></B>, the minimum abbreviation for <B><A HREF="../TclCmd/info.htm">info complete</A></B>
+becomes <B><A HREF="../TclCmd/info.htm">info complet</A></B>.
+<P>
+The ensemble facility not only automates the construction of
+composite commands, but it automates the error handling as well.
+If you invoke an ensemble command without specifying a part name,
+you get an automatically generated error message that summarizes
+the usage information.  For example, when the <B><A HREF="../TclCmd/info.htm">info</A></B> command
+is invoked without any arguments, it produces the following error
+message:
+<PRE>wrong # args: should be one of...
+  info args procname
+  info body procname
+  info cmdcount
+  info commands ?pattern?
+  info complete command
+  info context
+  info default procname arg varname
+  info exists varName
+  info globals ?pattern?
+  info level ?number?
+  info library
+  info locals ?pattern?
+  info namespace option ?arg arg ...?
+  info patchlevel
+  info procs ?pattern?
+  info protection ?-command? ?-variable? name
+  info script
+  info tclversion
+  info vars ?pattern?
+  info which ?-command? ?-variable? ?-namespace? name</PRE>
+You can also customize the way an ensemble responds to errors.
+When an ensemble encounters an unspecified or ambiguous part
+name, it looks for a part called <B>@error</B>.  If it exists,
+then it is used to handle the error.  This part will receive all
+of the arguments on the command line starting with the offending
+part name.  It can find another way of resolving the command,
+or generate its own error message.
+
+<H3><A NAME="M6">EXAMPLE</A></H3>
+We could use an ensemble to clean up the syntax of the various
+&quot;wait&quot; commands in Tcl/Tk.  Instead of using a series of
+strange commands like this:
+<PRE>vwait x
+tkwait visibility .top
+tkwait window .</PRE>
+we could use commands with a uniform syntax, like this:
+<PRE>wait variable x
+wait visibility .top
+wait window .</PRE>
+The Tcl package could define the following ensemble:
+<PRE>ensemble wait part variable {name} {
+    uplevel vwait $name
+}</PRE>
+The Tk package could add some options to this ensemble, with a
+command like this:
+<PRE>ensemble wait {
+    part visibility {name} {
+        tkwait visibility $name
+    }
+    part window {name} {
+        tkwait window $name
+    }
+}</PRE>
+Other extensions could add their own parts to the <B>wait</B> command
+too.
+
+<H3><A NAME="M7">KEYWORDS</A></H3>
+<A href="../Keywords/E.htm#ensemble">ensemble</A>, <A href="../Keywords/P.htm#part">part</A>, <A href="../Keywords/I.htm#info">info</A>
+<HR><PRE>
+<A HREF="../copyright.htm">Copyright</A> &#169; 1993-1998 Lucent Technologies, Inc.
+<A HREF="../copyright.htm">Copyright</A> &#169; 1995-1997 Roger E. Critchlow Jr.</PRE>
+</BODY></HTML>

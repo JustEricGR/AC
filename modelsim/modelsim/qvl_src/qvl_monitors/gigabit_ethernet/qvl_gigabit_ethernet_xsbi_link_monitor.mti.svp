@@ -1,0 +1,442 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//                   Questa Verification Library (QVL)
+//            
+/***********************************************************************
+
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the XSBI Link monitor. 
+ *
+ * DESCRIPTION   This monitor checks the Gigabit Etherent frames for
+ *               violations and malformed frames by observing the XSBI
+ *               interface of the 10GBase-R family of physical layers.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *               802.3ae Amendment: Media Access Control (MAC) Parameters,
+ *               Physical Layers, and Management Parameters for 10 Gb/s
+ *               Operation, 2002.
+ *
+ * INPUTS        areset - asynchronous reset (active high)
+ *               reset  - synchronous reset (active high)
+ *               clk - interface clock
+ *               data_16b - data (16-bit)
+ *               bypass_descramble - descrambler bypass signal
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`qvlmodule qvl_gigabit_ethernet_xsbi_link_monitor (areset,
+                                                 reset,
+                                                 clk,
+                                                 data_16b,
+                                                 bypass_descramble
+                                                );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis.
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate that the monitor is instantiated
+  // on the XSBI interface either on PCS (MAC_SIDE = 1) or closer on the
+  // the PMA (closer to PHY). This parameter is used in constraining the 
+  // correct side in case of the formal analysis.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  // Set this parameter to the desired length of Jumbo frames. The default 
+  // length of Jumbo frames is taken to be 9K bytes (9126 bytes). Note that 
+  // the upper limit for Jumbo frame size is 12K bytes since this is the 
+  // maximum possible payload for 32-bit CRC.
+
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved
+  // values in fields. By default, these checks will be performed.
+ 
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+
+  // This configures this instance of the monitor to be on Transmit/Receive
+
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+ 
+  // Parameter BYPASS_BLOCK_SYNC = 1 will bypass the block synchronization
+  // process and assume that the blocks are coming in aligned from first data.
+  // To enable block synchronization set this parameter to 0.
+
+  parameter BYPASS_BLOCK_SYNC = 1;
+  wire [31:0] pw_BYPASS_BLOCK_SYNC = BYPASS_BLOCK_SYNC;
+
+  parameter DIC_SUPPORTED = 0;
+  wire [31:0] pw_DIC_SUPPORTED = DIC_SUPPORTED;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  
+  // These parameter declarations are for internal use to indicate the type
+  // of block currently being received. 
+  parameter [2:0] ZI_CONTROL_BLOCK = 3'b000;
+  parameter [2:0] ZI_START_BLOCK = 3'b001;
+  parameter [2:0] ZI_DATA_BLOCK = 3'b010;
+  parameter [2:0] ZI_TERMINATE_BLOCK = 3'b011;
+  parameter [2:0] ZI_ERROR_BLOCK = 3'b100;
+ 
+  input areset;
+  input reset;
+  input clk;
+  input [15:0] data_16b;
+  input bypass_descramble;
+ 
+  // Internal registers
+ 
+  reg posedge_toggle;
+  reg negedge_toggle;
+  reg r_block_data_valid;
+  reg [07:0] r_decoded_8b_ctrl;
+  reg [63:0] r_decoded_64b_data;
+  reg [63:0] recd_block_type_string;
+ 
+  // Internal Wires
+ 
+  wire status;
+  wire [65:0] block_data;
+  wire block_data_valid;
+ 
+  wire [65:0] descrambled_data;
+ 
+  // These are the 66b-64b decoded data and control.
+  wire [2:0] block_type_det;
+  wire [7:0] decoded_8b_ctrl;
+  wire [63:0] decoded_64b_data;
+ 
+  // These are the 32-bit data, 4-bit control and the level_select line that
+  // feeds the MAC monitor. These are derived from the 64-bit data and 8-bit 
+  // control that is generated by decoding the 66-bit descrambled data block.
+  wire level_select_tx;
+  wire [03:0] ctrl_4b;
+  wire [31:0] data_32b;
+  wire decode_error;
+
+  wire collect_stats;
+
+`protected
+
+    MTI!#>X$v^WG*'-mRB3lGlj}@xKeO{<T@F~aS]3meN"iE,$}MJ=W+V<,C7~Y+]YKur*[m.UeZHL#
+    v;]nHHuKU}=[j#sTwv\{<^WYqIOA*2-p}[?K*ro?OxR[H_k2Dtn1<X'c{z_#5k=3.zVXu1+1jGi3
+    ^>rD5cl]>~h$+~OYroBm=iI'Km7D~]mwajCDp<'%<'#e!'A*=iaooyWaC'peXk3'}XA^?Wd*;=ik
+    s-CtxuuuiGIZ@RXa#EZJY#{u\2jTR5iefe{DsI!~3o;z}[QV$uwGe}"Qj3G*Cw{l#[rEkKoE@7$?
+    nR!Y;$Ue'wI-,\{}*@xIZj2GQ~[J1m{0IlQ]@wBana*}5OG}OQAsVHVD?YU\}TzAsp<??U3\l3$x
+    3>Z'cuj^riU-7"u];$v_XD~{oz3o?${zavjCZ1
+`endprotected
+  // Wire assigns. These signals are dual edge inputs to the MAC monitor.
+ 
+  assign level_select_tx = (~(posedge_toggle ^ negedge_toggle));
+ 
+  // The descrambled 66bit data block is decoded into a 64-bit data and 8-bit
+  // control lines. This is a single-edge data. However, the MAC monitor takes
+  // 32-bit dual rate data, active on both edges of clock. Therefore, this 64b
+  // data is converted to dual rate 32 bit data, active on both edges of clock.Q
+  assign ctrl_4b = (level_select_tx) ? 
+    decoded_8b_ctrl [3:0] : r_decoded_8b_ctrl [7:4];
+
+  // r_decoded_8b_ctrl [3:0] : r_decoded_8b_ctrl [7:4];
+
+  // This is corresponding control lines of the above data bus.
+  assign data_32b = (level_select_tx) ? 
+    decoded_64b_data [31:0] : r_decoded_64b_data [63:32];
+
+  // r_decoded_64b_data [31:0] : r_decoded_64b_data [63:32];
+
+  assign decode_error = (block_type_det === ZI_ERROR_BLOCK);
+`protected
+
+    MTI!#sO1^,'O@RwEC0'Yj?QJW;#OJujGE>up:/a-jiP:nB*?Ne~Y7E<7J-U@a)qY*:xW+VJR?k2X
+    CaFilA_B~]k*Exm!}l\lwrE7#C!<rQl2^x[[d?{KskX7pUDH@4"T*OYz3$nE=U,[=Z}]]JjJ5W@{
+    &Qs-{L2'\@vQ]W~UovY_[1G?,T#]mT}iG1(+wK*w,>]S-wwa}v{jL**kD!5rnf}A*AD5ojBA;!JH
+    z~jBJeI_DovkAY+S|Q>\G!-uRk{*]G@^uJ-]uh'3Y_=3Q+\eIrUHNl!,ANE1^_#<,=@D-uVAs#~-
+    E@V^Zl({81OJuR@'!)YaG5:%Hri1;X>BYfW-B@y@<5i1p>v^XQET^@1F72\oG*>}XIkli+D#]ep\
+    9#RIO#X';,Hrk)eaxO#+T5Z13!KxrG]<]m>{z=w<l>nA*2]i{o{5~!$okGCuEQzA;*\peQI'wpX\
+    2'Jr[ivri?P;-Z$Pcj[l>+{X>wVK'3s_C7z,OiE-!PQBe$'J+-2OV[RvRiQIlKBDxI)5<,KGpVEM
+    E\X3^u*}pZ]*wV-@=~EiN\Ulv2U]H
+`endprotected
+
+  // These are all used in statistics updation, to get info from MAC monitor
+  // and the statistics computation module.
+
+  wire [04:0] w_present_state;
+  wire [04:0] w_next_state;
+  wire [04:0] w_last_state;
+  wire [31:0] w_r_data;
+  wire [03:0] w_r_ctrl;
+  wire [11:0] w_vid;
+  wire [15:0] w_frame_type;
+  wire [15:0] w_frame_size;
+  wire [15:0] w_req_length;
+  wire [63:0] w_inter_frame_gap;
+  wire [15:0] xsbi_statistics;
+
+
+  qvl_gigabit_ethernet_xsbi_block_sync
+    #(Constraints_Mode,
+      MAC_SIDE,
+      BYPASS_BLOCK_SYNC,
+      TX_INTERFACE) // TX Interface
+
+      XSBI_BLOCK_SYNC
+      (.areset (areset),
+       .reset (reset),
+       .clk (clk),
+       .sb_data (data_16b),
+       .link_status (status),
+       .block_data (block_data),
+       .block_data_valid (block_data_valid)
+      );
+
+  qvl_gigabit_ethernet_descramble
+     
+      XSBI_DESCRAMBLER
+      (.areset (areset),
+       .reset (reset),
+       .clk (clk),
+       .scrambled_block (block_data),
+       .data_enable (block_data_valid),
+       .bypass_descramble (bypass_descramble),
+       .descrambled_block (descrambled_data)
+      );
+ 
+  qvl_gigabit_ethernet_64b_66b_decode 
+     #(Constraints_Mode,
+       MAC_SIDE,
+       TX_INTERFACE)
+  
+       XSBI_66_64_DECODE
+       (.clk (clk),
+        .areset (areset),
+        .reset (reset),
+        .data_in (descrambled_data),
+        .xgmii_data (decoded_64b_data),
+        .xgmii_ctrl (decoded_8b_ctrl),
+        .block_type_det (block_type_det),
+        .valid (block_data_valid),
+        .xsbi_statistics (xsbi_statistics)
+       );
+ 
+  qvl_gigabit_ethernet_mac_monitor
+    #(.Constraints_Mode(Constraints_Mode),
+      .MAC_SIDE(MAC_SIDE),
+      .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),
+      .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE),
+      .TX_INTERFACE(TX_INTERFACE),
+      .GMII(0), // GMII == 0 for XGMII interface
+      .HALF_DUPLEX(0), // HALF_DUPLEX == 0 for XGMII
+      .DIC_SUPPORTED(DIC_SUPPORTED),//DIC Support 
+      .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),
+      .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED)
+      )   
+      XSBI_MAC_MONITOR
+      (.areset(areset),
+       .reset(reset),
+       .clk(clk),
+       .data(data_32b),
+       .ctrl(ctrl_4b),
+       .crs(1'b0),
+       .col(1'b0),
+       .data_valid(block_data_valid),
+       .dec_err(decode_error),
+       .level_select(level_select_tx),
+       .w_present_state(w_present_state),
+       .w_next_state(w_next_state),
+       .w_last_state(w_last_state),
+       .w_r_data(w_r_data),
+       .w_r_ctrl(w_r_ctrl),
+       .w_vid(w_vid),
+       .w_frame_type(w_frame_type),
+       .w_frame_size_count(w_frame_size),
+       .w_requested_data_length(w_req_length),
+       .w_inter_frame_gap(w_inter_frame_gap)
+      );
+
+
+  // Statistics block
+
+  wire [63:0] total_frames_count;
+  wire [63:0] data_frames_count;
+  wire [63:0] ctrl_frames_count;
+  wire [63:0] jumbo_frames_count;
+  wire [63:0] untagged_data_frames_count;
+  wire [63:0] vlan_tagged_data_frames_count;
+  wire [63:0] priority_tagged_data_frames_count;
+  wire [63:0] untagged_pause_frames_count;
+  wire [63:0] vlan_tagged_pause_frames_count;
+  wire [63:0] priority_tagged_pause_frames_count;
+  wire [63:0] untagged_jumbo_frames_count;
+  wire [63:0] vlan_tagged_jumbo_frames_count;
+  wire [63:0] priority_tagged_jumbo_frames_count;
+  wire [63:0] frames_with_global_address_count;
+  wire [63:0] frames_with_local_address_count;
+  wire [63:0] frames_with_group_address_count;
+  wire [63:0] frames_with_individual_address_count;
+  wire [63:0] min_size_untag_data_pkt_count;
+  wire [63:0] max_size_untag_data_pkt_count;
+  wire [63:0] packets_with_pad_count;
+  wire [63:0] remote_faults_count;
+  wire [63:0] local_faults_count;
+  wire [63:0] lane0_termnates_count;
+  wire [63:0] lane1_termnates_count;
+  wire [63:0] lane2_termnates_count;
+  wire [63:0] lane3_termnates_count;
+  wire [63:0] align_column_count;
+  wire [63:0] sync_column_count;
+  wire [63:0] skip_column_count;
+  wire [63:0] valid_block_count;
+  wire [63:0] data_block_count;
+  wire [63:0] control_block_count;
+  wire [63:0] idle_block_count;
+  wire [63:0] error_block_count;
+  wire [63:0] s0_block_count;
+  wire [63:0] s4_block_with_idle_count;
+  wire [63:0] s4_block_with_os_count;
+  wire [63:0] t0_block_count;
+  wire [63:0] t1_block_count;
+  wire [63:0] t2_block_count;
+  wire [63:0] t3_block_count;
+  wire [63:0] t4_block_count;
+  wire [63:0] t5_block_count;
+  wire [63:0] t6_block_count;
+  wire [63:0] t7_block_count;
+  wire [63:0] longest_ipg;
+  wire [63:0] shortest_ipg;
+  wire [63:0] invalid_frame_length_count;
+  wire [63:0] max_align_interval;
+  wire [63:0] min_align_interval;
+  wire [63:0] collisions_statistics_count;
+  wire [63:0] false_carrier_statistics_count;
+  wire [63:0] carrier_extn_statistics_count;
+  wire [63:0] back_to_back_frames_statistics_count;
+
+  qvl_gigabit_ethernet_statistics 
+    #(0, // GMII = 0 for 10G XSBI
+      TX_INTERFACE,
+      1) // DDR
+
+    GIGABIT_STATS
+    (.areset (areset),
+     .reset (reset),
+     .clk (clk),
+     .level_select(level_select_tx),
+     .collect_stats (collect_stats),
+     .present_state (w_present_state),
+     .next_state (w_next_state),
+     .last_state (w_last_state),
+     .data (data_32b),
+     .r_data (w_r_data),
+     .vid (w_vid),
+     .frame_type (w_frame_type),
+     .frame_size_count (w_frame_size),
+     .requested_length (w_req_length),
+     .inter_frame_gap (w_inter_frame_gap),
+     .mii_statistics (8'b0),
+     .gmii_statistics (8'b0),
+     .xgmii_statistics (8'b0),
+     .xaui_statistics (8'b0),
+     .xsbi_statistics (xsbi_statistics),
+     .total_frames_count (total_frames_count),
+     .data_frames_count (data_frames_count),
+     .ctrl_frames_count (ctrl_frames_count),
+     .jumbo_frames_count (jumbo_frames_count),
+     .untagged_data_frames_count (untagged_data_frames_count),
+     .vlan_tagged_data_frames_count (vlan_tagged_data_frames_count),
+     .priority_tagged_data_frames_count (priority_tagged_data_frames_count),
+     .untagged_pause_frames_count (untagged_pause_frames_count),
+     .vlan_tagged_pause_frames_count (vlan_tagged_pause_frames_count),
+     .priority_tagged_pause_frames_count (priority_tagged_pause_frames_count),
+     .untagged_jumbo_frames_count (untagged_jumbo_frames_count),
+     .vlan_tagged_jumbo_frames_count (vlan_tagged_jumbo_frames_count),
+     .priority_tagged_jumbo_frames_count (priority_tagged_jumbo_frames_count),
+     .frames_with_global_address_count (frames_with_global_address_count),
+     .frames_with_local_address_count (frames_with_local_address_count),
+     .frames_with_group_address_count (frames_with_group_address_count),
+     .frames_with_individual_address_count
+       (frames_with_individual_address_count),
+     .min_size_untag_data_pkt_count (min_size_untag_data_pkt_count),
+     .max_size_untag_data_pkt_count (max_size_untag_data_pkt_count),
+     .packets_with_pad_count (packets_with_pad_count),
+     .remote_faults_count (remote_faults_count),
+     .local_faults_count (local_faults_count),
+     .lane0_termnates_count (lane0_termnates_count),
+     .lane1_termnates_count (lane1_termnates_count),
+     .lane2_termnates_count (lane2_termnates_count),
+     .lane3_termnates_count (lane3_termnates_count),
+     .align_column_count (align_column_count),
+     .sync_column_count (sync_column_count),
+     .skip_column_count (skip_column_count),
+     .valid_block_count (valid_block_count),
+     .data_block_count (data_block_count),
+     .control_block_count (control_block_count),
+     .idle_block_count (idle_block_count),
+     .error_block_count (error_block_count),
+     .s0_block_count (s0_block_count),
+     .s4_block_with_idle_count (s4_block_with_idle_count),
+     .s4_block_with_os_count (s4_block_with_os_count),
+     .t0_block_count (t0_block_count),
+     .t1_block_count (t1_block_count),
+     .t2_block_count (t2_block_count),
+     .t3_block_count (t3_block_count),
+     .t4_block_count (t4_block_count),
+     .t5_block_count (t5_block_count),
+     .t6_block_count (t6_block_count),
+     .t7_block_count (t7_block_count),
+     .longest_ipg (longest_ipg),
+     .shortest_ipg (shortest_ipg), 
+     .invalid_frame_length_count (invalid_frame_length_count), 
+     .max_align_interval (max_align_interval), 
+     .min_align_interval (min_align_interval),
+     .collisions_statistics_count(collisions_statistics_count),
+     .false_carrier_statistics_count(false_carrier_statistics_count),
+     .carrier_extn_statistics_count(carrier_extn_statistics_count),
+     .back_to_back_frames_statistics_count(back_to_back_frames_statistics_count)
+     );
+ 
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_gigabit_ethernet_xsbi_link_monitor_cover.svh"
+
+ 
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_xsbi_link_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_xsbi_link_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_xsbi_link_monitor
+`include "zi_cw_gigabit_ethernet_xsbi_link_monitor.zi_chx.inc"
+`endif
+`endif
+ 
+
+`qvlendmodule // qvl_gigabit_ethernet_xsbi_link_monitor

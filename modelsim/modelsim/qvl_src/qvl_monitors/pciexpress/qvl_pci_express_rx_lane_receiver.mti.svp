@@ -1,0 +1,1379 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of  Questa Verification Library (QVL).
+*
+* DESCRIPTION This monitor checks the PCI Express interface for compliance
+*             with PCI Express Base specification - Physical layer
+*             specifications.
+*
+* REFERENCES  PCI Express Base Specification, Revision 1.0, July 22, 2002.
+*             PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*             PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+* USAGE       This sub_module is instantiated in the top level PCI Express 
+*             module. This module receives the symbols, ordered sets from
+*             the lanes.
+*
+**************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_express_rx_lane_receiver (
+                                 reset,
+                                 areset,
+                                 clk,
+                                 symbol_data_plus,
+                                 symbol_data_minus,
+
+                                 descramble_enable,
+                                 dllp_tlp_on_link,
+
+                                 level_select,
+                                 phy_layer_checks_disable,
+                                 compliance_check_enable,
+
+                                 // Interface to 10B decoder
+
+                                 //------------------------
+
+                                 pci_8b_data,
+                                 pci_10b_code_violation_n,
+                                 d_or_k_code,
+
+                                 pci_10b_data,
+                                 parallel_symbol_valid,
+                                 current_rd,
+
+                                 //-----------------------
+                                 // Interface to Deskew monitor
+
+                                 deskew_fifo_read,
+                                 deskew_fifo_flush,
+                                 com_read_from_fifo,
+                                 fifo_almost_full,
+                                 fifo_empty,
+
+                                 //-----------------------
+                                 // PIPE
+
+                                 rx_valid_in,
+
+                                 //-----------------------
+
+                                 lanes_with_lane_num,
+  // PCI_EXPRESS_GEN2 code start
+                                 current_speed_5gt,      // 0 current speed gen1, 1- current speed gen2
+                                 stable_speed_5gt,           
+  // PCI_EXPRESS_GEN2 code end
+                                 n_fts,
+                                 link_number,
+                                 lane_0_detected,
+                                 descrambled_data,
+                                 electrical_idle_detected,
+                                 idle_data_detected,
+  // PCI_EXPRESS_GEN2 code start
+                                 eie_os_detected,        // Electrical Idle Exit Sequence OS
+                                 eie_detected,           // K28.7(EIE)
+  // PCI_EXPRESS_GEN2 code end                                       
+                                 skp_os_detected,
+                                 idle_os_detected,
+                                 fts_os_detected,
+                                 ts1_detected,
+                                 ts2_detected,
+                                 lane_num_detected,
+                                 link_num_detected,
+                                 rx_lane_polarity_detected,
+  // PCI_EXPRESS_GEN2 code start                                          
+                                 gen1_data_rate_detected, // Gen1 data rate in TS1/TS2
+                                 gen2_data_rate_detected, // Gen2 data rate in TS1/TS2
+                                 autonomous_data_rate_detected, // Autonomous bit set in TS1/TS2
+                                 speed_change_data_rate_detected, // Speed change bit set in TS1/TS2
+                                 link_ctrl_compliance_receive_detected, // Compliance rx bit set in TS1
+                                 link_ctrl_compliance_receive_loopback_detected, // Compliance rx with loopbk bit set in TS1
+  // PCI_EXPRESS_GEN2 code end                                       
+                                 link_ctrl_reset_detected,
+                                 loopback_detected,
+                                 disable_detected,
+                                 disable_scrambling_detected,
+                                 compliance_pattern_detected,
+  // PCI_EXPRESS_GEN2 code start                                          
+                                 modified_compliance_pattern_detected,
+  // PCI_EXPRESS_GEN2 code end                                       
+                                 skp_added,
+                                 skp_removed,        
+                                 // PIPE Deskew related signals
+
+                                 deskew_d_or_k_code
+                                 );
+
+  //Parameter declarations.
+
+  parameter Constraints_Mode = 0;
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // Parameter TX_INTERFACE indicates whether the lane receiver is attached
+  // to transmit interface or receive interface. Set this parameter to '0'
+  // for receive interface. Set to '1' for transmit interface.
+
+  parameter TX_INTERFACE = 0;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE; 
+
+  // Parameter PHY_LANE_NUMBER indicates the actual physical lane
+  // to which this lane receiver module is hooked up to.
+
+  parameter PHY_LANE_NUMBER = 0;   
+  wire [31:0] pw_PHY_LANE_NUMBER = PHY_LANE_NUMBER;
+
+  // Parameter DOUBLE_DATA_RATE specifies the active edge of the clock.
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // Hex value on the parallel interface when there is an electrical
+  // idle condition
+
+  parameter ELECTRICAL_IDLE_VAL = 10'b00_0000_0000;
+  wire [31:0] pw_ELECTRICAL_IDLE_VAL = ELECTRICAL_IDLE_VAL;
+
+  parameter MAX_LINK_WIDTH = 1;
+  wire [31:0] pw_MAX_LINK_WIDTH = MAX_LINK_WIDTH;
+
+  // DESKEW_SUPPORT configures the monitor to support DESKEW 
+
+  parameter DESKEW_SUPPORT = 0; 
+  wire [31:0] pw_DESKEW_SUPPORT = DESKEW_SUPPORT;
+
+  // PIPE_MONITOR Configures the monitor for PIPE interface
+
+  parameter PIPE_MONITOR = 0;
+
+  // ENABLE_DATA_PLUS_MINUS_CHECK enables the checking on symbol_data_plus
+  // and symbol_data_minus inputs. This is applicable only when
+  // monitor is used in serial mode.
+
+  parameter ENABLE_DATA_PLUS_MINUS_CHECK = 0;
+
+  // PCI_EXPRESS_GEN2 code start
+  // Parameter PCI_EXPRESS_GEN2 enables generation2 features of monitor.
+  parameter PCI_EXPRESS_GEN2 = 0;
+  // PCI_EXPRESS_GEN2 code end
+  wire [31:0] pw_PCI_EXPRESS_GEN2 = PCI_EXPRESS_GEN2;
+
+  parameter ZI_PORT_WIDTH = (INTERFACE_TYPE) ? 10 : 1;
+  parameter ZI_DESKEW_LIMIT = (DESKEW_SUPPORT) ? 4 : 1;
+
+  // Input declarations
+
+  input reset; // Global reset
+  input areset; // Global asynchronous reset
+  input clk;
+  input [ZI_PORT_WIDTH - 1:0] symbol_data_plus;
+  input [ZI_PORT_WIDTH - 1:0] symbol_data_minus;
+  input descramble_enable;
+  input dllp_tlp_on_link;
+
+  input level_select;
+  input phy_layer_checks_disable;
+
+  input [7:0] pci_8b_data;
+  input d_or_k_code;
+  input pci_10b_code_violation_n;
+
+  input deskew_fifo_flush;
+  input deskew_fifo_read;
+
+  // PCI_EXPRESS_GEN2 code start
+  input current_speed_5gt;
+  input stable_speed_5gt;
+  // PCI_EXPRESS_GEN2 code end
+
+  input [MAX_LINK_WIDTH - 1:0] lanes_with_lane_num;
+
+  input rx_valid_in;
+  input compliance_check_enable;
+
+  // Output declarations
+
+  output fifo_almost_full;
+  output com_read_from_fifo;
+  output fifo_empty;
+
+  output [9:0] pci_10b_data;
+  output parallel_symbol_valid;
+  output current_rd;
+
+  output [7:0] n_fts;
+  output [7:0] link_number;
+  output lane_0_detected;
+  output [7:0] descrambled_data;
+  output electrical_idle_detected;
+  output idle_data_detected;
+  // PCI_EXPRESS_GEN2 code start
+  output eie_os_detected;
+  output eie_detected;
+  // PCI_EXPRESS_GEN2 code end
+  output skp_os_detected;
+  output idle_os_detected;
+  output fts_os_detected;
+  output ts1_detected;
+  output ts2_detected;
+  output lane_num_detected;
+  output link_num_detected;
+  output rx_lane_polarity_detected;
+
+  // PCI_EXPRESS_GEN2 code start
+  output gen1_data_rate_detected;
+  output gen2_data_rate_detected;
+  output autonomous_data_rate_detected;
+  output speed_change_data_rate_detected;
+  output link_ctrl_compliance_receive_detected;
+  output link_ctrl_compliance_receive_loopback_detected;
+  // PCI_EXPRESS_GEN2 code end
+  output link_ctrl_reset_detected;
+  output loopback_detected;
+  output disable_detected;
+  output disable_scrambling_detected;
+  output compliance_pattern_detected;
+  // PCI_EXPRESS_GEN2 code start                                          
+  output modified_compliance_pattern_detected;
+  // PCI_EXPRESS_GEN2 code end
+  output skp_added;
+  output skp_removed;
+  output deskew_d_or_k_code;
+
+  // Internal parameter declarations
+  // These parameters are used in the form of wires for optimizations.
+
+  parameter ZI_POSITIVE = 1; 
+  parameter ZI_NEGATIVE = 0; 
+  parameter ZI_COMMA_PLUS = 10'h283; // {j,h,g,f,i,e,d,c,b,a} 
+  parameter ZI_COMMA_MINUS = 10'h17C; // {j,h,g,f,i,e,d,c,b,a}
+  // PCI_EXPRESS_GEN2 code start
+  // 10 bit K28.7 plus and minus value
+  parameter ZI_EIE_PLUS = 10'h383; // {j,h,g,f,i,e,d,c,b,a} 
+  parameter ZI_EIE_MINUS = 10'h07C; // {j,h,g,f,i,e,d,c,b,a}
+  // PCI_EXPRESS_GEN2 code end
+  parameter ZI_LFSR_INIT_VALUE = 16'b1111_1111_1111_1111;
+  parameter ZI_K28_4 = 8'h9C; // Byte value for K28.4 code
+  parameter ZI_K28_6 = 8'hDC; // Byte value for K28.6 code
+  parameter ZI_K28_7 = 8'hFC; // Byte value for K28.7 code
+  parameter ZI_COM = 8'hBC; // K28.5 COM symbol
+  parameter ZI_STP = 8'hFB; // K27.7 STP symbol
+  parameter ZI_SDP = 8'h5C; // K28.2 SDP symbol
+  parameter ZI_END = 8'hFD; // K29.7 END symbol
+  parameter ZI_EDB = 8'hFE; // K30.7 EDB symbol
+  parameter ZI_PAD = 8'hF7; // K23.7 PAD symbol
+  parameter ZI_SKP = 8'h1C; // K28.0 SKP symbol
+  parameter ZI_FTS = 8'h3C; // K28.1 FTS symbol
+  parameter ZI_IDL = 8'h7C; // K28.3 IDL symbol
+  // PCI_EXPRESS_GEN2 code start
+  parameter ZI_EIE = ZI_K28_7; // K28.7 EIE symbol 8 bit value
+  // PCI_EXPRESS_GEN2 code end
+  parameter ZI_DATA_RATE = 8'h02; // D2.0 Data rate identifier
+  parameter ZI_RESET = 8'h01; // D1.0 Link Reset Asserted
+  parameter ZI_DISABLE = 8'h02; // D2.0 Link disable asserted
+  parameter ZI_LOOPBACK = 8'h04; // D4.0 Link loopback
+  parameter ZI_NO_SCRAMBLE = 8'h08; // D8.0 Disable scrambling
+  // PCI_EXPRESS_GEN2 code start
+  parameter ZI_COMPLIANCE_REC = 8'h10; // Complaince receive bit
+  parameter ZI_COMPLIANCE_REC_LOOPBK = 8'h14; // Complaince receive with loopback 
+  // PCI_EXPRESS_GEN2 code end
+  parameter ZI_TS1_ID = 8'h4A; // D10.2 TS1 identifier
+  parameter ZI_TS1_ID_INV = 8'hB5; // D21.5 Inverted TS1 identifier
+  parameter ZI_TS2_ID = 8'h45; // D5.2 TS2 identifier
+  parameter ZI_TS2_ID_INV = 8'hBA; // D26.5 Inverted TS2 identifier
+
+  // PCI_EXPRESS_GEN2 code end
+  parameter ZI_RESET_INV = 8'hFE; // D1.0 Link Reset Asserted
+  parameter ZI_DISABLE_INV = 8'hFD; // D2.0 Link disable asserted
+  parameter ZI_LOOPBACK_INV = 8'hFB; // D4.0 Link loopback
+  parameter ZI_NO_SCRAMBLE_INV = 8'hF7; // D8.0 Disable scrambling
+  // PCI_EXPRESS_GEN2 code start
+  parameter ZI_COMPLIANCE_REC_INV = 8'hEF; // Complaince receive bit
+  parameter ZI_COMPLIANCE_REC_LOOPBK_INV = 8'hEB; // Complaince receive with loopback 
+
+  // Parameter declarations for N_FTS
+  parameter ZI_N_FTS = 255;
+  parameter ZI_EXTENDED_FTS = 4096;
+
+  // Parameter declarations for the ordered set detector stata machine
+
+  parameter ZI_ORDERED_SET_IDLE_STATE = 0;
+  parameter ZI_ORDERED_SET_COM_STATE = 1;
+  parameter ZI_ORDERED_SET_SKP_STATE = 2;
+  parameter ZI_ORDERED_SET_FTS_STATE = 3;
+  parameter ZI_ORDERED_SET_IDL_STATE = 4;
+  parameter ZI_ORDERED_SET_LINK_ID_STATE = 5;
+  parameter ZI_ORDERED_SET_LANE_ID_STATE = 6;
+  parameter ZI_ORDERED_SET_N_FTS_STATE = 7;
+  parameter ZI_ORDERED_SET_DATA_RATE_STATE = 8;
+  parameter ZI_ORDERED_SET_LINK_CTRL_STATE = 9;
+  parameter ZI_ORDERED_SET_TS1_STATE = 10;
+  parameter ZI_ORDERED_SET_TS2_STATE = 11;
+  parameter ZI_ORDERED_SET_COM2_STATE = 12;
+  parameter ZI_ORDERED_SET_COMPL_STATE = 13;
+  parameter ZI_ORDERED_SET_UNKNOWN_STATE = 14;
+  // PCI_EXPRESS_GEN2 code start
+  // These states added for EIES ordered set and modified compliance pattern formation
+  parameter ZI_ORDERED_SET_EIE_STATE = 15;
+  parameter ZI_ORDERED_SET_TS1_IDNT_STATE = 16;
+  parameter ZI_ORDERED_SET_COMPL_ERR_STATUS1_STATE = 17;
+  parameter ZI_ORDERED_SET_COMPL_ERR_STATUS2_STATE = 18;
+  parameter ZI_ORDERED_SET_COM2_GEN2_STATE = 19;
+  parameter ZI_ORDERED_SET_COMPL_GEN2_STATE = 20;
+  // PCI_EXPRESS_GEN2 code end
+  // Output register declarations
+
+  reg [7:0] descrambled_data;
+   
+  // Register declarations 
+
+  // Register to hold the symbol data
+  reg [9:0] symbol_data_reg_posedge;
+  reg [9:0] symbol_data_reg_negedge;
+
+  // Counter to count the number of bits shifted in.
+
+  reg [3:0] bit_count_posedge;
+  reg [3:0] bit_count_negedge;
+
+  // Registered first_com_detected signal
+
+  reg r_first_com_detected_posedge;
+  reg r_first_com_detected_negedge;
+                              
+  // Register declarations for descrambler
+
+  reg [15:0] lfsr_reg_posedge;
+  reg [15:0] lfsr_reg_negedge;
+  reg [15:0] next_lfsr_reg;
+  reg [15:0] temp_lfsr_reg;                           
+
+  // Register declarations for pci_10b decoder
+
+  reg current_rd_posedge;
+  reg current_rd_negedge;
+  reg [7:0] r_pci_8b_data_posedge;
+  reg [7:0] r_pci_8b_data_negedge;
+  reg next_current_rd;
+  reg disparity_neutral_000111_error;
+  reg disparity_neutral_111000_error;
+  reg disparity_neutral_0011_error;
+  reg disparity_neutral_1100_error;
+
+  // Register declarations for counters
+
+  reg [2:0] idl_count_posedge;
+  reg [2:0] idl_count_negedge;
+  reg [2:0] next_idl_count;
+  // PCI_EXPRESS_GEN2 code start          
+  reg [3:0] eie_count_posedge;     // EIE symbol count for EIEOS
+  reg [3:0] eie_count_negedge;
+  reg [3:0] next_eie_count;
+  reg [1:0] idl_os_count_posedge;  // IDL OS count for gen2 speed
+  reg [1:0] idl_os_count_negedge;
+  reg [1:0] next_idl_os_count;
+  // PCI_EXPRESS_GEN2 code end
+  reg [2:0] skp_count_posedge;
+  reg [2:0] skp_count_negedge;
+  reg [2:0] next_skp_count;
+  reg [2:0] fts_count_posedge;
+  reg [2:0] fts_count_negedge;
+  reg [2:0] next_fts_count;
+  reg [3:0] ts1_symbol_count_posedge;
+  reg [3:0] ts1_symbol_count_negedge;
+  reg [3:0] next_ts1_symbol_count;
+  reg [3:0] ts2_symbol_count_posedge;
+  reg [3:0] ts2_symbol_count_negedge;
+  reg [3:0] next_ts2_symbol_count;
+
+  // Register declarations for present state and next state variables
+
+  // Commented as used with 5 bit size in gen2
+  //reg [3:0] os_present_state_posedge;
+  //reg [3:0] os_present_state_negedge;
+  //reg [3:0] os_next_state;
+
+  // PCI_EXPRESS_GEN2 code start
+  reg [4:0] os_present_state_posedge;
+  reg [4:0] os_present_state_negedge;
+  reg [4:0] os_next_state;
+  // PCI_EXPRESS_GEN2 code end
+
+  // String to store the state machine states
+
+  reg [8*8 - 1:0] os_present_state_string;
+  reg [8*8 - 1:0] os_next_state_string;
+  reg [5*8 - 1:0] symbol_string;
+  reg [7:0] next_lane_number;
+  reg [7:0] next_link_number;
+  reg [7:0] next_link_ctrl;
+  // PCI_EXPRESS_GEN2 code start
+  reg [7:0] next_data_rate;
+  // PCI_EXPRESS_GEN2 code end
+  reg [7:0] lane_number_posedge;
+  reg [7:0] link_number_posedge;
+  reg [7:0] link_ctrl_posedge;
+  // PCI_EXPRESS_GEN2 code start
+  reg [7:0] data_rate_posedge;
+  // PCI_EXPRESS_GEN2 code end
+  reg [7:0] lane_number_negedge;
+  reg [7:0] link_number_negedge;
+  reg [7:0] link_ctrl_negedge;
+  // PCI_EXPRESS_GEN2 code start
+  reg [7:0] data_rate_negedge;
+  // PCI_EXPRESS_GEN2 code end
+  reg lane_number_detected_posedge;
+  reg lane_number_detected_negedge;
+  reg link_number_detected_posedge;
+  reg link_number_detected_negedge;
+  reg next_lane_number_detected;
+  reg next_link_number_detected;
+  reg lane_polarity_inverted_flag_posedge;
+  reg lane_polarity_inverted_flag_negedge;
+  reg lane_0_detected_posedge;
+  reg lane_0_detected_negedge;
+  reg rx_lane_polarity_detected_posedge;
+  reg rx_lane_polarity_detected_negedge;
+  wire rx_lane_polarity_detected; 
+  wire rx_lane_polarity_inverted;
+  wire rx_lane_polarity_reinverted;
+
+  reg n_fts_detected;
+  reg fts_os_detected_negedge;
+  reg valid_number_of_fts_seq_posedge;
+  reg valid_number_of_fts_seq_negedge;
+  reg [7:0] number_of_fts_seq_posedge;
+  reg [7:0] number_of_fts_seq_negedge;
+  reg idle_os_detected_flag_posedge;
+  reg idle_os_detected_flag_negedge;
+
+  reg [12:0] fts_os_count;
+
+  reg [5:0] number_of_lanes_with_lanenum_temp;
+
+  // Declarations for taking care of complaince patterns
+
+  reg [9:0] r_pci_10b_data_posedge;
+  reg [9:0] r_pci_10b_data_negedge;
+
+  // Wire declarations
+
+  wire [9:0] symbol_data_reg;
+  wire [3:0] bit_count;
+  wire r_first_com_detected;
+  wire current_rd;
+  wire [7:0] int_pci_8b_data;
+  wire int_d_or_k_code;
+  wire [7:0] r_pci_8b_data;
+  wire [15:0] lfsr_reg;
+  wire [2:0] idl_count;
+  // PCI_EXPRESS_GEN2 code start
+  wire [3:0] eie_count;           // This counts the 14 EIE in EIES ordered set
+  wire [1:0] idl_os_count;        // This counts the IDL ordered set in gen2 speed  
+  // PCI_EXPRESS_GEN2 code end
+  wire [2:0] skp_count;
+  wire [2:0] fts_count; 
+  wire [3:0] ts1_symbol_count;
+  wire [3:0] ts2_symbol_count;
+
+  // wire [3:0] os_present_state; // Commented as used for gen2 with 5 bit
+
+  // PCI_EXPRESS_GEN2 code start
+  wire [4:0] os_present_state;
+  // PCI_EXPRESS_GEN2 code end
+
+  wire idle_os_detected_flag;
+   
+  wire int_parallel_symbol_valid; // Asserted after first COM is detected. 
+  wire ser_first_com_detected; // COM detection in serial mode.
+  wire par_first_com_detected; // COM detection in parallel mode
+  wire first_com_detected;
+  wire [9:0] int_pci_10b_data; // Internal symbol data 
+  wire [9:0] skewed_pci_10b_data;
+  wire [9:0] deskewed_pci_10b_data;
+  wire reserved_k_code_on_lane;
+  // PCI_EXPRESS_GEN2 code start
+  // These wires used as test_expr for particular gen2 assertions
+  wire eie_on_gen1;
+  wire eie_inconsistent_in_eie_os;
+  wire eios_error_on_gen2;
+  // PCI_EXPRESS_GEN2 code end
+  wire [2*8 - 1:0] interface_string; // Stores the string for the interface
+  wire disable_scrambler; // Asserted when TS1/TS2 is being received
+
+  wire idle_os_error; // A idle order set should consist of
+                               // a COM symbol followed by 3 IDL symbols
+
+  wire fts_os_error; // A FTS ordered set should consist of 
+                              // a COM symbol followed by 3 FTS symbols
+
+  wire skp_os_error; // A SKP ordered set should consists of
+                              // a COM symbol followed by 3 SKP symbols
+                              // when transmitted and 1 to 5 SKP symbols
+                              // when received.
+  wire ts1_os_error; // Asserted when more/less than the specified 
+                              // number of TS1 identifier symbols in a
+                              // TS1 ordered set.
+
+  wire ts2_os_error; // Asserted when more/less than the specified 
+                              // number of TS2 identifier symbols in a
+                              // TS2 ordered set.
+
+  wire illegal_data_rate_identifier; // Data rate Identifier of a TS1/TS2 
+                                     // ordered set should be D1.0
+ 
+  wire illegal_lane_number_identifier; // Lane number field of a TS1/TS2 
+                                       // ordered set should consists of
+                                       // D0.0 to D31.0 symbols
+
+  wire illegal_n_fts_field; // n_fts field of the TS1/TS2 ordered set
+                            // should consists of D codes only.
+
+  wire illegal_link_ctrl_field; // Link ctrl field should consist of
+                                   // D0.0, D1.0, D2.0, D4.0, D8.0 symbols
+
+  wire illegal_ts_identifier; // TS identifier field should consist of
+                              // D10.2 or D5.2 symbols. 
+
+  wire illegal_symbol_following_com_symbol; // COM symbol should always be
+                                            // part of IDL, SKP, FTS
+                                            // TS1/TS2 ordered sets
+
+  wire skp_not_part_of_skp_os; // skp symbols should always be part of
+                               // skip ordered sets.
+
+  wire idl_not_part_of_eidle_os; // idl symbols should always be part of
+                                 // electrical idle ordered sets
+
+  wire fts_not_part_of_fts_os; // FTS symbols should always be part of
+                               // fast training sequences
+
+  wire compliance_pattern_error; // Asserted whenever a proper compliance
+                                 // pattern is not detected.
+
+  wire electrical_idle_detected; // Asserted whenever an electrical idle
+                                 // is detected on the lane
+
+  wire [7:0] number_of_fts_seq; // Stores the n_fts field of the TS1 
+                          // ordered set.
+
+  wire valid_number_of_fts_seq; // This flag gets asserted when 
+                                // number_of_fts_sequence is
+                                // valid
+
+  // When no packet or ordered set is being transmitted/received
+  // idle data should be transmitted
+
+  wire no_idle_data;
+
+  wire [7:0] lane_number; // Lane number field of TS1/TS2 ordered set
+  wire [7:0] link_number; // Link number field of TS1/TS2 ordered set
+  wire [7:0] link_ctrl; // Link control field of TS1/TS2 ordered set
+  // PCI_EXPRESS_GEN2 code start
+  wire [7:0] data_rate; // Data rate field of TS1/TS2 ordered set
+  // PCI_EXPRESS_GEN2 code end
+  wire lane_number_detected; 
+  wire link_number_detected;
+  wire lane_polarity_inverted;
+  wire lane_polarity_inverted_flag;
+  wire lane_0_detected;
+
+  wire [9:0] r_10b_pci_data;
+  wire compliance_pattern_comma_error;
+  wire compliance_pattern_d_code_error;
+  // PCI_EXPRESS_GEN2 code start
+  wire modified_compliance_pattern_error;
+  // PCI_EXPRESS_GEN2 code end
+  wire [9:0] r_pci_10b_data;
+
+  // This wire is asserted if either of the following conditions
+  // are not met.
+  // a. symbol_data_plus should be equal to symbol_data_minus.
+  // b. symbol_data_plus should be complementary of symbol_data_minus.
+
+  wire symbol_data_plus_minus_fire;
+
+  // Integer declarations
+
+  integer i,j;
+
+`protected
+
+    MTI!#|YGVBe$DCmV-#i_pVrYG}2rx5,WQC5@>[O3tN"?Lxg'@+[7ZT~-|lZz?)Em3jmjBskYEWbH
+    s#lKr5-u5*'=Dim{r\wp;G[j3\U$2C,~^W'>Y'YH'jeImZ1k=J*Q_KZi,sHAlU^QT_#x2_[ouQ_l
+    xIoEu3X}O'u-pwe{w<<$R3_21H$f}v1$xm[,Ij2![{$i_l,_v*=;rsrolwvZ<1lp6iXz$n5!C:TG
+    7Kc9I,2]UOYvaqK_^{!BYwXY]AH&=rhZ7@\e;ATe5Y#G!}R>_oO<U7>9iw7WC[n!,tRUX^jrpTVO
+    p5B;7w\!;Wp^WYp?H;!Q+=C~zu[*;RO=rDu*,2\a]DI,V#I?wmmDDkXn<^je<YzV@xrxD*D]YU2Y
+    G[^RA]"K>=h[@XT]m7{VK\2m]w!*wZ7B+zR\{-[;+p{s'lTYa2*={]ZKC_]LzWwp@1xzzs<_Q=II
+    W1?B^sva<C^~}"<<E~Vx1?TR{w5r2;JY\#B@WK35,w-UJ#6[U*o\@~'K{]uDW2[c1$\z]<!<9zz?
+    QB=n'~wKC=tm=>Iln{x1n{@A*;$lQ?sF'5>V-<Y#UAKnYAu\}n>?Ea-xE$Krb+Y7rmIkKm]E?YoK
+    @b[B^CKBX^z1zuDeHm{BEI"enA_==}l,B+2uRe*K>sYB2-{<*\va7lULYnrXwTZo9+$!*a6El-n,
+    BsKm}WZb}jUIl+GJp$[@$j^m@oTwE>nvxWX{C@{W}-sw.z]!-}~R,OC1x*;;]=u<zR'Ezu,r=Bkx
+    u{Y<D7#{>D<rCfq@lU^e<EpqpiEDD}v?_QX1^DZ_G'OYxuKEmzi,Wa,xr;HRV5a5[''Y@R#p?}J^
+    ^Q\5#TKE+TzC&uzG*z}UH{U$?BYU>l3O@Ol@ElBQeR=--{E^mc'{3]r=\D-^<m?T<Ej8C?2Hs^l\
+    -'#}zv]C,K[rV*!jQn5!!*moaz?*7u{Ili\J,[Jlw<ToKaH#s?NZRa$n(XrA2p!VEhSV!o-EVIRu
+    B,Y<lHV)vul27@D[jVe?E,jOI2<O+=u<7@Eoh+ovIg{_wv&CGBn1]@j5{z]$$u]kCs$LlKUr^w*[
+    ZE<<1Q?zBj=JG@}3Z}Ce^{2Ktr><k3'^3o_oT6%5!A\oT{],$TX#{pJrkY~nH[ozR>!Xs^G;H9[U
+    C7;6J>e*lpvHxXO\pr?IxW>2$REu~sJDO=OV;G=GiNK_Quu-\j-DaUon;#--e\*X'VB>j}Rv1xk]
+    +~#[;n^T$$?o5T7vx#zw7v'CI;R\J^QYo@F#vvm7_Cv,Jr5^VXp2[}QCxmxx?*7n<Krq*?J'[#V1
+    F1gbnRX;%/;+ssQe~C_U7Q6T]oo|nz;Yr?B{A={$Iv'GzD?Im}}{'GEY0WjH?CvQE[F~+sn,HH{
+`endprotected
+  // Assign statements
+
+  assign bit_count = (level_select) ? bit_count_posedge : bit_count_negedge;
+
+  assign symbol_data_reg = (level_select) ? symbol_data_reg_posedge :
+                                            symbol_data_reg_negedge;
+ 
+  assign r_first_com_detected = (level_select) ? r_first_com_detected_posedge :
+                                                 r_first_com_detected_negedge;
+
+  assign current_rd = (~r_first_com_detected & first_com_detected) ? 
+             ((skewed_pci_10b_data == ZI_COMMA_PLUS) ? 
+               ZI_POSITIVE : ZI_NEGATIVE) :
+             ((level_select) ? 
+              current_rd_posedge : current_rd_negedge);
+
+  assign idl_count = (level_select) ? idl_count_posedge : idl_count_negedge;
+   
+  // PCI_EXPRESS_GEN2 code start
+  assign eie_count = (level_select) ? eie_count_posedge : eie_count_negedge; 
+  // PCI_EXPRESS_GEN2 code end
+   
+  assign skp_count = (level_select) ? skp_count_posedge : skp_count_negedge;
+  assign fts_count = (level_select) ? fts_count_posedge : fts_count_negedge;
+  assign ts1_symbol_count = 
+         (level_select) ? ts1_symbol_count_posedge : ts1_symbol_count_negedge;
+
+  assign ts2_symbol_count = 
+         (level_select) ? ts2_symbol_count_posedge : ts2_symbol_count_negedge;
+
+  assign os_present_state = (level_select) ?
+         os_present_state_posedge : os_present_state_negedge;
+
+  assign lfsr_reg = (level_select) ? lfsr_reg_posedge : lfsr_reg_negedge;
+
+  assign interface_string = (TX_INTERFACE) ? "TX" : "RX";
+
+  // wire ser_first_com_detected is asserted whenever a COM symbol is
+  // detected. Electrical idle detected is looked upon to prevent
+  // illegal detection of COM symbol.
+
+  assign ser_first_com_detected = (r_first_com_detected === 1'b0 && (
+         {symbol_data_plus,symbol_data_reg[9:1]} === ZI_COMMA_PLUS || 
+         {symbol_data_plus,symbol_data_reg[9:1]} === ZI_COMMA_MINUS));
+
+  assign par_first_com_detected = (PIPE_MONITOR == 0) ?
+                                  ((r_first_com_detected === 1'b0 && 
+                                  ((symbol_data_plus === ZI_COMMA_PLUS ||
+                                  symbol_data_plus === ZI_COMMA_MINUS)))) :
+                                  //rx_valid_in;
+                                  (pci_8b_data === ZI_COM);  
+
+  assign first_com_detected = (INTERFACE_TYPE) ? par_first_com_detected :
+                              ser_first_com_detected;
+
+  // When first COM is detected the parallel data is valid. After that
+  // on every 10 clocks the parallel data is valid.
+
+  assign int_parallel_symbol_valid = (INTERFACE_TYPE) ? 
+                                 (first_com_detected || r_first_com_detected) :
+                                 (first_com_detected || bit_count === 4'b1000);
+
+  assign parallel_symbol_valid = 
+             (DESKEW_SUPPORT) ? deskew_fifo_read : int_parallel_symbol_valid;
+
+  // Multiplex the deserialized data on to the internal bus based on the
+  // interface mode. When the lane polarity is inverted, then the inverted 
+  // data is assigned.
+
+  assign skewed_pci_10b_data = 
+            (TX_INTERFACE == 0 && lane_polarity_inverted_flag == 1'b1) 
+             ? ~int_pci_10b_data : int_pci_10b_data;
+
+  assign pci_10b_data = (DESKEW_SUPPORT) ? deskewed_pci_10b_data :
+                         skewed_pci_10b_data;
+
+  assign int_pci_10b_data = (INTERFACE_TYPE) ? symbol_data_plus : 
+                            {symbol_data_plus,symbol_data_reg[9:1]};
+
+  // reserved_k_code_on_lane is asserted whenever a reserved K code is
+  // sampled on the lane
+
+  // This code commented as modified for gen2
+  //assign reserved_k_code_on_lane = 
+  //               (int_d_or_k_code === 1'b1 && parallel_symbol_valid === 1'b1 && 
+  //                 (int_pci_8b_data == ZI_K28_4 || int_pci_8b_data == ZI_K28_6
+  //                  || int_pci_8b_data == ZI_K28_7)); 
+
+  // PCI_EXPRESS_GEN2 code start 
+  assign reserved_k_code_on_lane = 
+                   (int_d_or_k_code === 1'b1 && parallel_symbol_valid === 1'b1 && 
+                   (int_pci_8b_data == ZI_K28_4 || int_pci_8b_data == ZI_K28_6
+                    || (PCI_EXPRESS_GEN2 == 0 && int_pci_8b_data == ZI_K28_7)));      // K28.7 is not reserved in Gen2
+
+  // eie_on_gen1 is asserted whenever K28.7 symbol is detected on 2.5 GT/s 
+  assign eie_on_gen1 =
+                   (PCI_EXPRESS_GEN2 == 1 && int_d_or_k_code === 1'b1 && parallel_symbol_valid === 1'b1 && 
+                    current_speed_5gt ==  1'b0 && int_pci_8b_data == ZI_K28_7);
+
+ // eie_inconsistent_in_eie_os is asserted whenever EIE count is not equal to 14 in EIEOS or it does not appear consistently 
+  assign eie_inconsistent_in_eie_os =
+                   (PCI_EXPRESS_GEN2 == 1 && os_present_state === ZI_ORDERED_SET_EIE_STATE 
+                    && os_next_state !== ZI_ORDERED_SET_EIE_STATE && os_next_state !== ZI_ORDERED_SET_TS1_IDNT_STATE);
+
+ // Two sets of ELEC IDL OS should be transmitted on gen2 speed.  
+   assign eios_error_on_gen2 = 
+                   (PCI_EXPRESS_GEN2 == 1 && stable_speed_5gt === 1'b1 && electrical_idle_detected === 1'b1 && 
+                    idl_os_count === 2'b01);  
+  // PCI_EXPRESS_GEN2 code end
+   
+  // Wire assignments to ordered set detected signals
+
+  assign ts1_detected = 
+           next_ts1_symbol_count === 4'b1010 && parallel_symbol_valid === 1'b1;
+  assign ts2_detected = 
+           next_ts2_symbol_count === 4'b1010 && parallel_symbol_valid === 1'b1;
+
+  assign skp_os_detected = (TX_INTERFACE ?
+                (os_present_state === ZI_ORDERED_SET_SKP_STATE &&
+                 next_skp_count === 3'b011 && parallel_symbol_valid === 1'b1) :
+                (next_skp_count === 3'b1 && parallel_symbol_valid === 1'b1));
+
+  // This code commented as modified for gen2 
+  //assign idle_os_detected = (TX_INTERFACE ? 
+  //            (next_idl_count === 3'b011 && parallel_symbol_valid === 1'b1) :
+  //            ((next_idl_count === 3'b010 || next_idl_count === 3'b11) && 
+  //            parallel_symbol_valid === 1'b1));
+  
+  // PCI_EXPRESS_GEN2 code start
+   assign idle_os_detected = ((PCI_EXPRESS_GEN2 == 1 && current_speed_5gt === 1'b1) ? (next_idl_os_count === 2'b10 && parallel_symbol_valid === 1'b1) :
+                              (TX_INTERFACE ? ((PIPE_MONITOR === 1 && DOUBLE_DATA_RATE === 1) ? 
+                                               ((next_idl_count === 3'b010 || next_idl_count === 3'b011) && parallel_symbol_valid === 1'b1) :
+                                               (next_idl_count === 3'b011) && parallel_symbol_valid === 1'b1) :
+                               ((next_idl_count === 3'b010 || next_idl_count === 3'b11) && parallel_symbol_valid === 1'b1)));
+
+  // Logic to detect EIEOS   
+  assign eie_os_detected =           
+                (PCI_EXPRESS_GEN2 == 1 && os_next_state == ZI_ORDERED_SET_TS1_IDNT_STATE && parallel_symbol_valid === 1'b1);
+  // Logic to detect compliance receive bit in link control
+  assign link_ctrl_compliance_receive_detected = 
+                (PCI_EXPRESS_GEN2 == 1 && ((ts1_detected | ts2_detected) & link_ctrl === ZI_COMPLIANCE_REC));
+  // Logic to detect compliance receive and loopback bit in link control
+  assign link_ctrl_compliance_receive_loopback_detected = 
+                (PCI_EXPRESS_GEN2 == 1 && ((ts1_detected | ts2_detected) & link_ctrl === ZI_COMPLIANCE_REC_LOOPBK));
+  // Logic to detect gen1 data rate in data rate field of TS1/TS2
+  assign gen1_data_rate_detected = 
+                 (PCI_EXPRESS_GEN2 == 1 && ((ts1_detected | ts2_detected) & data_rate[1]));
+  // Logic to detect gen2 data rate in data rate field of TS1/TS2
+  assign gen2_data_rate_detected = 
+                 (PCI_EXPRESS_GEN2 == 1 && ((ts1_detected | ts2_detected) & data_rate[2]));
+  // Logic to detect autonomous bit in data rate field of TS1/TS2
+  assign autonomous_data_rate_detected = 
+                 (PCI_EXPRESS_GEN2 == 1 && ((ts1_detected | ts2_detected) & data_rate[6]));
+  // Logic to detect speed change bit in data rate field of TS1/TS2
+  assign speed_change_data_rate_detected = 
+                 (PCI_EXPRESS_GEN2 == 1 && ((ts1_detected | ts2_detected) & data_rate[7]));
+  // Logic to detect K28.7(EIE) symbol.
+  assign eie_detected = (PCI_EXPRESS_GEN2 == 1 && 
+                          ((INTERFACE_TYPE) ? ((PIPE_MONITOR == 0) ?
+                          (symbol_data_plus === ZI_EIE_PLUS || symbol_data_plus === ZI_EIE_MINUS):
+                           (pci_8b_data === ZI_K28_7)): (
+                            {symbol_data_plus,symbol_data_reg[9:1]} === ZI_EIE_PLUS || 
+                             {symbol_data_plus,symbol_data_reg[9:1]} === ZI_EIE_MINUS)));
+  // PCI_EXPRESS_GEN2 code end   
+   
+  assign lane_num_detected = 
+                 ((ts1_detected | ts2_detected) & lane_number_detected);
+
+  assign link_num_detected =
+                 ((ts1_detected | ts2_detected) & link_number_detected);
+  
+  assign link_ctrl_reset_detected = 
+                 ((ts1_detected | ts2_detected) & link_ctrl === ZI_RESET);
+
+  assign disable_detected = 
+                 ((ts1_detected | ts2_detected) & link_ctrl === ZI_DISABLE);
+
+  assign disable_scrambling_detected = 
+                 ((ts1_detected | ts2_detected) & link_ctrl === ZI_NO_SCRAMBLE);
+
+// This code commented as modified for gen2
+ //assign loopback_detected = 
+ //              ((ts1_detected | ts2_detected) & link_ctrl === ZI_LOOPBACK);
+  
+  // PCI_EXPRESS_GEN2 code start
+  assign loopback_detected = 
+                 ((ts1_detected | ts2_detected) & (link_ctrl === ZI_LOOPBACK 
+                   || (PCI_EXPRESS_GEN2 == 1 && link_ctrl === ZI_COMPLIANCE_REC_LOOPBK))); 
+  // PCI_EXPRESS_GEN2 code end
+   
+  assign fts_os_detected = 
+                 (next_fts_count === 3'b011 && parallel_symbol_valid === 1'b1); 
+
+  assign idle_data_detected = 
+                 (descrambled_data == 8'h00 &&
+                 electrical_idle_detected === 1'b0 &&
+                 os_next_state == ZI_ORDERED_SET_IDLE_STATE &&
+                 dllp_tlp_on_link == 1'b0 &&
+                 parallel_symbol_valid === 1'b1);
+
+  assign compliance_pattern_detected = os_next_state == ZI_ORDERED_SET_COMPL_STATE 
+                                       && parallel_symbol_valid === 1'b1;
+
+  // PCI_EXPRESS_GEN2 code start                                          
+  assign modified_compliance_pattern_detected = os_next_state == ZI_ORDERED_SET_COMPL_GEN2_STATE 
+                                       && parallel_symbol_valid === 1'b1;
+  // PCI_EXPRESS_GEN2 code end
+   //   
+  // Scrambler is disabled while receiving TS1/TS2 ordered sets are being
+  // received. Refer specification
+
+  assign disable_scrambler = 
+                 (os_next_state === ZI_ORDERED_SET_LINK_ID_STATE ||
+                  os_next_state === ZI_ORDERED_SET_LANE_ID_STATE ||
+                  os_next_state === ZI_ORDERED_SET_N_FTS_STATE ||
+                  os_next_state === ZI_ORDERED_SET_DATA_RATE_STATE ||
+                  os_next_state === ZI_ORDERED_SET_LINK_CTRL_STATE ||
+                  os_next_state === ZI_ORDERED_SET_TS1_STATE ||
+                  os_next_state === ZI_ORDERED_SET_TS2_STATE ||
+                  os_next_state === ZI_ORDERED_SET_COM2_STATE ||
+  // PCI_EXPRESS_GEN2 code start
+                  (PCI_EXPRESS_GEN2 == 1 && (
+                   os_next_state === ZI_ORDERED_SET_COMPL_ERR_STATUS1_STATE ||
+                   os_next_state === ZI_ORDERED_SET_COMPL_ERR_STATUS2_STATE ||
+                   os_next_state === ZI_ORDERED_SET_COM2_GEN2_STATE ||
+                   os_next_state === ZI_ORDERED_SET_COMPL_GEN2_STATE)) ||
+  // PCI_EXPRESS_GEN2 code end
+                  os_next_state === ZI_ORDERED_SET_COMPL_STATE);
+
+  /*assign idle_os_error = ((idl_count === 3'b011 && int_pci_8b_data === ZI_IDL 
+                 && parallel_symbol_valid === 1'b1 && int_d_or_k_code === 1'b1) ||
+                 (((TX_INTERFACE === 1 && idl_count !== 3'b011) ||
+                   (TX_INTERFACE === 0 && idl_count < 3'b010)) && 
+                 os_present_state === ZI_ORDERED_SET_IDL_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_IDL_STATE));
+  */
+
+  // The firing is relaxed to take care of following conditions.
+  // 1. Transmit can transmit junk data after transmitting idle os.
+  // 2. Receiver can see junk data upto 2 symbol times after receiving
+  //    idle os.
+  // The check is relaxed such that all symbols after idle os are
+  // discarded. This condition has been taken care in no_idle_data 
+  // check also.
+
+  assign idle_os_error = (((TX_INTERFACE === 1 && idl_count !== 3'b011) ||
+                           (TX_INTERFACE === 0 && idl_count < 3'b010)) &&
+                            os_present_state === ZI_ORDERED_SET_IDL_STATE &&
+                            os_next_state !== ZI_ORDERED_SET_IDL_STATE);
+
+  assign fts_os_error = ((fts_count === 3'b011 && int_pci_8b_data == ZI_FTS
+                 && parallel_symbol_valid && int_d_or_k_code === 1'b1) ||
+                 (fts_count !== 3'b011 && 
+                 os_present_state === ZI_ORDERED_SET_FTS_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_FTS_STATE));
+
+  assign illegal_data_rate_identifier = 
+                 (os_present_state === ZI_ORDERED_SET_N_FTS_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_DATA_RATE_STATE &&
+                 parallel_symbol_valid === 1'b1); 
+
+  assign illegal_lane_number_identifier = 
+                 (os_present_state === ZI_ORDERED_SET_LINK_ID_STATE && 
+                 os_next_state !== ZI_ORDERED_SET_LANE_ID_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_COM2_STATE &&
+                 parallel_symbol_valid === 1'b1); 
+
+  assign illegal_n_fts_field = 
+                 (os_present_state === ZI_ORDERED_SET_LANE_ID_STATE &&
+                  os_next_state !== ZI_ORDERED_SET_N_FTS_STATE && 
+                  parallel_symbol_valid === 1'b1);
+
+  assign illegal_link_ctrl_field =
+                 (os_present_state === ZI_ORDERED_SET_DATA_RATE_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_LINK_CTRL_STATE &&
+                 parallel_symbol_valid === 1'b1); 
+
+  assign illegal_ts_identifier =
+                 (os_present_state === ZI_ORDERED_SET_LINK_CTRL_STATE &&
+                 !(os_next_state === ZI_ORDERED_SET_TS1_STATE ||
+                 os_next_state === ZI_ORDERED_SET_TS2_STATE) &&
+                 parallel_symbol_valid === 1'b1); 
+
+  assign illegal_symbol_following_com_symbol =
+                 (os_present_state === ZI_ORDERED_SET_COM_STATE &&
+                 os_next_state === ZI_ORDERED_SET_UNKNOWN_STATE &&
+                 int_d_or_k_code === 1'b1 && parallel_symbol_valid === 1'b1);  
+
+  assign ts1_os_error =
+                 ((ts1_symbol_count === 4'b1010 && int_d_or_k_code === 1'b0
+                 && (int_pci_8b_data === ZI_TS1_ID || int_pci_8b_data === ZI_TS1_ID_INV)
+                 && parallel_symbol_valid) ||  
+                 (ts1_symbol_count !== 4'b1010 && 
+                 os_present_state === ZI_ORDERED_SET_TS1_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_TS1_STATE)); 
+
+  assign ts2_os_error =
+                 ((ts2_symbol_count === 4'b1010 && int_d_or_k_code === 1'b0
+                 && (int_pci_8b_data === ZI_TS2_ID || int_pci_8b_data === ZI_TS2_ID_INV)
+                 && parallel_symbol_valid) || 
+                 (ts2_symbol_count !== 4'b1010 &&
+                 os_present_state === ZI_ORDERED_SET_TS2_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_TS2_STATE));
+
+  assign skp_os_error = ((TX_INTERFACE === 1 &&  
+                 ((skp_count === 3'b011 && int_d_or_k_code === 1'b1 &&
+                 parallel_symbol_valid === 1'b1 && int_pci_8b_data == ZI_SKP) || 
+                 (skp_count !== 3'b011 &&
+                 os_present_state === ZI_ORDERED_SET_SKP_STATE &&
+                 os_next_state !== ZI_ORDERED_SET_SKP_STATE))) ||
+               (TX_INTERFACE === 0 && skp_count === 3'b101 && int_d_or_k_code === 1'b1
+                 && parallel_symbol_valid === 1'b1 && int_pci_8b_data == ZI_SKP));
+
+  assign skp_added = (PIPE_MONITOR === 1 &&                       // In PIPE mode skp_added set if skp_count is 3 and one more skp detected
+                      skp_count > 3'b011  && rx_valid_in === 1'b1/*&& int_d_or_k_code === 1'b1 &&
+                      parallel_symbol_valid === 1'b1 && int_pci_8b_data == ZI_SKP*/);
+
+  assign skp_removed = (PIPE_MONITOR === 1 &&  
+                        skp_count < 3'b011 && os_present_state === ZI_ORDERED_SET_SKP_STATE &&
+                        os_next_state !== ZI_ORDERED_SET_SKP_STATE);
+ 
+  assign skp_not_part_of_skp_os = 
+                 (os_present_state !== ZI_ORDERED_SET_SKP_STATE &&
+                 os_present_state !== ZI_ORDERED_SET_COM_STATE &&
+                 int_d_or_k_code === 1'b1 && parallel_symbol_valid === 1'b1 &&
+                 int_pci_8b_data === ZI_SKP);
+
+  assign idl_not_part_of_eidle_os =
+                 (os_present_state !== ZI_ORDERED_SET_IDL_STATE &&
+                 os_present_state !== ZI_ORDERED_SET_COM_STATE &&
+                 int_d_or_k_code === 1'b1 && parallel_symbol_valid === 1'b1 && 
+                 int_pci_8b_data === ZI_IDL && idle_os_detected_flag === 1'b0);
+  
+  assign fts_not_part_of_fts_os =
+                 (os_present_state !== ZI_ORDERED_SET_FTS_STATE &&
+                 os_present_state !== ZI_ORDERED_SET_COM_STATE &&
+                 int_d_or_k_code === 1'b1 && parallel_symbol_valid === 1'b1 && 
+                 int_pci_8b_data === ZI_FTS);
+
+  assign compliance_pattern_error = 
+       (parallel_symbol_valid === 1'b1 && compliance_check_enable === 1'b1 &&
+       (compliance_pattern_comma_error | compliance_pattern_d_code_error));
+
+        // (os_present_state === ZI_ORDERED_SET_COM2_STATE &&
+       // d_or_k_code === 1'b0 && parallel_symbol_valid === 1'b1 &&
+        // int_pci_8b_data !== ZI_TS1_ID);  
+
+  assign electrical_idle_detected = ((DESKEW_SUPPORT == 0 || PIPE_MONITOR == 1) ? 
+                ((INTERFACE_TYPE == 0) ? 
+                (symbol_data_plus === symbol_data_minus) :
+                (symbol_data_plus === ELECTRICAL_IDLE_VAL)) :
+                (deskewed_pci_10b_data == ELECTRICAL_IDLE_VAL));
+
+  // This code commented as modified for gen2
+  //assign no_idle_data = (electrical_idle_detected === 1'b0 &&
+  //            dllp_tlp_on_link === 1'b0 && descrambled_data !== 8'b0 && 
+  //            os_next_state === ZI_ORDERED_SET_IDLE_STATE &&
+  //            r_first_com_detected == 1'b1 && 
+  //              idle_os_detected_flag === 1'b0);
+  
+  // PCI_EXPRESS_GEN2 code start
+  // When the link is in the logical idle state, idle data should
+  // be detected on the lanes.
+  assign no_idle_data = (electrical_idle_detected === 1'b0 &&
+                dllp_tlp_on_link === 1'b0 && descrambled_data !== 8'b0 && 
+                os_next_state === ZI_ORDERED_SET_IDLE_STATE && idl_os_count === 2'b00 && 
+                (PCI_EXPRESS_GEN2 == 0 || os_present_state !== ZI_ORDERED_SET_EIE_STATE) &&      
+                r_first_com_detected == 1'b1 &&
+                idle_os_detected_flag === 1'b0);
+  // PCI_EXPRESS_GEN2 code end 
+   
+  assign lane_number = (level_select) ? lane_number_posedge : 
+                                        lane_number_negedge;
+
+  assign link_number = (level_select) ? link_number_posedge : 
+                                        link_number_negedge;
+
+  assign link_ctrl = (level_select) ? link_ctrl_posedge : 
+                                      link_ctrl_negedge;
+
+  // PCI_EXPRESS_GEN2 code start
+  assign data_rate = (level_select) ? data_rate_posedge : 
+                                      data_rate_negedge;
+  // PCI_EXPRESS_GEN2 code end
+
+  assign lane_number_detected = (level_select) ?
+         lane_number_detected_posedge : lane_number_detected_negedge;
+
+  assign rx_lane_polarity_detected = (level_select) ?
+         rx_lane_polarity_detected_posedge : rx_lane_polarity_detected_negedge;
+
+  assign rx_lane_polarity_inverted = 
+                  ((int_pci_8b_data == ZI_TS1_ID_INV && ts1_detected) ||
+                   (int_pci_8b_data == ZI_TS2_ID_INV && ts2_detected));
+
+  assign rx_lane_polarity_reinverted = 
+                  ((int_pci_8b_data == ZI_TS1_ID && ts1_detected) ||
+                   (int_pci_8b_data == ZI_TS2_ID && ts2_detected));
+
+  assign link_number_detected = (level_select) ?
+           link_number_detected_posedge : link_number_detected_negedge;
+
+  assign r_pci_8b_data = (level_select) ?
+         r_pci_8b_data_posedge : r_pci_8b_data_negedge;
+
+
+  assign lane_polarity_inverted = 
+                  (TX_INTERFACE == 0 && PIPE_MONITOR == 0 &&
+                  ((int_pci_8b_data == ZI_TS1_ID_INV && ts1_detected) ||
+                   (int_pci_8b_data == ZI_TS2_ID_INV && ts2_detected)));
+
+  assign lane_polarity_inverted_flag = (level_select) ?
+                         lane_polarity_inverted_flag_posedge : 
+                         lane_polarity_inverted_flag_negedge;
+
+  assign lane_0_detected = (level_select) ?
+         lane_0_detected_posedge : lane_0_detected_negedge;
+
+  assign number_of_fts_seq = (level_select) ?
+         number_of_fts_seq_posedge : number_of_fts_seq_negedge;
+
+  assign valid_number_of_fts_seq = (level_select) ?
+         valid_number_of_fts_seq_posedge : valid_number_of_fts_seq_negedge;
+
+  assign idle_os_detected_flag = (level_select) ?
+           idle_os_detected_flag_posedge : idle_os_detected_flag_negedge;
+
+  assign n_fts = number_of_fts_seq;
+
+  assign r_pci_10b_data = (level_select) ?
+             r_pci_10b_data_posedge : r_pci_10b_data_negedge;
+
+  assign compliance_pattern_comma_error =
+            (((os_next_state == ZI_ORDERED_SET_COM2_STATE &&
+              pci_10b_data !== ZI_COMMA_PLUS) ||
+             (os_next_state == ZI_ORDERED_SET_LINK_ID_STATE &&
+              r_pci_10b_data !== ZI_COMMA_MINUS &&
+              pci_8b_data !== ZI_PAD)) && PIPE_MONITOR == 0);
+
+  assign compliance_pattern_d_code_error =
+            ((os_next_state == ZI_ORDERED_SET_LINK_ID_STATE &&
+              int_pci_8b_data !== ZI_TS1_ID_INV &&
+              int_pci_8b_data !== ZI_PAD) ||
+             (os_present_state == ZI_ORDERED_SET_COM2_STATE &&
+              int_pci_8b_data !== ZI_TS1_ID));
+
+  // PCI_EXPRESS_GEN2 code start
+  // Modified compliance pattern consist of K28.5,D21.5,K28.5,D10.2,Err status sym,
+  // Err status sym,K28.5 and K28.5 sequence
+  assign modified_compliance_pattern_error = 
+            (PCI_EXPRESS_GEN2 == 1 && parallel_symbol_valid === 1'b1 && compliance_check_enable === 1'b1
+             && os_next_state != os_present_state && 
+             ((os_present_state == ZI_ORDERED_SET_COMPL_ERR_STATUS1_STATE
+               && os_next_state != ZI_ORDERED_SET_COMPL_ERR_STATUS2_STATE) ||
+              (os_present_state == ZI_ORDERED_SET_COMPL_ERR_STATUS2_STATE
+               && os_next_state != ZI_ORDERED_SET_COM2_GEN2_STATE) ||
+              (os_present_state ==  ZI_ORDERED_SET_COM2_GEN2_STATE
+               && os_next_state != ZI_ORDERED_SET_COMPL_GEN2_STATE) ||
+              (os_present_state == ZI_ORDERED_SET_COMPL_GEN2_STATE
+               && os_next_state != ZI_ORDERED_SET_COM_STATE && os_next_state != ZI_ORDERED_SET_IDLE_STATE))); 
+  // PCI_EXPRESS_GEN2 code end
+  
+  assign deskew_d_or_k_code = int_d_or_k_code;
+
+  assign symbol_data_plus_minus_fire =
+                (~(symbol_data_plus === symbol_data_minus) &&
+                ~(symbol_data_plus === ~symbol_data_minus));
+
+`protected
+
+    MTI!#CfuX,I>TeB/]sZrwD~QO{zle?$xBID\7@B^x1i#[ysD#!}G=37;Y-=O>R2rk^QI;[O<RK72
+    7@k,W=$\Y$5Je;q^cxkT<s+pAbmCW[HIws1-1~*x3jl?\a{l13|>aje=<]Cm|xmwwKwaGp08BO+_
+    &e2a[,T7="kv=p}<akq+RxYZ{r}_Y_OCuU@]pu?aAu77*w;$2+@kw2v{BAr_u$svz',N$[]B"HD+
+    \wX,k][~E.kT\kzLu$o~D-vH'>]-<oIahB~K<=3${SNKTJ;$\*DD"H-Ei!A{\5A<Aw55<e+DmGQp
+    j/F}u=eZ'GRwRkY]l!Qr_-l?o?X]kr@1uNlpz+*VJ#,=AQ,@|^zEZIZCG>r<uYpEE]ml'_YYOzE}
+    -fHR<7BwBp>}A>vIYeW5m7@-5u_DA;$Z>oI=A,DH$T\z}<},T>-j<ZY#p]eKjQWI_D+,rZs~D\:'
+    #[]OVYv7qW>Qm7r|vZYEgo1wE~DI'-D}Bko7D#X'#po}+zQt&X{p~C=iDJO!{v7$T3D#pI:~,2=Q
+    ^s<G~;HY_QTZ5Z'RSB+KljRa!&pr]7oY}<7#jZn,\$1O_UZnQo[.}ri!Y)_1J]e,m'sYoQ}z*oes
+    ,{D#n$$-GTY{mrl2vj,vwv,l_u'k]*sm_ax-\-j*O~_5A;%2_3nI5<\.3e]C>tHU7ZICHJ,O\a63
+    7]B_"Iu}JHlkHUO\VRxi,Jw!;!jE~#BEpSj_wnP;xvZ!BJY1vI;%~*o[jN_3Z=mGoW=jRiG-x,Vk
+    1I#-YK_xCljJ>7$YoQ,HJTJTKBCVT#--Qpi<+Ce=J+)y(!EUJz.pDZ<\!<=}pYsA$URKYX<RAVW]
+    \oY>rX$799Y{V<RmKkBoiQs;Q$rTHRQwJ!sm@GR7I[|R-;<FwrTJ@}BaC3!;7]jYt,WO,Os1vz}s
+    Ou']olA{57X5Jf6=!+}FQ{{aH'YT<$wBKE7n{'I\wp_^JrBu#pK?DClD}T1Z1ACaG^A@\w'YV+Wx
+    H}I@ebkxRl=XOG9~*YTvk3zDalEbi<$2$BGK\i,eYn[J&^J^\$Y3vjQ!CSo1;{}u,i?r@]E2\5s{
+    Hou}]*FF^x~~jmriHO>CB=ICI5a\pC[#~Y~o5'{*VWO5O>Rz}{YWH\mu^OHRQi]2U}Bl2\Jl?7^#
+    7j<$*~>_[wWrOjrp0Vs?r1}lop!RW7sw!oXeJGnzpTVH3+XG$2*HnwYVClT-*1GX+~rkaA5!Ko#V
+    5Q}Z~lnYGRTe}C\7a*5+DBm[@RBY^UBiR\;DoUX-z+^uVx#7_DH$wlDlC~r1]^>YiUX5^W7sm]!l
+    >lG<Tipeme[QW%w}7{=V>KZoE;LJ>]O|Aeoo;5XO!sHCj>@<YQL3D1Y8EIr\Vl{7E@$3ROKaU\EC
+    %1;^ln=n-u\~;R_UZH[B@&JD'JO[T*C-;Dlo2CA=wnV1v_@^1VGBKw%~R!lBrL1xn_$KECT^j{xu
+    eB0m*1JiR*l{{Y^Ee$T;$X{_{OV5"rI<r[uIm}>}x,_@UK[KW3}em<Q7wF\*YEIkJGBpi*m,WY/e
+    <Z}5WGuZr]IGzlTp2Huk{+![I@Y?v+GGYOn7#@ZOU$~C\_>K*x@I-'Dp$Wl2Aw?mQlG)Z]5-o=Dk
+    xB^JrETpX5jmaT8xnOJek+5kll1\<Q*uzeiqIH_U7Em;Op=znau*Y<u<Ez&5=G?>]wC,=AV[>zz(
+    'm7R,vZ1E^7s*Z2Oz=mx8jRG$lIT@LZ{rk*,I{+=WH;X-~[B*Z=[IG[},e>AUj2',_d*Glo&mvjU
+    !j[:=ZO}*DEDo\A[z2'!Y+$^kn[po5Z[UraBl*?E2z_k\,{7f>se'9Ym+v]O*in=_<I>WQnG{3U+
+    1+YAWkZj7]_Jn?@[A<=5YZI31H#ED*xBC[5=TkH_~O{wwwx<HuWUp#}?GaNQ5-ow7?R;Y@<1+DX$
+    ?}p/1\neZIU,jQu!>]Z!{B#_.1B#Dsg+aW[+$m'm,_vU,K!D0+OvaHT}-w1Yuw5#;~OJTTY_pH^a
+    C#IK[~UlTvlGE+TVzjD{nzDGRzWQa'73rA*<k~RI;>H!YfBB,m)r<+oBjk{x!ZH3A*$Wx:1w3A!a
+    Al\JJ3^DKO5Zr["CrJa,mn'REE{';D7oCVE;}i{gYA*uvd*-7w*E,TBoma'e*[2[_T[2WRVo,^A1
+    r^=]@Zu[*Z$T2@@,vIxJHm7#Ku!\;k;_Oz7xXs,\#O!+2\BuvO[5\a~EY5eE+lAo~aXt\;Ii{s<O
+    EZe;GRX+rz2nY\VZ]>17%~I3z7*?}V<ZCG]xV3^-QGT'Ai<unwRl7VvD-O!e>>|HX$T}HJ$TE-]@
+    DX[C;*C71U5m[!rt='-veepIT_[3pKY5Tlrr@HsBQIQUuD]D37t|rOO7wpGD]kX]\Q=kQw{$BGGG
+    zr^{IOVo=v~ONsJ_i#<ZED[w3E7jep^W\RjA!/v%vcKV'@+B5E?Rkjxe2l%V'=_DjJU7;QOH$r1,
+    i<nq<YEE@okR#[xkHa!UBpVK;[]B*@pH!5orV[k'l@_!s@,TYIYje6_<rYzx(dxw;{+rHUeV*QOv
+    G$|$$mVbj~1}cupA!Cl\~Gau;J'Yoo7'pCZ[KM.(&dCk.R_[j&I]]3i\Djn6J='B_RHoZG!j*3e!
+    ,^OvmRQ}%iH7EJOvk15sV7o]IIUmO]}}>[HX'eJZQ_Hw2QZVk|@z=Ug,7np{(,Z@wq*5_<>Ci,!n
+    b{+Q+rI\{arJQHHERl17$j[};):1dOQ$W*BX3R<*l&Qr3;I1urP+$B@wj^Vz7]R,ZK]BDm?*kpwl
+    ZmGGWC^Drn2RY1i)3RA1]^Vru'J<I1_@IQH>]EREs7n#UODB!s>@IWUV=e>3G='}!{U$h7l15D@|
+    -[K_s}]lH*QV]z{;V!E[oGm2#T@~^o*!+'jT5m~a'@n[BDlx:swe*-Qvs7Qnpc}^R^djX]5:/N5<
+    5O}}!1>o>CW5-zB>{\xo_rlN{RKV$AzE=!IUE}_-}wZ+57\o2HaYz^VRQ$Q3;\XJx?K{['j=<$=-
+    TV=XojVT$OI!,>]+m\V<w]u{U^}1V<!mY>j^Euw>pH'J}Q!5uRnHv-'UW7'vaeuJ^>o-d7>H^lD$
+    x#D+jOBn,i^G@5uT5}+XVQ_'EKAz~jYI#za>=5}3jIClxv#-sHVk?#Am,YKOCD^>wZr-<S<|Cm15
+    mQpUqvJuV*Cx}ZAQjQGxI17!KNtT=jOSsHoRs[\m_?!11+KBFLI\>5}Wjz=*W!=i^>hvCRiEQ2vr
+    Y_WQ*vkEreH^2u*jlKB2N~z$?T^(?,xs-=<n7#G$vv]503CnZ$}X;*OEuGmTY\l<T$YBB[I]HCI5
+    ?;U!3_sB3=;G=-1mw!<+Xj?K$@AQ^pcE'Burmv!(QZE]ar'j2[5QpXrYap*Wj^'5fa<3*YuGB@n]
+    3rCK~T,$UQme+Qls+{wV]u,?s2[W]n=O5EZsOO:z[[^<e]p\oX3~{J<kjv_CTa;\ajYKY<ZB{Yx_
+    #X~e*QWQj*lv;TuI]\zB@_K0DX<v~C^Qq53eHRkB*2zsG$$'5o;1Gr]<pLjn^]3>K<rrJ]+XrnZ1
+    ^W,i}DXE^v5O[2lTJDymEHZ3e7}-{X\>-~3J\DI=^o]T{D>M14l<Av)k+!Wp2WsaEkBM7AvmXnRm
+    R\1Yp@I?yTTUwEwJe]2_*xC-e$YB_Cpon[?lnj{73iB>xo>3Uz^v-yxW@wWO^UlC@]={XWC';AGW
+    \25D]VE;!=-7,GZp=**'=npjABZDT3z!p!]Im+]-]D=p+Qw]x_D$}#Io@zr{5Kj7G\v#K$kQ'!ir
+    Drjmm$j;zQGQ\OK(w\A]OxA{7mv,Ei3?pVY#aa5IopXnl$RTM#Yz_G@{o&QGs@elea=uI'rkOjJl
+    7<9oV@$$KBaXr$aZVZkAXw<$'K'|{Ulnusi';aZ=la1BG***-e1G':R,_l=+7_QuZZMYDAmO_ElE
+    K5x$G<,273~v9B\#{L*GAw(]mQla-m?!_?AvWz>b[*m,Ba=X$kX';>e[V#\a2VeC_pI7E\OwLqQ7
+    ?\@owlQC!jGr~eew*Y!wH{<5-HPrH^207[?!'Q_eI;Wj*^1Yw]'}hol[+o3Ha1V]U5XYiSpXKegD
+    1k[n'eKkIQ!6$nT$,3<A)?Q^B,l$uhio[mOiu+Nxsr=Arl~2URG2DVx3,oGJ'@T!HWW$aX\a{aAn
+    }[7|;=\<[eKH^jYmYrH$rr<-]'{VnGO@ReB~r^v<r@_]?D=p-[ARQ2C$pW<w2GODvHKv^n,s^JO*
+    \xTuG$}i[m1D~zYC5Qvz}[E$lus_lZ5sO>n[$'R<DnA[oow-#Hm*/JUK=H=3jpj}=H}]2D!v>Y@X
+    aWAYAh>EV!uQ'wY#nv!H_$v]<A#+$r#Qx]7w<v;*Y#W<aY>X,Yv?G1'w[wJERlvs~}E@\e1ZKps{
+    A@{Oli~<';JTxH-]Q>HY{}ln2]5F,TxuM,e1iU$'V#--Xxv$_vIpr=]Zo{Y,=nGx3cO]Vm~=]7,u
+    s1Q^'lGi$OTU>pxN_usU}<,j\aza]\^]v#<5It1xiG@$GXs1<E3e_~pruAG}=14vK=$V!AEcl5A2
+    l?-;jI\1k_E'}@j}?sI=5?~s,rYC0]I$}n<\*;1-m6V3EmVCajol23VQOahaE@@x!]lw-UH{e>-<
+    GZ}T+^=hF*ts2r5?GVJj^[j]{C3,a5XvloAo1X](uODx+IDB!Hr^!VTJO>-{z_#Vl/D}kJf-1aQY
+    ++kl7?Q5@IG1a,EH^l1r1!rTvpreQzw_[]*E*<DI[}Ol_EK'r=KG2a^~zBU^UBvQ\1pzxjXpE1!k
+    j{xO^W#>Y1ovY@{{DwG*+3<x}!A9GY,saO-[[-xxUIYjVH>7<Tn]IzA;f0?T+X8mvK[oIe-=p$57
+    [v{gEn]_;'pk1}'zjDDAAY?u$as}\j*hU$iQwU1sO[#Z{=%w\ODYWAkHEJ,VD{EwnQ2:EkmJ}>~k
+    (FO@Ce@UDW'G#n*5Z$k>r#JaInHX2wZo#[H}kKbGm,l#\C?\KYr6B~$IC!-+E,RAjiVzt4OWaARG
+    Ve-]kZG}<\7QVCD-+,,2E<xi{5zav^V+pjIvBJ+rk7xv+}U=kxD#|HG*vmx_W}J[r'==Ew73I-lx
+    3N@v1!B'?CVQep]2<=mapsxKze)9>zBVjQwarD-k[aK-AV}@{$xA'Rmla[D=*[}7Rkw_GaA$;hZR
+    kl3-o[T[5l^=;_?sextBvr~7sxAlmw<1Do[4-zH-'^ia#Y-1kj]C]DpwBE^QXY-}uEWaQ@xje3,O
+    ^=_uGsoJvDvnj0<1wY}oH31'pYWa]peYpDYYVx!p1p;Ei\&X}kX=W7{~6pDA]XlnlgtVv}'[nGWG
+    VsomU*;'u^G3D<3o}pC+1a1aXz<5JEaB,_j+$I!wwj_>_O<?r>J]$EHRen1rx-$pzRJqT=iT{rXV
+    j_[Dr{>QgGor}eGIKU1B7l3'@l*ak$BK}HV2z7?zQm=ps'#7TxYH'3Ov=E1<D*,$>vu'n++w@2^m
+    XGT~{X>2m!TG^+R}lY5?2DI^Vxx'@e]X,xr[i~npa5EWlFmpel!XZx/5U<34\2Us<C2-sI~A=@ul
+    QUHx@v?,WemQOxr!<1s7rvGZmAEz$e^V5${=eR2ljs371n<Ameg7uD!'Uu*XxV}I|z?lUI}TDCz*
+    {'*#QYu*rx]n<!H^'EDRumAAARs]e?jv,!+$[*[?+$QX\gE>BTE+WZDIe_i+3I}JIsV{$Go*CEY'
+    *wR=ulXBB}]G'@$V@*v3]m5rn3m\7YC^RRL7#<a^\nr-CJT~jnOT+2KnV]nA>okfOR'XVk[H~\7D
+    (T^;w]j;-teWpZ[D-]8DWo=^uvv]#O>~B2XKUsQ"^=*Q[Y>v-XozGk'sr+_-}=lQCxCZp4Dp*!')
+    zp~#=Km1-r$,IU=E5;aA6&+jDK*u_k6BE+1RXV>Js\5LDpu]kx>3@s<Jpk]]GHJHzBj5\=Y}4jVs
+    X,w[Jr1GUzK7xcsx5U>=Y#A+Q@a]1U[{HlkXD]R3!@JwBxp-3IZ'Y'Sjjme!>WTr%O-m;E?3k]!z
+    2x_Xx=Go@1%{v[H]oDC%3XumC>pnkI;jA]WpcU}#DwTZ<\T>+?QkvmX[@B_W!>T3OQK@Jx[!{a,X
+    IrI'1Gs~kl+[+ZoGz|P~|:K'>O?H5~#r?KCT*i?s<lG=zw3YzO3exk;1\B3w7olz,>?7O3IOI_Q=
+    e[vuD{O0U5lQb8l71*PwG}v>,W}:s2Z[0/]?>Z;a}#?a+C!D#2~+{u&TYZ{CzeZx=-Eq~7o>\H5C
+    O4v\-2@pA<1n;'OuVW]e^z{}sYxjX@I[${XU_U1me'5aEI7U~YAU*aI2oD>,OX[WDs]Q'R-VKwRG
+    lVsj3>3]71iw<zdU]TvV;u@g,@w>1Ul~Qlr[]pG*>UIJAO<7z+Lxkxorebv/'DQw^Tm#Is\!YJC!
+    @C,UZ5i\'r'\O>evHRrOR5{n'_pGETAYHDK#{en,1Ysp2$k'WOuYa=#}$D!A[Y^2#a^XS[mIA#<}
+    ix[e;f$iCJQJ$R^s,;rz<]:HD'5\~<~5,Cjeus=OD*x~CH\XY1keEnK=O^T52~E\oDX{xa+JB{K_
+    o]r{s+s+zorpJl]pi{?=xZWrE23[{Ro{HJ<E3;s==G>Iu<*<IW_+&a'>aF^JH*13AO]meZx#ZHuT
+    XwFu(5!GWDbl=?B$(iU$D*]*]oRr,;*Ae+AC$9~Uz?52xx/o@z5\kXJR~,'m7E-W{;-u<{nCoYv%
+    D[KAwAK2DWn-]ZCm_U+Z\i[icQuC@'Yp=U_VOvX}\ZDw3n7}mYa_V-X;s2QHTW<p!Vp~TXr]nOu_
+    Ooi_mO-jHBTpi,v=?|QKw^Djr{I@;X^XjUoixnBZT{9^k7Y\^z<37-?_opn$,=mvzVZwjIE5>IlO
+    3H#v;r[EO5oH]$XsxOQ5Io~Ie*2lYT5rGJ+rzB2s-jiGUp~EpT\woes$1]~sI,w7~,A,j#kl[e{'
+    i$2QJCzojWAl2!sp$YKDIjlc_IpHgj=}[[5'_s_$ujO5rr{Rxx1w+n_)u'<or~'1WOw+BQ@ZW7v\
+    VirueI_IJG=*<XK!lrJ;],YeN*$xQIo'Z'RA]z~@X+rK}X_^EWOn++v1_+wzJ6@,D~p/G5os{DGV
+    lG<[$w]!1_k+!]_K^=\$2vpl\ww,Qs]+pi[3(;[Tw,Q+x<vUa'KJU:]_V>^wv3A^5przzex\Am+A
+    v=I;m7s}-@K=UGm{ok,J<K<xDO7{T#w}$Ds\eCHnm5vU1v^x;QE@RHWjQ\Q$e\Vxz2TUT\Ek\a@x
+    msp<pu^-$[v=UUHv3XB_;5SrXa[aX5vz7QZ3=a<}*imso_z[$QHQ3*m,{QRo\?o|84mx^m4DA*U#
+    oJo#-EH2Q=]o#K3b=7+VlUu,GkA^v[,uvUKsmOww_z]Xci$kC8ou,<,zl2>>Q@I4V>=OH,'QrQ*H
+    z<w73DwHO\]#_CAKNe1s>RAUzY~1uwXZj[5Q}]1Rrj\Kl,O'@CnDx?7_i2v>1eT*I^,l!S\G~Wbz
+    !Z!$YooOo3xVMJ7,k?>3VvkeilQTEI5>1DW*1_<wEe5C-U,w}Nm+1nqe\[U^I[HEWOi|{${V}[B>
+    iTT]RC}R>{er]]wga5uFKonDD3+CWCD'wr2l[nwT;EZw9}~HvuR2C?}I$kHZOCr1WKI_W\}7TE#+
+    #HxmX-VmkBV5$V*VRMO<7>p\x#=n5Vru@wWxrn}lQjs;CHCV^o-lXn+]Z'BV*7]<@]IK5?R~^}L^
+    -+J[<Oe+=oVp$IjYol${'R^~s;+O_~#IBvim+U]WD*$T$\>JVX7w+,5CXxnV?DpTxap-CuT[;j;{
+    w3,1JRTsBxD_3E{;Y-Zw'ABT7RU;E\KpU=]w{}W+'$GQaIE;,]G?lXQ55ij[>uO\$Z7os?ep{E{a
+    p,O>w7K=GU3}}QCux$UkY1!m_5U\eOwA-YI.%A5s<B,Gl?Lz<!rK[=vaD!U-jv1/KoXE%k-;5vir
+    mHXYO!j@I$f'i}+\[}n,jW-eJ]>2[K\jl@pVl<o9n5SP$}Tr<po1~Ts!0Be-K5!1ROK3RN!$2k?$
+    ~JLJX\uvY?_7a;*3=pV,aX!#l^nE5!JvCu=Q-O!;jG~j[C[$aH1}JJuD[vUH\p]}U<oxD}vwD7X'
+    Ej?U$1!O3HB3]+w}oJmTRKjj~+-QoxrVO3]UAX35IoEE<Kkl}[p5xls]2>KvYz3l,r<Uz${1!]'{
+    n!T@}@v*-==*2Ou#}!TD52We{'<D7''$w_vC!=\p+OX2*>CE2[5^wpv_v^l~U\GFT+jaDs=AKnT>
+    x3=^]!<7><@>NsQwT}oJa]slif3_xlB^'+Sc0!<<};rTW1*ZOsj,@}>Yi$7WR{lxn$;'XkAZu+\'
+    +5Z~oBC+>v~{~)ys=I271>#>]R-*<}B*uI10IaR^&iT7XR@+QUjQV<5wp5RaIC}max*?$JV7,.e3
+    ;#*1QOu[2vwvYkM5xw<UUGZ/'p;_YJvEje*TH}HR&YG+]L}u$~Y3{5ZBs]B>R-]$sW15JpYzGXYG
+    u1Kwu7l[zT}eX]CCX,U+AHdmv}71R5kX=w}Gju?eQm@Y3BBX}aI'77skE2I7^J@Gl*{piV!>}<T?
+    B3D>7uWpoKAZ}K-XQi_Caon^U[J;\*#ZGna}je$pmY$+5kE\5zw)$1]U)lzz@r]UHziluZ=*e*>{
+    o7Gokx5BC+n~z[}*uiH@e>+~Ijp,D@(mDjaZ<T!7}^sxK[U[![ZQ=H;';r$pY{l=>CRE*+wkT$>%
+    x*svz^2v6jT\nvz-Ev#B!2zK[Quoj(,W=1v*li[W1'(m7zY_<$HjOn*<}!n1k^C=V5WomGmwpT]3
+    _>?YQwZWI_Du+XXVRTBVBnpZo<p$Y22c8Y<TQpuBp^ApRK_CUDo2QAS@$v^"drRr@VTXCz3@x$_G
+    pG}]*#$ns,KYBxoBQO*DI4ATRwYNElCKK=^~{aJH~_R,Okz~1rx2?HmOQAZ#e}wT=Gmj}^xOV,]n
+    vs2!mnRp-R]Vnsw'UXRC~z3@#Y\n1eeumRn5CjR>B*Q_%Ljxx#122,iIzRZpIV&}>1arw^*lznXc
+    U-Q$>eKZ,HhRClCBu-X%v1K+1oJ2]U!1_QTk^jmmzG=mcIw'D7iE_^'x{opA]X[,iseTkO*z}z7$
+    oL-\RzXUY'!n!E\aTek{\x*Hs7=eQ}$QOYG}}$h]'DnV?\op}z]soHQiD}IVTV{#'\\,A_$Y!;H[
+    +nU@*<sjBA\VX![A5Zu@D*E1B<alev]0;nCK{x5+?ElHR2[<=v,m_vIuv[}'\pn~DoWZm<,>?siC
+    B-oQI5]W^DR@\zIpaIH'?I!+Zr]=je[Qr!\VGiBs+=~WKO_V%A,UHi>-}_kZZjH7k@DS*\'12=5H
+    p;VKIzQ][#'v-Q?ZKC?EOA@mi]xGz\QvV~,YGK^I7^_$$E~}x;w=1*H[6=,@Tx7'ARQVrge^KGmU
+    CsV2w_Gx^<zIAmsCX2KpkZ->WE$3(TAU#r-{\o#>-oXQ}_;,R,-5+$,o$}^pHkYen:iX+um{s\EJ
+    YTi>Q;u5>H{Cuz$>_[8Q+I<8ZV;;jN*1!Gdn-,Ik*A^A[;DOk7R$KB'5Jmm,Gwr{,a}O;v=bVB['
+    sOap%eW<_{7K~zlB2V*$<;BIxB^e31G@Yvn!zE?~^kl}$Tv$JIJDTK}=5++DiUa=OG'O<7#m^eV!
+    O_+_2@Auj+xp-$QsKVA3OIlD_TEU<j}C_?+JrmoDT[OH']v7;,e>X,jls_i'~)lBO+qDCexZo2+I
+    [DD~7zAa{xxxx2jYXC$R5'pjEnv,DAk=z$Up1U2jrCBH]^$7XTa>5HarOXhE5v]xK*+eux@xxD'B
+    An?3OQVol{1*DnKE;G?#a=z[ew5'_CZ[!O]OE~X'O\$**7\eJAaxJ'1Jz+'K<-2};p*^3;+o'w<>
+    XAzWo5KZAG;=$aE=u=]z]$U}KBAmR^T2]ijQZ!Qx}\@xX~r8szlYLo5[A?*'xr1C~r7Hz>>Vv^Ve
+    -\w^'E1svp21Y1R1Ol}{}EUX}!$GEx~UEh/Ws}Q5ARkRY1o<$Zss{>zp;7I[AYe@]KXi_ao>CJ[z
+    R$@5lD2;9Y@@{I+oUmj3xjDH]V]T~rJ+1=^;D)+RCCQ3QBqH-O*-Q27m5ip}jre-$]z#Gru!H3;H
+    1p;@jj@@']j-YCp+>IB)^@*3*^+{slavK+;C8^-~D$2=3e}UXZ}\H,+avm{DvR]EOQvKQ#{>HuB-
+    #_BW2,Axk{{@!OejH^-rEX5pY|B_-1,'Z,G1$}eO~mrj;W[XQ!}]sovU>1rO']*u_5o\EOx3K[eo
+    '+j,p;*;URwjwvXR,wT_rm>xmzCDH!q@HDR#GrCH_@5jpDQl{<IT[Tj]W2u5O<BXa!3,A'T-pEv+
+    CK^vu}V;D1,[BU3m,5jrOHEI+HH1='2^Ym=?lQ@Bru>wHslwYx[mI>Es>TO9CxB+o~>2Zw+?uG7$
+    8Mi+@-%8W<R#wz2!@s},nQmBcD]an1uY2Xa*zDA[-==\Z$?n;7Wx>55CBUY{IOUl@mS_w1pw<l~Q
+    _@JRn5a+'V~EOsXpoE]~n3E\Ws<_IxRcVRlY15l~w=m~?]@5~$rIGqx>~$lAZTj_eA@HV\z@OuiO
+    ul[Di#G<{@R+$T|V1\Rv5mwUo_sfH<Epin]@3e'D1p[x6#7VwrDYl]*ETxrej1\[^_Wer^p-la\!
+    Z*$u2r_';V[{+R3Kw.#5TO'J<uVQl=nv>K]r'\g.pmsm'l23?O~E[7!XQJ@@1k5\x+~CXTH<Hs>;
+    ~n-@Y!!UqF*$A5aDZ\AUOkkH!E0V{n{Rw+v@VE[^~5~<p?u}ABC?]+V*i'G?UD'zWCZ^+>OxD*>?
+    _EwE*@k#}['_x7$-Da3Zsz1;HW]}L9-nXuK*HW$_enVaWzfhn$iXzz>zXvHl3AUkKV^ou}*=[A^z
+    ~IAaxvrp{5VJekC7wV,I!75]k>3XDw\CQ?TG}!nm$@'C1$$A=3}CB}R1~YE{=p=BPvCu1WUTOK>W
+    100hqB=*zp2oE6HCKaGEW$^p~ulYKav<*kZEwwv=GK$$Ue8~n@,l1[Q=Ge*=C_?XYO}@]Vru7-T-
+    senQU=v\uoU)Tv3]]BKlV_R2+Y<JGm,,Z[QI&vx,V>l=WR_5uAS7II?Vu;+2B5+p#nHB!xUmn{{@
+    \?mYZz-[kn#k>jxr-\JY{@CxQ$5?E~+H_]]~G'2\UCK[?l,V-*@Rl>CHv7D(~^s1JT^i?XXALVV,
+    $bs_DZE^H!,2v$\GawOQ=r[17eeHjj+H$ke-AA{X,}JURZx<\1pC1{tAH@1X[1QG5wKRs>2OQrv~
+    {@CmvV]'#v>v5BU;njrDa$1$,@5Bj5u57]$s+GA2<1A-UuTe>3E$Ao~ur}J_#mB9zK}W'ooWuVDo
+    O>uDeX2j[K'C)+=r{1+Tn,TQYjvww:oa2@(_>75Y0olH?^-<VQ2u-J+GX_u7BBi$?Q>-;/alZC5p
+    IxBTEQBmjT8H\lkxz}[\~725isuEkE?+*kQzeO'2CYj}Vp~i<}DToUO^]JY7@v{;rHux$xGj+zx1
+    'jaOwOvB-;\[s;#R2s29G'YTmYpZ^RBCSxxVo5Z[71,5,{T>D1wQ~6=sDX-=vl>H5=zrsUHn<~zm
+    nKBXCIH$n[^Y]AMz4@A[<5@D3-_{$As-5,Qi2p#ep2$O5E,+U=a-zGm[_To[ll>HH'p7$eE+;Dnm
+    _+{[VQX3'k[q1t+V~r[j;u'oz^R]OnII~Il!n^-}[3h~O$;?{j7;+~zlX*rUVD5mDnG^]AV!VT\O
+    #11^<jD-+~o&1-H$IV-1J^V7C--vs=]o5U,D$?$v1zX<=IW$o(,G\+{\AVDs_$mU3mO*XZQw[n'A
+    7{Q+s;KAC23>$D\Z]A3pTwYAro%cEG!Wa{s+KIVu27liJpOZp{s]~.8$j?ax,Tl~^?CW\wXe-C5D
+    zHX\\1,sQ^!_U$aaY~R@+uYxIR[r+Rm^3T\C]T}HUO]Ew<55nU36[~Y{-ee+DmG*$ka~Eon-uQ-?
+    #Q^zkU7=;EDs%zUO5DouseC}m<Ta2>pJmKI53.*zexvxnotH_HGiIGwZ8cT,ua=2@,V\I#mqy&Rz
+    $WQ5!x[_>H$Y_I$pi$xX^'\>I^o$$-}s,_L'<n_aqrApW{aIp3a5>jX[kr,sU_YD@-oU\j(Kxj+~
+    G$Alp_+^}^xoT2XKeAY"Z*_J~A]zI_3x5l!Z@BQZ^]K{slVn=Anz!naGVs{A=VT?)]7VXnxGJvEZ
+    X\5'oe3Rg^p<De*^OJYs7a5W**}>;@,ZQ#GAZQ'~Rji=UEKIpn*=1u^=m.HO1$qr1VIo]I+}'oR7
+    VrW><@r#<RI]Vznkz~+Te\,z7Cj1*25{X1Bso~HY?HEg}1!\z5\]_]BW01z<vwj'RX]{}z~VAw^W
+    ^^'<]=?<\1,+Z_HmejC-se1<a$=+{@T\*O@5-}!aY*d-DKU{OsloYRWmam?D<!oGC_YM<ox^{72{
+    7nnAwpK>w'a;orW==-^ij-ZR[=>=MKQCXlv*>QVer3[++'sCQC-CrGG@zEO3*B;Zr~ruXdC+Cn{w
+    uo7lU'#YVuQ2p3z=n*>$s@$+G+E;_zIE-@^YmO35xko*uUlO;w!oZR1<T{1YBspO>+GXJri=-YGZ
+    UpUUJAT1Ij[nVxY=m~4vJpv~eH]WQ=x'AuDV{p$\<*AD!>;Du+oTEs$"<,\iKYTJ(\XY*v\,_!*$
+    =*l_o#=[vBv1[Bj[x1lp'_++nCu>O,sUj\Q3AzQK7>DVHfY^w;=vQ[DiGuKlC\e'zReDv~Jok~o|
+    k,5$Kvx\[\2e5oK?><v}kO~]~\C@3lepT[>YWHwnE*_23IZRD]m3VCIRD5Cpx'@J_@TJ?57#:2x@
+    n=nQA@[2,@Rm,E5}jjl_jcBvTu#sU,CjABV;']Y$TUvrz$IrT2_5_OH_iRa_.v5=JRZ*n_\eGTe}
+    xBXR5~$p]#X,xEXer7C^ozU5X;O-O?xpD=ne~WjAppmIk+7KDpxXuJzom4oTw^ok,5_*vCq+7um(
+    $vkwD3vZzkxjD!32G#sRoxi;Uz2B'VH^]JljcU$Z[1OEC,*l\s3u3=x_U8-<e}uS#x$_4gW7G5t>
+    URk^ZVx\5?7nwDU\^31[$ovp~BR}]j]3I%xDuY}!E556]ue<!]}oTNlSU}irr{p=FHBZ*IC?u$^X
+    >}s@r.[AT-QZ,#91^5zA*aoxW,\X<\@0!'n?w+Hmo3n[iQ1?2+3k{O;1L$**[HQAalwwQ|ex^-?s
+    -s$N2.l+AGqJ7-e/[O??:XV-wIaH\~}D'e^IYc8s$Vw7I;*UV;W,<!,5G}n}Ri--[a1pfVie1_kZ
+    [2A+n+_'=eE-^mz2@mEDr*>nwl-x*s>rXHrH7HOUJ\_'j@'ll*;VC5s!tK^J?_<+sY33>]Gu>;*}
+    z}FZT>nWB\i3T^+k_r[kT![k1[Em['1%aA27aY+uVDZ>kR{+Q-';^!j]Yl_m2E^AWV{\nB^OTo]}
+    O!G#Rlm}_H-mW><+jV!Zk^os7E}=u{aA=C{*K*j+;a1T{v51B==R9m1v_<Gx2LZxxqBW~z+oUXao
+    ;~Z-\w,CWoB}^eFo-D=-7TZA5O2m77+B2V^-e3]He,nVYnYOGH]x5O+>'_~<sUOa}5uri1jH\BO9
+    %-YB?)IF>YT]o#_\T-=#-Y*\VJ*rWr+\e!oO{X=GJ]\UwzC,n$DkQ]7nilW@*J!D^1o^LU+zzm_+
+    oW'W{DO>KNwA7]iQFY1HBjaAz.u$^oBHn,k>\GE7j~\Q#<cR<'{$jlE5!n,*Xos3$iZYwB2Z,ZH,
+    u{?mxsiSD^31ro]3rv{*zT}[B1<*5z#J|RZv$=j2ZWXB7,r?Wuo=YbBV3B+H{Ys{X!PiCJU2T>@e
+    {C>BCn#rO_D<}~[YGEZYrZwl,Uxc${w7!>Q@>BEGQ$x?}mG2^UVJ3\Gx6N~TIR\<l'Wnx3OvRDV^
+    ke;wUdIVu<xWB#O3-KwU@^!Y,3\~-uQ#To#}i_'n<$k'*[~oz!sBTwUUroe#5^~l}Z.eC>-C5kWm
+    nI5YAHvYZ'?w[wm}KSCj\kZU'<okv3{_[Dm\iZ}mTHE_K*QWu1o@QEux'e,1i-U{'jKIa$Jx5-zO
+    p5yaQR}'=C#CHVoTU+*[Vp^eW2Kn{lmBEV=Kz^asXlC7x#e8BVm?{zGKj['kZAeU1Zew+XWBUIwT
+    }-rITDl<(euvT1x3-5vm?9[0e?R=1DK~2AlA][u+kzU^mOCv|*<X>_{BU^U,=$B5KYO@UxjirBR}
+    iNA1a[p<Aj=ZD-R9hKXlW<+a#CWX7TskVx-'H,2,VYmDn_I<To*X[~\x;AsvRBSY#nZr'*j[kD'1
+    T.\XrY5!wA2]~!~r=iIOB>^IuU7izEh)'rOYrdKDDBQv53M1<2s[TIB^Ip$Y<}KI~!x=OZlpH.Do
+    EHur]>s^'=@UY[]5O1JYZGiOi,_XQ$VU-{#X[;[=?\s$~[GVREcTj~G[!$ea\aO<,{7PUG]l]C$w
+    [+EO@E7>HD-nfxi~BeWCT7nl$=3~DmC}[\-AEU<RZQ>O$$@R@bz?NqVaRD%962*A<$@l#\jD\|'@
+    RpJ$}[G!mD+$;j\ZJXjp3V7;{>;==^ID=[EVHJu1oOu\W!r;2UP{<XD2Q$J}i}B#R~sHHB$oER1T
+    zY2!vs2Z{'7H7+Z1CDn_eQIs@,UwHv1a,QBg~DV!FiY]@jmK~Yk=Ep3p1|QEVo=*H\ns+kR<@[}3
+    YIB@EVLEJ]=sR#Vi-!+rvu]}V7Z[5DH?Q,_rHsBHxu~y!^xviYX!<Y#TVa_,$ujOO.mR2;5j-z"A
+    5J<x,W~j#Iu''&Hs,7Q^[rc@I}Bx?Z^lj3-Hl;3j]lI5~9\#,j^O_D|nw]G@A@p[Jj-jCR?>p-;B
+    j@#$Q$Rv{VEC=CV',Tvz'@-=;\jI[TDU1wE25\7EmC;nr<Hp$55$Ur*T_B;~A[~*Wa!xNw1K^rDw
+    *I5x>Q2$X\HRnwl#!mn_1Qu3I|-5#nR,'\y,@<{O+so5Xu,Irw?zkwWi'YkY_}Jg]ECHe+K!_xA1
+    0^lixz=]HVp!=k{-#fpB\TsT5mE>HZ3,'Tu5J>#}!2<tKGURB?=mg_w^xxbW5Z}KhsG^Y{owWQxi
+    A?sv_n{Ov|~}u{r3[jsZYK'n{pK1#~#_nmIU<D49A<Tu7^x'3EKuk1"}cEW[@7CB;&Z^Ra_au;.q
+    eu>j@we<TQ5GWn!<I_IW.81#*RZ9}v{{\s-!@j@@nDu~iE\$Hr^o>7i[z4UDx$IA~*5#{zFvi'53
+    +][q
+`endprotected
+
+`include "qvl_pci_express_rx_lane_receiver_assertions.svh"
+
+  //-----------------------------------------------------------
+  // Deskew FIFO module 
+  //-----------------------------------------------------------
+
+  parameter ZI_DATA_WIDTH = (PIPE_MONITOR) ? 9 : 10;
+
+  wire [ZI_DATA_WIDTH - 1:0] fifo_write_data;
+  wire [ZI_DATA_WIDTH - 1:0] fifo_read_data;
+
+  assign fifo_write_data = (PIPE_MONITOR) ? {d_or_k_code,pci_8b_data} :
+                            skewed_pci_10b_data;
+
+  assign int_pci_8b_data = (DESKEW_SUPPORT && PIPE_MONITOR) 
+                            ? fifo_read_data[7:0] : pci_8b_data;
+
+  assign int_d_or_k_code = (DESKEW_SUPPORT && PIPE_MONITOR)
+                            ? fifo_read_data[8] : d_or_k_code;
+
+  assign deskewed_pci_10b_data = 
+             fifo_empty ? ELECTRICAL_IDLE_VAL: fifo_read_data;
+
+qvl_pci_express_deskew_fifo #(
+               /* FIFO_PTR_WIDTH */     ZI_DESKEW_LIMIT,
+               /* DOUBLE_DATA_RATE */   DOUBLE_DATA_RATE,
+               /* PIPE_MONITOR */       PIPE_MONITOR)
+                              FIFO(
+                                   .reset(reset),
+                                   .areset(areset),
+                                   .clock(clk),
+                                   .level_select(level_select),
+                                   .write(int_parallel_symbol_valid),
+                                   .write_data(fifo_write_data),
+                                   .read(deskew_fifo_read),
+                                   .read_data(fifo_read_data),
+                                   .deskew_fifo_flush(deskew_fifo_flush),
+                                   .fifo_almost_full(fifo_almost_full),
+                                   .com_read_from_fifo(com_read_from_fifo),
+                                   .fifo_empty(fifo_empty)
+                                   );
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_rx_lane_receiver.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_rx_lane_receiver.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_rx_lane_receiver
+`include "zi_cw_pci_express_rx_lane_receiver.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // End of module qvl_pci_express_rx_lane_receiver.v

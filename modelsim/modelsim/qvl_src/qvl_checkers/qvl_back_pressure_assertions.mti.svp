@@ -1,0 +1,291 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h" 
+
+`qvlmodule qvl_back_pressure_assertions ( clock,
+                                          reset,
+                                          areset,
+                                          active,
+                                          back_pressure,
+                                          xmit_ready,
+                                          back_pressure_check,
+                                          back_pressure_fire,
+                                          windows_checked,
+                                          minimum_response,
+                                          maximum_response,
+				          min_boundary_count,
+                                          max_boundary_count,
+				          support,
+				          fire_count);
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = " QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input     clock;  
+  input     reset;  
+  input     areset; 
+  input     active; 
+
+  input     back_pressure;   
+  input     xmit_ready;      
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter MAXINT = 214748364; // 2^32 - 1
+  parameter MIN = 1; 
+  parameter MAX = 1; 
+
+  parameter SMALLSIZE = 31;
+   
+  input    back_pressure_check; 
+  
+  output back_pressure_fire; // Fire signal asserted when violation is seen 
+
+// Statistic Outputs
+
+  output [STAT_CNT_WIDTH-1:0] windows_checked;
+  output [63:0] minimum_response;
+  output [63:0] maximum_response;
+
+  reg back_pressure_fire; // Asserted when violation is found
+
+  reg start_timer, disable_timer; // Used to control the checker operation
+  reg stats_flag;                 // Used by the statistics block
+  reg arm_count;                  // Used by the statistics block
+  reg [31:0] timer_counter;       // Counter to keep track of the number of 
+                                  // clocks that elapsed after back_pressure = 1
+  reg [STAT_CNT_WIDTH-1:0] total_windows_checked;  // Statistic, the total number of checks done
+  reg minimum_response_time_set;   
+  reg [63:0] minimum_response_time;  // Statistic, the min time taken for 
+                                  // de-assertion of xmit_ready
+  reg [63:0] maximum_response_time;  // Statistic, the max time taken for 
+                                  // de-assertion of xmit_ready
+  wire [STAT_CNT_WIDTH-1:0] windows_checked  = total_windows_checked;
+  wire [63:0] minimum_response = minimum_response_time;
+  wire [63:0] maximum_response = maximum_response_time;
+
+
+// Declarations for 0-In PLIs and Statistics
+ 
+  output [STAT_CNT_WIDTH-1:0] min_boundary_count;
+  output [STAT_CNT_WIDTH-1:0] max_boundary_count;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [2:0] fire_count_tmp;
+
+  reg [STAT_CNT_WIDTH-1:0] min_boundary_count;
+  reg [STAT_CNT_WIDTH-1:0] max_boundary_count;
+ 
+  integer min_within_range;
+  integer max_within_range;
+ 
+  reg [STAT_CNT_WIDTH-1:0] min_within_range_count;
+  reg [STAT_CNT_WIDTH-1:0] max_within_range_count;
+
+  reg last_xmit;
+
+
+  wire [31:0] timer_counter_int;
+
+  wire xz_detected;
+
+`ifdef QVL_ASSERT_ON  
+  wire back_pressure_min_fire_combo;
+  wire back_pressure_max_fire_combo;
+`endif
+
+`ifdef QVL_ASSERT_ON
+assign back_pressure_min_fire_combo = (reset === 1'b0) &&
+                                        (areset === 1'b0) &&
+                                        (active === 1'b1) &&
+                                        (back_pressure_check === 1'b1) &&
+                                        (back_pressure === 1'b1 || 
+                                         start_timer == 1'b1) &&
+                                        (disable_timer === 1'b0) &&
+                                        ( ((start_timer == 1'b0) 
+                                         && (MIN != 0) 
+                                         && (xmit_ready === 0)) ||
+                                         ((start_timer != 0) 
+                                         && (is_less(timer_counter,MIN))
+                                         && (xmit_ready === 0)) );
+                       
+  assign back_pressure_max_fire_combo = (reset === 1'b0) &&
+                                        (areset === 1'b0) &&
+                                        (active === 1'b1) &&
+                                        (back_pressure_check === 1'b1) &&
+                                        (back_pressure === 1'b1 || 
+                                         start_timer == 1'b1) &&
+                                        (disable_timer === 1'b0) &&
+                                        ((start_timer != 0) 
+                                        && (is_equal(timer_counter,MIN) || 
+                                            is_greater(timer_counter, MIN)) 
+                                        && (xmit_ready === 1) 
+                                        && (is_equal(timer_counter, MAX) || 
+                                            is_greater(timer_counter, MAX)));
+
+
+//assign back_pressure_fire_combo = back_pressure_min_fire_combo || back_pressure_max_fire_combo;
+`endif
+
+  assign  timer_counter_int = get_int_value(timer_counter);
+
+  assign xz_detected = (^{back_pressure, xmit_ready} === 1'bx);
+
+`protected
+
+    MTI!#Vr>xJ=>B~+H<WB-xvUE?Yv#[;a5Zr;}+7Z[;Do"rxakFaXUuH5a<n'#WAIx?nQ'#QQ#YAEi
+    7{oe^L!DVB_k~YHXC^iD=i?$i[}7#uRlE]Pr?\]]+'VeavzBl<E=@x2}_~;?o;]P<RoYU[;_1C3J
+    /.YmU{<V}~E-CVLwq?wXbG>-_w}7C~o?pC'BKkC=JBoYG?1~X'n_#GzJQ;,oe+BW_1J@[KCH+{>H
+    x[vjU'UG\YO]ppZlirU@=;nO^V[>DmVRoM_=<C[$@VuOl#x@Anija-pvC^}ZATsu+J$XJ5Aa;5<R
+    n^R_Eee{_OYCi>,\;Aun@n{5pv{$uVyzvjUx^}HgR$$Z*m*eN2{}-{w;'[r+1EJrT*Ux*=*lIBkX
+    Q^~@QE~jx*Z'ngs>'X]QA,UTTD:.~Y+r}Z+o;Cn{A1lGm-<~+1SwwB=C=DUv}#OXT''3wlG,?@HU
+    _xU5rv^Bju}ns}n@-xEa{{[v@C$s-I{_<1sTCo=\a2{$@n'&6B\[Y-O^7(~Vm$xYT'z!s^,n@@C_
+    Y@R\;{zCwzY#KzE{lZi]<Bk,iK,VUm~Gp,1Y;'Snr'=2Vji5{lGL"h">o?ox8)E+}uiw7,XUQI$D
+    Jw{+,!+5i{CbuEH~Cl-pY2Tj|EZ$\9'i[CFUjT[=+~*g^[@sl@HOcwa@T,?JEyYmoU|^>l\=_xC!
+    lHG>HtIC?+rx*BRv3}8a9c<=E[]ine=uzs4.=?B[*QQYDJXB4esil21i#WD$~x*uaW+qX1?2U]~3
+    ,G<X!*3^=D~^~su<FT\53aEel,ETKEHH{YH$C*O$3#Xa~Fxr+Rx=e[1Ge@-p>C_nX'$XVJrnn\]W
+    pZB^seaG"Dk*s}$7n>IX{eTs[<QAI5Ej*5wRsNrbo(z!;7lTC{o?v\=uo>G'u~I1L;=#Ha{*[^sD
+    W;1alWpe!#UOX-Xv~)voJn>j'rXjiD)V}B!vk*2\knaQpX5/Hokk7QlsNlk@}oa>_,'*!H\1~uwI
+    X%kC'vz,Zm7}J7nwQ3}UB5&+>a]1+G7j{RYSBU[l$>[!:""m17Cf<[[I=?$x+5X[oJKRoA+aGkH-
+    Rir]qa{ok~A3!i>vK52l,#r??;RI^*KI1l;K'{D@#1#~5THJH'XB1{'o]sErAX5okFfIOKvDIH7x
+    t%M3p!{#olsT^T\AE@CT'BJbYl=@hT'V_E,eJMv#=^1Zj;BJHXY$]}C)Ixj;KXY!U-B^f+rs@7Bo
+    XCXx3#YEuW_12DmJs^=^1}]#7>G-1@T~!@5;W$},e$=D?m7AW#$]1],wuZxIp,aDT_!+KaYRijTW
+    O2h$wlmmU\I:mXH$_IQ2^mTCr'1<wxv7KIZ'IHC>x5]'Ksr\v3JlYj#>V[z;56E_Q2#e}n(HEm1}
+    ,eApw;W7?5wJVe}nGv5Qx1;B^,E?'<@&xia7"><<VO}{[}mYw|NfybZoNw>7GrTuWN0]=]Vu]\aY
+    gwnoa]u-p{}*?,!zAZU~wK_sRyOu2U{DjJ[C>nB2==,'i1,W5ivv!Bk=v5;ozK~5xiG@};-5^z]a
+    {ZG[Z7Q~K!5slm2sv$]>2[~5AD<A$,1S^u7',$;?rWU<$OV2DIV$7#2m57iBpZ@<3SL6/El]lH=r
+    ]"IUD!V*Q22YE'O^>a~EG*{wCeio-^==n\B~vQo#vjb_fG?~[Jn*D3VZUp*A@R8omQW\eHI\J\vD
+    !auIn>X!j^ZIo3uRAE#ZATT'>jG]VX#*Zp*~ronE[H=[Gpu@Vuxc9_QzjlexD=ZVek}z;#xZ'[x>
+    W'veE_oi$_in<zeU[1NDzz{$naJJrxQF'{nzQGAOEx#3!\,I7V@_lxS\\uVBo,n'Ewe7fCxC+jOw
+    V[eJ5DuKXGOpXV{eT,Z0O>22=$*^H_*xuQ$rCJ'aH];RK<*K?]#3iHX,K*IZR;AJ8\+m?1,W!l#1
+    wOWmlIi-^9[W1wBUp1^-BO*O#-JXVapT*=tva$YoC=3)Z[{*T}aaHX=Yeq1imYzGWr5lmj2p_i}!
+    C_^!aw2po+?7z#WzCs76QxwW\,2sliB!zu7<vZ!J[Q@{L{<pWCkJ*ra~Dyu'?AT<xmsW2>aa+V!R
+    a=!eTB=I}r^nYX}p75k=xp27B^:5VX^o7C5<R!n*$n@2w^J!$T=[}jvw_i@\m32U'=~e{p{x+r_I
+    U}V7C\[7kD<O}^rm>rHA=V=T7xUhpaJZ#vkn(cG~ZG=;X@g~V+'VjZu[T,@>HQTIWV}i,;_q{UxA
+    ;+-j,]xu}oW?GTmuB_D>V*;!x+_,aHU+w<nGlv3X3_oi^T_ok&>E!#jWjilCTa;wD*BJ]}p2nA9O
+    \;K#'wIOm31^X2^=Bv?P^X;GQ{+u~{ei_jY3?sI<;Ri+B1*luTx<D?_;<<*QJjJWTD*k9ux[[5O,
+    B}~YRs\@GxW!pJCn$$\i]+U@lIKE2Ba-!s+];V{x^Q5s@IGxY{<$W5XexX1kJsk,puRQ?F=~~Gh*
+    i;#@,-5k-5^z*1HYxA_x'[*kT!JsmD7>-T]5p!VoJX{JBx[B*Op2+!esG$B\ppiR#_]}ElH$Rrzo
+    rUuE5o>#DA_KlRjU$2VWS?AI#r5i>xK7J1HZ]hjoGuYxWTYWxQeiD;Y2-r?QA{<=3O;v}7pgmjj5
+    $lV7y\'kI\[zlGDB2[3A,qv<Hlj\n-[x<=Wa1O3X-^-BvBf6F:y{'z,_#RBpTHY-QJ=pY?He7V-v
+    R{!nHekWR>,Ts$Z\eTD2]ir{^z~IC-K]1euV?7={G];/XYzxG]xm{7a@kTW-O{vu<Y*EUwnAzVj=
+    vKQ\n+'BCJZzD;=+TTEBjazG!{*~RI{o}~D>#U$<6E[-\+A_>-*3jxTC3Is]\@_O]RE_K*$k2j&|
+    o;n!!H\~[WaG$x>23]o-iV\lY@E?BJYmz2X'krV$F-xK7T]wzl~Kv7tB{JT;OBoenD!z[nQX}AGC
+    2{EBO~[&7jxV9Z\EV!TeUs,jU+V[!DBJnpjO^^nxk}$kC7-Y\'UDV1!HW+<UjzJRZ*5a}@>*CZ*[
+    CW^HT8r71^Xz{<>ERk*ZUmCzXDswR7r!'VlDB!Y<[~dj=[V[@+j{{*1QoQ-CnWwkCIZ[;X~znvZK
+    $r^#C'!}*z~Ijp}-[jIlR],R,uIxZx!z!Qstu_+]@C^$IY,Unj'pmv7vzzIRCGT{@1}+GC*2!{O_
+    3^+JTU}*UsuoIAGYnD@18ZBV@aQp=;<GGbr3*\T'[CsKO7[D1-^e>r5a7kU+<xv*AEqw$n_IQHKu
+    1j=re>#j,-j]1ZW_u_IB]#,~Hx;,SCxpl[]VADm;$]X5Q0~^wT63*__OYEu[,GZO01^nWps{5\>7
+    {Q>UIQ'-},YU3Z'XKO<IoTHwsVu[lmpz!!eKuv5O1}AxR-Oxl#5eJceVXvja-=hE_oJx!B7[OIe2
+    Tj3+1[vwXp1kTj-;B55.Vmj'r<$QxmVn7sduIjXGjrv'D@I_U~3'\[~X7HZ{w@EL;>~2I,$@8lJC
+    pprU'm]XV=U[>Xx'-?QsY7'iYYW3zHGi^E$5z3w_>E}X~=oA3O\]kY@[zd\Z{mCXW3x[YoZXsmIv
+    Zm4Ov~G-v^mUaBx_{I<K]<a,}k7F6@lkw6tJ[{V1j<U-r-j.X{^YL^AmBdGolk>=*C5GUo3lQ{VX
+    !}yK]DU5D-QvjZsfS3V=r@pB=rW@T_+uRYXYK3A^X)flV'~R[v*DG\]a}xjH}V{Q!>ZBC7{vkK52
+    eDIn<}DG[AaB#}'H*jrkGXzCE;7Ok[#z~}@-o+;7C^1_xYAz$7mTYKuAa~@jEj$F7H}aN,,k}N-]
+    eeODvG\^+Z'5o=IGa*Ei]u+G@Kx@ZC$$-X!85KE~R!vlJ[;Vpo3_oG$ZQ?';3sQ=L\RU{*IvBC-R
+    xy]<1;-+@^.f,[Xu}I+KH+@TWEoW,JHjem'H$iGuR^27C2]#tB?5j4X1-j<XDA^3}<{\RIl\2TwD
+    ]}/XjX^aD_u3*>u}aj}OC2@UXVYXG?@']<Ux\'rB^['eY?#E?^J-NjjHz=^}[#'5jB_wxem-$lu{
+    w[0iB<BLpf"!aEQrE@BD<zk{U;Zn}To_xAExl[-ZGlI-arkK\Y?CurXU7IwB~5B]3rV}7s-]T<u}
+    #7J#T-]U$s#pIm=YD2~VX3'w}]$tta]i=A_aEjE1v
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        if (MIN > 0) 
+          begin : assert_back_pressure_min_check 
+            A_qvl_back_pressure_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (back_pressure_min_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_back_pressure_min_check"),
+                              .msg            ({msg,"The transmit_ready signal deasserted before the minimum number of hold cycles after back_pressure asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end 
+        if ((MAX > 0) && (MAX >= MIN))
+          begin : assert_back_pressure_max_check 
+            A_qvl_back_pressure_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (back_pressure_max_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_back_pressure_max_check"),
+                              .msg            ({msg,"The transmit_ready signal asserted longer than the maximum number of hold cycles after back_pressure asserted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        if (MIN > 0) 
+          begin : assume_back_pressure_min_check 
+            M_qvl_back_pressure_min_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (back_pressure_min_fire_combo)));
+              end 
+        if ((MAX > 0) && (MAX >= MIN))
+          begin : assume_back_pressure_max_check
+            M_qvl_back_pressure_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (back_pressure_max_fire_combo)));
+              end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+`endif
+
+`include "qvl_back_pressure_cover.svh"
+
+`qvlendmodule
+

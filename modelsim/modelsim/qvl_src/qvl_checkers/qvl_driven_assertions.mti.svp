@@ -1,0 +1,195 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+ 
+`qvlmodule qvl_driven_assertions (zivar, 
+                                  used, 
+                                  used_cond,
+                                  clock, 
+                                  reset, 
+                                  areset, 
+                                  driven,
+		                  active, 
+                                  driven_fire,
+                                  values_checked, 
+                                  support,
+	                          fire_count);
+
+
+   
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = " QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+// Instantiation dependant parameters
+//      WIDTH is the number of bits in the checked register
+parameter WIDTH = 4; 
+
+
+
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+// Checker clock
+input clock;    
+// Checker synchronous Reset
+input reset;    
+// Checker asynchronous Reset
+input areset;   
+// Activation Condition
+input active;	
+// Checked register value
+input [WIDTH-1:0] zivar; 
+input used; 
+input used_cond; 
+input driven;   
+   
+output driven_fire;    // Fire signal asserted when violation is seen
+reg driven_fire;                       // Asserted when violation is found
+output  [STAT_CNT_WIDTH-1:0] values_checked;         // Statistic, the total number of loads
+reg [STAT_CNT_WIDTH-1:0] values_checked;         // Statistic, the total number of loads
+
+output [STAT_CNT_WIDTH-1:0] fire_count;
+reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+ 
+reg [WIDTH-1:0] last_value;     // Holds previous state value of checked register
+
+reg [31:0] tempA;                // temporary variable to be used in for loop
+reg [WIDTH-1:0] tempB;        // temporary variable used in for loop
+reg last_reset;           	// Asserted when last cycle reset was asserted
+reg flag_z;			// flag when a z is found 
+
+wire check_used;
+
+wire is_used;
+
+reg last_active;
+reg force_checking;
+
+wire new_value_stats;
+wire	new_value;
+
+`ifdef QVL_ASSERT_ON
+  wire driven_fire_combo;
+`endif
+
+
+assign check_used = ((used === 1'b1) && (used_cond === 1'b1));
+
+assign is_used = ((used === 1'b0) || ((used === 1'b1) && (used_cond === 1'b1)));
+ 
+`ifdef QVL_ASSERT_ON
+ assign driven_fire_combo =  ((active === 1'b1) && (reset === 1'b0)) &&
+                             (new_value === 1'b1) &&  
+                             (flag_z === 1'b1) && 
+                             (is_used === 1'b1) && 
+                             (driven === 1'b1);
+
+`endif
+`protected
+
+    MTI!#nv\_<U{H>$o<\Hv\jhW8>x[Co'sIC-*i0#1r"irRi$JDDO~=JQK7_G*#<i\C>,Asip%l'?v
+    \C5$R?wE%%Bz\\JU7VFw=lv[j{}>E~A?p+~R*mHrVjV^jW!DCR?@=E;zI]-1R#H,l^Y[5'wix7>Y
+    'kR$xpo13XK]x*R{$\G*>5@rOzL(,>V~]O{nI{DCYXU*u$[[n]X}x+T-?a-DaYixFRz#Ap?\>OVR
+    ~."O's1fD?u$$-oiGeiGpQ=pxm=+uEn;i},?!Qk^Kr=vYGSDvG21+u[qE@\#^R=ri5BwTRk?@HO-
+    kCwaiOB5?D{r1TY1rH3@i>1C_7w*u-u?1AKXE+a#!=2p]vJ>Tw^Tz,_vH[=5z-Jo<Bsa!wQknY?m
+    4~,3IC'#D[~7_^xBXihz{2}sABI}@D7'?Gi7]O@1iaJIU57VQ%p'Goj\7Q*BYuzR^l&7mVEuT1>-
+    UD3\eWH^\2AQ#TD}2;^<$B2[HUZCJE!ZHp$CuW>B-]^=WRUueRUVh_@Ex$luOKnmZMF!UAYrVLJX
+    B3BAAJI~3E3^O}ll}zks>\z=C1QY@R#siKeZ>K{DAn8B?YZ<UXI1G~};n]IJ7{ZD*lY9avKur-\k
+    H<'jk,TIoJ!#xaY~Ua\a!UERBW~?z(^BD7sh.\I;T@Gvl9,HlJ1@z{p1a;^OpC>rHOzI?2rs+AAx
+    XHUIHpYmZOijGi>'<!j@~^TE]Q*l'aAIr}1HCE^-QH51?u,{KvYAsZ
+`endprotected
+   assign new_value_stats = ((zivar !== last_value) || 
+                             (active !== last_active) || 
+                             (force_checking === 1'b1) || 
+                             ((is_used === 1'b1) && (zivar !== last_value)));
+   assign	new_value = 1'b1; // always do checking otherwise it is a hole as a constraint
+`protected
+
+    MTI!#Bx<D}r3@BGnUFv#=C=\vQ$#<z,RzxzZA[_izKFB@5IN!YE;y!rnjHhK\piQQ\;3$Z@[ZU>>
+    Rln~ENH--~='<jwoa!}_u[mEjs"uDQ2Q2JQXYY~Qp_i;r=7Q\Aab}mCA!^HIllAVvZmE|!>n<H5i
+    '=iB^}*3puE<vo{U!T$Ie[pNEOpU~'[o7l3^pHQO[p1e:-A>~ar7lEY{J3w!~>s@I2j{,?}]OKBw
+    7UTO@$VZD]sAo=Vo;k-VOFB]2\H,#J}1@raVm$PzO2s9^\C@H{VBAE{-m>2CmV_TyLo+mp_E^K}*
+    {J3']2_hdlvB7e$skB!1T_p;I>\,}n}sn}JJx2\!ke3j[+7Hx7UCkDU;!+jox]@w'ECruKr?Cn_W
+    \8^*-B|nA&>DGja+!ws7<e2}j^}An11x]+*=J_A'^B@CB'rnC2@5kxrr='1;ZxU,VTWEVrzOiT(m
+    IDn=K>=5s*'^!T{Y1Yps7Cm:i5i*_wJ-uoKGRZRoCU_~~VH$Q5]{=vj~2EwTlk>KDJ[K$I[XNQo=
+    B,H>miO>7UaHU7W_?2HXAzrV@volXY-ZHC>W,F^?J3:o-2sD*BW_$;+AR<;jOu@#**Ec^-u,_'R\
+    s_Z71=z\dei=CpZpQJ'2<,gV=UQw,A$vwp~#l<7^,Wu4L?lpoxau37Ei<1HVD$eHm1X[s=57$2<$
+    #5*v;IHwT!*@~\lB~q*fEnOKKED~i-EufDB!;+Haq*Hm2|{sn'[D]>(r$Je-QHu<E{~_WeQK_keB
+    5\7]*;7?<D*+L#*BkQpz<(ulJDG^+l\$+]un><{Q?KoAB,qiwaX^s?R;or\Cvx][qElQ^}'nD<X7
+    Q[-j_\]yQaX;JjVwm*W].CrKw;CIZ[<I@{arB_RuHe'O#a{ZBM?8Q_j3vQrp_?jpg_<{lvk<@T[<
+    7ll7I$!H2a+r[vK!^Co+a!^VpALv-=W>+Z]'XmKA$MloCppsC=eO:~jjUB^5-U-CEkD$Ruj?x\@Q
+    7V#z2#E7p<oV3I*Cv@>\oPE~C5B37kkY*Yl>\o53*~^:z*^Z*T'Jo5~T(I>vTYuUYoJJ]87u3z@,
+    B-<L,l1E&}Cu?XHGQ~UB5Yds$kC^W3_~*EQl!^[EZp$olT=EOmW~VXso1Y*ziV{}-{vn7x!,_@-$
+    Okp@+BxTaT^~TO7ia\'nemVK^e7>5T1[PrD\K^s2U
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+   // Instance for driven fire violation
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_driven_fire: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0) ),
+                      .enable    (1'b1),
+                      .test_expr (driven_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_driven_fire"),
+                          .msg            ({msg,"The value contains undriven (Z) bits."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_driven_fire: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0) ),
+                      .enable    (1'b1),
+                      .test_expr (driven_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif
+
+`include "qvl_driven_cover.svh"
+
+`qvlendmodule

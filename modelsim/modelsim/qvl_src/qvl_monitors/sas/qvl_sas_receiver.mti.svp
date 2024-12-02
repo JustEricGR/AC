@@ -1,0 +1,539 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+*
+* PURPOSE     This file is part of 0-In CheckerWare.
+*
+* DESCRIPTION This monitor tracks the SAS interface for compliance
+*             with SAS specification.
+*
+* REFERENCES  Serial Attached SCSI, Revision 1.1, Revision 2, Nov 20, 2003. 
+*
+* USAGE       This sub_module is instantiated in the qvl_sas_link_monitor
+*             module. 
+*
+* LAST MODIFIED DATE : 7th April 2004
+*
+**************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_sas_receiver (
+                           reset,
+                           areset,
+                           clk,
+                           symbol_data_plus,
+			   symbol_data_minus,
+
+	                   level_select,
+
+			   // Interface to 10B decoder
+
+                           next_8b_data,
+			   sas_10b_code_violation,
+		           d_or_k_code,
+
+                           sas_10b_data,
+                           parallel_symbol_valid,
+			   dword_valid, 
+                           current_rd,
+
+			   //-----------------------
+
+                           descrambled_data,
+			   electrical_idle_detected,
+                           disable_scrambler,
+			   disable_scr_count,
+                           r_d_or_k_code,
+			   transaction_in_g1rate
+                          );
+
+  //Parameter declarations.
+
+  // Parameter Constraints_Mode = 1, will configure the checks in this
+  // monitor as constraints during 0-In Search.
+
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter INTERFACE_TYPE specifies whether the interface is serial
+  // or parallel.
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // Parameter DOUBLE_DATA_RATE specifies the active edge of the clock.
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // Hex value on the parallel interface when there is an electrical
+  // idle condition
+
+  parameter ELECTRICAL_IDLE_VAL = 10'h3ff;
+  wire [31:0] pw_ELECTRICAL_IDLE_VAL = ELECTRICAL_IDLE_VAL;
+
+  parameter DISABLE_DESCRAMBLER = 0;
+  wire [31:0] pw_DISABLE_DESCRAMBLER = DISABLE_DESCRAMBLER;
+
+  // Internal parameter
+ 
+  parameter ZI_PORT_WIDTH_PLUS = (INTERFACE_TYPE !==0) ? 10 : 1;
+  parameter ZI_PORT_WIDTH_MINUS = (INTERFACE_TYPE === 0 ? 1 :
+                                   (INTERFACE_TYPE === 1 ? 10 :
+                                   (INTERFACE_TYPE === 2 ? 20 : 20)));
+
+  // Parameter ZI_DESCRAMBLING_CONVENTION determines the bit ordering 
+  // convention for descrambling.  Descrambling starts from Bit-31 to Bit-0, 
+  // if is set. By default, descrambling starts from Bit-0 to Bit-31. 
+
+  parameter ZI_DESCRAMBLING_CONVENTION = 0;
+
+  // Input declarations
+
+  input reset;  // Global reset
+  input areset; // Global asynchronous reset
+  input clk;
+  input [ZI_PORT_WIDTH_PLUS - 1:0] symbol_data_plus;
+  input [ZI_PORT_WIDTH_MINUS - 1:0] symbol_data_minus;
+
+  input level_select;
+
+  input [7:0] next_8b_data;
+  input sas_10b_code_violation;
+  input d_or_k_code;
+  input transaction_in_g1rate;
+
+  // Output declarations
+
+  output [9:0] sas_10b_data;
+  output parallel_symbol_valid;
+  output dword_valid;
+  output current_rd;
+
+  output [31:0] descrambled_data;
+  output electrical_idle_detected;
+  output disable_scrambler;
+  output [2:0] disable_scr_count;
+  output r_d_or_k_code;
+    
+  // Internal parameter declarations 
+   
+  parameter ZI_POSITIVE = 1; 
+  parameter ZI_NEGATIVE = 0; 
+  parameter ZI_COMMA_PLUS = 10'b1010000011; // {jhgfiedcba}
+  parameter ZI_COMMA_MINUS = 10'b0101111100;// {jhgfiedcba}
+  parameter ZI_LFSR_INIT_VALUE = 16'b1111_1111_1111_1111;
+
+  //------------------------------------------------------------------------
+  // These parameters hold the value of SOF, SOAF and SATA_SOF primitive
+  // values respectively.
+  //------------------------------------------------------------------------
+ 
+  parameter ZI_SOF = 32'hbc18e467;
+  parameter ZI_SOAF = 32'hbc181e81;
+  parameter ZI_SATA_SOF = 32'h7cb53737;
+
+  parameter ZI_EOF = 32'hbc18f09b;
+  parameter ZI_EOAF = 32'hbc18679f;
+  parameter ZI_SATA_EOF = 32'h7cb5d5d5;
+
+  // Register declarations 
+
+  wire eoaf_det;
+  wire eof_det;
+  wire sata_eof_det;
+
+  reg [31:0] descrambled_data;
+  reg [7:0] temp_in_data;
+  reg [7:0] descrambled_8b_data;
+
+  reg [9:0] symbol_data_reg_posedge;
+  reg [9:0] symbol_data_reg_negedge;
+
+  // Counter to count the number of bits shifted in.
+
+  reg [3:0] bit_count_posedge;
+  reg [3:0] bit_count_negedge;
+
+  // Registered first_k_code_detected signal
+
+  reg r_first_k_code_detected_posedge;
+  reg r_first_k_code_detected_negedge;
+                              
+  // Register declarations for descrambler
+
+  reg [15:0] lfsr_reg_posedge;
+  reg [15:0] lfsr_reg_negedge;
+  reg [15:0] next_lfsr_reg;
+  reg [15:0] temp_lfsr_reg;                           
+
+  // Following six variables are used to generate the disable_scramble
+  // signal.  This signal will be asserted for one entire primitive.
+
+  reg [2:0] disable_descrambling_count_posedge;
+  reg [2:0] disable_descrambling_count_negedge;
+  wire [2:0] disable_scr_count;
+
+  reg r_d_or_k_code_posedge;
+  reg r_d_or_k_code_negedge;
+  wire r_d_or_k_code;
+
+  // Register declarations for sas_10b decoder
+
+  reg current_rd_posedge;
+  reg current_rd_negedge;
+  reg [7:0] r_sas_8b_data_posedge;
+  reg [7:0] r_sas_8b_data_negedge;
+  reg next_current_rd;
+  reg disparity_neutral_000111_error;
+  reg disparity_neutral_111000_error;
+  reg disparity_neutral_0011_error;
+  reg disparity_neutral_1100_error;
+
+  // Register declarations for accumulating the decoded 8-bit data
+
+  reg [31:0] sas_8b_data_acc;
+  reg [31:0] r_sas_8b_data_acc_posedge;
+  reg [31:0] r_sas_8b_data_acc_negedge;
+  wire [31:0] r_sas_8b_data_acc;
+
+  // Wire declarations
+
+  wire sof_det;
+  wire sata_sof_det;
+  wire soaf_detected;
+
+  reg sof_detect_posedge;
+  reg sof_detect_negedge;
+  wire sof_detect;
+
+  reg sata_sof_detect_posedge;
+  reg sata_sof_detect_negedge;
+  wire sata_sof_detect;
+
+  reg soaf_det_posedge;
+  reg soaf_det_negedge;
+  wire soaf_det;
+
+  wire [9:0] symbol_data_reg;
+  wire [3:0] bit_count;
+  wire r_first_k_code_detected;
+  wire current_rd;
+  wire [7:0] sas_8b_data;
+  wire [7:0] r_sas_8b_data;
+  wire [15:0] lfsr_reg;
+   
+  wire parallel_symbol_valid; // Asserted after first COM is detected. 
+  wire ser_first_k_code_detected; // K-code detection in serial mode.
+  wire par_first_k_code_detected; // K-code detection in parallel mode
+  wire first_k_code_detected;
+  wire [9:0] sas_10b_data;
+  wire reserved_k_code;
+  wire disable_scrambler; 
+  wire electrical_idle_detected; // Asserted whenever an electrical idle
+                                 // is detected.
+
+  // This counter is a free running counter which will increment in the 
+  // four byte boundary. 
+
+  reg [2:0] dword_valid_count_posedge;
+  reg [2:0] dword_valid_count_negedge;
+  wire [2:0] dword_valid_count; 
+
+  wire dword_valid; // This signal will be asserted for every dword.
+
+  // -------------------------------------------------------------------
+  // These variables are used to swap the input data to the descrambling
+  // block.
+  // -------------------------------------------------------------------
+
+  reg [31:0] swap_data;
+  wire [31:0] final_data;
+
+  // Integer declarations
+
+  integer i, j, index;
+
+
+
+  // Assign statements
+
+  assign sof_detect = level_select ? sof_detect_posedge : 
+				     sof_detect_negedge;
+
+  assign soaf_det = level_select ? soaf_det_posedge : soaf_det_negedge;
+
+  assign sata_sof_detect = level_select ? sata_sof_detect_posedge :
+				       sata_sof_detect_negedge;
+
+  assign final_data = (ZI_DESCRAMBLING_CONVENTION && !disable_scrambler) ? 
+				 swap_data : sas_8b_data_acc;
+
+  assign dword_valid = (parallel_symbol_valid &&
+			dword_valid_count === 3'b100);
+
+  assign dword_valid_count = level_select ? dword_valid_count_posedge :
+					    dword_valid_count_negedge;
+
+  assign bit_count = (level_select) ? bit_count_posedge : bit_count_negedge;
+
+  assign symbol_data_reg = (level_select) ? symbol_data_reg_posedge :
+                                            symbol_data_reg_negedge;
+ 
+  assign current_rd = (~r_first_k_code_detected && first_k_code_detected) ? 
+	     ((sas_10b_data == ZI_COMMA_PLUS) ? ZI_POSITIVE : ZI_NEGATIVE) :
+	     ((level_select) ? 
+	      current_rd_posedge : current_rd_negedge);
+
+  //---------------------------------------------------------------
+  // Decoded 8-Bit data has to be swapped before descrambling.
+  //---------------------------------------------------------------
+
+  assign sas_8b_data = next_8b_data;
+
+  assign lfsr_reg = (level_select) ? lfsr_reg_posedge : lfsr_reg_negedge;
+
+  assign ser_first_k_code_detected = (r_first_k_code_detected === 1'b0 && 
+                ({symbol_data_plus,symbol_data_reg[9:1]} === ZI_COMMA_PLUS ||
+                 {symbol_data_plus,symbol_data_reg[9:1]} === ZI_COMMA_MINUS) &&
+                  electrical_idle_detected === 1'b0);
+
+  assign par_first_k_code_detected = (r_first_k_code_detected === 1'b0 && 
+                                  ((symbol_data_plus === ZI_COMMA_PLUS ||
+                                  symbol_data_plus === ZI_COMMA_MINUS))); 
+
+  assign first_k_code_detected = (INTERFACE_TYPE) ? par_first_k_code_detected :
+                              ser_first_k_code_detected;
+
+  // When first COM is detected the parallel data is valid. After that
+  // on every 10 clocks the parallel data is valid.
+
+  assign parallel_symbol_valid = (INTERFACE_TYPE) ? 
+                          (first_k_code_detected || r_first_k_code_detected) :
+                          (first_k_code_detected || bit_count === 4'b1000);
+
+  // Multiplex the deserialized data on to the internal bus based on the
+  // interface mode.
+
+  assign sas_10b_data = (INTERFACE_TYPE) ? symbol_data_plus : 
+                            {symbol_data_plus,symbol_data_reg[9:1]};
+
+  assign disable_scrambler = (d_or_k_code || r_d_or_k_code);
+
+  assign electrical_idle_detected = (INTERFACE_TYPE == 0) ? 
+	        (symbol_data_plus === symbol_data_minus) :
+	        (symbol_data_plus === ELECTRICAL_IDLE_VAL);
+
+  assign r_sas_8b_data = (level_select) ?
+	 r_sas_8b_data_posedge : r_sas_8b_data_negedge;
+
+  assign disable_scr_count = (level_select) ? 
+                              disable_descrambling_count_posedge : 
+                              disable_descrambling_count_negedge; 
+
+  assign r_d_or_k_code = (level_select) ? r_d_or_k_code_posedge :
+                                          r_d_or_k_code_negedge;
+
+  assign r_sas_8b_data_acc = (level_select) ? r_sas_8b_data_acc_posedge :
+                                         r_sas_8b_data_acc_negedge;
+
+  assign sof_det = (sas_8b_data_acc == ZI_SOF && parallel_symbol_valid);
+
+  assign soaf_detected = (sas_8b_data_acc == ZI_SOAF && parallel_symbol_valid);
+
+  assign sata_sof_det = (sas_8b_data_acc == ZI_SATA_SOF && 
+                         parallel_symbol_valid);
+
+  assign eoaf_det = (sas_8b_data_acc === ZI_EOAF && parallel_symbol_valid);
+
+  assign eof_det = (sas_8b_data_acc === ZI_EOF && parallel_symbol_valid);
+
+  assign sata_eof_det = (sas_8b_data_acc === ZI_SATA_EOF && 
+			 parallel_symbol_valid);
+
+  assign reserved_k_code = (d_or_k_code === 1'b1 && (next_8b_data !== 8'hbc &&
+                           next_8b_data !== 8'h7c)); 
+
+`protected
+
+    MTI!#^~B*}DUn!_e[E1GJK->p2*C]l-$C}lC\NY%^P"#Iv2YBiJ{1R7Rl*irT'W[_iAlK7!ME{r!
+    I<R#U$a}fb}>}i'm*R#7T*YQ]]I@[[7=lr=n1zx|~=+,}krEe@-##l*_r2HIrQvOH]T]}3$[rC5'
+    l@B^U'TAY^u1^woOiAWErRe{+7EesXY#i[=uE$GETQ-u!HwJ~wT~]4na]*IMnUUpyjlB@h1*-A~x
+    ETQ>a1[=+aEWwY_2=wvlG'}TA>^Orriw\D'!UQO[=[1[YQx~5U-z,K@{-?{p^Ho+>DmRAQ@H'KKe
+    3Z}uTk<aax;seK;pHrcaosuM!n~^G3j$xO*CVkGe,-1OC[IBfqT]A_C]Oj'j{CUo@[$<n@Y2;;o~
+    nxsj]xr{Js#H>2(8Ex\J^o*WHr]zICR7Js7AR}EQ?EZxs,zE3YKnz{!$I#1;r'OGVQUWzW*~6DvV
+    wUA>C12QQlYC<ra^\(s\j''!_]v}[}?G*{l*3k^eEG!H5^wpY[Re2H[{QDz_w-7<wVmR}-6IWQ'N
+    (OKp#$mjr~TY~x/#,1=T[$apKjA=YE@OCD<-]$;;Y#Q7X5nKERnzB?]5+mz$3D{Il-e7o1xRU5rI
+    _;o5eZw}ZE\Q+{{;{Uz)pU{7=Ts5OxDZS2rC\#Xl#i<]ie1ED.)tU]AzDr~7z_7x[>nZSNe+]{tX
+    {BOZp$\D+;@&j_5pslKJ!^Tx_'#?@,nB@}<+\L,3{I-}{,-{Ce^<<D~nH$\xG]6EVs_I*GG7@5-t
+    \ZToxC2*kIj@uz;ECIj-jzmj-O^!+'J{g!A^^<TBA~w-^$HBV$2oe@Uu[#YZUt-^?rjV;[8wG2Y3
+    j<\7k<DYiA,'33<_z$;7-*R<U+aon>2=eoQ=T<2QX[Gf_Qm32DKH0opK[1eK+!G,[8in-mun$J[H
+    v,l>5Rsj,=Y-^TU5D]}j>l^<ADzXo$OQ7DKDaY,LEx#!R@DD$5v_5D$O^>dKpUnTD$EWn;WCw}W\
+    #uIx:B3j[=+,xbMGko[VmDCKaOAGe}!o3lB{wan}#sEII!Q'Yp@okY*}KARN1[mvO[
+`endprotected
+  reg temp_dword_valid;
+  reg [31:0] temp_sas_8b_data_acc;
+
+`protected
+
+    MTI!#rk@\VpEAVx+{u15C_K}{s}]~2CewW'aD"|AUr[f[\k{2Di^HnH#z5;{|/{U+AvaX#7b?nmu
+    n_ml+$k^s]3uizRitl]xO]\*U@D$GEJpu>w![}@AK!rj{p1,1CYzi\K2_mHBY7'@57'JuV1vTI~]
+    G}~EpU$xJs(Y'?lG-^}rG{rfQ?QU}j=JHTmrcY7I;OOz;O[*m~X!l#UxR#O]imn'2rHDU5$3WD>,
+    iz3^TA5}1CzRnO@V[zz^QI~Ez5'YvI\G<vx$XV2R33R+'~}^m*A]Z7Lb*[J~lX]Vkaj3!]7Yz^Wp
+    zI=^Gnj<a]E[U]YmTVe^D{}+kXY^=TXEV?VYE^^,qoC\{1v+E=w*G$.kp@mkA2D{}"v?[?2=*+DE
+    zaD;(Zo?ZnrZT/yDIj5*e'Te=VnWXv[Xji&1C@1=kOoM<]#Z1wu?3[U[Fq^,~I*l?pxYO;Q^[$A'
+    *J$*\vMoz+TOHn-7fhBJ*p]^,i^A]Rq<rHn]6=Q+;sO>ENW1JUFYG7mY~]_mE1UHjW{VG!l#HU^=
+    ,D2ZYGKe=UY2Rv@Br?7]7^so?X7a7lli1zUT]wOzBWDej[DX[m'lsl-+DVi\6H1AB7k{@yQ-+3G3
+    $Q}PEFQlTx&K<
+`endprotected
+  assign r_first_k_code_detected = (level_select) ? 
+                                    r_first_k_code_detected_posedge :
+                                    r_first_k_code_detected_negedge;
+
+`protected
+
+    MTI!#1\;E1UlUm'{,1?moJrlm=rAZR~DHuRn[[Mz,V[z?2?|e#@ZeWxoRQ2!aX[[YW{x2oV^DU5-
+    +]o2v,UwmQ}^:mDno=J+QnAm^u}W$[csZ=Z#X2*K<{7uYDsr85roHvGVBj'1}jlVz=lx[{=kIpGw
+    ]r<Ys=@=mkCzT$$X*jJ\Y?X1GTX1Z\?7?='-=Gi5WmY?=BH5iB*~m!vGB[5mp@w^iVHszsT\;*Ek
+    Ip]#]YQQ!7J'rKXa[HVDJf=l1TC+^}"tIUxQm'eB6iax=Dv$,U_aCl?0_x#<V1H,*7]Dp-[5jWj=
+    6N+U5TWem{RA$!=EBaDn7##D=JXsrzGG{^<j*'oeC~^*ZIip{>$'>['[zu;$?Zf}GnoIiA_CYV[V
+    W[Irpv^]KI>dS9g>>oi7spp}{GT5T~@!x\B'x4QB_HR#jvJjJu0Q(H{l,q2<7I7W~U>\>jaT[]3e
+    B}U[3o-xER<=GYKD12{Rix.=<BBQ@'uXwzp[;ATeCeC7,qq&c!>I[]D>sR<G[*Uxj*%,pvznsO73
+    X=*0oGeua]QRgm7}-YRk@VDm?oHpD]T3m;'rK\{^<*p^}ij<;^uWop1k']A@H>n}^CETbss}xUl]
+    I$xv}uG3BK{Y=H[_Xx1IH7U['}$J3znKxCYQvp+[1IU=swQX!^>*rZ5G<};tVs7<QxopmD<2o6uT
+    D=dI~zwE[TRoAV2DQ\ki=7QoET[}U5=7~vz]=xwpHAv4FKAsKhV;w+{TmH3-;U9s\J]<7+rE*p1V
+    ,Qu'Qe{anDv^xa>Y$iRj#An0Ew<!LR^iV{r]r8=']!+R@[;5-ui^-Bf=R1#Yv[B7Zt2]*-Uw3!rp
+    1KO<*eVKmH}B}njUl~|I*7Z*nX2RYs-~s+@aHK^=ze-Cv$_B:'aa{_#AA06DiG7C!u<vJ-}~w*CC
+    ue}1}i3K=C#oP*m-x^,iTg~{@nE!<Al>=Cxj1n[{<poOXm+A1i_rZ]aeI~=k^p]I;QlGm'OZ{^{E
+    ;n;HusUwE7$zE\]jeJx?uu3^w[JEvE%~73[=;>UY-DH'WeHDj^{zH72?l,-:SkH@3GV<k9s+onT-
+    =7dn_*lpriZfRVRJRs,VCZ+IBm@5{UJ{i\1lB@zJrH-u]_I5';@e]rH<Hn$-y==UeU{~;;lUHvm_
+    x2\skWB=KDasz-T*B\zE'^,,1w<aB$AR*VW\ktm[sm;=BxR;*\J}^z{zolC\{p}-IG$>YKe}Vs9K
+    DA[1zC]<TY3[2;Zl$<uE1?w7A5ok}_VwTZIx\D$DT]?~]VkxnRT[{GkEH$x7WA3=pkK!}so$H>Re
+    3Y{]!{H+j#[XE__h^{}K!Y=#kBHm*jTsnr[Ul@r$35@j5suj^Y;ZHTJ[&r{5^4JpYUBoia(eD<@<
+    '=m>C1{35zQ?.f8E[J!w}'kU]RBT7*@'i@<@}]iIX[{U5op$]?XY\>3>^+7wGDOjwI{,{exW>x3]
+    *as'YoIB>m'E\^VUau*'rvwkpRQvOj#CA,,cPHn0P1N=ETK9uL*pz}*{Vz5WWu#n;-Oe@{KwH313
+    ;-?evm*Ei#k$uvw>X5DDeT!eEu5'{{o'/g5u72[j7iD1@^T-@T[KHw*\3pAT~~2,wuMoCJ'>xe=\
+    jzHuCe5{r[RT'+555XQ55TQT\}?~CYllaOTl_-!~eipDA[{J^*u!zIxC*'H?$\H^H\z\auQXsK7+
+    N[ko}AYIHk}]!*I*3Z]EIwY+,B}Gw~DHsV3Rjl#;$s=>@C]?eI+C3x[;=PDpu=#s+\nC+^TTQ1pe
+    n#iD"iaB;Ca>$->'a1Y?=p!T{K>]'qIs=7UhH7!owUxZ=>WAs5?AD%\lR5pT;U?l[T:25]$pVj<a
+    X*{Zz1~v-O{~-sjIpn2D*x3K$~'*Cx*nozz/YpZlv'l$bV<BGjXVpt*<jB}OX_,'?;3+Ej_Az$Kl
+    DE:G[{eG'XvnnR7K[T~'+AOIzuElkr'2EA;!C~?[WHI/>{H}{rQ2C_=s9HB77+r's@n~@8e_oBoX
+    X'[D5O7I1,pZ1rmVn?A==U[R_kBH@3u*v[r#AO*uY7^1*ea]DI4-X}p-eZRX+o1,D><*!,l^w~s$
+    yZ7-B2VrR=OQzf-[A>062{jp^^w+!=\#o\><'C#JjE+jRjD,BD+Tz6~};kl;sD3\Kv[Z\K#I@O4[
+    DjK0Qj}$$r#<=YmGR_AvG_i}LO]U1u-~paoZA7+rYO*A_WG=G*XzKoM_^wa;-QU\jznYlB3O[+,]
+    CwXwUwmUX>JIR5*C=AvozV[*$oVwB\whQ#T<RuQT>151>nWme*{353CpYueH,>U21CH5js{[AXG{
+    s2Y><rpxv{l@%Y@YKmp=E+ja+iAExll$-CC#+mlGaJz^'3rGn/I>TBr<[pYO!C3G<51$@\X<Q_ue
+    3_tDrmWmlAZ@=r^\*rik}xluHH~bnaY3P*reuUOKx3O?B\CU@orA}('15Cz1WuNejl}YH7[NmrX1
+    7QzKL9GkH5^mp~3U-1@sm~r*3He;D1W-JTC]m+w'X_LP;XZ*#YTBg}IEk&aRE+UTQKv]wuU5O',"
+    rQ-n^^@?rhY-K~nwJs*e1?P1^\Zw5ivzkaC^kXU'^O~ZC#<VT<2=VmGp?Hr$Wo#rT3^71U[G;oi1
+    [!n=[
+`endprotected
+ 
+  reg [9:0] rev_temp_reg;
+
+`protected
+
+    MTI!#QEw~{Yj@[{X$eu~B$5#sB<_7\Q$xIV5D=?7D#}"~p]!k[k]$JJr*l,[BUoV}Zl*J]J]lR\l
+    1m]u:?{V-7><x5d{z?<U*K3Tx{e,@CBQH<?i>,aJRk7+}sz,7}*}e*!s3'Dk1Z~3_,a[>3RY5u=I
+    -\rpnjQ=J1KVRJU[_!u)!5lzN!n7iri{\f!XKE=Bk*ZjDWGem{_mnRdd$^n@.x-v{IeC$C1#-x0H
+    r3lC#\AV$8eax[>om_$mQZAzZ~|=^~s7^Y]+57}#7aD${w^sn,E5#'B*{WA&GuQ<2B#$(ZYCX<_m
+    _b3DvGtjR~p~I*^Z<<_}3\7*{}Cqm<<7-A@C)?UA>?7,3_O@XKpVT^QHRu{op%xWX5o,Z1zR1T{'
+    G}'n7KJNOU$O5$>5^aR,'e$p\@v,=@AY]J{psl<uI@[*7iI<}O!T?wJk~H!x=\-k[Kw1Dz*}-nGv
+    Z{wIROVlj3\J/+zZv-wz-FC-Eur-,{suZIDu2{RnR!$;JCW5#s<Y+[C5oTFGa*zCxYw_T*OTD5Jh
+    <[;QpEE\$XrTo,{}ARB<mVpsO1$<=jY_kla!o#_E|*;$JXDQluwAr&V8-s-\\OU-Po[=Z^vEmB;3
+    C27e{Lu>I#Z[o<$'*rTQHBe+3#^^*Rx2p{MZA<B%s[{ul;]OK5-B*xOQOji-ARr~ei$w7cA^5['^
+    Il}VB]7T\^[mKp@+=3Z'UUO{-!I!3*r^po'ksZU7=ZKz2?*z-QG5Y~v=<Q#<YivCnvo?_IpAZ?%|
+    =A=olDzrMlTm_qU*mCj>;uK$GWD+C^1aK7R-x[i5;aLr?J?wCHnp]!Ike-Jr1,>QpQW\"(,Jpn[H
+    oVsev,Al>35'@<.]{~[kDAnT=5G;Y>!^sa#>7@[F<Ro-Uspw,IKU]rw*\wx,cQJI2r?K*<=[7>U!
+    [$zk?++YR5&-aQ@Q*s5zwXjkpo]xs~<\oUK(v;Q,O@GoA>z#yCXl~$2Vo]{DsWn>@*pr?!$Zu!]v
+    p1973_Yt)eEGWa>'XEvi~J{AD!{H#7;vRW{a3Q]j@vV#[tI{Xj5z)@U-,Qx2+V'ke=_@$pM_Qmeo
+    n]nm5W]}EmTfU<]Y91nAe[\Impu>W7<+TEs7XE[~{,piOr-TmODuoOO~ex2zJ]I3H,Gu>HG^we2_
+    i_n2mQaK\'D*_w[E$]J;3@DlI5WTn?$},><pKqH[#1hVvm;~{uJ-QwkkE[;U,7E;<<_XDHlU{7n\
+    >A+bqTojI@>nDwp#E(t}g!aO{RVp2zmB[3rBUl@rx7#n]b*}Hp'D$r]^*n,}Ix&@Ao23[2r0iTOG
+    ]-GQW+!?\l,X>wr!~H'$\'KX;Trs*H1!q8H{YBXS[@K#wvw[QW}oA{a_r%om>~fU[X1cD;zQ>pQ*
+    ,;^7~,Klm1\+*\YJ>+Ro+a'v{_?J[Vp={IeC<Y$RzZ@Z>}zmz+Y2+-em01^vA}+IHE[swvn]K_U{
+    [njQ_U{Zp<1}+vQ~[Q@DK2$$*"l(R(la3IGwZ-aG,KKDY<]H-kaDoIu'>#M2Ew*d,,7Xus_IllAe
+    ]2~1I$\5xB=Co;+CU]<x'VJ1xk3*}[[[>eo7#^_@uO='urGT[vJp=wCueC'AjDo^=7YXCv_$-nx$
+    _Yr<?eYIjsG22D:K[n-WprkK85\r7BJ<W7GD!R5ZorBaJiCwkO+}nj*E;Fl]?]+\_l.E-]~WY-Zr
+    N*Ys\GAMI_HCqjoKB>=[wuQTw4ECZJ-_7KianE<1}lHsZOC22,fZ-!B]2,<Da}RR]J]XvImJ-+WC
+    WxZ->aUo]?=V\<{KC3?mnIB_e#5X1<GjG>J53;CCC$X^Z[}VR7Zo3{QI2v{$\s_lHV!sRxBJQj@l
+    KlCExv!T]7UQ{XX$,zv;w11k-D-iXH'gce-J_Ixv7V\0r<AkbemzsBGW^f]D=zQkCX${j1:sY7]B
+    AW+\j@3x}aX7jGWI~[E$azAx+ICsn*[OvxjiRmCC_Q!SoQxi?D*nH$J-I7AwuV~G\$[G-[!k*CW}
+    ;n_^3lI$51lXc<aQ'*sQ5{Y7Am,>D]oUuVRlG.uj\pGoipo~,2\7l}1A[~7;3Q~-^$kz1}pJKsvk
+    3RQ~D#o_X;nOkUv75?irjzWA]7OqHY#w1n;n:,>;ON?7]2(lUj\=@\,CX1BjI!$fFXRT[{}]C}~5
+    ^I<ZG*K*75~7{;D};!,l1Nqn^D~jG,^aQBs]5\!e\,mHv*DPZT=_O1lQDSYJQRp5pCroYu<],3+o
+    Q^k<Ci;Aw{%@,_Q,Y<;~,vJX'XJ>suAxOluZ5*2>5wawp2lfE~p@l=1J3r\+$rEw_O~[|e>mv^D^
+    ;}X*DYx!-;E[opZ<p<&,lV[$[-O}$ls&>jIz,;\V=1}oYX]JaIm^ZA-RbC,HQX=$A_]RjoT~,\_]
+    $jB]wUV,i5k577=Rws#,[)>B~m^3IX}>T5*xe}Ie=Y!_3>&ET]XV5skVRpuDaX[+^H^xi;;o,mRO
+    C2U|z+A]!O5A7Y$@<_kG>'[Y=~v>r<sn?w;;3^Yn*^'I,_k-$_rU\C\{5ZGp#w<~'7Zo1@B<cy,1
+    *GgEG=?3E]^=;~>!1D!$Geiv]o!_3O'E_]@B<^UxjwZ[+<EE~l2v-Zm'~H{M\Ju-li!ATApirQ\r
+    ]mu{#$R*rYkX,[;TpU$2p#RGX[;?4on[e}'j2Z[,oi7xr_G+Kk^s2$rp]aBBT]Qku;[#37-<Wc@,
+    UH1=*Y<GZ,bso,!eWZ,-<si8HQk?X]$3rV>X]OI$bE{;[a+';VT]QIW1HrEAD;lGa1!O_fjIHTC[
+    Ruw}mkx?mJ@v\7w<UHDi+Gr5+]~YHREw[J0Crnw#R$R*$!IJ>3}^YjlnIA=VQ?@JT$i?Hu2<AYJ\
+    e=aGGnH2^m+Y<zD=vj13Yvu!77><z*[hOm>;3*oXAn_K*|I1COV=Ew:D~KQ=Z[-7Gu,We>Wow~jQ
+    ;woD<PImZm7I2UpCw*y-tp!z?z{T~TEXWj@~p{s?uOT}Z.Y>O}~(}BpA$Q-5Le*&YG1UVjXw(}3x
+    $Vp@51I[UjH={HzTmKV5Hx35~$G+17CZp[YB>EBsQ!GYKRUTCQT}YUX[O}CKlr[}kw<5]SrH3G\T
+    $[XY#?iTAW]UzvQ#wXGzY*Tw*BYIb+Y!#<TWBYY?7ueE3av'w'vAkv\{_,TY~&]@55=(+]<U+xrK
+    >DVB;Cu[9vR}Q1=E5-YwTJEuTv!C=D}Y],_[?[>n2siTI5_W7BE1-]CkY=Y'^]=$AO@H}]XQE}+T
+    =+-mjeG<OC[;~UpeoaU-Wis$+y$XJ]2E5,Jlp#iOwnulCGp27oG@^$r\{}7n'{@<j?;hx~^J}G@B
+    1T1;2$=wGR77)kIvTX7wr3\O}UB$;\-n}?5vI[msUzXeZVUlwyG~a}]+\Z|_+<AH_~u7pQ{EuyoI
+    =He^pA2[<=1,+79I{j^~>_R}*I3BDUpBpY^eT'QEDK34R6jHV@sEB[2s?^=f<B[z?}+EOrs72,,R
+    8?DuA(*-{]6EP^-ZQ*R7!?*]~u-Uw}kpIn=~a2$p$oHTWLQ#Az}CpV37@IK5V[:-n~^B+[Y1_l35
+    UAp=vSao;[3DkR-spH,Dx'pI2Zn5'oVEm!*Z~C,UGzwHI-}s_~XnosNJ=-uU>'p,;BrIaKrTa>[]
+    2uKtv*V7{U$T:1H3]x='wX|vwrnXOuo.wpzn;7BR'OCUuU{>]5]\]#>D\pJe^^=-.?{T@R5{-sZ@
+    X*5u1CpOnWU!ac[DX{]I|5iCD^A}2R1mkIzBsD!5Qq^skjOx?-\3!Xa+<p;p[vGVmIR?'p},@viz
+    GKduUB}*Tupv5Wv\?5]<Qzx:*Tr@u{~WVT5BQ*E#KARB2XpH]~<2ir5<,~~lK<z_T[;K!RAK?^#!
+    g*.uz@<^pK@.GE;@}l@R<7$~r=XaY*ae@_]n{l##p\$[Iox2uUB*~CaHT\+]p+V[T<^~=Gz*eGjr
+    !YA>.k[w$Ynp5hrBnQVGO=[Rak=ws2Bj1v=CVYylV,Ko"1#-O]5KaUG~ls<,zlY'B*U!#wT$w25+
+    O1{YW_l5TBJ=IinBs#As~ea@@T7ZrR~Co<x?=3_UZWR}v|o5CC<=7'om<XHUYpvC2R,!Z[)>zKEo
+    E,n
+`endprotected
+
+
+//--------------------------------------------------------------------------
+// OVL SVA Assertions are included here
+//--------------------------------------------------------------------------
+
+`include "qvl_sas_receiver_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sas_receiver.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sas_receiver.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sas_receiver
+`include "zi_cw_sas_receiver.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // End of module qvl_sas_receiver.v

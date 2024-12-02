@@ -1,0 +1,213 @@
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_minimum_assertions (zivar,
+                                   used,
+                                   used_cond,
+                                   clock,
+                                   reset,
+                                   areset,
+                                   minimum,
+                                   val,
+		                   active,
+                                   minimum_fire,
+		                   values_checked,
+                                   smallest_value,
+                                   current_value,
+                                   value_is_min,
+			           support,
+			           fire_count
+                                  );
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  //Instantiation dependent parameters
+  //WIDTH is the number of bits in the checked register
+  parameter WIDTH = 4; 
+  parameter VALWIDTH = 32; 
+
+  parameter TWOSCOMP = 0; 
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  // Checker clock
+  input clock;    
+  // Checker synchronous Reset
+  input reset;    
+  // Checker asynchronous Reset
+  input areset;   
+  // Activation Condition
+  input active;   
+  // Checked register value
+  input [WIDTH-1:0] zivar; 
+  // minimum value
+  input [VALWIDTH-1:0] val; 
+  input used; 
+  input used_cond; 
+  // minimum check
+  input minimum; 
+
+  output minimum_fire; //Fire signal asserted when violation is seen
+  output [WIDTH-1:0] current_value;
+  output [STAT_CNT_WIDTH-1:0] values_checked; //Statistic, the total number of loads
+  output [WIDTH-1:0] smallest_value; //Minimum value seen in sim so far
+
+  reg minimum_fire; //Asserted when violation is found
+  wire [WIDTH-1:0] current_value = zivar;
+  reg [STAT_CNT_WIDTH-1:0] values_checked; //Statistic, the total number of loads
+  reg [WIDTH-1:0] smallest_value;//Minimum value seen in sim so far
+
+  output [STAT_CNT_WIDTH-1:0] value_is_min;
+  reg [STAT_CNT_WIDTH-1:0] value_is_min;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+
+  wire check_used;
+  wire is_used; 
+
+  reg [WIDTH-1:0] last_value; //Holds previous state value of checked register
+  reg last_active;
+
+  wire flag_xz;	//flag when a x (or z) is found 
+  reg min_value_set;
+  reg [31:0] last_min_value;
+  
+  wire	new_value_stats = ((zivar !== last_value) ||
+                           (last_min_value !== val) ||
+                           (last_active !== active) ||
+                           (check_used === 1'b1 && zivar !== last_value));
+
+  //  Detect if the register is below the minimum value
+  //wire	below_min = (zivar < val);
+
+  wire[WIDTH-1:0] twoscomp_var = (~(zivar)+1'b1);
+  wire[VALWIDTH-1:0] twoscomp_val = (~(val)+1'b1);
+
+  wire below_min = ((!TWOSCOMP && zivar < val) ||
+                    (TWOSCOMP && val[VALWIDTH-1] === 1'b0 &&
+                     zivar[WIDTH-1] === 1'b1) ||
+                    (TWOSCOMP && val[VALWIDTH-1] === 1'b0 &&
+                     zivar[WIDTH-1] === 1'b0 && zivar < val) ||
+                    (TWOSCOMP && val[VALWIDTH-1] === 1'b1 &&
+                     zivar[WIDTH-1] === 1'b1 && (twoscomp_var > twoscomp_val)));
+
+
+  assign check_used = ((used === 1'b1) && (used_cond === 1'b1));
+  assign is_used = ((used === 1'b0) ||
+                 ((used === 1'b1) &&
+                 (used_cond === 1'b1))); 
+`protected 
+    MTI!#d2,UW{w,1V='CR3ZuV;WDs>a15ZB;1!K[C!,~Fl3}e|H[V~$p~?^eYA[lauGp,VK'3l>=ko
+    C'ivlno[};2{%,@GkBIB1)N#7@]}l<{;=!+^Y#^NH\IA=5A3!o?~M<7z~lzRI3Tru{<jD=\Jl2&i
+    7,^[?>Yz=?klY*AtmIu~BC@E~<H~m'?n]\a^ee;jV]IzS=\tX7<Z+SFC}in,K+_:I!J,$'?BR$iQ
+    s@o?yT=KX6;QGu}4$\B,'AzBt/M@<2rcIe2a*BVr\3Gup!;{TnC3#1J@jAxK3o*!}5$;%^3KDi1o
+    *rH<_"5WJ<FR#]z['Y5o2>B+X]l'vln\VuAO$5;IABB=l=1wCCUkt^}-D=;[1u>R'to>+j~oe[3H
+    ;k{Xw35i*eu[_[j\}72V7#/,I?Clskrro];Jwj{o;<_e}3TlQQYDTE\*Ve?1lk@8+5[BI?!$eXs*
+    iXKpjFBB#WBIQRpb7xpJ7K<AI8e)9~XrWnoZuI>CW.};sB_~A^{$}mD'*5vG;!N+H~[QArKJ}*'i
+    Tm}Wo(_5z*<Yxm~<Em;\Qi9ua;$v-X1D@j?3[?7{lavX96
+`endprotected
+  assign flag_xz = ((^zivar) === 1'bX);
+`protected
+
+    MTI!#-5]^2O\i|7,+z^U3wV>pD/l*ose^+V#'#=*$]["]_~Y|E#,rBX=Jz}#~IOGr?1xo"L,RB?g
+    mUt7ZAmG3$$OD##i'o[TTwkIUCXS73p,voX}sHrQ1@V3BCDIJ*K3ZSkXpV#X{[lzw}rHC17i*\xk
+    -W9{&-'ll[?3BLTYA^ao#!HsIT:1e@sa}rxY=_,I$#2~\riN,{3B!YBHl.y!opE[KKTq]~]<=uQ>
+    -TV@wYk#'*CY"gB_<$}CCv*p$mInRp@VKpOZwT8TBn!I&10C1$wU[122TuVRQ-{P/lUHx];DsXsZ
+    Q!5-z_}7m,][[GQ[*&z3I@^6_'<@*7{Q<O+3j$X?GC6znz*Nm_lrYZ@<7auKUQ_i@wXB~om=b~_x
+    T7j#}'nA{z~HX0PszAAF@{!*D~A;|1~p@YAz=rX{BW\=Z9|%N=UpZ=Wr~~xR}Em-7^+V{?sO^Vv3
+    \*#1k[?wk7#oDQ<_<D-,rXoz#-5Y?QKn1\7zO>}k<#I@Be<1-#\@ZxjB'usZE,WXEK+1HA>v_I[?
+    Q=joXGlW$Px~BX^<^k5wsOO#-_=wrVVpZ<$YxT7-[I-BYaIre^xzTG$]W=h{I{T7pi=9$QkVx=-Y
+    KCwn~}Jp3&|[!Aem+jr1pzIb@v=@b}*rKFlW\jGp'Do2UQKH3wy;'eRq[iC3rX_@R\,zsY$w]$;=
+    VO<TkEi[z13K[{l<=Y?KBKT+}Ap,E?,rKV{vIuBB'>\]*A$\-TT~/H]R#kARZf}v,<A'sZV'kekR
+    X2y@[a?gzz{aXve[;X7U|5?e}-[1w$-vCUD-o;CAml-\Y]m*zl/]#D;zuR,B$;OBEW*:T-~?j+'D
+    ]*E_?DOl]Q_*zI^}Hwu3Bv#]5U\kxd=>{o?_+o=h=m,~3],^maAlV'K1!}3Ym]X7i],3T<22*2U]
+    [vWE?U17$Y7ZDD'}$^*+7Zj3rUuA2_XuAD>!kQ#1\O6feH$Z=o}@Hv-VHX1Gk<{J#ru,oDn$s*z^
+    EB-<UHCvOJreo#n7E#{U{w\-xurmoYo>XQu5\#C[8;T[^hZ5!A-GARoj?D]sp1'\A'R~IU1(B^En
+    vWZe7r#?N[Wc>BzmVr<@D#rX>j}<xIKky[r-lkj=}/qY?sOh[>22?p\AsjAD&*oAQB*?kC0UajH=
+    lQOpsGCws1#]~TlYX]jVWHG,ZTjCVE]>re5>BKe_I+#n]*l{.Eao;:u{$Jr$=Azn*[^oHOKD,EoA
+    +*aIAm%oOOK/aQUo\s}nOvj??IWlgp+e7QeQ5jAR}X'5Z$A7?<5RU3p{+0"rVx}ECk2rO_@mB}lX
+    reJvV-^j2,l-EAX]\~e)2+jwa<[E25wC^H!*QlPE^T;5k-1xeYeIaR*1Rae+XV?^?\]BYVxBI^e>
+    o2\Q<$k^EKj,*lYwal->\{]0}Nru'T%7aKY~RxkEpR!oe*V,\l!F*ea!*K'{inJ;;O;pC3aaIOR}
+    $DkYx0naWxXU}J3p?^s2<Dv+YVaRE5eB_;_R\2OV]D3E<>oU*;Hom1rkO1*KeWYK^,t~jRe;'Vv*
+    21^Vj^k}Aw}fY_^eex#3G52OHonC@=HG1${o,<]TQGs,eCvz1\+*<nX[,]oAU_\Cxo<E[r]]dZeO
+    =O[<x!_HIEZ^[2A}ik,*xQ{7U=}#Z~UCG$#{nup^Ot:rM~\\?}K}5'?I=*r,1D>;p$Zuui1[r?eO
+    #'?[=Zz1]D#Y^sEeRiE<VkO[U^Y!$2BuHJ_J1+s_D#EG-7ADs5n~m?+J7^AoB=KQz=WEk^x<
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire minimum_check_fire_combo;
+  
+  assign minimum_check_fire_combo = ((areset === 1'b0 && reset === 1'b0 &&
+                                      active === 1'b1) && (below_min &&
+                                      !flag_xz && is_used === 1'b1));
+
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_minimum_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (minimum_check_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_minimum_check"),
+                          .msg            ({msg,"The test expression had a value less than the minimum value"}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_minimum_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (minimum_check_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_minimum_cover.svh"
+
+`qvlendmodule

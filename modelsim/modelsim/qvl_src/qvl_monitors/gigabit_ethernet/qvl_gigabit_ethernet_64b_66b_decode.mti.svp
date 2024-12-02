@@ -1,0 +1,811 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the 64B/66B decoder module.
+ *
+ * DESCRIPTION   This module decodes the 66B blocks into 64B blocks of
+ *               data and 8 control lines, compliant to the XGMII.
+ *
+ * REFERENCE     802.3ae IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *
+ * INPUTS        clk             -- clock signal (posedge active)
+ *               areset          -- asynchronous reset
+ *               reset           -- synchronous reset
+ *               data_in         -- 66-bit block input
+ *               valid           -- 66-bit block valid signal
+ * OUTPUTS       xgmii_data      -- 64-bit (eight lanes) xgmii data out
+ *               xgmii_ctrl      -- 8-bit control lines (1 per lane)
+ *               block_type_det  -- received block type
+ *               xsbi_statistics -- indicates various blocks detected
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+ `ifdef QVL_SV_COVERGROUP_OFF
+  //DO nothing
+ `else
+  `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+   // Do nothing
+  `else
+  `define QVL_MW_FINAL_COVER
+  `endif 
+`endif
+
+`qvlmodule qvl_gigabit_ethernet_64b_66b_decode (clk,
+                                              areset,
+                                              reset,
+                                              data_in, 
+                                              xgmii_data, 
+                                              xgmii_ctrl, 
+                                              block_type_det,
+                                              valid,
+                                              xsbi_statistics
+                                             );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis.
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Set this parameter to 0 if the monitor is instantiated on the PHY side 
+  // of an interface. The default value of 1 indicates MAC side or RS side
+  // of an interface.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  // This parameter holds the information whether this instance of the 
+  // monitor is on the Transmit interface or the receive interface.
+
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+
+  parameter ZI_RECEIVE_CONSTRAINT = (Constraints_Mode == 1 &&
+                                    (MAC_SIDE == 1 && TX_INTERFACE == 0) ||
+                                    (MAC_SIDE == 0 && TX_INTERFACE == 1));
+
+
+   input clk;
+   input areset;
+   input reset;
+   input [65:0] data_in; 
+   input valid;
+   output [63:0] xgmii_data; 
+   output [7:0] xgmii_ctrl; 
+   output [2:0] block_type_det; 
+   output [15:0] xsbi_statistics;
+
+   // Signals that hold the value of the data and the coresponding control bit 
+   // for each byte lane.
+   wire [7:0] lane0_decoded;
+   wire [7:0] lane1_decoded;
+   wire [7:0] lane2_decoded;
+   wire [7:0] lane3_decoded;
+   wire [7:0] lane4_decoded;
+   wire [7:0] lane5_decoded;
+   wire [7:0] lane6_decoded;
+   wire [7:0] lane7_decoded;
+ 
+   wire ctrl0_decoded;
+   wire ctrl1_decoded;
+   wire ctrl2_decoded;
+   wire ctrl3_decoded;
+   wire ctrl4_decoded;
+   wire ctrl5_decoded;
+   wire ctrl6_decoded;
+   wire ctrl7_decoded;
+
+   // Signals to hold the value in each component of the input data.
+   wire[1:0] sync_field; 
+   wire[7:0] type_field; 
+   wire[65:0] data_field; 
+   wire data_word; 
+   wire control_word; 
+
+   // A signal for each valid type field value. Each "xy" in "type_xy" in the
+   // following signals denote one of the the valid block types in the XSBI
+   // interface standard. Refer figure 49-7 in IEEE 803.ae standard. This is 
+   // a pulse to indicate what type of block is being detected.
+   wire type_1e; 
+   wire type_2d; 
+   wire type_33; 
+   wire type_66; 
+   wire type_55; 
+   wire type_78; 
+   wire type_4b; 
+   wire type_87; 
+   wire type_99; 
+   wire type_aa; 
+   wire type_b4; 
+   wire type_cc; 
+   wire type_d2; 
+   wire type_e1; 
+   wire type_ff; 
+   wire [14:0] type_bitmap;
+   wire local_c0_reserved ; 
+   wire local_c1_reserved ; 
+   wire local_c2_reserved ; 
+   wire local_c3_reserved ; 
+   wire local_c4_reserved ; 
+   wire local_c5_reserved ; 
+   wire local_c6_reserved ; 
+   wire local_c7_reserved ; 
+   wire local_c0_invalid  ; 
+   wire local_c1_invalid  ; 
+   wire local_c2_invalid  ; 
+   wire local_c3_invalid  ; 
+   wire local_c4_invalid  ; 
+   wire local_c5_invalid  ; 
+   wire local_c6_invalid  ; 
+   wire local_c7_invalid  ; 
+
+   // Signals for decoding the control characters.
+   wire [7:0] ctrl_char0;
+   wire [7:0] ctrl_char1;
+   wire [7:0] ctrl_char2;
+   wire [7:0] ctrl_char3;
+   wire [7:0] ctrl_char4;
+   wire [7:0] ctrl_char5;
+   wire [7:0] ctrl_char6;
+   wire [7:0] ctrl_char7;
+
+   // Signals to indicate when ordered sets are being received.
+   wire lane0_seq_os_9c;
+   wire lane0_sig_os_5c;
+   wire lane4_seq_os_9c;
+   wire lane4_sig_os_5c;
+
+  // General wires
+
+  wire [1:0] cur_sh;
+  wire [7:0] cur_block_type;
+  wire cur_sh_valid;
+  wire cur_sh_invalid;
+
+  // Wires for XSBI statistics
+  // These are pulses generated for each type of block. These are used in the
+  // updation of the corresponding statistic in the link monitor level. All the
+  // single bit event indicating pulses are concatenated into one single 16 bit
+  // wire and passed to the link monitor. This concatenation is xsbi_statistics
+
+  wire valid_block;
+  wire data_block;
+  wire data_block_detected;
+  wire control_block;
+  wire idle_block;
+  wire error_block;
+  wire s0_block;
+  wire s4_block_with_idle;
+  wire s4_block_with_os;
+  wire t0_block;
+  wire t1_block;
+  wire t2_block;
+  wire t3_block;
+  wire t4_block;
+  wire t5_block;
+  wire t6_block;
+  wire t7_block;
+  wire local_block_type_1;
+  wire local_block_type_2;
+  wire [15:0] xsbi_statistics;
+
+  // Internal registers
+
+  reg first_block_detected;
+  reg r_idle_or_orderset_detected;
+  reg r_data_block;
+
+  // Wires for check enables
+  
+  wire invalid_sync_header_violation;
+  wire invalid_block_type_violation;
+  wire invalid_control_code_in_type_1e;
+  wire non_zero_null_fields_on_tx;
+  wire invalid_o_code_violation;
+  wire control_char_folowing_terminate_violation;
+  wire error_control_character;
+  wire idle_or_orderset_detected;
+  wire start_or_idle_block_expected;
+  wire terminate_or_ctrl_block_expected;
+
+  // Wires for fire signals
+
+  wire FIRE_GIGABIT_ETHERNET_XSBI_INVALID_CTRL_CODE_TYPE_1E;
+  wire FIRE_GIGABIT_ETHERNET_XSBI_INVALID_SYNC_HEADER;
+  wire FIRE_GIGABIT_ETHERNET_XSBI_INVALID_BLOCK_TYPE;
+  wire FIRE_GIGABIT_ETHERNET_XSBI_NULL_VALUE_VIOLATION;
+  wire FIRE_GIGABIT_ETHERNET_XSBI_INVALID_O_CODE_VIOLATION;
+  wire FIRE_GIGABIT_ETHERNET_XSBI_TERMINATE_BLOCK_ERROR;
+
+   parameter [2:0] ZI_CONTROL = 3'b000;
+   parameter [2:0] ZI_START = 3'b001;
+   parameter [2:0] ZI_DATA = 3'b010;
+   parameter [2:0] ZI_TERMINATE = 3'b011;
+   parameter [2:0] ZI_ERROR = 3'b100;
+
+
+   // Split input up into its three components.
+
+   assign type_field = data_in[9:2];
+   assign data_field = data_in;
+   assign sync_field = data_in[1:0];
+
+   // Extract the control bytes from the data_field bus. This is only 
+   // routed to the output when the sync_field is \"10\", indicating that 
+   // a control character has been sent. An idle is 0x00 at the input and is 
+   // converted into 0v07 for the xgmii. The others will be set to error. This 
+   // is because the other valid control characters except error are decoded 
+   // by the type field. The positions of each byte are given in figure 49-7 in
+   // the spec.
+
+   assign ctrl_char0 = 
+     (data_field[16:10] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[16:10] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[16:10] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[16:10] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[16:10] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[16:10] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[16:10] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+   assign ctrl_char1 =
+     (data_field[23:17] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[23:17] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[23:17] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[23:17] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[23:17] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[23:17] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[23:17] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+   assign ctrl_char2 = 
+     (data_field[30:24] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[30:24] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[30:24] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[30:24] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[30:24] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[30:24] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[30:24] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+   assign ctrl_char3 = 
+     (data_field[37:31] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[37:31] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[37:31] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[37:31] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[37:31] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[37:31] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[37:31] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+   assign ctrl_char4 = 
+     (data_field[44:38] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[44:38] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[44:38] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[44:38] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[44:38] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[44:38] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[44:38] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+   assign ctrl_char5 = 
+     (data_field[51:45] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[51:45] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[51:45] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[51:45] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[51:45] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[51:45] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[51:45] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+   assign ctrl_char6 = 
+     (data_field[58:52] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[58:52] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[58:52] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[58:52] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[58:52] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[58:52] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[58:52] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+   assign ctrl_char7 = 
+     (data_field[65:59] == 7'b0000000) ? 8'b00000111 : // Idle character
+     (data_field[65:59] == 7'b0101101) ? 8'b00011100 : // Reserved 0 character
+     (data_field[65:59] == 7'b0110011) ? 8'b00111100 : // Reserved 1 character
+     (data_field[65:59] == 7'b1001011) ? 8'b01111100 : // Reserved 2 character
+     (data_field[65:59] == 7'b1010101) ? 8'b10111100 : // Reserved 3 character
+     (data_field[65:59] == 7'b1100110) ? 8'b11011100 : // Reserved 4 character
+     (data_field[65:59] == 7'b1111000) ? 8'b11110111 : // Reserved 5 character
+                                         8'b11111110 ; // Error character
+
+
+   assign lane0_seq_os_9c = (sync_field[0] & ~(sync_field[1])) & ((type_66 | 
+     type_55 | type_4b) & ~(data_field[35]) & ~(data_field[34]) & 
+     ~(data_field[33]) & ~(data_field[32])) ;
+
+   assign lane0_sig_os_5c = (sync_field[0] & ~(sync_field[1])) & ((type_66 | 
+     type_55 | type_4b) & data_field[35] & data_field[34] & data_field[33] & 
+     data_field[32]) ;
+
+   assign lane4_seq_os_9c = (sync_field[0] & ~(sync_field[1])) & ((type_2d | 
+     type_55) & ~(data_field[39]) & ~(data_field[38]) & ~(data_field[37]) & 
+     ~(data_field[36])) ;
+
+   assign lane4_sig_os_5c = (sync_field[0] & ~(sync_field[1])) & ((type_2d | 
+     type_55) & data_field[39] & data_field[38] & data_field[37] & 
+     data_field[36]) ;
+
+   // Decode the sync field and the type field to determine what sort of data
+   // word was transmitted. The different types are given in fig 49-7 in spec.
+
+   assign control_word = ~(sync_field[1]) & sync_field[0] ;
+   assign data_word = sync_field[1] & ~(sync_field[0]) ;
+
+   assign type_1e = (type_field === 8'h1e);
+   assign type_2d = (type_field === 8'h2d);
+   assign type_33 = (type_field === 8'h33);
+   assign type_66 = (type_field === 8'h66);
+   assign type_55 = (type_field === 8'h55);
+   assign type_78 = (type_field === 8'h78);
+   assign type_4b = (type_field === 8'h4b);
+   assign type_87 = (type_field === 8'h87);
+   assign type_99 = (type_field === 8'h99);
+   assign type_aa = (type_field === 8'haa);
+   assign type_b4 = (type_field === 8'hb4);
+   assign type_cc = (type_field === 8'hcc);
+   assign type_d2 = (type_field === 8'hd2);
+   assign type_e1 = (type_field === 8'he1);
+   assign type_ff = (type_field === 8'hff);
+
+   // Translate these signals to give the type of data in each byte.
+
+   assign type_bitmap = {(control_word & type_ff), (control_word & type_e1),
+                         (control_word & type_d2), (control_word & type_cc),
+                         (control_word & type_b4), (control_word & type_aa),
+                         (control_word & type_99), (control_word & type_87),
+                         (control_word & type_4b), (control_word & type_78),
+                         (control_word & type_55), (control_word & type_66),
+                         (control_word & type_33), (control_word & type_2d),
+                         (control_word & type_1e)};
+
+   // Generate the R_TYPE signal to help the receiver state machine.
+
+  assign block_type_det = 
+    (control_word == 1'b1 & (type_ff == 1'b1 | type_e1 == 1'b1 | 
+    type_d2 == 1'b1 | type_cc == 1'b1 | type_b4 == 1'b1 | type_aa == 1'b1 | 
+    type_99 == 1'b1 | type_87 == 1'b1)) ? ZI_TERMINATE : (control_word == 1'b1 & 
+    (type_1e == 1'b1 | type_2d == 1'b1 | type_55 == 1'b1 | type_4b == 1'b1)) ? 
+    ZI_CONTROL : (control_word == 1'b1 & (type_33 == 1'b1 | type_66 == 1'b1 |
+    type_78 == 1'b1)) ? ZI_START : (control_word == 1'b0) ? ZI_DATA : ZI_ERROR;
+
+
+  // Put the input data into the correct byte lane at the output. 
+  assign lane0_decoded = (type_bitmap[2:0] != 3'b000) ? ctrl_char0 : 
+    (type_bitmap[3] == 1'b1 & lane0_seq_os_9c == 1'b1) ? 8'b10011100 :
+    (type_bitmap[3] == 1'b1 & lane0_sig_os_5c == 1'b1) ? 8'b01011100 :
+    (type_bitmap[4] == 1'b1 & lane0_seq_os_9c == 1'b1) ? 8'b10011100 :
+    (type_bitmap[4] == 1'b1 & lane0_sig_os_5c == 1'b1) ? 8'b01011100 :
+    (type_bitmap[5] == 1'b1) ? 8'b11111011 :
+    (type_bitmap[6] == 1'b1 & lane0_seq_os_9c == 1'b1) ? 8'b10011100 :
+    (type_bitmap[6] == 1'b1 & lane0_sig_os_5c == 1'b1) ? 8'b01011100 :
+    (type_bitmap[7] == 1'b1) ? 8'b11111101 :
+    (type_bitmap[14:8] != 7'b0000000) ? data_field[17:10] : data_field[9:2];
+                        
+  assign ctrl0_decoded = (type_bitmap[2:0] != 3'b000) ? 1'b1 : 
+    (type_bitmap[3] == 1'b1 & lane0_seq_os_9c == 1'b1) ? 1'b1 :
+    (type_bitmap[3] == 1'b1 & lane0_sig_os_5c == 1'b1) ? 1'b1 :
+    (type_bitmap[4] == 1'b1 & lane0_seq_os_9c == 1'b1) ? 1'b1 :
+    (type_bitmap[4] == 1'b1 & lane0_sig_os_5c == 1'b1) ? 1'b1 :
+    (type_bitmap[5] == 1'b1) ? 8'b1 :
+    (type_bitmap[6] == 1'b1 & lane0_seq_os_9c == 1'b1) ? 1'b1 :
+    (type_bitmap[6] == 1'b1 & lane0_sig_os_5c == 1'b1) ? 1'b1 :
+    (type_bitmap[7] == 1'b1) ? 8'b1 :
+    (type_bitmap[14:8] != 7'b0000000) ? 1'b0 : 1'b0;
+
+  assign lane1_decoded = (type_bitmap[2:0] != 3'b000) ? ctrl_char1 : 
+    (type_bitmap[6:3] == 1'b1) ? data_field[17:10] :
+    (type_bitmap[7] == 1'b1) ? ctrl_char1 :
+    (type_bitmap[8] == 1'b1) ? 8'b11111101 :
+    (type_bitmap[14:9] != 7'b0000000) ? data_field[25:18] : data_field[17:10];
+   
+  assign ctrl1_decoded = (type_bitmap[2:0] != 3'b000) ? 1'b1 : 
+    (type_bitmap[6:3] == 1'b1) ? 1'b0 :
+    (type_bitmap[7] == 1'b1) ? 1'b1 :
+    (type_bitmap[8] == 1'b1) ? 1'b1 :
+    (type_bitmap[14:9] != 7'b0000000) ? 1'b0 : 1'b0;
+                        
+  assign lane2_decoded = 
+    (type_bitmap[2:0] != 3'b000 || type_bitmap[8:7] != 2'b00) ? ctrl_char2 : 
+    (type_bitmap[6:3] == 1'b1) ? data_field[25:18] :
+    (type_bitmap[9] == 1'b1) ? 8'b11111101 :
+    (type_bitmap[14:10] != 7'b0000000) ? data_field[33:26] : data_field[25:18];
+                        
+  assign ctrl2_decoded = 
+    (type_bitmap[2:0] != 3'b000 || type_bitmap[8:7] != 2'b00) ? 1'b1 : 
+    (type_bitmap[6:3] == 1'b1) ? 1'b0 :
+    (type_bitmap[9] == 1'b1) ? 1'b1 :
+    (type_bitmap[14:10] != 7'b0000000) ? 1'b0 : 1'b0;
+                        
+  assign lane3_decoded = 
+    (type_bitmap[2:0] != 3'b000 || type_bitmap[9:7] != 2'b00) ? ctrl_char3 : 
+    (type_bitmap[6:3] == 1'b1) ? data_field[33:26] :
+    (type_bitmap[10] == 1'b1) ? 8'b11111101 :
+    (type_bitmap[14:11] != 7'b0000000) ? data_field[41:34] : data_field[33:26];
+                        
+  assign ctrl3_decoded = 
+    (type_bitmap[2:0] != 3'b000 || type_bitmap[9:7] != 2'b00) ? 1'b1 : 
+    (type_bitmap[6:3] == 1'b1) ? 1'b0 :
+    (type_bitmap[10] == 1'b1) ? 1'b1 :
+    (type_bitmap[14:11] != 7'b0000000) ? 1'b0 : 1'b0;
+                        
+  assign lane4_decoded = 
+    (type_bitmap[0] != 1'b0 | type_bitmap[10:6] != 5'b00000) ? ctrl_char4 : 
+    (type_bitmap[1] == 1'b1 & lane4_seq_os_9c == 1'b1) ? 8'b10011100 :
+    (type_bitmap[1] == 1'b1 & lane4_sig_os_5c == 1'b1) ? 8'b01011100 :
+    (type_bitmap[2] == 1'b1 | type_bitmap[3] == 1'b1) ? 8'b11111011 :
+    (type_bitmap[4] == 1'b1 & lane4_seq_os_9c == 1'b1) ? 8'b10011100 :
+    (type_bitmap[4] == 1'b1 & lane4_sig_os_5c == 1'b1) ? 8'b01011100 :
+    (type_bitmap[5] == 1'b1) ? data_field[41:34] :
+    (type_bitmap[11] == 1'b1) ? 8'b11111101 :
+    (type_bitmap[14:12] != 3'b000) ? data_field[49:42] : data_field[41:34];
+   
+  assign ctrl4_decoded = 
+    (type_bitmap[0] != 1'b0 | type_bitmap[10:6] != 5'b00000) ? 1'b1 : 
+    (type_bitmap[1] == 1'b1 & lane4_seq_os_9c == 1'b1) ? 1'b1 :
+    (type_bitmap[1] == 1'b1 & lane4_sig_os_5c == 1'b1) ? 1'b1 :
+    (type_bitmap[2] == 1'b1 | type_bitmap[3] == 1'b1) ? 1'b1 :
+    (type_bitmap[4] == 1'b1 & lane4_seq_os_9c == 1'b1) ? 1'b1 :
+    (type_bitmap[4] == 1'b1 & lane4_sig_os_5c == 1'b1) ? 1'b1 :
+    (type_bitmap[5] == 1'b1) ? 1'b0 :
+    (type_bitmap[11] == 1'b1) ? 1'b1 :
+    (type_bitmap[14:12] != 3'b000) ? 1'b0 : 1'b0;
+   
+  assign lane5_decoded = 
+    (type_bitmap[0] != 1'b0 | type_bitmap[11:6] != 6'b000000) ? ctrl_char5 : 
+    (type_bitmap[5:1] != 5'b00000) ? data_field[49:42] :
+    (type_bitmap[12] == 1'b1) ? 8'b11111101 :
+    (type_bitmap[14:13] != 2'b00) ? data_field[57:50] : data_field[49:42];
+   
+  assign ctrl5_decoded = 
+    (type_bitmap[0] != 1'b0 | type_bitmap[11:6] != 6'b000000) ? 1'b1 : 
+    (type_bitmap[5:1] != 5'b00000) ? 1'b0 :
+    (type_bitmap[12] == 1'b1) ? 1'b1 :
+    (type_bitmap[14:13] != 2'b00) ? 1'b0 : 1'b0;
+   
+  assign lane6_decoded = 
+    (type_bitmap[0] != 1'b0 | type_bitmap[12:6] != 7'b0000000) ? ctrl_char6 : 
+    (type_bitmap[5:1] != 5'b00000) ? data_field[57:50] :
+    (type_bitmap[13] == 1'b1) ? 8'b11111101 :
+    (type_bitmap[14] == 1'b1) ? data_field[65:58] : data_field[57:50];
+   
+  assign ctrl6_decoded = 
+    (type_bitmap[0] != 1'b0 | type_bitmap[12:6] != 7'b0000000) ? 1'b1 : 
+    (type_bitmap[5:1] != 5'b00000) ? 1'b0 :
+    (type_bitmap[13] == 1'b1) ? 1'b1 :
+    (type_bitmap[14] == 1'b1) ? 1'b0 : 1'b0;
+   
+  assign lane7_decoded = 
+    (type_bitmap[0] == 1'b1 | type_bitmap[13:6] != 8'b00000000) ? ctrl_char7 : 
+    (type_bitmap[5:1] != 5'b00000) ? data_field[65:58] :
+    (type_bitmap[14] == 1'b1) ? 8'b11111101 : data_field[65:58];
+   
+  assign ctrl7_decoded = 
+    (type_bitmap[0] == 1'b1 | type_bitmap[13:6] != 8'b00000000) ? 1'b1 : 
+    (type_bitmap[5:1] != 5'b00000) ? 1'b0 :
+    (type_bitmap[14] == 1'b1) ? 1'b1 : 1'b0;
+  
+
+  assign xgmii_data = {lane7_decoded,lane6_decoded,lane5_decoded,lane4_decoded, 
+                      lane3_decoded,lane2_decoded,lane1_decoded,lane0_decoded};
+  assign xgmii_ctrl = {ctrl7_decoded,ctrl6_decoded,ctrl5_decoded,ctrl4_decoded,
+                      ctrl3_decoded,ctrl2_decoded,ctrl1_decoded,ctrl0_decoded};
+
+
+  assign cur_sh = (valid == 1'b1) ? data_in[1:0]^2'b11 : 2'b00;
+  assign cur_sh_valid = (valid == 1'b1) ? (data_in[1] !== data_in[0]) : 1'b0;
+  assign cur_sh_invalid = (valid == 1'b1) ? (data_in[1] === data_in[0]) : 1'b0;
+  assign cur_block_type = (valid == 1'b1) ? data_in[9:2] : 8'b0;
+
+  assign valid_block = (cur_sh == 2'b01 || (cur_sh == 2'b10 &&
+                        invalid_block_type_violation == 1'b0));
+  assign data_block = (cur_sh == 2'b01);
+  assign control_block = (cur_sh == 2'b10 && valid_block == 1'b1);
+  assign idle_block = (cur_sh == 2'b10 && cur_block_type == 8'h1e &&
+                       data_in[65:10] == 56'h0);
+  assign error_block = (cur_sh == 2'b10 && cur_block_type == 8'h1e &&
+                        data_in[16:10] === 7'h1e && data_in[23:17] === 7'h1e &&
+                        data_in[30:24] === 7'h1e && data_in[37:31] === 7'h1e &&
+                        data_in[44:38] === 7'h1e && data_in[51:45] === 7'h1e &&
+                        data_in[58:52] === 7'h1e && data_in[65:59] === 7'h1e);
+  assign s0_block = (cur_sh == 2'b10 && cur_block_type == 8'h78);
+  assign s4_block_with_idle = (cur_sh == 2'b10 && cur_block_type == 8'h33);
+  assign s4_block_with_os = (cur_sh == 2'b10 && cur_block_type == 8'h66);
+  assign t0_block = (cur_sh == 2'b10 && cur_block_type == 8'h87);
+  assign t1_block = (cur_sh == 2'b10 && cur_block_type == 8'h99);
+  assign t2_block = (cur_sh == 2'b10 && cur_block_type == 8'haa);
+  assign t3_block = (cur_sh == 2'b10 && cur_block_type == 8'hb4);
+  assign t4_block = (cur_sh == 2'b10 && cur_block_type == 8'hcc);
+  assign t5_block = (cur_sh == 2'b10 && cur_block_type == 8'hd2);
+  assign t6_block = (cur_sh == 2'b10 && cur_block_type == 8'he1);
+  assign t7_block = (cur_sh == 2'b10 && cur_block_type == 8'hff);
+
+  assign xsbi_statistics = {valid_block, data_block, control_block,
+                            idle_block, error_block, s0_block,
+                            s4_block_with_idle, s4_block_with_os,
+                            t0_block, t1_block, t2_block, t3_block,
+                            t4_block, t5_block, t6_block, t7_block};
+
+  // Check assigns
+ 
+  assign invalid_sync_header_violation = (cur_sh_invalid == 1'b1 &&
+                                          valid === 1'b1);
+
+  assign invalid_block_type_violation = (cur_sh === 2'b10 && 
+            first_block_detected == 1'b1 &&
+           !(cur_block_type === 8'h1e  ||
+              cur_block_type === 8'h2d || cur_block_type === 8'h33 ||
+              cur_block_type === 8'h66 || cur_block_type === 8'h55 ||
+              cur_block_type === 8'h78 || cur_block_type === 8'h4b ||
+              cur_block_type === 8'h87 || cur_block_type === 8'h99 ||
+              cur_block_type === 8'haa || cur_block_type === 8'hb4 ||
+              cur_block_type === 8'hcc || cur_block_type === 8'hd2 ||
+              cur_block_type === 8'he1 || cur_block_type === 8'hff));
+
+  //Combined Block type of 1e,2d and 33.
+  assign local_block_type_1 = cur_block_type == 8'h1e || cur_block_type == 8'h2d || cur_block_type == 8'h33; 
+
+  //combined Block type of 1e,4b,87,99,aa and 33.
+  assign local_block_type_2 = cur_block_type == 8'h1e || cur_block_type == 8'h4b || cur_block_type == 8'h87 || 
+                              cur_block_type == 8'h99 || cur_block_type == 8'haa || cur_block_type == 8'hb4; 
+
+  //Reserved control charcter in C0
+  assign local_c0_reserved = (cur_sh === 2'b10 && 
+             (data_in[16:10] === 7'h2d ||data_in[16:10] === 7'h33 ||data_in[16:10] === 7'h4b ||
+              data_in[16:10] === 7'h55 ||data_in[16:10] === 7'h66 ||data_in[16:10] === 7'h78));  
+
+  //Reserved control charcter in C1
+  assign local_c1_reserved = (cur_sh === 2'b10 && 
+             (data_in[23:17] === 7'h2d ||data_in[23:17] === 7'h33 ||data_in[23:17] === 7'h4b ||
+              data_in[23:17] === 7'h55 ||data_in[23:17] === 7'h66 ||data_in[23:17] === 7'h78));  
+      
+  //Reserved control charcter in C2
+  assign local_c2_reserved = (cur_sh === 2'b10 && 
+             (data_in[30:24] === 7'h2d ||data_in[30:24] === 7'h33 ||data_in[30:24] === 7'h4b ||
+              data_in[30:24] === 7'h55 ||data_in[30:24] === 7'h66 ||data_in[30:24] === 7'h78)); 
+
+  //Reserved control charcter in C3
+  assign local_c3_reserved = (cur_sh === 2'b10 && 
+             (data_in[37:31] === 7'h2d ||data_in[37:31] === 7'h33 ||data_in[37:31] === 7'h4b ||
+              data_in[37:31] === 7'h55 ||data_in[37:31] === 7'h66 ||data_in[37:31] === 7'h78)); 
+
+  //Reserved control charcter in C4
+  assign local_c4_reserved = (cur_sh === 2'b10 && 
+             (data_in[44:38] === 7'h2d ||data_in[44:38] === 7'h33 ||data_in[44:38] === 7'h4b ||
+              data_in[44:38] === 7'h55 ||data_in[44:38] === 7'h66 ||data_in[44:38] === 7'h78)); 
+
+  //Reserved control charcter in C5
+  assign local_c5_reserved = (cur_sh === 2'b10 && 
+             (data_in[51:45] === 7'h2d ||data_in[51:45] === 7'h33 ||data_in[51:45] === 7'h4b ||
+              data_in[51:45] === 7'h55 ||data_in[51:45] === 7'h66 ||data_in[51:45] === 7'h78)); 
+
+  //Reserved control charcter in C6
+  assign local_c6_reserved = (cur_sh === 2'b10 && 
+             (data_in[58:52] === 7'h2d ||data_in[58:52] === 7'h33 ||data_in[58:52] === 7'h4b ||
+              data_in[58:52] === 7'h55 ||data_in[58:52] === 7'h66 ||data_in[58:52] === 7'h78)); 
+
+  //Reserved control charcter in C7
+  assign local_c7_reserved = (cur_sh === 2'b10 && 
+             (data_in[65:59] === 7'h2d ||data_in[65:59] === 7'h33 ||data_in[65:59] === 7'h4b ||
+              data_in[65:59] === 7'h55 ||data_in[65:59] === 7'h66 ||data_in[65:59] === 7'h78));
+
+  //Invalid control charcter in C0
+  assign local_c0_invalid = (cur_sh === 2'b10 && 
+             !(data_in[16:10] === 7'h2d ||data_in[16:10] === 7'h33 ||data_in[16:10] === 7'h4b ||
+               data_in[16:10] === 7'h55 ||data_in[16:10] === 7'h66 ||data_in[16:10] === 7'h78 || 
+               data_in[16:10] === 7'h00 ||data_in[16:10] === 7'h1e));  
+
+  //Invalid control charcter in C1
+  assign local_c1_invalid = (cur_sh === 2'b10 && 
+             !(data_in[23:17] === 7'h2d ||data_in[23:17] === 7'h33 ||data_in[23:17] === 7'h4b ||
+              data_in[23:17] === 7'h55 ||data_in[23:17] === 7'h66 ||data_in[23:17] === 7'h78 || 
+              data_in[23:17] === 7'h00 ||data_in[23:17] === 7'h1e));  
+      
+  //Invalid control charcter in C2
+  assign local_c2_invalid = (cur_sh === 2'b10 && 
+             !(data_in[30:24] === 7'h2d ||data_in[30:24] === 7'h33 ||data_in[30:24] === 7'h4b ||
+              data_in[30:24] === 7'h55 ||data_in[30:24] === 7'h66 ||data_in[30:24] === 7'h7 || 
+              data_in[30:24] === 7'h00 ||data_in[30:24] === 7'h1e)); 
+
+  //Invalid control charcter in C3
+  assign local_c3_invalid = (cur_sh === 2'b10 && 
+             !(data_in[37:31] === 7'h2d ||data_in[37:31] === 7'h33 ||data_in[37:31] === 7'h4b ||
+              data_in[37:31] === 7'h55 ||data_in[37:31] === 7'h66 ||data_in[37:31] === 7'h7 || 
+              data_in[37:31] === 7'h00 ||data_in[37:31] === 7'h1e)); 
+
+  //Invalid control charcter in C4
+  assign local_c4_invalid = (cur_sh === 2'b10 && 
+             !(data_in[44:38] === 7'h2d ||data_in[44:38] === 7'h33 ||data_in[44:38] === 7'h4b ||
+              data_in[44:38] === 7'h55 ||data_in[44:38] === 7'h66 ||data_in[44:38] === 7'h7 || 
+              data_in[44:38] === 7'h00 ||data_in[44:38] === 7'h1e)); 
+
+  //Invalid control charcter in C5
+  assign local_c5_invalid = (cur_sh === 2'b10 && 
+             !(data_in[51:45] === 7'h2d ||data_in[51:45] === 7'h33 ||data_in[51:45] === 7'h4b ||
+              data_in[51:45] === 7'h55 ||data_in[51:45] === 7'h66 ||data_in[51:45] === 7'h7 || 
+              data_in[51:45] === 7'h00 ||data_in[51:45] === 7'h1e)); 
+
+  //Invalid control charcter in C6
+  assign local_c6_invalid = (cur_sh === 2'b10 && 
+             !(data_in[58:52] === 7'h2d ||data_in[58:52] === 7'h33 ||data_in[58:52] === 7'h4b ||
+              data_in[58:52] === 7'h55 ||data_in[58:52] === 7'h66 ||data_in[58:52] === 7'h7 || 
+              data_in[58:52] === 7'h00 ||data_in[58:52] === 7'h1e)); 
+
+  //Invalid control charcter in C7
+  assign local_c7_invalid = (cur_sh === 2'b10 && 
+             !(data_in[65:59] === 7'h2d ||data_in[65:59] === 7'h33 ||data_in[65:59] === 7'h4b ||
+              data_in[65:59] === 7'h55 ||data_in[65:59] === 7'h66 ||data_in[65:59] === 7'h7 || 
+              data_in[65:59] === 7'h00 ||data_in[65:59] === 7'h1e)); 
+
+  //Error control character 7'h1e
+  assign error_control_character = (cur_sh === 2'b10 && (
+            (   (data_in[16:10] === 7'h1e) && (local_block_type_1 == 1'b1))  
+            || ((data_in[23:17] === 7'h1e) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87)) 
+            || ((data_in[30:24] === 7'h1e) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87 ||cur_block_type=== 8'h99)) 
+            || ((data_in[37:31] === 7'h1e) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87 ||cur_block_type=== 8'h99 ||cur_block_type=== 8'haa))
+            || ((data_in[44:38] === 7'h1e) && (local_block_type_2 ===1'b1)) 
+            || ((data_in[51:45] === 7'h1e) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc))
+            || ((data_in[58:52] === 7'h1e) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc ||cur_block_type === 8'hd2))
+            || ((data_in[65:59] === 7'h1e) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc ||cur_block_type === 8'hd2 ||cur_block_type === 8'he1))                   
+          ));
+
+ //Reserved Control character which is specified in 49-1 of IEEE 802.3-2005.
+  assign reserved_control_character = (cur_sh === 2'b10 && (
+               ((local_c0_reserved) && (local_block_type_1 == 1'b1))  
+            || ((local_c1_reserved) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87)) 
+            || ((local_c2_reserved) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87 ||cur_block_type=== 8'h99)) 
+            || ((local_c3_reserved) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87 ||cur_block_type=== 8'h99 ||cur_block_type=== 8'haa))
+            || ((local_c4_reserved) && (local_block_type_2 ===1'b1)) 
+            || ((local_c5_reserved) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc))
+            || ((local_c6_reserved) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc ||cur_block_type === 8'hd2))
+            || ((local_c7_reserved) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc ||cur_block_type === 8'hd2 ||cur_block_type === 8'he1))                   
+          ));
+
+ //Invalid Control character which is other than specified in 49-1 of IEEE 802.3-2005.
+ assign invalid_control_character = (cur_sh === 2'b10 && (
+               ((local_c0_invalid) && (local_block_type_1 == 1'b1))  
+            || ((local_c1_invalid) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87)) 
+            || ((local_c2_invalid) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87 ||cur_block_type=== 8'h99)) 
+            || ((local_c3_invalid) && (local_block_type_1 ===1'b1 ||cur_block_type === 8'h87 ||cur_block_type=== 8'h99 ||cur_block_type=== 8'haa))
+            || ((local_c4_invalid) && (local_block_type_2 ===1'b1)) 
+            || ((local_c5_invalid) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc))
+            || ((local_c6_invalid) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc ||cur_block_type === 8'hd2))
+            || ((local_c7_invalid) && (local_block_type_2 ===1'b1 ||cur_block_type === 8'hcc ||cur_block_type === 8'hd2 ||cur_block_type === 8'he1))));
+
+ //Either IDLE or Orderset Detected.   
+ assign idle_or_orderset_detected = (valid === 1'b1)?(cur_sh === 2'b10 && first_block_detected === 1'b1 &&
+            ((cur_block_type === 8'h1e && data_in [65:10] === {8{7'h00}}) ||
+              cur_block_type === 8'h2d || 
+              cur_block_type === 8'h55 ||
+              cur_block_type === 8'h4b)):r_idle_or_orderset_detected;
+
+ assign data_block_detected = (valid === 1'b1)?(cur_sh === 2'b01):r_data_block;
+
+ //If Eithe IDLE or Orderset is in progress then next block should be IDLE or Orderset or Start block.
+ assign start_or_idle_block_expected = (r_idle_or_orderset_detected === 1'b1 && first_block_detected === 1'b1 &&
+            ((cur_sh === 2'b10 && !(cur_block_type === 8'h1e || cur_block_type === 8'h2d || cur_block_type === 8'h55 ||
+              cur_block_type === 8'h4b ||cur_block_type === 8'h33 || cur_block_type === 8'h66 ||cur_block_type === 8'h78))
+            || cur_sh == 2'b01));
+
+ //If Data Block is in Progress then next block should be either Control block(8'h1e) with all control character as 7'h1e or Terminate block.
+ assign terminate_or_ctrl_block_expected = (valid === 1'b1 && r_data_block === 1'b1 && !data_block && first_block_detected === 1'b1 &&
+            !((cur_block_type === 8'h1e && data_in [65:10] === {8{7'h1e}})||
+              t0_block === 1 || 
+              t1_block === 1 ||
+              t2_block === 1 ||
+              t3_block === 1 || 
+              t4_block === 1 ||
+              t5_block === 1 ||
+              t6_block === 1 ||
+              t7_block === 1));
+
+  //If Sequrnce OS has reserved values for Type 25,55,66 and 4b.
+  assign reserved_values_on_sequence_os = (cur_sh === 2'b10 && first_block_detected === 1'b1 && (
+                                           ((type_2d === 1'b1 || type_55 === 1'b1) && 
+                                            (data_in[57:42] > 16'h00_00 || data_in [65:58] >=8'h03 || data_in[65:58] === 8'h00))
+                                         ||((type_66 === 1'b1 || type_55 === 1'b1 || type_4b ===1'b1) && 
+                                            (data_in[25:10] > 16'h00_00 || data_in [33:26] >=8'h03 || data_in[33:26] === 8'h00))
+                                          ));
+
+  assign invalid_control_code_in_type_1e = (cur_sh === 2'b10 &&
+           cur_block_type === 8'h1e && first_block_detected == 1'b1 &&
+          (!(data_in[16:10] === 7'h0 || data_in[16:10] === 7'h1e) ||
+           !(data_in[23:17] === 7'h0 || data_in[23:17] === 7'h1e) ||
+           !(data_in[30:24] === 7'h0 || data_in[30:24] === 7'h1e) ||
+           !(data_in[37:31] === 7'h0 || data_in[37:31] === 7'h1e) ||
+           !(data_in[44:38] === 7'h0 || data_in[44:38] === 7'h1e) ||
+           !(data_in[51:45] === 7'h0 || data_in[51:45] === 7'h1e) ||
+           !(data_in[58:52] === 7'h0 || data_in[58:52] === 7'h1e) ||
+           !(data_in[65:59] === 7'h0 || data_in[65:59] === 7'h1e)));
+
+
+assign non_zero_null_fields_on_tx = (cur_sh === 2'b10 && TX_INTERFACE == 1 &&
+           (((cur_block_type === 8'h33 || cur_block_type === 8'h66) &&
+           data_in[41:38] !== 4'b0000) || (cur_block_type === 8'h87 &&
+           data_in[16:10] !== 7'b0) || (cur_block_type === 8'h99 &&
+           data_in[23:18] !== 6'b0) || (cur_block_type === 8'haa &&
+           data_in[30:26] !== 5'b0) || (cur_block_type === 8'hb4 &&
+           data_in[37:34] !== 4'b0) || (cur_block_type === 8'hcc &&
+           data_in[44:42] !== 3'b0) || (cur_block_type === 8'hd2 &&
+           data_in[51:50] !== 2'b0) || (cur_block_type === 8'he1 &&
+           data_in[58:58] !== 1'b0)));
+ 
+  assign invalid_o_code_violation = (cur_sh === 2'b10 &&
+           (((cur_block_type === 8'h2d || cur_block_type === 8'h55) &&
+           (data_in[41:38] !== 4'b0 && data_in[41:0] !==4'hf)) || ((cur_block_type === 8'h66 ||
+           cur_block_type === 8'h55 || cur_block_type === 8'h4b) &&
+           (data_in[35:32] !== 4'b0 && data_in[35:32] !== 4'hf))));
+ 
+  assign control_char_folowing_terminate_violation = (cur_sh === 2'b10 &&
+           // Terminate on lane 0
+          ((cur_block_type === 8'h87 && data_in[65:17] !== 49'b0) ||
+           // Terminate on lane 1
+           (cur_block_type === 8'h99 && data_in[65:24] !== 42'b0) ||
+           // Terminate on lane 2
+           (cur_block_type === 8'haa && data_in[65:31] !== 35'b0) ||
+           // Terminate on lane 3
+           (cur_block_type === 8'hb4 && data_in[65:38] !== 28'b0) ||
+           // Terminate on lane 4
+           (cur_block_type === 8'hcc && data_in[65:45] !== 21'b0) ||
+           // Terminate on lane 5
+           (cur_block_type === 8'hd2 && data_in[65:52] !== 14'b0) ||
+           // Terminate on lane 6
+           (cur_block_type === 8'he1 && data_in[65:59] !== 07'b0)));
+           // Terminate on lane 7 - Same as lane 3 - so this check NA
+`protected
+
+    MTI!#!7juuBxG4Cj=A}-E3ET-Ag/dO,'+aIRiP#nF"fu|P!D#B>7p$1A[\e#!**E#o$ev\ka~zEC
+    {sv';r7@O^JYx2$s_DQ{!]~rp?A,GaIaA,]ds#Qm7!ZV1jCE*QDk]8Hj}3[-GBeJ'kJaQk3}#=!v
+    @;xl?\f>1-=a7lZx|R=?5l_w5VI!HO~lTQ_,zR\YpP-Dk2\w;;5]^CIA>R7,Qn1<O^\[3GJQ'CF[
+    MgKaOW]=TRwz*Zh}V-BJAvufJQZUo-]['5m[j;R@b\~Yix<7D=e@#snrYb@}<z;xaUK[e#o>ou\]
+    WAz~]JI;E,ilDz-p22vD=pV#_+2[$^}a*xHR5mW\'uo?Y#_GA@2X>r-x!=jHpKnT*KEK@E_xJRl<
+    3WwNnOrx7?-J};x,]?ok|5sa{4=JxpyP]3}H*^DuXnsCF+\Ei=5<A\+*rIo7B'BOCHVvw1awOUHO
+    ~}Jz1^1Kvz32+b9Q-[*O}<!\#sO'#er3r?lE-w^VnRB?x77$Y#?1sB12a[aG'7=|k1urq_@*noZZ
+    <$amIV[;WI3$O+wl^7<R+B=%gb_n+v]-!
+`endprotected
+
+`include "qvl_gigabit_ethernet_64b_66b_decode_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_64b_66b_decode.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_64b_66b_decode.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_64b_66b_decode
+`include "zi_cw_gigabit_ethernet_64b_66b_decode.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule

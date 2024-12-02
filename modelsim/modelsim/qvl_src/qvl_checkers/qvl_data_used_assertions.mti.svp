@@ -1,0 +1,285 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_data_used_assertions(
+                                clock,
+                                reset,
+                                areset,
+                                active,
+                                zivar,
+                                load_cond,
+                                used_cond,
+                                start,
+			        stop,
+			        start_count,
+			        stop_count,
+                                any_load,
+                                flush,
+                                valid_data,
+                                data_used,
+                                data_used_fire,
+			        no_restart_check,
+			        no_restart_fire,
+                                values_checked,
+                                longest_unused,
+                                shortest_unused,
+                                window,
+                                data_used_at_window_open_count,
+                                data_used_at_window_close_count,
+			        support,
+                                fire_count);
+
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   parameter ACTION_ON_NEW_START = 0; 
+                                      // default is IGNORE_RESTART
+   parameter P_RESTART = 1;
+   parameter P_NO_RESTART = 2;
+
+   parameter VAR_WIDTH = 1; 
+   parameter START_COUNT_WIDTH = 1; 
+   parameter STOP_COUNT_WIDTH = 1; 
+
+   parameter START_DECLARED = 0; 
+   parameter STOP_DECLARED = 0; 
+   parameter START_COUNT_DECLARED = 0; 
+   parameter STOP_COUNT_DECLARED = 0; 
+   parameter NO_RESTART_CHK_ON = 0;
+
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   input clock; 
+   input reset; 
+   input areset; 
+   input active; 
+   input [VAR_WIDTH-1:0] zivar; 
+   input [START_COUNT_WIDTH-1:0] start_count; 
+   input [STOP_COUNT_WIDTH-1:0] stop_count; 
+   input start; 
+   input stop; 
+   input valid_data; 
+   input flush; 
+   input any_load; 
+   input used_cond; 
+   input load_cond; 
+   input data_used; 
+   input no_restart_check; 
+
+
+   output data_used_fire;
+   reg data_used_fire;
+   output no_restart_fire;
+   reg no_restart_fire;
+   output [STAT_CNT_WIDTH-1:0] values_checked;
+   reg [STAT_CNT_WIDTH-1:0] values_checked;
+   output [63:0] longest_unused;
+   reg [63:0] longest_unused;
+   output [63:0] shortest_unused;
+   reg [63:0] shortest_unused;
+   output window;
+   reg window;
+   output [STAT_CNT_WIDTH-1:0] data_used_at_window_open_count;
+   reg [STAT_CNT_WIDTH-1:0] data_used_at_window_open_count;
+   output [STAT_CNT_WIDTH-1:0] data_used_at_window_close_count;
+   reg [STAT_CNT_WIDTH-1:0] data_used_at_window_close_count;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [2:0] fire_count_tmp;
+
+
+   reg [START_COUNT_WIDTH-1:0] latched_start_count; 
+   reg [STOP_COUNT_WIDTH-1:0] latched_stop_count; 
+
+   integer within_range;
+
+   reg [STAT_CNT_WIDTH-1:0] stop_within_range_count;
+
+`protected
+
+    MTI!#JxHB7Ha5{,7nx[e<!^^;^nenQi]~[A!o7~BQjhs@;pN}GXz^*7Ww=i$voH2\Vs<Ov@*7'<1
+    HYB^ADjiCJDBC/is\jfmwaIm'{'tLzi~@IQYAz|;^TE-q'V>!6,V~m!+^5AXriBJX}$OoBko>^<7
+    H!,K!7HXooY!J@,;*eTDZG*nKWs#Z*!<l@[XwECB#wO'zo-l3^,|<[_[xA<*s7-,[@ox'#='r$BY
+    ]3xAarmT>lJ#qCk72R7ZBR*iC25EE^@As^@]AA|,j3-~5lW^k]ruRDiZ]UXi{Xa_D'_RG&G1l1uB
+    Y~)~E*VO<U3wLz$J}jAxY,Z{XNE_]BNEo]injQOxZ!$>-1Y2lJB,Jl-7;ZxnYRz-}7<*~<7\lOi[
+    21[eV^Xz*[H[z#'r_^GH_M<lm*'%P"CuY2X\!BiAv\'JDlaoT_^3!#RZsV}J3A*57>'i}ull'>2}
+    oJm'z~WB@_)>Y[e[m1it1s2[*-zUms2#*ji!VxQ^pG=_-VQ']T{ByoBD2nU2QYmsvy&Z]V<TUXCI
+    e]_E1]sGUo#h,#R[A$5l^A-YzWx?35@Y(6>&6wIWm.q=+}[&[JSxEQ<1-QHlU>JkTeBZ5w;z\u+7
+    K^X!Epji<0xvUJ,?BQn+{[|1Oj~xZ1p?r^ZjUTAK<UUQ27u,o_~Q]<2[rDlX]V2Ke3J];QWXRW,D
+    oUj=X<ly/o^ADGw[w=\Br*oAUV?_#KI'j(,@\z*@$]><{\#.s1J16@s$Ivji}5~JB0OF=U-s:tVu
+    *-T[ZuXGArr2!r5JQpEWDOs1_vTrIJLu]X;-l1ONFTe-;$Kxxlm_Ko$!!)eE?=G=o@MAvg^~=jDB
+    JoDRpTLROmn4?<T!UAE[c+A<zBJ{JR^B-UX<#\1xmj;vE5X!znEZEUsaG,_DC=?O?@X'+Y@'CIk^
+    E5#}~+]5-]nD<ZTX=p}V<J$ZQ.h-{Y<xHG#R{*-IJxB_[Q-Hs']>7K{'/x]kaj5-E]YXu
+`endprotected
+reg [VAR_WIDTH-1:0] last_var;
+reg last_load_cond;
+reg last_window;
+reg data_changed;
+reg data_loaded;
+
+
+reg [1:0] window_state;
+reg [63:0] win_count;
+reg [63:0] next_win_count;
+
+reg shortest_unused_set;
+wire xz_detected = ((^zivar) === 1'bx);
+
+wire loading_good_data = (valid_data === 1'b1 && last_load_cond === 1'b1 &&
+                          (any_load === 1'b1 || (any_load === 1'b0 && zivar !== last_var)));
+wire loading_bad_data = (valid_data === 1'b0 && last_load_cond === 1'b1);
+wire loading_data = (loading_good_data === 1'b1 || loading_bad_data === 1'b1);
+
+wire is_used = used_cond;
+
+`protected
+
+    MTI!#o_T!{,uj}lI=>7;-1eBOjaX[%qqY?[-7#[?C7"r1N|iX,~7mRBy1IVk]ADY?Y>@\|hA>j>3
+    Uu=.[5xZ;,^==lKr(AeOsCe(loAZBJ7;uQdu7A7IT=B=~BzA{ZrA[uOIY2o7Z1EQE~31\\:>zI?f
+    0EoIMoI5nI1j@HrzK&Yo1z#{vp!_n5$'_ph;p<A{+u]AaT{o*CBA7Q]z$Xk^#\iKnRA9aB<WL7Zl
+    ?)[x2T!7YkEKaG}Ci!H[I3(ansr='K;/cw*?e7C7T{=GYc@<vi-+,ou_Y]IAm-$+IG:%YQ^BeJxY
+    J+RBhN9jZE[Ia}X-5A>J=Rzt@'#Q'.#6Kwv{7-{pwa!zT5#lHX[?u=#$}X$+lw\A|-'\5siZ[oBr
+    3vlw#G[i^DBYioi3Z[~Q^;=2O>j?kaa~\qHXoB5AZYY1A1!';!fYz;_hE]v#(,YUz&Brwr@1'?zp
+    ITO|xZAjIm7EfkvU!CX!I#avUdWwu<m[WUGaQ@~XO{B#V^(Baw$P?Xn1]>WVl2]w~++U[nCVp;+J
+    rjs@xEe<ksQo6ns}Kp5_Y>xZ'*lU;a]i>f]5CoI7Z1@sl7;V}Gvh|waa=I-wsx_}C3U,Vw=k=A,~
+    ?^(oQ#wo**-G57p?v,Be3$\!j2Ie,Eu!swAQ~~WZos<mVea=lHC5J{BfJ^EvcUDK[CKoa12O-|VK
+    XY,-Qj1OI~^j72DO#,us\s;so^5Rw3es-2#]*C2$j?'{^JsV<}VnO^l?wEKXwR,Ep]rIR,3G+_~*
+    7Ha7nYoH-^^GDo=Z-G,1>aBnO[rAxQ<Yzn'H5O_7J21t,}7Zy2v*'#rAk(E>Had3HJ5IxeD3^5Q<
+    \p{O3U[ZIl<$~A]DY^*O-UE\{=msn@]GJ]u@Y\C+-C]z:V*A=KGXn-.Pw}3!I7C_l>V*~7h5@nX@
+    Q]<mO8zmW75[Ds5>YW5iHBrzl7UI<]0woAXa<*{O5X#^wuo>amrJ5\O47o\isHp?*xQ'vio^_srA
+    -UX,,Buk\E-\n'H?bAjnsF>=I\V,]}=;okw}KpDGXJ'@lO*5j*H^mIrR*p'@7;*z;+2z@wr*~{^X
+    e'uwon\7Ha(,je#A=r_s[xVU$<W(fEo~niDG\I7-@5DV[rZm2lDl#r$^@p2\WEG>sEXOZOCDixjV
+    ?S*pC{~'DJl_l+1Ql=Y]pOCuuWirx!ZE?]~XG?1ET-~AUmIQ!u1x[ljVaJIA}l{Xw[b1DB~!^*~_
+    o[WVQiu?]n+_1+a0b_i[nc!B#+ARx_$B+*<E_'co\@GN!-}2\;jo[WwD-U<;:ATnWG,_Gva;oD^5
+    T5B#m'T>?+wn+k>17T+]YHe7l[K]rXXukPemA[1Jp;H|QG'W1\Ba7**Z?nYwVTTpL+-WK5CI<pWU
+    >s'p}QD^]awC'Q?@'|I!@2Xv!B1u}DvJ^G7v*eO5<s{OwG}*lDekeJ!_!pp_[uHU;jk_*H1R]QKw
+    *u\@Jjv?m^r-VGjvk~,_\u\s@K\<sG*KB\1Kr'SvDr\K5Hacv>r#p2Dxu{W2NxmoOoJKkUvU^,*=
+    i@}iAOu\RCG!-<Y@RT7UQIG^BGWJXi,{!GQRo_wvT(p7vX{7{JhlW-;^+m3a+p#xtO,}GjR$HYZD
+    pKHl@kn=U[5}uO;ZnqXDk1Zo>X#]z#TTBwkw[$A*wv<(%A[k#a,*7!w\<Ae<XWRk1HOHBj?OBa'A
+    {_ri+gX5Q$]jVEBA@u-YD+z5np1P}#^Y@[x@ARRR-aB#4Q21>UOms,7IUUBX!T}_+a'lH&@H@~Ln
+    =eaDVW-R?K*|AIa{71>{t{_lZ<5XeuDOuI#1<l]'w-]G=(?H~n3}^@mnQ;vnDH5>=[';TV97vp+N
+    !=<{JE>Du7nG<Y+n\zzw7O]lEpv^c:7Om>Wz,}XT=}'iGj@(!VDHKHD1:A]m~xEYX\[j{,n$,EEi
+    <nIWGpus{H=vl^I]~X-$7eGo]#,TJ1IJ<$ERnm,,@=+CiLqz<Qe2XXHla;D*+<?@jYuUj?x!Boe^
+    ->2U[{KCuQK}<'](voj,,1B<kza5'IlRKV'$B++\JDHsO$pv^mJG[oZYiVo@i7v15>^C[,]r+Cj}
+    rVEp|WY${E[-VWVVVOo@\Rw3!FK}YlD@'1KI$v[R?>\nnHYn2[;w>5{EvBVEX!romHO?RC-U^2U$
+    ^D)rWXpz+;IAwW^l~;x+}_GVB#[_iwIBCB2nXI_OvUAe+}u~}JayYz+]!-7{T]r{B^^kouj15*A!
+    W*HTv>,V;+=^*C1@aD'x#<*XYOq!zoO2{!lZDOzz\D~s-}@<\Q}2eW}ZzpE_-KGBV_azvj3Q3m>V
+    u<Du^;^[jpO\_@pQeH=+U_^6rmOTG'+GCU*I~-!?wp}-5CzkeIspf+p~vWnmmY2KGOTarGYG[[p,
+    li|>j~EG+ArAn-KGjGA[_T^}js$OoCO>a+Yc!p!JQ\}uQz=*&#w>XN!{B^b?e~u=Tm2JERax5ICz
+    +XYOQQY7eVj+5GE3]n{Jzpu$n!mp>'w]=rlGU>Aqy][!H5nT#?h\\X$!Q5]:O/_p'iRlws35+AxK
+    x+$eDE?nJmMop7$F4pV*zu^=Vl,i<r*xW!Awu=G?[Tozp!lrHDa]oX=@[G51E^a'1O<8tf=B[j[<
+    3Aej<}$2lo@VaxBTVDQea7I73}UDZjSR*jT(Y2H^!QoC\72*,TC=k*I#'v@$xI2X]u;XXETl;+Bj
+    aE;[I?2Cf]IUz2n>CO#QX&-\X3B}<Eok7XmNl5B37Ox#^7?7\5{!3QxGsAI\GsrTmHA$=#}I[2,z
+    @z}<l1@,HS~RoaBVe!&Cs+l}I^vzJx!+[WQr1AGn><5e!ax$cvX{=)y_pT_3s$Zuz$2^G$OAz\sQ
+    ~2UTjr]"]C$_N2=!Hw,R-iO]7^=BJG~R2~*Tk?<DernRs7O?rK]=,CDX-,KGU;-}V3jpAn<3'A\a
+    #E^5$eCkkI[\{}_{QIk}JT>wU3^wakA-@r1T#5JX\~^wJQ@xQ}T{x}oKDppKEZ1*kXAQjhUlWW>o
+    ea1HwW7[vnpQ_~IJGU&>H=]x"uQADfHn1>e7v#^Dxl,^aOlwZRdrK~VEzG2A1Z2A^li/\^!TB]ut
+    sW[~1ZUWi+luEm,WX5oiVKCvjQlnw1kuH-WnA{Ku
+`endprotected
+   
+`ifdef QVL_ASSERT_ON
+
+  wire qvl_data_used_no_restart_fire_combo = ~reset && active && ~xz_detected &&
+       ~flush && (((window_state == OPEN) || (window_state == OPEN_CNT)) &&
+       start && (ACTION_ON_NEW_START == P_NO_RESTART)) && no_restart_check;
+
+  wire qvl_data_used_fire_combo = ~reset && active && ~xz_detected && ~flush &&
+       (window_state == OPEN) && data_used &&
+       (((((STOP_DECLARED == 1) && stop) || ((STOP_COUNT_DECLARED == 1) &&
+         (win_count === (latched_stop_count-1)))) &&
+         (data_changed !== data_loaded) && ~is_used) ||
+        ((STOP_DECLARED == 0) && (STOP_COUNT_DECLARED == 0) &&
+         (data_changed !== data_loaded) && loading_data));
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+	 if(NO_RESTART_CHK_ON)
+	   begin : assert_data_used_no_restart_check
+              A_qvl_data_used_no_restart_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_data_used_no_restart_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_data_used_no_restart_check"),
+                          .msg            ({msg,"Illegal restart, start asserted before the window closed."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+        A_qvl_data_used_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_data_used_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_data_used_check"),
+                          .msg            ({msg," The register was not loaded before stop_count cycles after start asserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+	 if(NO_RESTART_CHK_ON)
+	   begin : assume_data_used_no_restart_check
+              M_qvl_data_used_no_restart_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_data_used_no_restart_fire_combo)));
+	   end
+        M_qvl_data_used_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_data_used_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+`endif
+
+`include "qvl_data_used_cover.svh"
+
+`qvlendmodule // qvl_data_used_checker

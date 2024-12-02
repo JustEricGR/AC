@@ -1,0 +1,145 @@
+<! -- -*- tcl -*- doctools manpage
+   -->
+<html><head>
+<title>smtp - smtp client </title>
+</head>
+<! -- Generated from file './modules/mime/smtp.man' by tcllib/doctools with format 'html'
+   -->
+<! -- Copyright &copy; 1999-2000 Marshall T. Rose
+   -->
+<! -- CVS: $Id$ smtp.n
+   -->
+
+<body>
+<h1> smtp(n) 1.3.3 mime &quot;smtp client&quot;</h1>
+<h2><a name="name">NAME</a></h2>
+<p>
+<p> smtp - Client-side tcl implementation of the smtp protocol
+
+
+
+
+
+
+<h2><a name="synopsis">SYNOPSIS</a></h2>
+<p>
+package require <b>Tcl</b><br>
+package require <b>mime ?1.3.3?</b><br>
+package require <b>smtp ?1.3.3?</b><br>
+<br><table border=1 width=100% cellspacing=0 cellpadding=0><tr            bgcolor=lightyellow><td bgcolor=lightyellow><table 0 width=100% cellspacing=0 cellpadding=0><tr valign=top ><td ><a href="#1"><b class='cmd'>::smtp::sendmessage</b> <i class='arg'>token</i> <i class='arg'>option</i>...</a></td></tr>
+</table></td></tr></table>
+<h2><a name="description">DESCRIPTION</a></h2>
+<p>
+<p>
+
+The <strong>smtp</strong> library package provides the client side of the
+smtp protocol.
+
+<dl>
+
+<dt><a name="1"><b class='cmd'>::smtp::sendmessage</b> <i class='arg'>token</i> <i class='arg'>option</i>...</a><dd>
+
+
+This command sends the MIME part (see package <strong>mime</strong>)
+represented by <i class='arg'>token</i> to an SMTP server. <i class='arg'>options</i> is a list
+of options and their associated values.  The recognized options are:
+
+<br><br>
+<dl>
+
+<dt><strong>-servers</strong><dd>
+
+A list of SMTP servers. The default is <strong>localhost</strong>.
+
+<br><br>
+<dt><strong>-ports</strong><dd>
+
+A list of SMTP ports. The default is <strong>25</strong>.
+
+<br><br>
+<dt><strong>-queue</strong><dd>
+
+Indicates that the SMTP server should be asked to queue the message
+for later processing. A boolean value.
+
+<br><br>
+<dt><strong>-atleastone</strong><dd>
+
+Indicates that the SMTP server must find at least one recipient
+acceptable for the message to be sent. A boolean value.
+
+<br><br>
+<dt><strong>-originator</strong><dd>
+
+A string containing an 822-style address specification. If present the
+header isn't examined for an originator address.
+
+<br><br>
+<dt><strong>-recipients</strong><dd>
+
+A string containing one or more 822-style address specifications. If
+present the header isn't examined for recipient addresses). If the
+string contains more than one address they will be separated by
+commas.
+
+<br><br>
+<dt><strong>-header</strong><dd>
+
+A list of keywords and their values (may occur zero or more times).
+
+</dl>
+<br><br>
+
+If the <strong>-originator</strong> option is not present, the originator
+address is taken from <strong>From</strong> (or <strong>Resent-From</strong>);
+similarly, if the <strong>-recipients</strong> option is not present,
+recipient addresses are taken from <strong>To</strong>, <strong>cc</strong>, and
+<strong>Bcc</strong> (or <strong>Resent-To</strong>, and so on). Note that the header
+key/values supplied by the <strong>-header</strong> option (not those present
+in the MIME part) are consulted. Regardless, header key/values are
+added to the outgoing message as necessary to ensure that a valid
+822-style message is sent.
+
+<br><br>
+
+The command returns a list indicating which recipients were
+unacceptable to the SMTP server. Each element of the list is another
+list, containing the address, an SMTP error code, and a textual
+diagnostic. Depending on the <strong>-atleastone</strong> option and the
+intended recipients, a non-empty list may still indicate that the
+message was accepted by the server.
+
+</dl>
+
+<h2><a name="example">EXAMPLE</a></h2>
+<p>
+
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+proc send_simple_message {recipient email_server subject body} {
+    package require smtp
+    package require mime
+
+    set token [mime::initialize -canonical text/plain \\
+	-string $body]
+    mime::setheader $token Subject $subject
+    smtp::sendmessage $token \\
+	-recipients $recipient -servers $email_server
+    mime::finalize $token
+}
+
+send_simple_message someone@somewhere.com localhost \\
+    &quot;This is the subject.&quot; &quot;This is the message.&quot;
+</pre></td></tr></table></p>
+
+
+
+<h2><a name="seealso">SEE ALSO</a></h2>
+<p>
+ftp, http, mime, pop3
+<h2><a name="keywords">KEYWORDS</a></h2>
+<p>
+email, internet, mail, mime, net, rfc 821, rfc 822, smtp
+<h2><a name="copyright">COPYRIGHT</a></h2>
+<p>
+Copyright &copy; 1999-2000 Marshall T. Rose<br>
+</body></html>

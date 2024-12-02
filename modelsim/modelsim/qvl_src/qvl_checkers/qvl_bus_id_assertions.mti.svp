@@ -1,0 +1,348 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_bus_id_assertions (
+                              clock,
+                              reset,
+                              areset,
+                              req_id,
+                              req,
+                              ret_id,
+                              ret,
+                              max_ids,
+                              unique_ids,
+                              known_ids,
+                              max_ids_check,
+                              unique_ids_fire,
+                              known_ids_fire, 
+                              max_ids_fire,
+                              active,
+                              ids_requested_and_returned,
+                              ids_requested,
+                              ids_returned,
+                              unique_ids_issued,
+                              maximum_ids_outstanding,
+                              maximum_ids_are_out_count,
+                              current_ids_outstanding,
+			      support,
+			      fire_count
+                          );
+   
+
+
+   
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter REQ_ID_WIDTH = 4; 
+  parameter RET_ID_WIDTH = 4;  
+  parameter REQ_ID_DEPTH = 2 << (REQ_ID_WIDTH - 1);
+  parameter REQ_ID_IS_CONSTANT = 0; 
+  parameter MAX_IDS_DEFAULT = (REQ_ID_IS_CONSTANT == 1) ? 1 : ((REQ_ID_WIDTH < 4) ? REQ_ID_DEPTH : 16); 
+  parameter MAX_IDS_WIDTH_DEFAULT = 4; 
+  parameter MAX_IDS_WIDTH_PORT = 4; 
+
+  // Dummy parameter
+  //parameter MAX_IDS_ITEM_COUNT = 1; 
+  parameter MAX_IDS_SPECIFIED = 0; 
+  parameter MAX_IDS_WIDTH = (MAX_IDS_SPECIFIED) ? MAX_IDS_WIDTH_PORT : (MAX_IDS_WIDTH_DEFAULT + 1);
+
+  parameter MAX_IDS_IS_CONSTANT = 0; 
+  parameter MAX_IDS_CONST_VAL = 0; 
+  parameter MAX_IDS_DEPTH = (MAX_IDS_IS_CONSTANT == 1) ? (MAX_IDS_CONST_VAL) : (2 << (MAX_IDS_WIDTH - 1));
+
+  parameter DISALLOW_REQ_WHEN_FULL = 0; 
+  parameter ALLOW_SIMULTANEOUS_REQ_RET = 0; 
+
+  parameter KNOWN_IDS_CHECK = 1;
+  parameter UNIQUE_IDS_CHECK = 1;
+
+
+  parameter COUNT_WIDTH = MAX_IDS_WIDTH-1;
+  parameter MAX_REQ_ID_WIDTH = 12;
+  parameter STATS_MEM_WIDTH = (MAX_REQ_ID_WIDTH < REQ_ID_WIDTH) ? (2 << (MAX_REQ_ID_WIDTH-1)):(2 << (REQ_ID_WIDTH-1)); 
+
+  parameter MAX_IDS_CODE_WIDTH = `qvl_log2(MAX_IDS_DEPTH);
+
+  parameter CW_FOR_FPGA = 0;
+  parameter STATS1_W = CW_FOR_FPGA ? COUNT_WIDTH : 63;
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input clock;  
+  input reset;  
+  input areset; 
+   
+  input [REQ_ID_WIDTH-1:0] req_id; 
+  input req; 
+  input [RET_ID_WIDTH-1:0] ret_id; 
+  input ret; 
+
+  input [MAX_IDS_WIDTH-1:0] max_ids; 
+
+  input unique_ids;  
+
+  input known_ids;   
+   
+  input max_ids_check;  
+  input active; 
+
+  output unique_ids_fire;
+  output known_ids_fire;
+  output max_ids_fire;
+
+  // output Stats
+  output [63:0] ids_requested_and_returned;
+  output [STAT_CNT_WIDTH-1:0] ids_requested;
+  output [STAT_CNT_WIDTH-1:0] ids_returned;
+  output [STAT_CNT_WIDTH-1:0] unique_ids_issued;
+  output [STATS1_W:0] maximum_ids_outstanding;
+  output [STAT_CNT_WIDTH-1:0] maximum_ids_are_out_count;
+  output [STATS1_W:0] current_ids_outstanding;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [2:0] fire_count_tmp;
+
+    
+  reg unique_ids_fire;
+  reg known_ids_fire;
+  reg max_ids_fire;
+
+  // Stats counters
+  wire [63:0] ids_requested_and_returned;
+  reg [STAT_CNT_WIDTH-1:0] ids_requested;
+  reg [STAT_CNT_WIDTH-1:0] ids_returned;
+  reg [STAT_CNT_WIDTH-1:0] unique_ids_issued;
+  reg [STATS1_W:0] maximum_ids_outstanding;
+  reg [STAT_CNT_WIDTH-1:0] maximum_ids_are_out_count;
+
+  integer i;
+
+  wire [MAX_IDS_WIDTH-1:0] max_ids_real = (MAX_IDS_SPECIFIED) ? max_ids : MAX_IDS_DEFAULT; 
+
+
+  reg [COUNT_WIDTH:0] ids_count;
+  reg [REQ_ID_WIDTH-1:0] bus_ids[MAX_IDS_DEPTH-1:0];
+  reg [MAX_IDS_DEPTH-1:0] map_bus_id;
+  reg [MAX_IDS_DEPTH-1:0] req_id_hit,ret_id_hit;
+  reg [STATS_MEM_WIDTH-1:0] id_was_seen;
+
+  reg [COUNT_WIDTH:0] id_wr_ptr; 
+  reg [COUNT_WIDTH:0] next_id_wr_ptr; 
+  reg [MAX_IDS_DEPTH-1:0] decoded_id_wr_ptr;
+  reg [MAX_IDS_CODE_WIDTH-1:0] ret_id_hit_addr;
+
+  wire [STATS1_W:0] current_ids_outstanding;
+
+
+  wire xz_detected;
+
+  integer j,k;
+  integer i1;
+`protected
+
+    MTI!#ZopQWVjj#GO#Az2rg[wxE-5jIZl'*IG1ih>OK[G!2kjGb#aOHlH~RoQ@1K_;?I7p\NIvZ}|
+    E#*[EA[QiXZ2pm{p;RR$Q\-BA|pQmjRle]D)Dn1p;vRi13'A^Gp@#=_=$Ys*nY/RAGkmDYo{{<?e
+    E7<L/ioijs?UQ,?[7{aV<b!<H^Ep-Z|:1na27{a-v@Ck!ae,b7XtDH7+uI;m'^u^e*pA]Zp\N2{u
+    ,"TV-@vuz#Vpq@II^|PfR=uXiwK}>\x?[7knmA<xD$1[S^2B3K{bCzGxi6w$BAxj+DZEmla1c,*v
+    vm{e+};rZRe32^^BsBmXv#jV,e=Yv<wplG1e+o'VXR+AlRjE#?]}\zI{ee{W\%J=,!PE2EUu^k^z
+    i]K=~2jY2JCV=jsx=-<w_ET~V7}]XH@T^xi$im_6E#3@pkv!5}r1nY]}U}*x,V#Q{w{[/ElVamRC
+    -'vAnxXXT%avO@+_x[aXJ@]eKo@rZaR{aA?9=zsx~o+GeuX\ua*Uaw\oO!lOgraU?AD+3#AJlT$=
+    7'Um#^'ep9YA3D{zxEA}vCQ^3+qL,@m,B3E$Y*+^I]E7jKX[eI^}g7Y-]ao~\r!sKdqDx#5pului
+    [A}2'>3p^3I?1QaGR,m;w=?z+jpImT7"-]<'e7{mlKT$.]2z[0R?3'?Q$v[@2-7_l7z^R{ww1*<H
+    A'K<'ao3w==!l-=Jl=];n#aD7
+`endprotected
+`ifdef QVL_COVER_ON
+  assign ids_requested_and_returned = ids_requested + ids_returned;
+  assign current_ids_outstanding = ids_count;
+`endif
+
+  assign xz_detected = (^req === 1'bx || ^ret === 1'bx || 
+                      (req === 1'b1 && ^req_id === 1'bx) || 
+                      (ret === 1'b1 && ^ret_id === 1'bx));
+
+			       
+`protected
+
+    MTI!#va1a'r>#,j!?y5+2u_Y3#%--A[=~lTHtg->h}is2tE*u;w1YoA1\=?=JW+OW;>s3a.?'O'7
+    V<RlYkure2\Z-x![m-InQ{}G[ipsAp=Y_[$}Yp,a<[\&A.^leDKHUu[QUn^_-u|eStNQ?DO!{[-2
+    Rm@l_>_{pr;p?xa<7pu!_5^b[^o[te~lZ*-~W=*XZyI*x=!<*OmC~,=$$*7;pOjapU]kCu=Z]VG3
+    {!Z_jQ\7Q-\,vVh{H]V7?nG^TwJkjuC/#>$x;Ss{Ckxa[[-s^H!IB;?sTK}3X@d03HQT^6U7Aj36
+    vE>-aOHkojRxI$mp4zn<\oAlQ?'[X-Ci\wXsYLrVDmvz7'>Coz$lK^RK7vRCiBH=2vKTK>ZY's(F
+    +a<a\_,pl@w_2rwJ_e<<oeSGAIOu]\ji$*[noZB.}1K<'m;va\-EokrX<oQB<\{ua_\UQT_,mzEB
+    eZ~+|$Q<e|jxlX#-C~CD\iqk*rin+{7,<x*R,H'SIC,@Kosl\&AXeaQKI;=TD#iAeKv<[HO|#A^s
+    i$3B|H5{<]wD'B!l[\Y!_p21<pew<W}Un^Y?Xv+Y2O27+DvZ#CJEJNEIx>s;~]~jTE[!$#o!xI*o
+    B*&:1OCk%t*n+<~r31$*vRSg^;+'<BzssA}wjZxUqB+v;zkz**rIYRC$^,G!{<Q@ZO\,ZIi@2=+{
+    -w}!nFT{Z=;Y}R{GT{O~,^AOK<2=+>:g3oAa0]WC~p3*~=$^E3<T<OITK{e_!HvXYGZpoQk'@*[u
+    r6u5;RR1G[R7}BlmQT5{eGIWACWjl<D+K3l7<~Ox-,-Ew1$mO~~alC%#aQXXER,ho]Z?fGWJ!J,}
+    pVm}T$\BY*e}TvK]AI]KK%o~~apAX!X'Dp,IH!YXDUOxE53]vu*$7i^W!R}oGO-Unjnj;uCX,Bf5
+    +@#\*IoC|=GuI*oG@h^{+{OXu=,_K\Z<^RFwRTzC{,Upw-wN]uY23]JnCG;eR5p}iz,i,^*T(3=<
+    ]f}.r]uXUC'J^H;@~IZVEXasIfhU[B^OEoOL9F@BUWwRuQ47'j^#U1'K*>^#z@]*w)mUuRIFC5Tu
+    wU@5Fspn'!xGW[[HZ]=CJPEIQ}_s5xETCRY[?-uAj$dv[DuIv\BCuX$['3xno{s[e231+pB3pea?
+    >7~ImmeCXXjo*#R#U+3<wrEAEin7l3=FlD{#fN(]~7k}nR7*vC2Zns^6YOKevkVuF;-]OZr={#ST
+    VHBUvzQpXX1@D3o;>T!\I+RjGa^XAZazKCZH*RarqC7J_lBkvC?''jg7TlaG;XzC<r{]oB*tCV7X
+    s5!7x{pZpvZ7$n1@-R{^D7\r.Yo}@mAQ*B@5-BwuIpO@a?lpaV\{I^;jZj1;-r=@CA\E[Knu<$jC
+    DxrEV;a'MqB+$i}G$D{>,E+}_@jD<307JXBJ{EZV?sa$>CJ#-z}Ge1,FE*_D1X5vB,2w)kVj]3_K
+    u$9;}J$'QYV[7~-=usejU=OYK7!E%#}{BrE7HlKVBYiXv,T-I9~_aZ-5r[i{aXGZR+4]*kB&_m{V
+    C<Iu5D'3X7p=KA2-JUBz(u1njI~ww&s@7Omw<;vA\@:'^om5+r}{}B,d=*WHrvTW|X5$[7HIzEmT
+    5FfHse{#],}x1@Ew_T[X[D?$$\B<V2G?-+*MrwGv}Ikwn}kjJ=;3$YmW1!YR?eI3B=]]O};CBC$@
+    HrZkD_X-h&V*I#srAj}s55O3~],*j2IsV^={Gkx\=mF\3j>up7e2+e1?Y{I\*pj=o^xGB~eM3j2E
+    a_]_Ip#Dz$Yj,3{u=^7>{V<XRlK^*ez~*5n\kGeCIwC2oTBCDTJvo_lYX\35c}eUGx~Y#-$XrCC,
+    ]5=Z[[Wmn7KXZO$Y]XC;TsOB--DCoC<[[EBJ5xsuTYs$aTBeY~YH>Em^-AHlK'\?^e=Y5&+ws?3D
+    -sE}pWR;I5oa!@s}5G_O-zG$]<X_v!>AVE[*3w>p}7zDa$xCCl*xeCE{Q$=ReU%Ks'iA>\<^w,x$
+    Fs,!7)=E*,as2UH,,EkoK7wr2\Un+H7A6+Yi!,n][NAI5~E?~]?Y73:wX=l_jmH{nakZR+HYp.ns
+    ak/I$[\kn<J*GJQeI+,PanonroKlulO'kv5@wUxZ^1rjW-<7KC-D;x*oB;=]?G!n_!E'PjJTpI'w
+    syUG$I=8o+wBI_T'B<2x<l#eJV?#EpT=VT!j^v]TfRm1\CwZ?_5A505O*=fCEsv2rAn2nnp1Ejp{
+    *kzL-<CzQsao,#opmw^oviTQmDReo-v<i-WV*u<KiGYvVp[;h'U{@>pusi5z])xk!n7Z-WuV3l!s
+    @RInO5V]~-'J\'-GEuuQ,X!>+,3njw7}IvV];;?aDHB^G5S*T1{B@YVJ{zWElu}rV?_rx@@~-1B*
+    D'K~HRYpWX$}V{Y_lK,Z*,oD;_$?\iRz1WA*AJ@?}Rn=,n^~B2#p,kEE-7ew<1CB5}UKU=a5CC5P
+    I+WE;x\JlVCYz<7G3<_-i*+*Ds5;D*{Q5im5Haae^pkp#>Uu/I[ZR'+nj@_l'G5pX\1n}>w-]L[m
+    ^IOrVmvG^~j~[K+7Ds~<{eoQ3aBi*^[laQY+R$4u5C!Vn@eVADwmI2He3s3gOoelMZsl^Rlw'[GC
+    sA\<5_jkD$ImBJXHHoHJ@5{mI<{Wos\Kn8#A}s+Cu15uoZ[OnYol\o;,QAOi>57}sQUlBeID~$lA
+    +}poA#hIz>lE#*J:vk>OVi3RF6NG7^5?su
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire bus_id_unique_ids_fire_combo;
+  wire bus_id_known_ids_fire_combo;
+  wire bus_id_max_ids_fire_combo;
+
+  assign bus_id_unique_ids_fire_combo = ((active === 1'b1) &&
+    (xz_detected === 1'b0) && (areset === 1'b0) && (reset === 1'b0) &&
+    (unique_ids === 1'b1 && req === 1'b1 && |req_id_hit === 1'b1 &&
+    (ret === 1'b0 || req_id !== ret_id || DISALLOW_REQ_WHEN_FULL)));
+
+  assign bus_id_known_ids_fire_combo = ((active === 1'b1) &&
+    (xz_detected === 1'b0) && (areset === 1'b0) && (reset === 1'b0) &&
+    (known_ids === 1'b1 && ret === 1'b1 && |ret_id_hit === 1'b0 &&
+    (req === 1'b0 || req_id !== ret_id || !ALLOW_SIMULTANEOUS_REQ_RET)));
+
+  assign bus_id_max_ids_fire_combo = ((active === 1'b1) &&
+    (xz_detected === 1'b0) && (areset === 1'b0) && (reset === 1'b0) &&
+    (max_ids_check === 1'b1 && req === 1'b1 && ids_count >= max_ids_real &&
+     |req_id_hit === 1'b0 && (ret === 1'b0 ||
+     (req_id !== ret_id && |ret_id_hit === 1'b0) ||
+     (req_id === ret_id && !ALLOW_SIMULTANEOUS_REQ_RET))));
+
+`endif
+
+`ifdef QVL_ASSERT_ON
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+	 if(UNIQUE_IDS_CHECK == 1)
+	   begin : assert_bus_id_unique_ids_check
+              A_qvl_bus_id_unique_ids_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (bus_id_unique_ids_fire_combo === 1'b1)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_bus_id_unique_ids_check"),
+                          .msg            ({msg,"Request ID was already outstanding."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (KNOWN_IDS_CHECK)
+	 if(KNOWN_IDS_CHECK == 1)
+	   begin : assert_bus_id_known_ids_check
+              A_qvl_bus_id_known_ids_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (bus_id_known_ids_fire_combo === 1'b1)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_bus_id_known_ids_check"),
+                          .msg            ({msg,"Returned ID was not outstanding."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+	 if(MAX_IDS_SPECIFIED == 1)
+           begin : assert_bus_id_max_ids_check
+              A_qvl_bus_id_max_ids_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (bus_id_max_ids_fire_combo === 1'b1)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_bus_id_max_ids_check"),
+                          .msg            ({msg,"ID was requested when the maximum number of IDs were outstanding."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+	 if(UNIQUE_IDS_CHECK == 1)
+	   begin : assume_bus_id_unique_ids_check
+              M_qvl_bus_id_unique_ids_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (bus_id_unique_ids_fire_combo === 1'b1)));
+	   end
+	 if(KNOWN_IDS_CHECK == 1)
+	   begin : assume_bus_id_known_ids_check
+              M_qvl_bus_id_known_ids_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (bus_id_known_ids_fire_combo === 1'b1)));
+	   end
+	 if(MAX_IDS_SPECIFIED == 1)
+           begin : assume_bus_id_max_ids_check
+              M_qvl_bus_id_max_ids_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (bus_id_max_ids_fire_combo === 1'b1)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_bus_id_cover.svh"
+
+`qvlendmodule

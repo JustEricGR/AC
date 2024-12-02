@@ -1,0 +1,571 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_crc_assertions(
+                              clock,
+                              areset,
+                              reset,
+                              active,
+                              in_data,
+                              start_crc,
+                              in_crc,
+                              latch_crc,
+                              in_data_valid,
+                              compare_crc_enable,
+                              crc_polynomial,
+                              crc_check,
+                              crc_fire,
+                              min_data_count,
+                              max_data_count,
+                              total_crc_computations,
+                              cycles_checked,
+                              expected_crc_value,
+	  		      support,
+			      fire_count
+                             );
+
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  // Parameter declarations
+
+  parameter MAX_WIDTH = 128; // Maximum width of input data variable
+
+  parameter MIN_WIDTH = 1; // Minimum width of input data variable
+
+  parameter INITIAL_CRC_VALUE = 0; 
+
+  parameter FINAL_CRC_INVERT = 0; 
+
+  parameter BIG_ENDIAN = 0; 
+
+  parameter CONVERSE_CRC_ENDIAN = 0; 
+
+  parameter LSB_FIRST = 0;  
+
+  parameter CRC_COMBO = 0;  
+
+  parameter CRC_POLY_SPECIFIED = 0; 
+
+  parameter CRC_POLY_WIDTH = 1; 
+
+  parameter STANDARD_POLYNOMIAL = 0; 
+
+  parameter STD_POLY_WIDTH = (STANDARD_POLYNOMIAL === 1) ? 5 :
+                             (STANDARD_POLYNOMIAL === 2) ? 7 :
+                             (STANDARD_POLYNOMIAL === 3) ? 16 :
+                             (STANDARD_POLYNOMIAL === 4) ? 32 : 
+			     (STANDARD_POLYNOMIAL === 5) ? 64 :1;
+
+// the default value on CRC_POLY_WIDTH and STD_POLY_WIDTH above was changed
+// to 1 so that the default value of CRC_WIDTH is 1.
+// This was done due to system sim strict checking on the
+// crc_function_poly_in and initial_crc_value assigns below
+// It does not like {CRC_WIDTH{1'b0}} which equated to {0{1'b0}}
+// when default value of CRC_WIDTH is 0 - SSS 06/25/02
+
+  parameter CRC_WIDTH = (CRC_POLY_SPECIFIED) ? CRC_POLY_WIDTH :
+                                               STD_POLY_WIDTH;
+
+  parameter DATA_WIDTH = 1; 
+
+  // By default, value of this parameter is set to DATA_WIDTH.
+  // This parameter value should not be less than DATA_WIDTH
+
+  parameter CRC_COMPUTATION_WIDTH = DATA_WIDTH; 
+
+  parameter LATCH_CRC_SPECIFIED = 0; 
+
+  // This parameter determines both CRC_COMPUTATION_WIDTH and DATA_WIDTH 
+  // are same.
+
+  parameter CRC_COMP_COUNT = (CRC_COMPUTATION_WIDTH == DATA_WIDTH);  
+
+  parameter CRC_COMP_COUNTER_WIDTH = 1; 
+
+  // Following two parameters will ensure that any one of the arguments
+  // -crc_polynomial or standard polynomial is specified.
+
+  parameter CRC_POLY_AND_STD_POLY_SPECIFIED = (CRC_POLY_SPECIFIED === 1 && STANDARD_POLYNOMIAL !== 0); 
+
+  // Following two parameters will ensure that atleast one of the arguments
+  // -crc_polynomial or standard polynomial is specified.
+
+  parameter CRC_POLY_AND_STD_POLY_NOT_SPECIFIED = ((CRC_POLY_SPECIFIED === 1) || (STANDARD_POLYNOMIAL !== 0)) ; 
+
+  parameter IN_CRC_SPECIFIED = 0; 
+
+
+  parameter COMPUTED_CRC_WIDTH = (IN_CRC_SPECIFIED === 1'b0) ? DATA_WIDTH-1 : 
+				  CRC_WIDTH-1 ;
+
+  parameter IN_CRC_WIDTH = 0;
+
+  parameter CHECK_CRC_WIDTH = (IN_CRC_SPECIFIED === 1) ? IN_CRC_WIDTH :
+                               CRC_WIDTH; 
+  
+  // This parameter is used, when the DATA_WIDTH is less than the 
+  // CRC_COMPUTATION_WIDTH.  It is used to part select the bits of
+  // accumulation_reg.
+
+  parameter ACC_REG_WIDTH = (CRC_COMP_COUNT === 1) ? DATA_WIDTH-1 :
+                                    (CRC_COMPUTATION_WIDTH-DATA_WIDTH-1);
+
+  
+  // Parameter TEMP_CRC_A is declared, in order to
+  // avoid the run time warning on part selecting the variables
+  // expected_crc_value and latch_crc_reg.
+
+  parameter TEMP_CRC_A = (CRC_WIDTH < DATA_WIDTH) ? CRC_WIDTH :
+                          DATA_WIDTH;
+
+  // CCITT standard polynomial values
+
+  parameter CRC5 = 5'h05;
+  
+  parameter CRC7 = 7'h09;
+
+  parameter CRC16 = 16'h1021;
+
+  parameter CRC32 = 32'h04c11db7;
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  // Input port declarations
+
+  input clock; 
+  input areset; 
+  input reset; 
+  input active; 
+  input [DATA_WIDTH-1:0] in_data;
+  input start_crc;
+  input [CRC_WIDTH-1:0] in_crc; 
+  input latch_crc;
+  input in_data_valid; 
+  input compare_crc_enable; 
+  input [CRC_WIDTH-1:0] crc_polynomial;
+
+  // Check port
+ 
+  input crc_check; 
+
+  // Output port declarations
+
+  // Declaration for fire signal
+
+  output crc_fire;
+
+  // Cornercase & Statistics declarations
+
+  output [STAT_CNT_WIDTH-1:0] total_crc_computations;
+  output [63:0] min_data_count;
+  output [63:0] max_data_count;
+  output [STAT_CNT_WIDTH-1:0] cycles_checked;
+
+  // This output will give the actual computed CRC value.
+
+  output [CRC_WIDTH-1:0] expected_crc_value;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+  // Register declarations
+
+  reg crc_fire;
+  reg [CRC_WIDTH-1:0] r_combo_crc; 
+  wire [CRC_WIDTH-1:0] combo_crc; 
+  wire [CRC_WIDTH-1:0] final_crc; 
+
+  reg [STAT_CNT_WIDTH-1:0] total_crc_computations;
+  reg [STAT_CNT_WIDTH-1:0] cycles_checked;
+  reg [63:0] min_data_count;
+  reg [63:0] max_data_count;
+
+  // Register declaration for outputs.(Firings)
+
+  // Internal registers
+
+  reg [CRC_WIDTH-1:0] latch_crc_reg;
+  reg [CRC_COMP_COUNTER_WIDTH:0] crc_comp_width_counter;
+  reg [CRC_WIDTH-1:0] temp_expected_crc_value;
+  reg [CRC_WIDTH-1:0] temp_latch_crc_value;
+  reg r_compare_crc_enable;
+  reg r_compute_crc_flag;
+  reg [CRC_COMPUTATION_WIDTH-1:0] temp_accumulation_reg;
+
+  // These registers are used for the computation of cornercase statistics
+
+  reg [63:0] max_data_reg;
+  reg [63:0] min_data_reg;
+  reg [63:0] min_max_counter;
+  reg min_data_reg_flag;
+
+  // Wire declaration for combinatorial fire signal
+
+  wire crc_fire_combo;
+
+  // Internal wire declarations
+
+  wire xz_detected_in_data;
+  wire xz_detected_in_data_valid;
+  wire xz_detected_start_crc;
+  wire xz_detected_latch_crc;
+  wire xz_detected_in_crc;
+  wire xz_detected_crc_polynomial;
+  wire xz_detected_compare_crc_enable;
+  wire z_start_crc;
+  wire z_latch_crc;
+  wire z_compare_crc_enable;
+  wire z_in_data_valid;
+  wire compute_crc;
+  wire not_compute_crc;
+  wire compute_crc_flag;
+  wire [CRC_COMPUTATION_WIDTH-1:0] accumulation_reg;
+  wire [CRC_WIDTH-1:0] crc_function_poly_in;
+
+  wire [CRC_WIDTH-1:0] initial_crc_value; // Holds the initil value of CRC
+                                          // register
+
+  wire [CRC_WIDTH-1:0] new_crc_value; // At the start of CRC computation, it
+                                      // holds the initil CRC value else
+                                      // it holds the computed CRC value
+
+  wire [COMPUTED_CRC_WIDTH:0] latched_crc_value;
+  wire [COMPUTED_CRC_WIDTH:0] calculated_crc_value;
+  wire [COMPUTED_CRC_WIDTH:0] computed_crc_value;
+
+  wire [COMPUTED_CRC_WIDTH:0] temp_expected_crc;
+  wire [COMPUTED_CRC_WIDTH:0] temp_latched_crc;
+  wire [COMPUTED_CRC_WIDTH:0] final_crc_value;
+
+  wire [CRC_WIDTH-1:0] expected_crc_value;
+
+  // If in_crc is not specified, the contents of this variable reflects the 
+  // contents of -in_data else the contents of -in_crc port. 
+
+  wire [COMPUTED_CRC_WIDTH:0] in_crc_value;
+
+  // These variables are used to support for handling the bit ordering
+  // convention for CRC computation.
+
+  reg [CRC_COMPUTATION_WIDTH-1:0] swap_data;
+  wire [CRC_COMPUTATION_WIDTH-1:0] final_data;
+
+  // Declarations for 0-In PLI call
+
+ 
+  integer bit_loop_count;
+
+  // Inorder to aviod the SPC warning, these two register variables are 
+  // being used.
+
+  reg [CRC_COMPUTATION_WIDTH-1:0] acc_reg;
+  reg temp_compute_crc_flag;
+
+`ifdef QVL_ASSERT_ON
+  wire crc_check_fire_combo;
+`endif // QVL_ASSERT_ON
+
+`protected
+
+    MTI!#un1CksDp/jzaD9,!'jBKx>7,*G,-VBEFh,Qo[Ci}E|^yzsx+-<E[k=o-i[*}ZvTKAj+TznV
+    !=Wo'W]ima]l<'X-Z|73K[i'G]Y=>^HaB~-]uei\s]*C'Z!=D[|e^JloD1jNef~eiC(TU+7T\$*R
+    O~^{]\wB|;X-B}}K+hee$2,UK=xo_[WHGC["-Y/HxHv[k~R7TzY$kj^9<^?2x_@'E;Yj9NJsl*{{
+    6i$QBrBOis=uQ}G<v*b,>!I~-Y^aC3XS9ADV!IJ]roX<[FQ@nn[A7Y?D*''2+<\2s@*YBEu}lBro
+    #^p?\AG~!B:QslxI2,w\$J]?j?ms\<~*T[*}C{-eGwO2rWJ~}kx*7Js-[>$CXp[9}3Da^zB1O]jl
+    n5a<sz$l\RB_YrQGhurBX\I~#l?C]h<XlB.?<au[K+_u^m'$[QED,O-#5G_'XTB@x_1U5^JQ^nnz
+    uur7*+Qh!U5WunU2x3n,=%k]2}YXozuOx'z#B2E%#=AI]'[G}_jlB+aRt'QwEuTm2^OsQB+*RIHa
+    Il=]<bOJA<2E!Zq-{;oP#[*OIIoj=#@HQo\{t_JoBOx>JP1#=iEroo*Y*}m_}Xsg}~Dw=oRRs3x[
+    '^+O/>]*jgxsQX1;-BANee{Vj;;,5<TmL?o<!Ua,R0_}[n3nHW=TIK@E*<XlO7}zEWNCrVu>xVjJ
+    TpH-T1-OA<!DB7r\{aYAR"Cu7sEmZEo;,H;eVxvO>>;rlOGREpoR=$1O>joAn]qr$nvQrKIuXe'5
+    #^!^=$7{}{\rIWZ@]B2a*a}:s^Jaou-]jx{uXCx3~{opG?l5l5@px?Rj=KBrWR2_p8#C,Zm5m']o
+    u7s\w+$HwufNsmv!1YmQV[
+`endprotected
+  // Signal assignments
+
+  assign xz_detected_in_data = (^in_data_valid === 1'bx); 
+  assign xz_detected_in_data_valid = (^in_data === 1'bx);
+
+  assign xz_detected_start_crc = (^start_crc === 1'bx);
+  assign xz_detected_latch_crc = (^latch_crc === 1'bx);
+
+  assign xz_detected_in_crc = (^in_crc === 1'bx);
+
+  assign xz_detected_compare_crc_enable = (^compare_crc_enable === 1'bx);
+  assign xz_detected_crc_polynomial = (^crc_polynomial === 1'bx);
+
+
+  assign z_start_crc = (start_crc === 1'b1);
+
+  assign z_latch_crc = (latch_crc === 1'b1);
+  
+  assign z_compare_crc_enable = (compare_crc_enable === 1'b1);
+
+  assign z_in_data_valid = (in_data_valid === 1'b1);
+
+  assign compute_crc_flag = (CRC_COMP_COUNT === 1) ? 1'b1 : 
+                            (r_compute_crc_flag !== 1'b1 &&
+                            (crc_comp_width_counter === DATA_WIDTH) &&
+                             !(z_start_crc || z_latch_crc));
+ 
+  assign compute_crc = (z_start_crc || z_latch_crc || z_in_data_valid);
+
+  // Standard CRC5 polynomial x^5 + x^2 + 1
+  // Standard CRC7 polynomial x^7 + x^3 + 1
+  // Standard CRC16 polynomial x^16 + x^12 + x^5 + 1
+  // Standard CRC32 polynomial x^32 + x^26 + x^23 + x^22 + x^16 + x^12 +
+  //                                 x^11 + x^10 + x^8 + x^7 + x^5 + x^4 + x^2 +
+  //                                 x^1 + 1
+  // Standard CRC64 polynomial x^64 + x^4 + x^3 + x^1 + 1 
+
+  assign crc_function_poly_in = (CRC_POLY_SPECIFIED === 1) ? crc_polynomial : 
+                                 ((STANDARD_POLYNOMIAL === 1) ? CRC5 :
+                                 (STANDARD_POLYNOMIAL === 2) ? CRC7  :
+                                (STANDARD_POLYNOMIAL === 3) ? CRC16  :
+                               (STANDARD_POLYNOMIAL === 4) ? CRC32   :
+		       (STANDARD_POLYNOMIAL === 5) ? 64'h0000_0000_0000_001b:
+                                               {CRC_WIDTH{1'b0}});
+  assign initial_crc_value = (INITIAL_CRC_VALUE === 0) ? {CRC_WIDTH{1'b0}} :
+                             (INITIAL_CRC_VALUE === 1) ? {CRC_WIDTH{1'b0}} :
+                             (INITIAL_CRC_VALUE === 2) ? {CRC_WIDTH{1'b1}} :
+                             (INITIAL_CRC_VALUE === 3) ? 
+                                                 {((CRC_WIDTH+1)/2){2'b01}} :
+                             (INITIAL_CRC_VALUE === 4) ? 
+                                                 {((CRC_WIDTH+1)/2){2'b10}} :
+                                                 {CRC_WIDTH{1'b0}};
+
+  // At the start of CRC computation initil CRC register value will be driven
+  // into this variable, afterwards the computed CRC value will be driven.
+
+  assign new_crc_value = (z_start_crc || z_latch_crc) ?
+                            initial_crc_value : r_combo_crc;
+
+  // If in_crc is not specified and CRC_WIDTH is greater than the Width of
+  // data bus, then we have to compare the CRC value across so many clocks.
+  // Following two variables will give the sliced CRC values across that
+  // many number of clocks.
+
+  assign temp_expected_crc = (IN_CRC_SPECIFIED === 1'b0 &&
+                             CRC_WIDTH >= DATA_WIDTH) ?
+                             ((z_compare_crc_enable && r_compare_crc_enable ===
+                              1'b0 && !LATCH_CRC_SPECIFIED) ? 
+			      ((BIG_ENDIAN && !CONVERSE_CRC_ENDIAN) ||
+		              (!BIG_ENDIAN && CONVERSE_CRC_ENDIAN)) ?
+                              final_crc[CRC_WIDTH-1:
+                              CRC_WIDTH-TEMP_CRC_A] :
+                              final_crc[TEMP_CRC_A-1:0] : 
+			      ((BIG_ENDIAN && !CONVERSE_CRC_ENDIAN) ||
+                              (!BIG_ENDIAN && CONVERSE_CRC_ENDIAN)) ? 
+                              temp_expected_crc_value[CRC_WIDTH-1 :
+                              CRC_WIDTH-TEMP_CRC_A] :
+                              temp_expected_crc_value[TEMP_CRC_A-1:0]) :
+                              final_crc;
+
+  assign temp_latched_crc = (IN_CRC_SPECIFIED === 1'b0 &&
+                             CRC_WIDTH >= DATA_WIDTH) ?
+                             ((z_compare_crc_enable && r_compare_crc_enable ===
+                             1'b0 && LATCH_CRC_SPECIFIED) ? 
+                             ((BIG_ENDIAN && !CONVERSE_CRC_ENDIAN) ||
+                             (!BIG_ENDIAN && CONVERSE_CRC_ENDIAN)) ?
+                             latch_crc_reg[CRC_WIDTH-1:
+                             CRC_WIDTH-TEMP_CRC_A] :
+                             latch_crc_reg[TEMP_CRC_A - 1:0] :
+                             ((BIG_ENDIAN && !CONVERSE_CRC_ENDIAN) ||
+                             (!BIG_ENDIAN && CONVERSE_CRC_ENDIAN)) ?
+                             temp_latch_crc_value[CRC_WIDTH-1:
+                             CRC_WIDTH-TEMP_CRC_A] :
+                             temp_latch_crc_value[TEMP_CRC_A-1:0]) :
+                             final_crc;
+
+  assign latched_crc_value = (IN_CRC_SPECIFIED === 1'b0) ? temp_latched_crc :
+                              latch_crc_reg;
+
+  assign calculated_crc_value = (IN_CRC_SPECIFIED === 1'b0) ? temp_expected_crc 
+				 : final_crc;
+
+  assign computed_crc_value = (LATCH_CRC_SPECIFIED === 1) ?
+                               latched_crc_value : calculated_crc_value;
+
+  // The final computed CRC value, which is used for CRC comparison. 
+  // If FINAL_CRC_INVERT option is specified the computed CRC value will be 
+  // inverted before comparison else it will be directly taken for comparison.
+
+  assign final_crc_value = FINAL_CRC_INVERT ? ~computed_crc_value :
+                            computed_crc_value;
+
+  // Not specifying in_crc indicates availability of CRC on the data bus. The
+  // checker will not compute CRC during the CRC phase (when -compare_crc enable
+  // is asserted) on the bus, but will compare the CRC. 
+
+  assign not_compute_crc = (IN_CRC_SPECIFIED === 0 && z_compare_crc_enable);
+
+  // If data bus width and CRC_COMPUTATION_WIDTH both are not same, then the
+  // incoming data bits will be accumulated in this variable and then CRC will 
+  // be computed for the accumulated data.
+
+  assign accumulation_reg = CRC_COMP_COUNT ? in_data :
+                            (not_compute_crc === 1'b0 && !xz_detected_in_data
+                            && z_in_data_valid) ?
+                        (BIG_ENDIAN ? {temp_accumulation_reg[ACC_REG_WIDTH:0],
+                             in_data} : {in_data,
+                             temp_accumulation_reg[CRC_COMPUTATION_WIDTH-1:
+                             CRC_COMPUTATION_WIDTH-ACC_REG_WIDTH-1]}):
+                             temp_accumulation_reg;
+
+  assign in_crc_value = (IN_CRC_SPECIFIED) ? in_crc : in_data;
+
+  // This assignment statement will determine which data has to be passed 
+  // to the CRC function. (Either swapped accumulated data or accumulated
+  // data.
+
+  assign final_data = (LSB_FIRST === 1) ? swap_data : accumulation_reg;
+
+  assign expected_crc_value = final_crc_value;
+
+//--------------------------------------------------------
+// Calling the CRC function depending upon the polynomial specified.
+
+  assign combo_crc = z_in_data_valid === 1'b1
+                        ? (((z_start_crc || z_latch_crc) && 
+                            CRC_COMP_COUNT === 0) ? initial_crc_value 
+                                                : ((compute_crc === 1'b1 && 
+                                                    compute_crc_flag === 1'b1 &&
+                                                    not_compute_crc === 1'b0
+                                                   )?expected_crc(new_crc_value,
+                                                                  final_data,
+                                                          crc_function_poly_in)
+                                                    : r_combo_crc 
+                                                  )
+                          )
+                        : ((z_start_crc || z_latch_crc) ? initial_crc_value 
+                                                        : r_combo_crc 
+                          );
+
+  assign final_crc = CRC_COMBO ? combo_crc : r_combo_crc;
+
+  // Assertion Logic for combinatorial fire signal
+
+  assign crc_fire_combo = (crc_check === 1'b1 && z_compare_crc_enable &&
+                           (final_crc_value !== in_crc_value));
+`protected
+
+    MTI!#_Zp1]Tp?z^K31j<235ARoRO5#Ek[v#;a|%[3b7u}H=mw+Y>}_k}wUG'5XccE\_,s>1;O3n,
+    N#U3U}g'l!2,@GkBIB1)N#7@]}l<{;=!+^Y#^NH\IA=5A3!o?~M<7z~lzRI3Tru{<jD=\Jl2&i7,
+    ^[?>Yz=?klY*AtmIu~BC@E~<H~m'?n]\a^ee;VVOlTF7ZTuXNw+EBCJD;uE?[$-4e*s]]=7+{_m?
+    @R3@UUTR1z_*'D5QjHR?**oe;'E'9~TY7]{*vzlp]5BvZ}WBUTEZ$(=vo!uDJG&'}-B$_Di]VQml
+    Ek\Y*}$rz1HG37$Xsp7$GB,<+oH+n]ZQNAN1X2rm-}]wno{lzHeV>R'Y\B{#=QX!>OEXn*GO!_EB
+    C2E|qLvJ;}T[B]gp['5!NZ+-p>(+7#@4';n-'En'7}E}nETTC5m1!R3wlxRpI,H>lJrG[GiU=R~p
+    <*\'A[7G1$7E6w<2k$9[VK1W'7no-s-n}_1_QW#X{g\s<;WUCC~]kG[rvn][2ue<VW=unQ{Di}sj
+    kjIm>#*+{1}QxEhK9?=5l$Y3W]YTaxEo5rs^l>loI>,e|Q[]5HQRiY!pOq2O_T=~$'g@TZ<+a*uR
+    p+zxVzeT<J!('75;?w~!O}A[^VBn}$MFA=v!G\kB0W}xjrlY{7Xl3HYoT2GY#IwHA5#$@~oBU^5#
+    R%\EklD?17]_@TNs~Z,#Xl!Z7?Z3]Z!o_\JXCmH5[7>,!BAIc,'kT$!7~1K5?c8JzrOeaXKOV#KI
+    {AZEC>jn<c^#\2H[XD'fsr,>HYH^J*Qp)i=pD}3*{]Q}<YXHGprGTN'a{Bz;vm-}EnU=5{Wpp[W'
+    Z@ECeQMBD7J[{EY5J}Y7UZ^emU$XoJ\_?x72=(<j?T;wQ_KAUJekXJn{IE1X5iC{1~O\G[Aaw]O^
+    G7e7?[5-s2*HJGw-V78}=jT*ZlH=-BA=\r*}~uBOJb^m\}7mj+.Bn7@Jo]!g5BAkDn*Vw*[3lU+*
+    no,*\C22aRm>@53aX7z_'?a\mXVp7ln=%]f:3v?}/wzo=3OE~k_aGjI[j{AUauTj3~-!T=?5pw,D
+    Wn[>'~{;[XDpi1V_]r+[v?'Dl-{B^5#u^xZ<~bq_xX7JCQGMops{-,@$Sr}m'$*I~)',TA;5jG4U
+    OoJJT*KPS'aXGY~A-,knX(k,GopX5Yf<\lO5z}CY*1r=?>r>ATp)kw,}pn_s#9f\7z?<XpVe]zoK
+    'B<9"{<}=l@j@o*-+>w+uVb><w#O{{A>7GRJ-osv\=e$~j!wj]?^XxZI;lzQvDB[op@Y7YASGGQ$
+    9{+^GWT7EYm37'jT-G!\[s_,vgwEHwU\R+J\]Dps#^IBB$^A[IIkU5zr_nvuW5a$vJrWpDhRwns#
+    D<@,Pxn=#F?aTV+IWxk}UW$]sU~{Xk#O2\WQ3?/Ira2:?=O![l1ACWBJlK*~OiRjG\>1ur\p,-<+
+    jKJB~YZ+Q=e}TC]w+5lX}w^K8a'I>sj<vZTC-e#]J1{Us?+jJbg-p_~p3K7gwoHrYnBAI;wUc,!^
+    5]2lJ['\l@],[XU]7}#Ae[A!n[U5BwIH]Ei_WS7AE*Xzm*n<}E^GB+j!}5wlVmYvW\R{$I'BK~R[
+    ]'CaDz-{EU$oimED\YMI=+'G;$=Ajx2xn;ERoQ3XVxks>aQ%kCv@a=Qxx55x{alZw7Yz!>RZZR{B
+    #jpmRW2\8#='RzaKTB2UJGAzj7EiIU<ovu{]mE_epjBH?iX>rt"io_*xOJuOB2GAo<*rO{Z=2<e7
+    u]B~a!u2wAu}>+J5W@'+\OuBZlJe@v'H,}nj+$2q-s?^zO\T=iwIx-A#G^[nSw,lQ[;[1{\}krIQ
+    }z*~x?5,x!C'BpZK{5?zT6!-p[JI2J+n-~&QSFYs<@xXopJ-YJJ^#o}VxG<5'CeAU<']!\AG'eHr
+    Rml@1*I-BBAsnYI&,=+wv}\!_r?Z=eI*y0T*}mH]i+yZ*$XB#GmCn*Yp5m^z@aK-\$[n^x~#AEz>
+    1iCCmp2oK$w'j'kGm*s.*rADzr31Om7;YsW};x(POzITfX>][AYHZt\Kjx\<1~jsBB'p@lr'lj]~
+    Bln5o*gJ'7@rVeW$U^{,}~{A=ZT^,^<BAZB~C}eI*Z@FU(Q;)x#X-o7T$a1e=z3H='uj$'3w*5}k
+    ow-7+2w+#lOs+A^J[UBvlmAlk2+z1eo7R)2$Q,}nD<VBV7'C@p-YTj\XQpnw{CV#B^ziYJ'Gs+ie
+    u$.27ZB=_=l**EBT'uJB]~[o^<l_=IH^mJl!jvWXT{>o,=jsXJG-C;[+H(^,s+rl+kY$G[5G1ESx
+    ?ze"||skoOesnVvQ[>+};<WjHYO$i2aAoeQv$J7gj!BKGz**YAR=sXKjIA3J,%XpRCl^p;Psw@z{
+    $I@QKm<x>eajZrp*v!J2pW7zX~?'V]wBvA=.DT\?C;<$n_>-[ix3vYA,YK\_$l1RbB#+']-[{SF]
+    ez\#pnEzxsi>,1xI/JDwj3RvC>l2;R5#$2Bp=+}5;2.y2,pnomjwo;_s()/]J[61R+JB}EBHeTr[
+    HeOO3D]v,-2IisvQKzKH$?YA{@,L\nl'o2KOd^UsY3DA<!1z*zJ;BB;C7Dr\lOxUjWsX_L[Xu]VJ
+    2eI>+JFY-+z#}~'A1^nj\$u5Ww#vxa\Osrl(1Blm_zrE[i}W[]_k7Qk~<Q}@YW~w8i]O^sz$5*CA
+    _C+Uo'Vo5Xz\nUe\wlA[3V@j2vV3{J5\=7Envs3n#3'<,p?!G'{7Gn,,RYZ*C12!=YiJGo2=o,nz
+    -0>DwD[BuvHx\K[a72j5x>~z2<Gmp-.Iw[D3zT=,7nv7<H,BR$-e}]v!7B@Q<+TZaJ!DG-7HIr1I
+    kA'BOKJlkAV^{7J}!1I<'V1=UQW@Y*CmQI$R>ox'wei[}zD{>1uz_]ls*{@n11HOo*{BB!@R^*W5
+    <7{EwCOA-!^<nlzDWQ}j}xpo*u?{+*pBwzlV,eU\eE\_xB+@U~3Gw=!ZN'KBlGw;J~X'ECI~ZW=Q
+    {E5HxZU{H[H{@j*iW\RQJ~{uWj7H|3pE5CV>sm}ABDVi!l7E3P@\r=kBa'oE]B1;e?1oU#375YqV
+    sQ2[C}TwO2ssXw@!>jx}KIUl\,z-o-$1VBwV3~ksEsGAHDH6*1'x+rRO5JD#oCpafG3[U$,$C+C1
+    ]Ev$s@s\r(eCQ~XaJ}i_+l-8s><-V'l\>|{z5*QJwTj*DB{Tw{*lsw_>\G>C1_E>11fjj+o!r+vr
+    Kp>12JCe?o[G'i{i[*{vvCs^lkAHz{Hk,x>a<VZs_AQ>o+HEw+Y!a=nVY,p[*>I2GaQ0"6'An@7;
+    ]R-x_zQ;2{mrIXZ=D5Q[CQ}$l_Gl<-#$HEJ$<2?H*-IZ${aEK$n,>Osl\dPr7\n~>On
+`endprotected
+   
+`ifdef QVL_ASSERT_ON
+
+  assign crc_check_fire_combo = (areset === 1'b0 && reset === 1'b0 && 
+                                 active === 1'b1 && crc_fire_combo === 1'b1);
+`endif // QVL_ASSERT_ON
+
+`ifdef QVL_ASSERT_ON
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_crc_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (crc_check_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_crc_check"),
+                          .msg            ({msg,"Input CRC value did not match the expected CRC value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_crc_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (crc_check_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_crc_cover.svh"
+
+`qvlendmodule // module qvl_crc_checker

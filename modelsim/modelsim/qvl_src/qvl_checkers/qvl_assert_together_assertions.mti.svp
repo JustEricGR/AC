@@ -1,0 +1,164 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_assert_together_assertions(
+				          clock,
+				          reset,
+			 	          areset,
+				          active,
+				          assert_together,
+				          var1,
+				          var2,
+				          assert_together_fire,
+				          transitions_checked,
+				          support,
+				          fire_count);
+
+
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = " QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+
+  //Checker Clock
+  input clock;     
+
+  //Checker Synchronous Reset
+  input reset;     
+
+  //Checker Asynchronous Reset
+  input areset;    
+
+  //Activation Condition
+  input active;    
+
+  input var1;    
+
+  input var2;  
+
+  input assert_together;  
+
+  output assert_together_fire;
+
+  output [STAT_CNT_WIDTH-1:0] transitions_checked;
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+
+  reg assert_together_fire;
+
+  
+  reg [STAT_CNT_WIDTH-1:0] transitions_checked_local;
+
+  wire [STAT_CNT_WIDTH-1:0] transitions_checked = transitions_checked_local;
+
+  reg old_leader, old_follower;
+
+
+  wire xz_detected;
+
+
+`ifdef QVL_ASSERT_ON
+  wire assert_together_fire_combo;
+`endif
+
+
+
+  assign xz_detected = (^{var1,var2} === 1'bx);
+
+
+`ifdef QVL_ASSERT_ON
+ assign assert_together_fire_combo = ((active === 1'b1) && (reset === 1'b0)) &&
+                                     ((var1 === 1'b0 && var2 === 1'b1) || (var1 === 1'b1 && var2 === 1'b0)) &&
+                                     (assert_together === 1'b1);
+`endif
+
+`protected
+
+    MTI!#?l5>HR=J;XBkRrvU),!X;A_*<jxr>N~[k[yDPdk{{2]TDY\3EJV!I>3Y?opOUm^lK[P^3SO
+    HAXp;7jE[72Bz\\JU7VFw=lv[j{}>E~A?p+~R*mHrVjV^jW!DCR?@=E;zI]-1R#H,l^Y[5'wix7>
+    Y'kR$xpo13XK]x*R{$\G*>5@rOzL(,CV~]O{5V*nmVY~G<l2k~Vp]}Z@-f'z+[HB''HDa}a+AFV*
+    H?NjO?{_5B!E!!x7z[[72*@[C[vDd2l}ir,]Qa1AZZ1J*WXUkOLeU]T9*Jvz^xKZ;lG~:Id>pR#^
+    la_;armxsiVwXJ[Z5;lL~C},FCYmm[<nkQDz20#A5@riZ#!rGs<1OGV-A2X{@D3a<7lUAJi[o2-Y
+    5Iw73]E0]^$QeHvaBCQ']D?w}\p;@[ou^<<?OsT=VwY^x1Jk9oGXX7R;zsY~-QB<~lMZ$Ol#13Ur
+    _@wJ}uC=#_!yg3TzByIAleduaYwx'o32{{^|3rk;{^l5t~$vnK}VC[{erp$IG}AAY,iaDTxEuW=m
+    [DG2ACWD~d(3R$lKTarWQVmDCl[e_eZk>E'kDvs8jE{-wr<X}E$Q7@7!;+Bza5?}#*zY:~pG#7~B
+    \yeVGJa5<7!}xs,!\+>+E2\gv?C=N)=mIB!}{=lZI'fEDK@~$\k7@xeWQ>36i{$Yizl#aj?EV>C<
+    S>oeKP,Tu-|;n5}IB~ZrE]Q_v71rH{DxO^,hV*-Y'~{3KeQ{Yxk?HXoWI}-zUU$1^r+?+wX23pZ-
+    O;KWyKpGDuTW6Y#zav~C3Mp%5]{^?AACwHCUT]]YQ>'X5'=<s],G]*?^e>U]RpnJ=Zs3sB{{3oxr
+    VA[GVwZUW$m-ge~2RBDw,Z]>]Y-rzC52-aTsm,]}O7-72xn7o}=zwnzx{<>+Ip^$~ym1>,<E]lAC
+    J!Mx]R^WE1]Zx-QJ+u{-R]Tq73EBaIEr^CXR]#5OAH2pmoHG7=XY*^W3WvxT{D{+cB3wzlllXn<3
+    #aCj*^WI$'OVW5j^5W*;,J}svL1W*1?}G'12]Yji$R@\[Q5BZrOl?W1s!uA'7xDo,EIj,=VK>Te1
+    !Iuzv+WD1oBu'v<-$VB-!Vj<^^xjW_9I$oOCE15sc=sACipTRrE<lv}p!~z,Oq!1G$"ZD}i'usX3
+    npBei
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+   // Instance for assert together fire violation
+   
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_assert_together_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0) ),
+                      .enable    (1'b1),
+                      .test_expr (assert_together_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_assert_together_check"),
+                          .msg            ({msg,"Specified signals did not assert together."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_assert_together_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (!(reset !== 1'b0) ),
+                      .enable    (1'b1),
+                      .test_expr (assert_together_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif
+
+`include "qvl_assert_together_cover.svh"
+
+`qvlendmodule

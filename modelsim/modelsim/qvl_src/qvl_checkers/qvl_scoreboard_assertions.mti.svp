@@ -1,0 +1,995 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_scoreboard_assertions ( clock,
+                               reset,
+                               areset,
+                               active,
+                               rx,
+                               rx_id,
+                               rx_count,
+                               tx,
+                               tx_id,
+                               tx_count,
+                               flush,
+                               flush_id,
+                               flush_count,
+                               max_ids,
+                               max_count_per_id,
+                               pre_rx_id,
+                               pre_rx_count,
+                               known_ids,
+			       known_flush,
+                               max_ids_check,
+                               max_count_per_id_check,
+                               min_check,
+                               max_check,
+                               known_ids_fire,
+			       known_flush_fire,
+                               max_ids_fire,
+                               max_count_per_id_fire,
+                               min_fire,
+                               max_fire,
+                               ids_received_and_transmitted,
+                               ids_received,
+                               ids_transmitted,
+                               ids_flushed,
+                               unique_ids_received,
+                               unique_ids_bit_map,
+                               maximum_count_per_any_id,
+                               maximum_count_pending,
+                               current_count_pending,
+                               min_pending_cycles,
+                               max_pending_cycles,
+                               pending_ids_equals_max_ids_count,
+                               pending_count_per_id_equals_max_count_per_id,
+                               min_pending_cycles_equals_min,
+                               max_pending_cycles_equals_max,
+			       rx_id_addr,
+			       tx_id_addr,
+			       flush_id_addr,
+			       support
+                               );
+
+
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+
+//parameters
+
+//Maximum of 4096 IDs are allowed on the bus
+
+
+parameter MAX_COUNT_PER_ID_DEFAULT = 8;
+
+parameter DISALLOW_RX_WHEN_FULL = 0; 
+
+// ALLOW SIMULTANEOUS RX TX parameter.
+// If '0' receives and transmits on same cycle are not allowed. 
+// If '1' receives and transmits on same cycle are allowed. 
+// This causes 'min_fire' not to fire for cancelled rxuets/transmits
+
+parameter ALLOW_SIMULTANEOUS_RX_TX = 0; 
+parameter ALLOW_SIMULTANEOUS_RX_TX_SPECIFIED = 0; 
+
+// ALLOW SIMULTANEOUS FLUSH RX parameter
+// If '0' flush and receives on same cycle are not allowed.
+// If '1' flush and receives on same cycle are allowed.
+
+parameter ALLOW_SIMULTANEOUS_FLUSH_RX = 0; 
+parameter ALLOW_SIMULTANEOUS_FLUSH_RX_SPECIFIED = 0; 
+ 
+// If ALLOW_PARTIAL parameter is TRUE then the receives/transmits which cause
+// firing gets registered. If FALSE then the receives/transmits are not 
+// registered.
+
+parameter ALLOW_PARTIAL = 0; 
+parameter ALLOW_PARTIAL_SPECIFIED = 0; 
+ 
+// Minimum number of cycles within which transmit cannot be issued.
+
+parameter MIN = 1; 
+
+// Maximum number of cycles within which transmit should be issued.
+
+parameter MAX = 1;
+parameter MAX_SPECIFIED = 0; 
+parameter MAX_REAL = (MAX_SPECIFIED) ? MAX : MIN; 
+
+// Maximum allowable width of rx_id bus is 12 so that we can have 4096 unique 
+// IDs.
+
+parameter RX_ID_WIDTH = 6; 
+parameter RX_ID_DEPTH = 2 << (RX_ID_WIDTH - 1);
+
+parameter RX_ID_IS_CONSTANT = 0; 
+parameter  MAX_IDS_DEFAULT = RX_ID_IS_CONSTANT ? 1 : (RX_ID_WIDTH < 4) ? RX_ID_DEPTH : 16; 
+
+//tx id width should be equal to rx id width
+
+parameter TX_ID_WIDTH = 6; 
+
+// Flush and flush id should be specified together.
+
+parameter FLUSH_SPECIFIED = 0; 
+parameter FLUSH_ID_SPECIFIED = 0; 
+parameter FLUSH_COUNT_SPECIFIED = 0; 
+parameter FLUSH_COUNT_SPECIFIED_REAL = (FLUSH_ID_SPECIFIED && FLUSH_COUNT_SPECIFIED); 
+
+parameter ALLOW_FLUSH_RX_REAL = (FLUSH_SPECIFIED && 
+                                  ALLOW_SIMULTANEOUS_FLUSH_RX); 
+ 
+// flush id width should be equal to rx id width
+
+parameter FLUSH_ID_WIDTH = 6; 
+parameter FLUSH_ID_WIDTH_REAL = (FLUSH_ID_SPECIFIED) ? FLUSH_ID_WIDTH : RX_ID_WIDTH; 
+
+
+parameter MAX_IDS_WIDTH_PORT = 4; 
+// Dummy parameter
+//parameter MAX_IDS_ITEM_COUNT = 1; 
+
+parameter MAX_IDS_WIDTH_PARAM = `qvl_log2(MAX_IDS_DEFAULT);
+parameter MAX_IDS_SPECIFIED = 0; 
+parameter MAX_IDS_WIDTH = (MAX_IDS_SPECIFIED) ? MAX_IDS_WIDTH_PORT : (MAX_IDS_WIDTH_PARAM);
+
+parameter MAX_IDS_IS_CONSTANT = 0; 
+parameter MAX_IDS_CONST_VAL = 0; 
+parameter MAX_IDS_DEPTH = (MAX_IDS_IS_CONSTANT == 1) ? (MAX_IDS_CONST_VAL) : (2 << (MAX_IDS_WIDTH - 1));
+
+parameter MAX_COUNT_PER_ID_WIDTH_PORT = 4; 
+// Dummy parameter
+parameter MAX_COUNT_PER_ID_ITEM_COUNT = 1; 
+parameter MAX_COUNT_PER_ID_WIDTH_PARAM = 4; 
+parameter MAX_COUNT_PER_ID_SPECIFIED = 0; 
+
+parameter MIN_SPECIFIED = 0; 
+parameter MIN_OR_MAX_SPECIFIED = MIN_SPECIFIED || MAX_SPECIFIED;
+parameter MIN_WIDTH = 1; 
+parameter MAX_WIDTH = 1; 
+parameter RX_COUNT_WIDTH = 2; 
+parameter TX_COUNT_WIDTH = 2; 
+parameter FLUSH_COUNT_WIDTH = 2; 
+
+parameter PRE_RX_ID_WIDTH = RX_ID_WIDTH; 
+parameter PRE_RX_ID_SPECIFIED = 0; 
+parameter PRE_RX_ID_ITEM_WIDTH = 1; 
+parameter PRE_RX_ID_ITEM_WIDTH_REAL = (PRE_RX_ID_SPECIFIED) ? PRE_RX_ID_ITEM_WIDTH : RX_ID_WIDTH;
+parameter PRE_RX_ID_ITEM_COUNT = 1; 
+parameter MAX_COUNT_PER_ID_WIDTH_REAL = (MAX_COUNT_PER_ID_SPECIFIED)? 
+               MAX_COUNT_PER_ID_WIDTH_PORT : (MAX_COUNT_PER_ID_WIDTH_PARAM + 1);
+
+parameter PRE_RX_COUNT_WIDTH = 1; 
+parameter PRE_RX_COUNT_ITEM_WIDTH = 1; 
+parameter PRE_RX_COUNT_ITEM_COUNT = 1; 
+parameter PRE_RX_COUNT_SPECIFIED = 0; 
+parameter PRE_RX_COUNT_ITEM_COUNT_REAL = (PRE_RX_COUNT_SPECIFIED) ? PRE_RX_COUNT_ITEM_COUNT : PRE_RX_ID_ITEM_COUNT;
+
+
+parameter MAX_CLK_WIDTH = (MIN_OR_MAX_SPECIFIED ? 24 : 1); 
+parameter MAX_COUNT_PER_ID_MAX = 2 << (MAX_COUNT_PER_ID_WIDTH_REAL - 1);
+parameter MAX_CLK_COUNT = 2 << (MAX_CLK_WIDTH - 1);
+parameter MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH = MIN_OR_MAX_SPECIFIED ? (MAX_COUNT_PER_ID_MAX * MAX_CLK_WIDTH) : 1 ;
+parameter CHECK_MAX_COUNT_PER_ID_MAX = (MIN_OR_MAX_SPECIFIED ? MAX_COUNT_PER_ID_MAX : 1); 
+
+parameter EFFECTIVE_RX_WIDTH = (RX_COUNT_WIDTH > MAX_COUNT_PER_ID_WIDTH_REAL) ? RX_COUNT_WIDTH:MAX_COUNT_PER_ID_WIDTH_REAL;
+
+
+parameter TRACK_WITH_MAX_IDS = 1;
+parameter ID_WIDTH = (TRACK_WITH_MAX_IDS ? MAX_IDS_WIDTH : RX_ID_WIDTH);
+parameter ID_MEM_DEPTH = (TRACK_WITH_MAX_IDS ? MAX_IDS_DEPTH : RX_ID_DEPTH);
+parameter MAX_RX_ID_WIDTH = 19;
+parameter MAX_RX_ID_DEPTH = 2 << (MAX_RX_ID_WIDTH - 1);
+parameter ALLOW_BITMAP_STATS = (RX_ID_WIDTH > MAX_RX_ID_WIDTH ? 0 : 1);
+parameter STATS_ID_MEM_DEPTH = (ALLOW_BITMAP_STATS ? RX_ID_DEPTH : MAX_RX_ID_DEPTH);
+parameter STATS_ID_MEM_DEPTH_CC = (ALLOW_BITMAP_STATS ? RX_ID_DEPTH : 1);
+parameter REF_TO_ID_MEM_DEPTH = TRACK_WITH_MAX_IDS ? ID_MEM_DEPTH : 1;
+parameter REF_WIDTH = TRACK_WITH_MAX_IDS ? MAX_IDS_WIDTH : RX_ID_WIDTH;
+parameter CHECK_RX_ID_WIDTH = (TRACK_WITH_MAX_IDS ? 1 : RX_ID_WIDTH); 
+parameter KNOWN_IDS_CHECK = 1;
+parameter KNOWN_FLUSH_CHECK = 0;
+
+
+// parameters for time stamp memory address and depth.
+
+parameter ID_CNTR_TIME_MEM_ADD_WIDTH = (MIN_OR_MAX_SPECIFIED) ? 
+                              (ID_WIDTH + MAX_COUNT_PER_ID_WIDTH_REAL) : 1;
+parameter ID_CNTR_TIME_MEM_DEPTH = (MIN_OR_MAX_SPECIFIED) ? 
+                              (2 << (ID_CNTR_TIME_MEM_ADD_WIDTH - 1)) : 1;
+
+//input ports declaration
+
+
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+input clock; 
+input reset; 
+input areset; 
+input active; 
+
+//input variables
+
+input rx; 
+input [RX_ID_WIDTH - 1 :0] rx_id; 
+input [RX_COUNT_WIDTH - 1:0] rx_count; 
+input tx; 
+input [TX_ID_WIDTH - 1:0] tx_id; 
+input [TX_COUNT_WIDTH - 1 :0] tx_count; 
+input flush; 
+input [FLUSH_ID_WIDTH_REAL - 1 :0] flush_id; 
+input [FLUSH_COUNT_WIDTH - 1 :0] flush_count; 
+input [MAX_IDS_WIDTH - 1 :0] max_ids; 
+input [MAX_COUNT_PER_ID_WIDTH_REAL - 1 :0] max_count_per_id;
+input [PRE_RX_ID_WIDTH - 1:0] pre_rx_id; 
+input [PRE_RX_COUNT_WIDTH - 1:0] pre_rx_count; 
+
+//input check ports
+
+input known_ids; 
+
+input known_flush; 
+
+input max_ids_check; 
+
+input max_count_per_id_check; 
+ 
+input min_check; 
+
+input max_check; 
+
+//output ports
+
+  // fire signals
+  
+  output known_ids_fire;
+  output known_flush_fire;
+  output max_ids_fire;
+  output max_count_per_id_fire;
+  output min_fire;
+  output max_fire;
+
+  //fire signals
+  
+  reg known_flush_fire;
+  reg known_ids_fire;
+  reg max_ids_fire;
+  reg max_count_per_id_fire;
+  reg min_fire;
+  reg max_fire;
+
+  // statistics and corner cases
+
+  output [63:0] ids_received_and_transmitted;
+  output [63:0] ids_received;
+  output [63:0] ids_transmitted;
+  output [63:0] unique_ids_received;
+  output [63:0] maximum_count_per_any_id;
+  output [63:0] maximum_count_pending;
+  output [63:0] current_count_pending;
+  output [63:0] pending_ids_equals_max_ids_count;
+  output [63:0] pending_count_per_id_equals_max_count_per_id;
+  output [63:0] min_pending_cycles_equals_min;
+  output [63:0] max_pending_cycles_equals_max;
+  output [63:0] ids_flushed;
+  output [63:0] max_pending_cycles;
+  output [63:0] min_pending_cycles;
+
+  output [STATS_ID_MEM_DEPTH - 1:0] unique_ids_bit_map;
+  
+  output [REF_WIDTH - 1 :0] rx_id_addr;
+  output [REF_WIDTH - 1 :0] tx_id_addr;
+  output [REF_WIDTH - 1 :0] flush_id_addr;
+
+  wire [63:0] ids_received_and_transmitted;
+  reg [63:0] ids_received;
+  reg [63:0] ids_transmitted;
+  reg [63:0] unique_ids_received;
+  reg [63:0] maximum_count_per_any_id;
+  reg [63:0] maximum_count_pending;
+  wire [63:0] current_count_pending;
+  reg [63:0] pending_ids_equals_max_ids_count;
+  reg [63:0] pending_count_per_id_equals_max_count_per_id;
+  reg [63:0] min_pending_cycles_equals_min;
+  reg [63:0] max_pending_cycles_equals_max;
+  reg [63:0] ids_flushed;
+  reg [63:0] max_pending_cycles;
+  reg [63:0] min_pending_cycles;
+
+  reg [STATS_ID_MEM_DEPTH - 1:0] unique_ids_bit_map_r;
+  wire [STATS_ID_MEM_DEPTH_CC - 1:0] cc_uids_bit_map; 
+`ifdef QVL_COVER_ON
+  wire [STATS_ID_MEM_DEPTH - 1:0] unique_ids_bit_map = unique_ids_bit_map_r;
+  assign cc_uids_bit_map = ALLOW_BITMAP_STATS ? unique_ids_bit_map_r : 1'b0;
+`endif
+
+
+//internal register declarations
+
+reg [63:0] max_pending_cycles_temp; // temp registers 
+reg [63:0] min_pending_cycles_temp;
+
+reg overflow; //Asserted if number of receives are more than max_count_per_id 
+reg underflow; //Asserted if an ID is transmitted without a receive.
+reg known_flush_error;
+reg [RX_ID_WIDTH :0] pending_ids; //unique pending ids
+reg [RX_ID_WIDTH :0] next_pending_ids; // pending_ids update value
+reg [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] next_oid_mem_rx_id; //Holds next value 
+reg [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] next_oid_mem_tx_id;
+reg [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] next_oid_mem_flush_id;
+reg [RX_ID_WIDTH - 1 :0]  r_rx_id; // registered receive ID
+reg [RX_ID_WIDTH - 1 :0]  r_tx_id; // registered transmit ID
+reg [REF_WIDTH - 1 :0]  r_rx_id_ref; // registered receive ID
+reg [TX_COUNT_WIDTH - 1:0] tx_count_svd; 
+reg [RX_COUNT_WIDTH - 1:0] rx_count_svd;
+
+reg [EFFECTIVE_RX_WIDTH:0] effective_rx_count; // Actual rx_count in effect 
+
+reg [MAX_COUNT_PER_ID_WIDTH_REAL - 1:0] oid_mem [ID_MEM_DEPTH - 1:0]; 
+                           // memory to store pending counts per ID        
+reg [STATS_ID_MEM_DEPTH - 1:0] id_was_seen_mem; // Array to store the flags
+reg min_pending_cycles_set;
+reg min_pending_cycles_set_temp;
+reg [MAX_COUNT_PER_ID_WIDTH_REAL:0] underflow_count; 
+reg [MAX_COUNT_PER_ID_WIDTH_REAL:0] underflow_issued; 
+reg [MAX_COUNT_PER_ID_WIDTH_REAL:0] flush_id_issued;
+reg [MAX_COUNT_PER_ID_WIDTH_REAL:0] overflow_count;
+reg [63:0] min_within_range_count;
+reg [63:0] next_min_within_range_count;
+reg [63:0] max_within_range_count;
+reg [63:0] max_id_within_range_count;
+reg [63:0] max_count_per_id_within_range_count;
+reg [PRE_RX_ID_ITEM_WIDTH - 1:0] pre_rx_id_add; // temp registers 
+reg [PRE_RX_ID_ITEM_WIDTH - 1:0] pre_rx_id_add_ref; // temp registers 
+reg [PRE_RX_ID_WIDTH - 1:0] pre_rx_id_reg;
+reg [PRE_RX_COUNT_WIDTH -1 :0] pre_rx_count_word; // temp registers 
+reg [PRE_RX_COUNT_ITEM_WIDTH - 1:0] pre_rx_count_reg;
+
+
+// Memory to store the time stamps of each instances of receives.
+
+reg [MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH - 1 :0] id_cntr_mem [ID_MEM_DEPTH - 1:0];
+
+// Memory declaration for fifo
+
+reg [MAX_CLK_WIDTH -1 :0] id_cntr_time_mem [ID_CNTR_TIME_MEM_DEPTH - 1:0];
+
+// Memory to store addr in oid/id_cntr_mem/id_was_seen_mem for each id.
+reg [RX_ID_WIDTH - 1 :0] ref_to_id_mem [REF_TO_ID_MEM_DEPTH-1 : 0];
+reg [REF_TO_ID_MEM_DEPTH-1 : 0] ref_to_id_valid_mem;
+
+reg [ID_CNTR_TIME_MEM_ADD_WIDTH - 1:0] id_cntr_time_mem_enq_ptr; //enq pointer
+reg [ID_CNTR_TIME_MEM_ADD_WIDTH - 1:0] id_cntr_time_mem_deq_ptr; //deq pointer
+reg min_should_fire;
+reg max_should_fire;
+reg [MAX_CLK_WIDTH - 1:0] clk_count;
+reg [MAX_CLK_WIDTH - 1:0] min_fire_clocks;
+reg [TX_ID_WIDTH - 1:0] max_fire_id;
+reg r_rx;
+reg [MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH - 1 :0] next_flush_id_time_wrd;
+reg [MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH - 1 :0] next_tx_id_time_wrd;
+reg [MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH - 1 :0] next_rx_id_time_wrd;
+reg [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] pres_count; //Present count
+reg [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] store_count; //Count to be stored
+
+// Registers which stores the number of entries in the fifo.
+
+reg [ID_CNTR_TIME_MEM_ADD_WIDTH :0] id_cntr_time_mem_next_entry; 
+reg [ID_CNTR_TIME_MEM_ADD_WIDTH :0] id_cntr_time_mem_current_entry;
+reg [FLUSH_COUNT_WIDTH - 1:0] dummy_count;
+
+wire [REF_WIDTH - 1 :0] rx_id_addr = r_rx_id_ref;
+reg [REF_WIDTH - 1 :0] tx_id_addr;
+reg [REF_WIDTH - 1 :0] flush_id_addr; 
+
+//wire declarations
+
+wire clk_expired;
+wire continue_min_max_check; //high if MIN_OR_MAX specified and clk not expired 
+wire received_id; //Checks if a perticuler ID was received before or not.
+wire w_id_was_seen; //Flag which indicates that an ID was seen before or not.
+wire [MAX_IDS_WIDTH :0] max_ids_real; 
+wire [MAX_COUNT_PER_ID_WIDTH_REAL :0] max_count_per_id_real;
+wire [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] oid_mem_rx_id; //oid memory content
+wire [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] oid_mem_tx_id;
+wire [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] oid_mem_flush_id;
+wire [MAX_COUNT_PER_ID_WIDTH_REAL -1 :0] prev_rxs; // r_rx_id's oid_mem value 
+wire valid_rx,valid_tx,valid_flush; // Asserted if rx,tx,flush are valid.
+wire valid_rx_no_hit,valid_tx_no_hit,valid_flush_no_hit; // Asserted if rx,tx,flush are valid.
+wire [MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH - 1 :0] id_cntr_mem_tx_id; 
+wire [MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH - 1 :0] id_cntr_mem_rx_id;
+wire [MAX_COUNT_PER_ID_TIMES_CLOCK_WIDTH - 1 :0] id_cntr_mem_flush_id;
+wire max_time_exceeded;
+wire [MAX_CLK_WIDTH - 1 :0] id_cntr_time_memenq_ptr; //enq pointer content
+wire [MAX_CLK_WIDTH - 1 :0] id_cntr_time_memdeq_ptr; //deq pointer content
+wire [2:0] cw_in_range = `ZI_CW_IN_RANGE;
+wire allow_partial_real;
+
+wire rx_id_ref_valid;
+wire tx_id_ref_valid;
+wire flush_id_ref_valid;
+wire [REF_WIDTH - 1 :0]  rx_id_ref;
+wire [REF_WIDTH - 1 :0]  tx_id_ref;
+wire [REF_WIDTH - 1 :0] flush_id_ref;
+
+wire fire_the_max_ids_check;
+wire fire_the_known_ids_check_tx;
+wire fire_the_known_ids_check_flush;
+wire ref_to_id_mem_overflow = (fire_the_max_ids_check | fire_the_known_ids_check_tx | fire_the_known_ids_check_flush);
+
+
+//integer declarations
+
+integer within_range;
+integer max_id_within_range;
+integer max_count_per_id_within_range;
+integer i,i1,i2; // Index for FOR loops
+
+// Declarations for using 0in PLI
+
+reg valid;
+
+wire rx_id_hit;
+wire tx_id_hit;
+wire flush_id_hit;
+
+wire xz_detected;
+
+`ifdef QVL_ASSERT_ON
+  // qvl euivalent of max_should_fire
+  reg max_should_fire_qvl;
+  // Dummy variable to connect max_fire_id output from the task max_test in qvl
+  // mode
+  reg [RX_ID_WIDTH - 1:0] max_fire_id_qvl_dummy;
+
+  reg dummy_var; // Used for dummy assignment so that formal tool
+                 // does not give warnings for unnecessary variables in the
+                 // sensitivity list
+
+  wire scoreboard_max_ids_fire_combo;
+  wire scoreboard_max_count_per_id_fire_combo;
+  wire scoreboard_known_ids_fire_combo;
+  wire scoreboard_known_flush_fire_combo;
+  wire scoreboard_max_fire_combo;
+  wire scoreboard_min_fire_combo;
+`endif
+
+assign ids_received_and_transmitted = ids_received + ids_transmitted;
+assign current_count_pending = pending_ids;
+`protected
+
+    MTI!#c=nHY?wzHBIEGlV#;_<!~%*slk<}YQmhjmEe=37RiR7+--+Y'}a^^VD#7W5pX=a\S7XpiGm
+    {e7rA;=KZ_SBaBi,#!!\[riIr,oBp7TH]H,><<,Y*#J=m*wj)ewx1|7DXaEn['*agR$G#j#Y#zB7
+    WQ@-OI_,33wWxz,k>oQ<]|S9B!1X7!Zw@X[a7e+sY1o,i|y?Qz#$@O~j]2[MRZ{Y~j$Q!<D[z"|&
+    ]n@TMK>5'^*xrw{'<NHD'n=s<l_W7@31kW^3KA7nG@=*Dioa*T2r2WA>C;BROD^>a+HOJ'Gj5$r}
+    x>I*$p[Gp71o=~{V}JBIlE7Jv*[rK]$ZlJOGR_xiC#DJm_nnTxn{ZroZHx-v$Tl3ju]^;akX}I,v
+    X$b>s[H'$>#6{{}}vJ-s\ll57$pT]eu#Is*lgIR=,1Ho-=VZrirVp?R3,Y8ZDkBe-->l;zD$B?Iz
+    OGA1\QG1HH_V'#HYHY##-s\*u'Y,Vw]BG>2Ur!OjRjm5#Qn@]]i?EaOOnJ5O]Gx=;]pVoB3l@j\U
+    a~_\l'J,^X#wT3C*orzQ{vmR>-THr[T#Rp$^[jY$'_J+CZC?=]aH]i[CmC+I@oBk-el[Z]DTaQ5Y
+    ]K7yr-$YxkD5HY\-]HE@|9HEa}+IHEkn]~<j}#\Al5BI'+{UYEOu{wrkIr^CHYe;Yzn5ZX{7Ir^\
+    O_-r$x^2[w{DimJVwkB-+oT[QU:Wz!n_e-^U]7~hgDG,]Q@+5n[p=_={H3ICs!D2^wTaH,Az]Ov+
+    I[?j]o-m'LGW7$#7xTmzs7Dk$2jn^;O[=X7ulGy57KKh}DYi}!B7p#prG+BB:^[k7iv'n_a-7
+`endprotected
+   
+assign {fire_the_max_ids_check,rx_id_ref_valid, rx_id_ref,rx_id_hit} = get_or_set_ref_of_id(rx_id,ref_to_id_valid_mem);
+assign {fire_the_known_ids_check_tx,tx_id_ref_valid, tx_id_ref,tx_id_hit} = get_or_set_ref_of_id(tx_id,ref_to_id_valid_mem);
+assign {fire_the_known_ids_check_flush,flush_id_ref_valid, flush_id_ref,flush_id_hit} = get_or_set_ref_of_id(flush_id,ref_to_id_valid_mem);
+`protected 
+    MTI!#-V1]\BT*1BV[:E+3?.9j~D_"m{$@#eP"7{N=Z2X'?<ZY_^+71w=TQrXIW^vp=CX}oz!jv^[
+    [C35=K*ou[QrX$KZDZ}rN#7@]}l<{;=!+^Y#^NH\IA=5A3!o?~M<7z~lzRI3Tru{<jD=\Jl2&i7,
+    ^[?>Yz=?klY*AtmIu~BC@E~<H~m'kv]\a^ee\KUGHRS=ZtX<HVwA-}i9*z!lB#e@z#=w7~*'zoZ}
+    rTHfTo<'[zWC3wHlo,R2VV!~1CGpY_rlV=]37z2u$\raYv~}^Z_s$@!QGVrZk+1i>*@\1^[]lTsQ
+    -rY'AQ0D}z~AvUx@tZHGpppn;n$V34o@55s/Er$7!X,=Du{V~Qv[XU<l1{H;a9Vl!Dy-^&W<o$'?
+    KAuT5~oJ3u8&v?e^!nRi}]J!ROVIz,s~u_EU_=nzI=@{VG{Oksx5^GJC\<{pplYGRHvZ1A1A+<_W
+    'Va-._0(Clx:ww+~[[rs9?l]x$!<DmB;Xp^*<tCJA\=VkzWj7@+,EpRGe+eOzEa\kIC1X_;Ev{aA
+    Y3BJG3e;CzeOiz1A*p2},>@nI\aro>3*5O*iTo2pr@6]aW-5R\vR\nYC1-+RQWDrJn=<n'ezVUxC
+    n,2H1TWtk_1aFTpkzAj{5vU\~A^{~[3C}#wIk3ozA5kwulx,V?HUCQD#'].W'kn!}\$fbkH>{[DA
+    ?Uj^igH_>pCBvU>,k;7Bxp:[COHEz_ue\r]7#lJIlzj]H)KDj^lw3;Wr~!mn]iKoRk#E('<Hlg'D
+    ew'DX;sKE}VEkae,m!^m*}i=C1ABk]w{UArHII;>[=/XXp;!+J-=^e}ipo$_H2]T'jW%7_V#{^VV
+    C<H'QEW-blQQs]JWv7#~KwpOGsY1jo2emRD17*]<$~-D'HUB]T\GsKG>TMX1spc''Qo,=AV-+Z*B
+    =~DQK*1E;lG]}{o2'KQ,H.O^zA*=O>o2uH[ID\=2GA[HpVpHmQ'\zO#vRw(*j^rl]OA'V7>#Xm}<
+    XEum-3Vp~!<B_$w1xkGOlx;$UR+3+B][gE5e^5B~?u>u2UB2*wwj2?T}p-\A_hCuJ^5YX\LL~TRE
+    |-Qu1U]XT%7G?HK-p[D#1s+D[a7*o]2G~{\$ojvB=j}}=JGz{ZYw;Cop7~kYv5zV2T?QVo;vOGm=
+    J[u{nx-jT#BRRk^>XB?R12]EoejCpe;*TX#E57G_kuS^B1uDKTs7n{>xk\!#X~C,=5\Y}IV7u}{A
+    o{*!>]lT]!Y<&fR\V?tz+xO]@v?XE7Ie1a=}oZQ$@1;#hp!_[]aQ_7#Fs|-IHH7~;Vv<D^;5R#;]
+    +>}mVO$\-@CQV;-xTT1AKD4"]@2Kr<QKA}?CU]u@)zo;^avarIX~l^Aeu2Byr3A2\G7;A'-now&~
+    -,3$3ruWeWokUJ\C+}v/o+Rm^,kJVpD~Gaw[*zxVk<~}YH]Da=A^Rx_KK{Y*k5^pw9A_Z*ID]+X{
+    l{~Alv]*,kVkX*G@^B^K\;*Z{E]TQpujOJ,lwlap[,vEB<>RJe#<1=U]nvoU;Q-E$OJO7Q^J5a7s
+    *Zz\w_3rOBYmlV"rOV?_PCK\onlOaIo<j,Q&{$5WM3_!xi'rHJoEjcD];IjI$E~alH5u-<Ah,OR\
+    ~xYo'>RsZ[T]wRk$I_#>]7}}BKTRl[olli'URXT]Vx$^wGTJ(A<!E#nYBl^eKEoM\O_e2EDk\Q!$
+    zkIQyo+@**>,j^>Bj]j}r}*!p#[$^PriEvte=kJ}jkx{T{@s!U@x$=?>+u<G]R*,Uv!Sz7oi+\\-
+    G1,'~1DrrV>[D^7[{,Ba~]Tx@7>Z;H_>c/8kDxl[ZeTvQZ]8unn3#H{\^IOzVoI@\=){n*nB{WAV
+    H}o*+e=HOZnd6G'zj|*-XeA-Vz/+w]>EjZ<p![^Q^2QNTB2?wV$@A<nZu]]WJIKzZjJDE,aa3,{G
+    o3RO5j#@)Ea[r$r<GRKz>W_r2}7uueo!J<^oG$WR;{T7K*o_O}B^=4,$EpQ?HB*Y]RT}^Up'Vu~_
+    QB$lkA$r5T|Iw\T[Vz,4mTjm,W's76^{5in|Bi+JnVE$$5~pn\l=tE$w\9]r*A,$;,(E^_B*o=u=
+    Vv57YA?$|[U5K_kH#_DzJzH1Or?^J-XlG2<x=l@_}@$!^=!lu@lnCFf
+`endprotected
+   
+   
+   
+   
+   
+
+// Assigning wires 
+
+assign received_id = (|oid_mem[rx_id_ref]);
+`ifdef QVL_COVER_ON
+  assign w_id_was_seen = ALLOW_BITMAP_STATS ? id_was_seen_mem[rx_id] :
+                         (rx_id < MAX_RX_ID_DEPTH) ? id_was_seen_mem[rx_id] : 1'b1;
+`endif   
+assign max_ids_real = (MAX_IDS_SPECIFIED) ? max_ids : MAX_IDS_DEFAULT;
+assign max_count_per_id_real = (MAX_COUNT_PER_ID_SPECIFIED) ? 
+                               max_count_per_id : MAX_COUNT_PER_ID_DEFAULT;
+assign oid_mem_rx_id = oid_mem[rx_id_ref];
+assign oid_mem_tx_id = oid_mem[tx_id_ref];
+assign oid_mem_flush_id = oid_mem[flush_id_ref];
+assign prev_rxs = oid_mem[r_rx_id_ref];
+assign valid_flush_no_hit = (flush === 1'b1 && active === 1'b1  && 
+                     ((^{flush_count,flush_id}) !== 1'bx) &&
+		      flush_count !== 'b0);
+assign valid_flush = (valid_flush_no_hit && flush_id_ref_valid);
+assign valid_rx_no_hit = (rx === 1'b1 && active === 1'b1 && 
+                   ((^{rx_count,rx_id}) !== 1'bx) &&
+		    rx_count !== 'b0);
+assign valid_rx = (valid_rx_no_hit &&
+		    rx_id_ref_valid);
+assign valid_tx_no_hit = (tx === 1'b1 && active === 1'b1 && 
+                   ((^{tx_count,tx_id}) !== 1'bx) &&
+		    tx_count !== 'b0);
+assign valid_tx = (valid_tx_no_hit  && 
+		    tx_id_ref_valid);
+
+assign xz_detected = (^rx === 1'bx) || (^tx === 1'bx) ||
+                   (rx === 1'b1 && ^rx_id === 1'bx) || 
+                   (rx === 1'b1 && ^rx_count === 1'bx) || 
+                   (tx === 1'b1 && ^tx_id === 1'bx) ||
+                   (tx === 1'b1 && ^tx_count === 1'bx) || 
+                   (^flush === 1'bx) ||
+                   (flush === 1'b1 && ^flush_id === 1'bx) ||
+                   (flush === 1'b1 && ^flush_count === 1'bx);
+                    
+
+assign id_cntr_mem_flush_id = id_cntr_mem[flush_id_ref];
+assign id_cntr_mem_tx_id = id_cntr_mem[tx_id_ref];
+assign id_cntr_mem_rx_id = id_cntr_mem[rx_id_ref];
+assign max_time_exceeded = ((clk_count - id_cntr_time_memdeq_ptr) >=  MAX) 
+                           && (id_cntr_time_mem_current_entry !== 'b0);
+assign clk_expired = (clk_count === MAX_CLK_COUNT - 1);
+assign continue_min_max_check = ((MIN_OR_MAX_SPECIFIED) && clk_expired === 1'b0);
+assign id_cntr_time_memenq_ptr = (id_cntr_time_mem_enq_ptr == 0) ? 0 : id_cntr_time_mem[id_cntr_time_mem_enq_ptr - 1];
+assign id_cntr_time_memdeq_ptr = id_cntr_time_mem[id_cntr_time_mem_deq_ptr];
+assign allow_partial_real = (ALLOW_PARTIAL_SPECIFIED) ? 1'b1 : 1'b0;
+
+`protected
+
+    MTI!#zmaAG}53|K,k!h1JWE2Rsp@9>j'3e1PNw+J[GmWX'i-E*q}]E[XY^K*,A[]15l/mIAHHT!$
+    =3AXNE}3zY-[i]wJ-UY1Vt=GIp7Y=m5@,['j6}<x@o'Y@[>m,%*Hnm~=pOhgC5+T@zvU[z7[*pem
+    )V,<*NJ=jn[Z7waG2$a=-\IC?xe#5;j]Our7pi1{VZ[X1JeRTu-zjEp@ar7!e~x|vx}zY-}\"!lK
+    ['Avxokj-$V7AaHWl5$?!\O#B<X\WQ3R~5{'C*AxTLcRFCmBU1A3HaU+jH=8Q~<{}auWIRiEKV5k
+    _Y5U[WK31?[Vf?_X[\!K$V32$1K},r3C?YQ,pnEW;YCp=z>xCe'l]$GkwN]$RJ~p2j(o_AY;eO-G
+    Q5C}&EX\E;>z]X7vrT>X?s2\-W1ziXwp'k[arIulV^Lw'-ra{EDKXxe]sWQC@[C;|Y<XwU<Y#uE>
+    7=s]zgw{lT<U5[Dkv?X>CB+eJl]-I*!zKlvYp1sXskR$VBJHB><12DT'w>W<O_}3\XBk;w]mWp@D
+    Ik[3O=]DZ@{I~'y.e5=v[7^#eJO-?oI{AEa<~}\B1~sAGH+_\saVO_l##1-|TUvvl**m3'_$j_2#
+    ;l^~lU>j^2XR,zs!O/*ju!^^-pRk~zB@l3VFBoO*|^D]B=@_Z2s7f^w{}<j,?on!D1Zw*n+Y$l=3
+    7CVuX*^rOP]lwBoK-EMVp<o]'!J+{C?O^UYRW[H5i$ij2<_rev_?r\vpe#\Ok<$d{=vBko<-!REI
+    Yw^uDzG@e<u[wRnR-vKv2}VX1+H+]A>@l+pu-z?~kU~To\$Da*_[jC!Ufo#+JGB?mlD2eDOlosI3
+    lmsJ5~CZ2Q\7O@j@-u1wp'W\~8]7iS@D3QRQ5<DZRuElQamvk]_VWQD'~J{a]AHDQaQmwAil*!lC
+    EJG{V3D?~XEw_+:qc*aY@COH'!Cn{}!_\h!S<5?W;>G2!}J3<*'s7WbkoU}t5=[-~V[se;2A@G}e
+    i1VA]?Ow2$?v,?TE-eVUe@5=V5jA**GX;Y_[UpzCJU{o*zHk'7a72B_',mBTlpkB_O}-w+Xmkr\3
+    }E7d[{D>'iK,@Im\&=AQR^e>Z5]fiwXk}mR}aCs{ir[H!]-Ue,J[z'_@Ij~O73COwwHvHBAU2wM{
+    C>wW=!RR~n'pz*B:KI^Yhvpz;jmU1UE]>(|}eZl]mR}R1a?,ZvjJG}D*Z{e[aE$Dl=Q9!}SW7Ew-
+    E-aw>U$!VnsLB3no7xmRc?7X\"U=o~&<]-ceW>Ze[}Vw}[<_!n~p#11!Clv{Yu!$-VGG-^Q}\2kw
+    +;B]m*![HjoWaKV78uQ$~h%TT<}~']V1Z@*C3]$<p'i}~ZCEIa7Oi7x(zR{lJaG[jxT=el{OGs{\
+    y[O@KRZ][741Q-BH5j#*KQ$CCm_sQi5^?H{?nYZjHnwz<*;VJpKo,U27Mzj$-,3{se^]x![z=D_w
+    !3I7TNP[Yl1@<GOgXV;!rR7u>E@X7*Ovtg8}YmE,r']*sZ~_?AHnA+GP7_3VR6=DX}=muQN'KziB
+    skxD;wJ@5_TE5nOrA\'CUsus_B[131B7\IrFC5Jv_<{=xk3k}ElH-1D}xp!l;a[-*G{$D'-rg#ja
+    CF.uppkvIK^5=z,0Xn72XYi[?+U7Q{D?KwO\'n+~Aa1ij7mK\ljH8oI+@2}r!QFGDn}rr[_IQ'>!
+    o{3]KsB.'s''@R1'$zH1^_ZB^^3!QVnA$S_;^#:Gn;riw*3PRp^v'*=ZbD_aa#,K[w}ZTu<_iL1-
+    H}^TeWEJnnow\nIp=W~U7@H\^ueB^U->arXTs31@@]o?oDzI_l]AXaR!CDXSNw7vaBK>1$pDww,5
+    a+1z#sP+7_GIY,v7eHC%K[QE5Kpanool^u^[mVE]CuV@!r,muI^[#+@5V!D@h8\?Q+n_K]'Q!YFJ
+    -m#R?W}kYl-l2Qo-aYBeAH~[;Gxx*!I5Ql_fix<?9"g~e-XK$<I&[p!Tv^uW<p;7^_l\w5pRlJj!
+    !zJl=eCIeT-$Y3<nusQKRO;}1I<}J{lxvQ>m/=nxX5HD-q7-R*srOs{YO5V<Xw!jplo,ml*eU!#o
+    CR}^+p<wDr'x^[jTpBlxJ_Jr_T4_G^?TV^G_[3W'EZ7"A^[1i71iuv}pXB_u/XoDr{7#E=n}i=!D
+    GW_AxyC_*aV-;{URNMO>gOkIj5E;1-x!>@}nAUeH]{5kp,BUm2\}Kxsz$vKuemT{},5Y]jDZ\'Yi
+    5-D$-*U@o2C<{rGXm#jGVW-jur_\EV3oj'=\=0^ZGC|&[C'[+Gz5wn$=Y<Uv2D>$2n[\5~Kn?D[U
+    pwnY&jxvkl+C-I1V+$zA@6-Ex{r?A;n5-<p=k[TQ5>B-1=uR<-BA+u]UJDFOk2r);-Zk\N+U!poi
+    *^njn1~^_G7EXvK1~7*WKpo_{Iaom~['+,IKj]^$vaOe\Y,T\[QsB1zDv_'$2n?Xn{_Tl,swGIij
+    <nc~YE$-wG$quUZGo-R$H5;,Ap,1;V2+@sx'qE_zkjQ][w*Kvep>wo@<!~$H\*jYoJsI["f*s'zA
+    $-\A>uU={JsR5zCrUnWQm\1#expks>pz'pozCVr2rDIs3_$z,2}LJw!^Oi\u@IW!Gs{2uD7WwU]5
+    F[1@KUv-ee!)3'upW*OOkQ\~H]oU]U~]ToY#.HwIiHE\$G1Q_-jvYQ++=e'$-wv3v,@{^n<~5|F@
+    1x${7m=^'&?]ATcXD?E6IE@$R=e~/v<p;aYBi<TQrsx5;E_R^r{e*G;$He$?\FZHxR1'ZA7!!DUe
+    lG\E1vComeR5[{E>H!=%(EZVagomjBen-e'X7=72BQ5\B]pv!U~wje<,#oJXI7025_^"}Qjelp3>
+    A-vsOQ\awl^Ue0e2V<}oInh^;{<W_]'OgYEHs*J7-~,X}XXOEZj>u<<_CtsABwuR;r[W{~$RH@V'
+    \Q7nv\Z1ZeH-w@X=3ClB\;Gn@k2{]?${YJXImZQ_\QV{D@mno?sE7z;BQY1O[[Z'u?5*v'2eB+{G
+    ozBmVB=JTmjvU$?CzA3wQox>EK$DUlXEn#pIJC&I,]5E=5-g[Z23JE{Cr+vTZ7Y!KTV;j[-CgJaV
+    BAwGiI\'[zE'C?joiJsFS\&wX<r*s]vWB~$uXjDuAY\3][ZGJ{~/Sn1!D@,ku\#l=D-p\Ll^~ZJA
+    5+xCu$u-W=\JsAJAm7;Yzj!w![_TQ}J}wz_-IJCw]>v#{;!ToJQDoo6q%,pb^{lTiEpjzHo}Wnn-
+    ~'n$V*jYWTKYR\kABZma&I-Ks='rBZXAD3>R\Q*x{1zYKz7zo72peo@KZJeYjRG>]o5$,H*HH[_C
+    ]HAm$Uj{x[5GxvzIG+RXT\wB5s]~r7#l?%~n]i]#jUY,!_s[XZke}]K1~CJ-jXD<l5~nUslKxub#
+    $Em$\m5?Q7x^OWV1il3=TZRlmxzO#$_vc{A}BBluI1KE}iE#31r#,i1pE!XTIsw\nsvJO}2[Xt@A
+    x}kwrXe}VZm-^7BZR2X*A:377OIu\iH5\_BjBZD?EO'K{I\D[Hmx_G@'~!^0k'+!WAuHKXGs;Iko
+    RmKe1m^Q3*'IO5'37JX^~s7axTo;q'Co\El~~kE=eT+C\@.@*+uSzO!2:#j*}nTH>g&JGxnE>^>G
+    TQT_jn!>_V^GGOpsl$BWE$!#,DzQtQED5x}l{LL>pu=]oma5?U*j[OBqP3Xm\BiZWr+rWm7{!=wm
+    [?V^1Y'2\BQku7]W+Y~@Xi8Y=^l:}CxeI{uRI+_BjEGZ]vRe]@_G;o?]*_K2(1R>VfYGvi}22,2e
+    -Yr,[#(rCnl1pTz2$,tOLMW}22x*@UlD[[<r$QaYj!]s]'}n]5I_m-H<r]oW^Q-E!O<<1Aar--fZ
+    =Y>:QCpU[G*TCaaB^wZ+iQZ^j<EA,Zri~RpuTjQxT73]"}\ikv[!$ezoOQnHHRp?^7*G'LRRQ$CL
+    ,K]52wAo9kr?VkYkmBTu!'!n~*]Qn{XVva_=E^_x!u[T]nn\{x^Q~us-YxG}{%]j}kf=IOnom_\6
+    ZrVA>]\72oxa6:oIjii5-C2B\B=,vs4>{,G\r<p;BQa\elGv-[iH&zv,w8Aao{f(s-}Cn{Rv=@>Y
+    Y_T=@UIle*>uq~z<@mH~jOjHm}|upX;^-[oJssv;*s#z>\G:s^j;5\{e7jT;<Tze<9V<o?AeS~*K
+    n(H,\!=/<hR^#GCn@EAlu}0[<Yz,QVlvTO5E+mjVrT1NfMwQ_isWzYSBux5X'Q?O~X3wQ7UuB]+J
+    7lrIz'$B;QHJjJ!0OGi#pD{onE*=1z>5X57VBjx@R]!!]ED]C@WH&=$zvQl\5LYDeKhB+Xp2_D~}
+    ]j-^i+#VEZ\3Rx]Q*j3IokEkEsWO+U,B'HQj\mr3DV$#xmjBV}Dl;nkOBw+y,Zj!Z7D{Im~IkGpA
+    [;{'];=ukXO,KQp~MqrB}^a[v!D@Z2A[3_1A[K'@O!nTBBU\@m8yUnI}9]UY3Se3\n3$wnQ2TzXV
+    $]$'\ORoawK\A#o7[wJDBQ!p_De}Aon'+7uw-'Z\xX,:G?D'$po}5JB3UQAa+D~*#}Y#3R[[FeTY
+    ?|_Z7*],k7UD,#W^Ij[@oHV}-G_3_OH]E-jaI_r]E@77uJ!,YYHlX\l'E?l!DX}Ysn_Ek1^+Y=>A
+    waH[';knmOpU<^C?3@G$\QjWz?-TV,@7C{m5@TuHX*vs>U<TA*A>=~ll-OemIm#oO!Q?jA\<<,s*
+    !}'W[Q:$'7A;&3Y3R3<x5j;w]AO3IfJB_?RAU_[3lv|W_e7'nO-GG/Hw}YQ-U5~jx=$>x5JwHsxR
+    nT_se}l_R=ra1U]EDC7-nAco}>]p-!x150h]Z]K^jp]2sA!-I<'o;>uA,o,:j=3B!DeiKljs!Y+w
+    'CJp*E}#;zn_zD'1k7\U7Cr@y4'aTan=^?~'VesKlsz}-!IGGJQ[H5D1~5=su^[\!#?H+v~<H\pQ
+    IH;\ZT\JVeLxOXaW-^+(MsK;>\5Q;1!rGI2IYxsaEDDVp\W7ur$B]Qz}Ie^jsE/v#-TOC5rZRYlx
+    TX]B'}!ww7_b]RuDnV5=*x_vv#Z_pCYGknv=3A{1,rA~o$-3mzkB=}kABK,zk,@WoiRT]jr,9+OI
+    \IknevW+U<x{]s2C!?]A[)&fkRO!vQW3me7[tav^w';wIR@$J*iDVL{-lwWA'@El+eO7{*jGAx<s
+    J$}aJvCIU{lKYp=7UQRWKHBXDvBW'xCi<zxPx#C=WGemq#A*wGaT<Bl}'=^YBN5UDG|W]HDD[<#}
+    *'~BpmoneO=IVGQ!H~Q2npj.PC5<'dzA7,vX@]}WlJE$#72A+Gw>x[Zp<nlG+_G}{;kvmUD3>1ZC
+    O'$5[Ol~K[AH[oOKB7?E-\o[#o=k-+l7U^>N5K,;iQmK25WQv#a[i\H?xn*WljA^_+QH[2<=*[>V
+    kD<?V,-?H,R*xXu\aCC<@[s{!E+O\[KA[]$}ij+$uU-5rw'<gIT1lVn-DB\^k:SD=+W1nJCl]<-Y
+    xED^'D{_'wGGRzp9x]Ae*a-=DkukrlH$XY@T~_zv;v-UaT]]'Yip$Z][>sz3i9cO>3=VR[?s#^z1
+    ,RXj^m^Y+RZ2<Y7~,UuBkIe[@T?'>nTj|nBR@3GO!'7YmD?~7a5?CPQ$BE5@{X'*a{_v23DoT~CR
+    *@#YBp~H<H0Y!m*@}sD_?Hs+r>X4W{Dw#wX]a],a$una1Z+x_kT=E[Q5\>}om\joN!]<}An**xW5
+    lQaUD,r5]Vnx-~7$BeOeK}vBIjOpDGa@UMIqEZZYjmz5(E7p5yGX1wp{=kX}p?7xk_lAGo]lV$}n
+    Ia,J$O\U3[>+}-UlUJ-wBo^}JH_je3<w7k#GZZR-au#B1sV]-JBo#2AAaJ~>T{eCoI{1~{#>DwZU
+    HCTs1iV}+Df*^!jr>W\zl-G{X~@Z_\si-^~)j[Jv*KF,Je'm$R{={uxBXp2-$XT1z4@{l>;a1nj\
+    D@QJm{TOv~xuK=B*DBeY#kAH5HfsV+I}>zjXx3V^>ZCX$[G1lRu}1EOl33pTwDaF'pJ>_HO'5U>;
+    ^R1ZcJY<O4b*^5[~G{=5D{?jT<Z5sv7toBz5ZnWJ@==xKEU=OGI2rI<$B?a$lWw{GCiCW'~HEORZ
+    <vv*1wAx5+z2==V~[2CjHUpj1@<D^|5322aB^'Y~<;mj7'b*]?=[sY>]!]nf~l%@D\Jvv7['n<pi
+    {{I?O\Ron~5}EBDA5~+M7Ri[V<vapmspvQG$k1>w,IYlf'yCUCl"\YH*i<Y-X^TO=;nC7'U-[X'G
+    ^$nCA{3s?RK~5J-,R[p*s<*w[]-J_wrxs2p^,u]1<_!K\vA28nrjH}6?$*^sUvk;-7\^@\{}nli#
+    ,T>~wr~{7n[E{ZpC;++BW[C$m^ln*^Y1x*ie5=T?^JY'QZTcV}+Th0R2Es__{5+YIXZrKJ@GjoV=
+    w-jz@_zT*[*3z@Zza<MRV\]1EJ]klU~uETR[Oke5j>HvHDE?GmD#nTQWQ'1{<R_Y$!{~{~]!n]<7
+    +-mDv_7-jQAa__*vJ$$ouU*I2;V'?a@>Y7DJeY~$^{eK+5ERKjk{^nYxY2$=aKYO?,ie]{pm^rpc
+    emUE$D>TWr@{q7;52:IUwH$n],YjHOUGVrBXzup$_BG_YnRunmT-W}^j\'M@^We$;'X6J,!s1>zW
+    5unXVKaa[E@!7?rkjns}5R,+zKwB=3rH@UV@KR*\17~lR$YAjG}?EVp*3BYK^~jAVeo?[RxXbj!3
+    5;A1DkDW<[Oi}LRn;*yr*BK*1>1Lkli=OJx^7o/LI4un]'X]Dv3\}}n\o~[@TOT'-vne-![8\Ov-
+    CE2leJ$Yj\ROXGl{nX,iVkzTsQnwXzj^ACs@4!DJGA{'v]<oo<*-o$IikoTrK-VXZko>v>*@=0]}
+    l]5G$!izA>en{#;wr\\m1K\Y$3l!BVQ:p@WRQ~p<J*OuxB+>rO3ZGKH2w'[Y$Z2w2CJ31Anl{puU
+    RjR=OnKVAjmVAnuR>l@,,!DjsA!e;v*rGrCWpfYTA,ZDj?s#GW->px,A@QQ;+}>>WVZp+$*O,-}Z
+    [>GT1GJ-eT?lv,2ODW}TQR5'@;H=Jps\Z~_BGnn\\_Q=3}@EY5=D!}{Il<Q>XKuU$sD$joF-,@J%
+    G>xzK>XY^ej$;p5W.vz1uOCJ^re<nYu,s%ms-?!lBY#Y\B7Y$=^~w-~EsYslH,e5]T'W!A+XOe9B
+    lYEoI+DnC3p7{BU\*,3[;r!|e$*$bp{><7~J]xD+pz!v[}o[e_u7\*A12zi1{=J;[o},!7di\iXi
+    Ex~m{r!\+$7,3$eEwW7UGGkwHAo7no<x;=U=e~ow$XOb-AOjR*$l!a^#,-THs,2Hx]V1Z<RoJ1GH
+    ZGK_~8\lGYdDzB*R^C>z1{^v,'2X1]B'G@'p"GB+~@eCR]nIKH+OQTBVwE;B!zlAJ*DQW[Y<AExz
+    V's7vD;D3lkI;*$'@W5+k+OeW=T_u!Oo<rvOCxXmB5-w^5{I_ze#'&geps<Y{}oQDETsGIjI]UZ5
+    '+#oeo,;j}p*uGpkwKVYOlsTr*v4+DUOY[o@U^wY_BpGi<\IGO\W_@X-G+XrDY1IpT'wUnC!dtMB
+    KT'GI~Bk\Rsxr@;'1@$[wp?%uT{{AG}iQ#]5Q#el25[Cv_IKm5<JuxC}n>vE\1D;2X^<*ap~l0QI
+    +O1Q!O=ra$j{^iazVX_}je$'L;U'J7xD55J_T~'3s]eA*nrZ3oIxZ~p>B>Al}$]@u~X_jQR#WXET
+    ^|l1Vw|GWGJ5TwABXe3oXBl->!WTQH_\s*2+7Dv}JQ5_O>]1s[J|*O7]C=@k\B2Xk[JIiY$pIlzn
+    #'xG^YAK{]pk_nR-^{$I1mCr}\3o<Xo]k1a}z1*zXEW]VW;kI3}vQZ<z+B[5Z53+E!!{'G$e$5*I
+    mr4(<RCjyU1,_Ih?n=$E#G#l~E${^!<@wz;&Y-_3~^'Gl5V[-}1H9GUsAT+l[[+xI^XUsWsRl.[<
+    ax#\B{YoWA^uUzDO~@?7lV*?!j{]H!e[ik_[R5Goxu^mmW_AjlGv!^W{oEVa^Db,0s\\~PR]\@k'
+    YRRJp;D]pr25*Y3>o?,Dn^'(CCXzCVZ=xkV5jH;oaae!,sQ\HoD!}CE=WwpRY,D?7ETQ?zEGEwpn
+    Y*T}P[YrJyXB;3R}-m[3r-![mBk,}E5RAk!D[s4Z-lz'KTr1+rY^@QlIkWeCLg2pj}Q{<]T{vvg=
+    ,3aXr3!2Lj~HClXlU1}x*^J<Gr==nyIZ'HXx$1ZX='7sYT5?>ZFYVDs!>Rwwe*z<V~{Ie~lualR?
+    5pV{\Aa12UD*k1rosDG*mE,x*GGO'a'3_+<VnVnv3{5l-+B={asCB_JJxK<g@rvuh!az2VQZpl,A
+    TO_A2\HID,j#u^zj?loK?PORj32V+$+RX$wI*;^VuDG@Gvntpmo}Nt^B1rTD-l>_D3J_jn~^VIg{
+    ^!j>nJURHOvQnU*K[@x>lT,-]EOpYXeQ#C5{\n]8-jQQse~Vu1[p3_DXgqVsTUwv_rLe{e-'2'HC
+    =K#5os3O22~;,eG|2,}'wT\_AxER3eeDT1!2<5mj'Y*!w-xB-7e@@nnr,>Up9JV]E{_IzAzuR*Ej
+    ;\=^V7jC}Rv#R3CQp3j2+?CGk__+-U[ZzHD'EwU_W_$DxTeB3sn32@5'Is\<TGm5oos[ln-WO>^Q
+    jo<aoE@Aja$3[C>A'[2vv?7HK$r}^]>+Wo3}J-CQ{IHjQ?_@b|lm<<W'BBkDE$?5V?Duv3EE+s[D
+    sZHA2?lVEJC}^@^HXn[lR?Q/CXo1h7!-H$YX-#=lm>o2nk5QYcO(E{^,]=U'j=^eT,'ugQeW7e#W
+    +n=C@ou]WB<wRNp~<*xAYzR[>'_AW!-rE}lU3OYXzks=Ev+Gs^yo*QQ~>{v^C_;wD@2ZIVzAR_2O
+    ;^W+ED3}io,HUK5d>_V~oXDm3Ow^0Vi1K{$uko\Z-\BG_Zv=_;aK3w}]!1'?l6x\5,r}CEYVWCwe
+    m@*HJ55?G3dQ>j$Ir*5E>sp?nj\I{'Dj\Ia\#EjiVj[CElK=}>s25Hza,s@+-{CHCx$Dl^OTwT@R
+    m15p~BzZ'jJIn2-Rt_pAszo'U;zC2,#Es~UHo,B<xxk<\O_A5\JZpOun]ps>A[*R>_;*-rK~oaCn
+    +U\V1Y[uxz'>J]xoQ2T=_s^Z#HV$}nD[x]'UV>}jmx+u5-H3C5dFp2G7}2+D$B2Y5<T1vlTr5QIo
+    =o;p={IOk^Xw#sW_y3z+XuOXUV\}@7xT@HT^@>DOs\,!UXjveXYw*z'nK'\k5^w5m~>=@OCO_\^+
+    Zp>BxV^CV,U,Vaa>CElelHpX'3jsZp<;Yw[55us\OYx{2;<xV7'1_EBXQ$3lU>a$osYe,qACJKCv
+    GagD;;Eei3'lknl*=@EHreR$E>KKp=H;p;Ty2Do\k}o7e'YnvhCX^XK5}sY#$w;=R!z{,*_iV@<a
+    5WOexklIu>^V@KR'BJQJV1;a[K=aK!-1,*D[r<NQ]KoAAx{RBBrgp_=r-S-Q^+O@^5zKU?joDXNp
+    '$m8MQAW^Jo!!;[j?r\uR'/Vu_!3}{nTU3HJD=-GR'@_hYDx?U\3Bjr55[H~X$wWCWDJKmvJ[jw7
+    k1CWK~Hx]$]ATAGTa<wT5]Xo2;A=Gk{Iw(}>53KCwTvR~z+UXDr7E{Ix*<#XaD<IGml{IQ;xnE?[
+    YGjxkOJr7m?H7-a*51[?w^T1CeO}1>{l2ps@pOGivO]_JzAz;w>\#;z>HY7zG_-EneAUQ^\~3J1#
+    ]5e|5z=Qa[$wzIZxc_KX'=vou1W_!jK{~RDe~o7sA&,tL_Husl@s>zEpi2AX'9w\Q{Im,pp_pI,I
+    \?URsY-1]eW+J[C]32VUK?GxUU_O,rYjr<=jY-YZ;3r'j!ACwl8;eK{wTv??U2uzRBK]Q*mQ+wvX
+    QrJ~_,n=ID~w'u+^sr^UG?}HY7AIv$JJH5C5E3Qe>j_|,?]IrzT3|?E}?e*YEgjxA'WY=2k'Wl\m
+    x'pGX#eB_7DeX,zI>vrHz;BTp_)\on]rn*!JxY\pHv7J$QEoA!R*1Cz53<Hrrj]5~(L;jwEJ^l=3
+    V__|/~HvK+QivEQXzYv!RXeX~Vw2vG3ek_?X#zuQ7WToiw=5TfeCo1G]p_:k71\53\-YZE<F>_+k
+    17ro5=xK}pBBolmAx+_]{sX\ioDO.=Y]dDNX]DnRe5Z-vEw]mW[t6xp,OrJs5{ECsOVpkj'z{Q-p
+    ^upHKJo2Yja3zbbvW$ljp$D@pp@rY'ZBER2OH_2ZQqu*9y^J}pv<YvH['$\xpYtH^TwI7#ouaQI{
+    <T1xn^aYE{=VT~Gxi<~B+vO'tjC-HPjC>l!{jk0zW-r3{CBCjDRF#lUxITYTE,e1y5$G\oDl3o[7
+    o<]!kRz$3kEBEo7nH1e+<w_#?6l4x7Y>e]U{IXz>]{Dp2li;ns3mY*VACT'@@R2C=*@Tb1~1uIjR
+    XDA!pG$w5!s^I$XWJsv3>~<+?UDe+sl'mKCMzriC=!'Xji=s\,Tsk5,a<Hv*I\7rT^Gaf5vx@oDk
+    A2_neATj~Y+&?ODU_[+!aTW{,uV;~p2Z3\jH]1HRoTm@:#Y<Y{rTlYY1;\m(Kj5a!+vjDe>sQ;Vj
+    VvXD'#,u{7=K^W\7|z]{,~+$'!sT[UAH{/e]mpt*zpva_RK^CQ'lA}kIiH!N$>;OJ5HWxx0{z5HR
+    C@="-lURX]5uD;_3{I?rCC\e',n2uAO!{p>^QXRHTE[v2>Z3ORA@6};Qi,p@'Zws+D+,kORD+<UU
+    ;oTBCjxTWjO_,7H!{7QnJeX1}"%,EH+BAZTxEl[tC~mBWrr3u[@*Y{oQ[YZ340[D|kw<~Jo-XU\v
+    JH\7'DRQUQm\jW*3!=@@u_ZJGs+3@jk-7u1KH=Q]TJxJjjznYeiplV21kWIszFRp{G[u]i(g+>z<
+    T'^1xrx,_~m}3Rn18DlJ~e;2+rAD^pa~C;'^1xEGYQ\'19{Gia{'Xu'mle*7[$*z!pzv3Q~Q=~e5
+    *-$o3]U5eOW-J$\;vi1n<=\Iv=-D,XJa7~125XL~+_>vR2wp3Du,!\urjBjDN).u$Gx\Iu~-rBr'
+    rE~#5@u{O$~vDn;C_Gs{sV}v>HKw{3<G]nGz'n-_7<rk'[leu^-[_i{%]n@Hxpn;=M1W'3^Qm-?>
+    ZH=-uve?vJeck[n]G\^[A}KUCJ!nl[BCsw<~CBDaaGAzTpv^~RZs{Sk{ATWvp;ViXrmrZoeV{A+}
+    T1pkCTmpHs>IIE>'5Ic5~+3EX[m@D[Bns=5U<ARZekU!D@!ARr][7ZeC1<Jk*JYV_W@21;O!l=5_
+    sv,C#>Dl%kj7\3]BKxu\v\>EAo*{=ebCUT_Al5i5*'3rsn+!e_u+_>HAp]z*@ra:tB_2pOiYQ]=p
+    z@Y's}eI+pwI'2TxJ[_OzsIIr7X{$]2Ri^l{2*n;Iuw}})#IX2$DkYz12uvjwJ7W(vH'BNl;,JT5
+    D+xijoa5V{7JWT@+]zQa]5U7EAp}];l$<U:wVj$-^Q5-UQ5iw1zHX[O#e~Gpulj4j5<JrNv3j}$,
+    {v^zo~!}#^r[^x_w@+<v3{upU-pAw\WVGkyRUuGVOr,\_VW(Gu[zr[evXB}~#r1}}hO>][J\5kmV
+    w}q$U*Om]OWZovv1IUkKvVn1oRG<8*W\\k{Rps[kJ<r-@*o#R%3oo,j=O!'Xj#s221"CzWe}>7=1
+    +Kj=<<zC2*rZU7^Y7*KaXVeOx,X@zYK^#v],xs<?<O~9We[\xm$VQhcUCI]*uVK}\Ga_KW=7Z{kG
+    a2T?-;XQ>VOrr;-RB7@i]BA$}<B,gzjC1?szEeOu=1Z+T$3<JD1>_X=u#_3$#aVWxd'ms2w-lpen
+    ;}K+7C}X7<-'D2QKa]$}3pG-BYx~]A$ap+StFOQRZ+(#1e#w]zH]vEuY-3E/^~U]?Y'Z5l}@Z\Oo
+    7;DCw-][!VZm~jJjDjoHerX51rO{E5lv->wp!n]He+]G_\KH0C}-!^-=eX=5'e^>l-H@rrIu{*R>
+    vo+]~L>IHW7[ZAQUQ,zsxR\EJk~j@Y[xmr57+2Ixr,AIvwoJTr-GQeD];~;Q<1WVJR[GlO9iY*wR
+    #2<|%7n<oQ5arz1XWoJRBox3#,s>}Iu==Ps[iW]aA+oWvxl]R1Y!-,O-j'7<v;l@Q!B2*IQp'BaX
+    rDh=?uIep,B>}ueAozeQ]a-Z+$!ax@T\${<,5[mu--Y%3Hr?,+vs@lnpEao3w-@_BIV-3O_iXEOG
+    AR<V=EW!0CT,J@C<>@sejN$a12hH=aD<G=p3p}@s_=*j^m~=K<7MU5lr[VQzwH]n*izIpWmo{5]E
+    ss5{xXXwmYlYeODWX{\H1NA,x{17nI"^aXW!DRj^oQ-%,CIse#_;pUCn&H\1u'>vYB!]_kQm,7AU
+    {uC?kqI#>jsZ+[fL5.^T\{e]XE9P>53KFRORX#}AV<AJokI1{Vi7~JnJJkDx21pXpX<x,k-GDn}k
+    @,pi}rv2I-{}_7?K]}0'ET^VR'QgX-~n#wzsJBi{W*DxlA[WBI+*E?<lo#sl<*RvhnXH^_=*R'HH
+    sdDoGRH1Von\^^~Q-IZU\TvvHe{RA}liaW-nH'zIOz*o<_Q-ZUTO=[}#xj57=sZr$C^*z}IHzJi-
+    o2g~Q}J>l7Yans-\Y\1rjW@$]**G}wGD\+xEy@elB~7Xo7r;;@I]7'A]G#E=DYv^_<sH;m>Ew.\l
+    ]AZvpCzL-IKRDZ1[,^pZ_J-nJODBWp\i<zBnh?pHHD*urK+V~THUK,j;Uv<}sDc^27>$usjlWDCu
+    $IAVsOZ(Bj_jzpG{u=l!>E_$3Y^Q|rjp^v<xD~^<rI@><(=k<AvE=mw\+Rz+HV9}KCmIn^#r]p~e
+    5;I~I^$0JHT@QTC~E=!~dp^av^25V(Opk[ke\2B[{W($k-\\oQ+qajE33D<+r#Du3pso9^7<Xl7p
+    U>\Ool[*5Az2sEZ1=)T7uQile{(^R0>OTX>an@Lv+!Bp;E**Hw7R,_^+1<#]aI_p:~vIz_ij,z2e
+    1$Gk;5=A{sKY3>jQV]nV{?Y\~Iienn{<YAT^xZG-GWxB[2T,VaY+*+jsl|iHB_A53-:1D+sZT@\'
+    ]{,xH=A#HoT']O?-_p^-,oC}i[2#C$U<_QHM\]BmWx+X^~_<=wR*v;D-Do{wQ{C}dsCU>1V_aE>$
+    ,<'!;xxplmlaE&V^E7Ua@*?}a2lK\~$*uO>C@VORZu;TGuu<ToYX^;k$+epoxk=JsUB"zlJJe<=V
+    'Tur$QA}5nnDU+,?^?>*y>=\?GI}2Kjp=!=2lx,V]"*Z;IQ,Uv-p\,smYD35EzOus=A,=@2^vmII
+    iGXVe1\^j;-Tp,]I!mW[2wj=>R^23p}Z'<j${ku-KQ]L7}ARc5a~~FZQ-^{Y+#%8m<$#IuoE5an<
+    (zGCe!YZIvkzC;,v2zzmlm>{GCK_2IH7jI5$x.-,H;sOJOe!HXIXA'.}x2XR>Y}6!hP=?,p{U@2~
+    we^pr#$@+$j7!Er,w^e,<Ej^w1Hv\Cw_'1*iBxkq12AB,s[+1]zKVkv;z!'mrauXa}W1@QD,5Y\B
+    {eT*hEIvp[^2a~C>{O3J>maEpe{O?_'!E$U^#ka${OI#~]VQ>oCo*kxD{ZS,nX2mo*7QR;?[n'#H
+    ru}Szr*BOnCGV=D}]+AE0]=2?uBlCcowen);-31E@*YOn^QDW;a,KYOq-7$2r2xX_$Wr8e>m-WIe
+    ,Oa!#7?]V5Go5S=![GkO#E[@unZ,#pQQ#}5W7^Fas2Z,![r{Y@7'~Cw:tiw,DR,Q$fU$pHgQE<CK
+    or-:3]o7KjmEO@J^><Bx*;{$5{e1?p?=iT;~-C\Y$2Y[E@G~lu~vm&O1^uelx7Ov<Z7!TRjKJXq>
+    o~_Yw-@\~Gx9awvOd07-n\o^I}5}}[e~TB'x3aDI5Di1uY7BWAH,$iE_,oBG1HWe#Q$?CXQUsk~a
+    l_ua~[WG@C;o}\zOz@vBA2z2{~P%{AD[7o\xYIYreosncZGonVi~@jX<x2<}asaa_Bx#Y,@mk15<
+    ^G$ee}eJw^V!jz1<J_j+~,On1.\tT5@J}$l#[VVx<[kR,?p2j*Z@Vv^3=$Ymp_eTrG,wM1sWlLUH
+    zY~pz$}-*YR}Rr#E*zIiHB}mYuE12K-oA3'a~T^R$_Ow'E'7;!QRE[}kDnX+u>Ouu@;nAYu&lks!
+    7k_*7J\Cp_Jl1veCsnAH9@1~DspanZv!Y=?jYB[7]7kKHZ{2I~,Up:;ljz=T$$oe,Q}pi']JpV35
+    ##s|KY3*R}W>3EQ_WV]Ipp<5;H}5xAa<H]wr~'0{NG$E2YjW@=1JBPyZvmpK*;}j7zrveOIovK,^
+    Ei>U]KTw7*7YrA]#5*W|a--7YmTj5Zs^;AsT1u'Bk]$e\oApsJ>1rsAK*5XSRH2;Qo},@5m}M8,6
+    *~D};X[HJ'rIOiJR(_Q5sU,+2Hr_rpl3BVl?BQwzxt<]J>]1,*^*\KaeJva<O<N-zE[GIJ*;'rJV
+    U7Qo~@@z$ke,l}TB,$'${5+:lVz,pJw]G{OvB[<jjj[2$l@l}bUp#mAEveD3wQwGJ~rYoEmR}5_p
+    p3*p{s[H,-1DEHRoG@Yr-#Q~zi%-1+}37oOTpDa_=Zso>,;mH7+1@BE+UZp5REQY<<3@^G#{pY*8
+    Ie32-I;}}s7?~EupnwK?f^Yu}}l}HeE*o{'7;Em$oE@u*%vN6T6'_iT:V@u-IKY3V7X;'UU[Bas=
+    GT',VQw$QH,'lAaKO;,{;_><1Gv}=J5^LIJ-_w7A_Ks,Ad2{HVQ+@^5a=*{_X77xT;DB>$apl}#U
+    IH&Ca7sEr\[t#[]-;O5$oH,nEUT735vB\2O'_AKoiG7mS,AZz-=nQaCE^#p1ozwBCGsTG$CsnHOm
+    KGx[D%f962{V-$[5vD#<IR\X^3A-Q*~Ie@zv=.YB?J^WDCr<lGkQG2=>Iz_MjY\e3'u-VDV@?='{
+    Iv5oa]JwhxGzlKXTGu}O=BC7]UTms/kED=iC*O:;v{zlsAXxwG7}=j?1wvW}hQaV,sGoxkClGY-2
+    YmT,rjB=*4px7e}$^#Z1Z~+5E}.U\C}{$X2zDU$BHj[i+xX:euKRRll[A5!D1X<rwrr~v#U>9rnY
+    eoiCX3];_^+*,}CW@x^JE$I<EE{B*d,E;a]p*r~wX3>_x^<xGs1trROQ~CH+nn_7n-pI,p-e$!T\
+    ]$Ynj;Vp1n~-?*w#*A<,2{p@[wz}H'$C{aGu@nve$$"Gn-v~xIi?[\p3T@^G$Q^SvY;DCx_a5rIe
+    Q\2m^{~#IOsduvnnDK]pYXj#v,1Ew5HVv[nX}Ha7e-Y?_l+<p>+@%RY5!zUB#sQ-TQ]Y2F'XHu>B
+    wY+sazG*JEuX'o?]+Y&$r,lCe#5xs~lIv#]}x5Hj~@$O<DUjv+OBHv#YwuW8vY<{w-DQz}=m^JTr
+    ^_xVXQX?DsRjK*+VOBG$7G(e5?AQrpx.!nTB\e!sa'p!5pp'YzUnDDCp<Y^$P=H}[h_z'wN,j2@r
+    Y^-k<}vDM9s-7El[Y^7@XuA{muz_$R*I1E,,HTiT;I7YAsj^-CA<,*p5a{Uxn~}iYB,}#v<laYs;
+    oYiCOknl!UnBDQJ5\UwB?^ArRa1zm!^:2j-n,clvRk/OoG'jnuU~jZ-6M@_'p_2$ix,A*~IBE'5K
+    2;=E5Hr~,XHCQ$Y#\i,p<i1Zs3E1j2$;k,,!{~aY-7^*5A<7UCl+[~RG#m'u}WTzJ;*~a+]l~>+1
+    Z*<_3M]2;@gA\2CDwlUWxBYf-+a2KVn>IB'of,w!WO<Y<[!'-[]Eo5UZW3=aO~='!_<pQ.rX^w53
+    I_I*GKWw~X12!KX+T!rn2z^!zvs<C\#XRunEB^2x3Gao=<^T\{C<jpA'pokR$oUl#D'm[oIGWknn
+    Es$p[]da]2CHaE"@Avnx>JX
+`endprotected
+`ifdef QVL_ASSERT_ON
+  assign scoreboard_max_ids_fire_combo = ((areset === 1'b0 &&
+    reset === 1'b0) && (active === 1'b1) &&
+    (xz_detected === 1'b0) && (max_ids_check === 1'b1) &&
+    (((next_pending_ids >  max_ids_real) && (valid_rx === 1'b1) &&
+    (received_id === 1'b0)) || (fire_the_max_ids_check && valid_rx_no_hit &&
+    (next_pending_ids >= max_ids_real) && !(valid_tx &&
+    ~|next_oid_mem_tx_id) && !(valid_flush && ~|next_oid_mem_flush_id))));
+
+  assign scoreboard_max_count_per_id_fire_combo = ((areset === 1'b0 &&
+    reset === 1'b0) && (active === 1'b1) &&
+    (xz_detected === 1'b0) && (max_count_per_id_check === 1'b1) &&
+    (overflow === 1'b1));
+
+  assign scoreboard_known_ids_fire_combo = ((areset ===1'b0 &&
+    reset ===1'b0) && (active === 1'b1) &&
+    (xz_detected === 1'b0) && (known_ids === 1'b1) && ((underflow === 1'b1) ||
+    (valid_tx_no_hit && &ref_to_id_valid_mem && !tx_id_ref_valid)));
+
+  assign scoreboard_known_flush_fire_combo = ((areset === 1'b0 &&
+    reset === 1'b0) && (active === 1'b1) &&
+    (xz_detected === 1'b0) && (known_flush == 1'b1) &&
+    (known_flush_error == 1'b1));
+
+  assign scoreboard_max_fire_combo = ((areset === 1'b0 &&
+    reset === 1'b0) && (active === 1'b1) &&
+    (xz_detected === 1'b0) && (max_should_fire_qvl === 1'b1) &&
+    (max_check === 1'b1) && (continue_min_max_check));
+
+  assign scoreboard_min_fire_combo = ((areset === 1'b0 &&
+    reset === 1'b0) && (active === 1'b1) &&
+    (xz_detected === 1'b0) && (min_should_fire === 1'b1) &&
+    (min_check === 1'b1) && (continue_min_max_check));
+
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        if (MAX_IDS_SPECIFIED == 1) 
+          begin : assert_scoreboard_max_ids_check
+            A_qvl_scoreboard_max_ids_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_max_ids_fire_combo === 1'b1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_scoreboard_max_ids_check"),
+                              .msg            ({msg,"New ID was received when the maximum number of unique IDs were pending."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MAX_COUNT_PER_ID_SPECIFIED == 1)
+          begin : assert_scoreboard_max_count_per_id_check 
+            A_qvl_scoreboard_max_count_per_id_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_max_count_per_id_fire_combo === 1'b1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_scoreboard_max_count_per_id_check"),
+                              .msg            ({msg,"ID was received that would make the pending ID count for the ID exceed the maximum count per ID value."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (KNOWN_IDS_CHECK == 1)
+          begin : assert_scoreboard_known_ids_check 
+            A_qvl_scoreboard_known_ids_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_known_ids_fire_combo === 1'b1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_scoreboard_known_ids_check"),
+                              .msg            ({msg,"The number of instances of the transmit ID exceeded the count of the ID's pending instances."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end 
+        if (KNOWN_FLUSH_CHECK == 1)
+          begin : assert_scoreboard_known_flush_check
+            A_qvl_scoreboard_known_flush_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_known_flush_fire_combo === 1'b1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_scoreboard_known_flush_check"),
+                              .msg            ({msg,"The number of instances of the flush ID exceeded the count of the ID's pending instances."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end 
+        if (MAX_SPECIFIED == 1)
+          begin : assert_scoreboard_max_check 
+            A_qvl_scoreboard_max_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_max_fire_combo === 1'b1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_scoreboard_max_check"),
+                              .msg            ({msg,"ID instance was pending longer than the maximum allowed number of cycles."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (MIN_SPECIFIED == 1)
+          begin : assert_scoreboard_min_check
+            A_qvl_scoreboard_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_min_fire_combo === 1'b1)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_scoreboard_min_check"),
+                              .msg            ({msg,"ID instance was transmitted before the minimum allowed number of cycles."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        if (MAX_IDS_SPECIFIED == 1)
+          begin : assume_scoreboard_max_ids_check
+            M_qvl_scoreboard_max_ids_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_max_ids_fire_combo === 1'b1)));
+          end 
+        if (MAX_COUNT_PER_ID_SPECIFIED == 1)
+          begin : assume_scoreboard_max_count_per_id_check 
+            M_qvl_scoreboard_max_count_per_id_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_max_count_per_id_fire_combo === 1'b1)));
+          end
+        if (KNOWN_IDS_CHECK == 1)
+          begin : assume_scoreboard_known_ids_check
+            M_qvl_scoreboard_known_ids_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_known_ids_fire_combo === 1'b1)));
+          end 
+        if (KNOWN_FLUSH_CHECK == 1)
+          begin : assume_scoreboard_known_flush_check
+            M_qvl_scoreboard_known_flush_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_known_flush_fire_combo === 1'b1)));
+          end 
+        if (MAX_SPECIFIED == 1)
+          begin : assume_scoreboard_max_check 
+            M_qvl_scoreboard_max_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_max_fire_combo === 1'b1)));
+          end
+        if (MIN_SPECIFIED == 1)
+          begin : assume_scoreboard_min_check
+            M_qvl_scoreboard_min_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (scoreboard_min_fire_combo === 1'b1)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+
+
+`endif //QVL_ASSERT_ON
+
+`include "qvl_scoreboard_cover.svh"
+`qvlendmodule

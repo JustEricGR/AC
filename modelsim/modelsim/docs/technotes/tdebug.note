@@ -1,0 +1,447 @@
+
+    README file for TDebug, an alternative tcl/tk-debugger.
+    =======================================================
+
+$Id: //dvt/mti/rel/6.5b/src/docs/technotes/tdebug.note#1 $
+
+This file documents TDebug Version 1.0.
+It was written with emacs using Jamie Lokier's folding mode
+That's what the funny {{{ marks are there for.
+
+Please send comments, suggestions, bug-reports etc to
+    schmid@fb3-s7.math.tu-berlin.de
+Any feedback is welcome!
+
+{{{ Disclaimer
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+}}}
+{{{ Files
+
+README        this file
+TdChoose.tcl    the TDebug front end
+TdDebug.tcl    the debugger
+ChangeLog    development history
+
+}}}
+{{{ General
+
+TDebug uses a different approach than any other debugger I've seen for
+Tcl/Tk.  If you know the emacs-lisp debugger `edebug' the following
+may seem familiar. 
+
+TDebug is solely based on Tcl/Tk, there is no C-code, which
+makes it very easy to install. It works by parsing and redefining
+Tcl/Tk-procs, inserting calls to `td_eval' at certain points, which
+takes care of the display, stepping, breakpoints, variables etc.
+
+The advantages are that TDebug knows which statement in what proc is
+currently being executed and can give visual feedback by highlighting
+it. All currently accessible variables and their values are displayed
+as well. Code can be evaluated in the context of the current proc.
+Breakpoints can be set and deleted with the mouse.
+
+Unfortunately there are back-draws to this approach. Preparation of
+large procs is slow and due to Tcl's dynamic nature there is no
+guarantee, that a proc can be prepared at all.
+
+This problem has been alleviated somewhat with the introduction of
+partial preparation of procs. There is still no possibility to get at
+code running in global context, but I'm not sure if that would be
+useful anyway.
+
+}}}
+{{{ News
+
+New since version 0.9
+
+* compatibility with Tk 4.0
+
+* chooser layout changed
+
+* Name program to debug on the command line
+
+New since version 0.3
+
+* display any proc without preparing it first
+
+* partial preparing and restoring
+
+* detach from applications on exit
+
+* faster parsing (thanks to Alessandro Rubini)
+
+* parsing bugs fixed, should now parse any proc
+
+* cline extensions included for `Eval:' line
+
+* can eval at global level
+
+* optionally hide global variables and arrays
+
+* optionally hide tk_* procs and others
+
+* chooser now recognizes if procs are redefined
+
+* a LOT more configuration options:
+
+    * Geometry for all toplevels
+
+    * Style of tags in listing
+
+
+}}}
+{{{ Installation
+
+Make sure you keep TdChoose.tcl and TdDebug.tcl in the same directory.
+
+Edit the first line of TdChoose.tcl to reflect the location of your
+`wish' and make sure TdChoose.tcl is executable.
+
+There are really two versions of TDebug, but contained in one source.
+
+Under normal circumstances, TdChoose.tcl, the TDebug frontend,
+provides a standalone application that talks to other Tcl/Tk-based
+applications via `send'. To debug a running application, TDebug sends a
+`source TdDebug.tcl' to it, making the debugger available. You can
+then choose procs to prepare for debugging.
+
+Depending on your installation the Tk command `send' may not work for
+you. In this case you should create a configuration file called .tdebugrc
+in your home directory that contains the line
+
+    set td_priv(send) 0
+
+
+If you are running on a black and white screen, you should put something
+along the following lines into the ~/.tdebugrc file.
+
+    set td_priv(preparedtag) {-fgstipple gray50}
+    set td_priv(activetag) {-background black -foreground white \
+        -fgstipple gray50}
+    set td_priv(breaktag) {-background black -foreground white}
+
+See the Configuration section for additional things to put into this file.
+
+}}}
+{{{ Usage
+
+If TDebug is installed correctly you can start it by running TdChoose.
+If you can use `send', this will bring up the Chooser which lets you
+switch between all running Tk applications.
+
+Caveat: Due to incompatibilities in the `send' command of Tk versions
+before and after 4.0, you can only debug applications running with an
+interpreter of the same generation as the Debugger. TDebug cannot
+detect whether another interpreter is compatible or not until it tries
+to send a command to it.
+
+If you can't use `send', give the program you wish to debug as argument
+on the command line, e.g.
+    TdChoose.tcl test.tcl
+
+This will start your application and the debugger in the same interpreter.
+Running TDebug this way will always disable the use of the send command.
+
+
+The Chooser:
+
+Th TDebug chooser has three parts.
+
+At the top the current interpreter is shown. If you are using send you 
+can use the `+' button to pop up a menu and select a different interpreter.
+
+In the main section there are two listboxes. The first one shows all
+procs that are defined in the current interpreter.  By clicking the
+left mouse button on a proc name, the proc gets prepared for debugging
+and its name is moved to the second listbox. Clicking a name in the
+second listbox returns a proc to its normal state.
+
+You can control whether TDebug specific procs and Tk specific procs
+are displayed in the listbox or not. See the Configuration section.
+
+Press the right mouse button on a proc in either listbox to get its
+program code displayed in the main debugger window.
+
+The three buttons at the bottom let you force a rescan of the
+available procs, pop up the debugger window or exit TDebug.
+
+Exiting from TDebug doesn't terminate the running application, it
+merely detaches from all interpreters, restoring all prepared procs to
+their unmodified state.
+
+The Debugger:
+ 
+The debugger window is divided into the main region with the name of
+the current proc, a listing in which the expression just executed is
+highlighted, the result of this execution and the currently
+available variables and their values, an entry to eval expressions
+in the context of the current proc and some controls for the state
+of the debugger.
+
+A proc listing displayed in the main region will have a darker
+background on all lines that have been prepared. You can prepare or
+restore additional lines by selecting a region (<Button-1>, standard
+selection) and choosing `Prepare' or `Restore' from the Selection menu
+(or by pressing ^P or ^R). 
+
+`Prepare' and `Restore' try to be smart about what you intend to
+do. If you select just a single word (plus some optional whitespace)
+it will be interpreted as the name of a proc to prepare or
+restore. Otherwise, if the selection is owned by the listing, the
+corresponding lines will be used.
+
+Be careful with partial prepare or restore! If you prepare random
+lines inside a `switch' or `bind' expression, you may get surprising
+results on execution, because the parser doesn't know about the
+surrounding expression and can't try to prevent problems.
+
+
+There are seven possible debugger states, one for each button and an
+`idle' or `waiting' state when no button is active. The others are:
+
+Stop - Stop after next expression, used to get out of 
+     slow/fast/nonstop mode.
+
+Next - Execute one expression, then revert to idle.
+
+Slow - Execute until end of proc, stopping at breakpoints or when the
+     state changes to stop. After each execution, stop for `delay'
+      milliseconds. The delay can be changed with the `+' and `-'
+     buttons.
+
+Fast - Execute until end of proc, stopping at breakpoints.
+
+Nonstop - Execute until end of proc without stopping at breakpoints or
+        updating the display.
+
+Break - Terminate execution of current proc.
+
+The menus should be obvious (Sorry better docs MAY be available some
+day:-).
+
+Closing the debugger doesn't quit it, it only does `wm withdraw'.  The
+debugger window will pop up the next time a prepared proc is called.
+
+Breakpoints:
+To set/unset a breakpoint, double-click inside the listing. The
+breakpoint will be set at the innermost available expression that
+contains the position of the click.
+There's no support for conditional or counted breakpoints yet.
+
+The `Eval: ' entry supports a simple history mechanism available via
+the <Up> and <Down> keys. If you evaluate a command while stepping
+through a proc, the command will be evaluated in the context of the
+proc, otherwise at global level. The result will be displayed in the
+result field. 
+
+This entry is useful for a lot of things, but especially to get access
+to variables outside the current scope. Try entering the line
+`global td_priv' and watch the `Variables' box (with global and array
+variables enabled of course).
+
+}}}
+{{{ Configuration
+
+You can customize TDebug by setting up a file named .tdebugrc in your
+home directory.
+
+The following variables have special effects:
+
+Relevant for the Debugger window:
+
+
+Variable        Value    Effect
+-----------------------------------------------------------------------
+
+td_priv(wrap)     none    Don't wrap listing of current proc
+                  word    Word-wrap listing
+td_priv(wrapback) none    Don't wrap backtrace
+                  word    Word-wrap backtrace
+td_priv(fullnames)   1    Display full widget names
+                     0    Display the last part only
+td_priv(update)   slow    Always update variables
+                  fast    Update variables in idle state only
+td_priv(detail)    low    Don't check for subexpressions when 
+                          preparing procs
+                  high    Do check for subexpressions
+
+td_priv(delay)            Delay in milliseconds used with slow 
+                          stepping (100-1500)
+
+td_priv(globalvars)  1    Display global variables accessible from 
+                          current proc
+                     0    Don't display global variables
+td_priv(arrayvars)   1    Display array variables similar to parray
+                     0    Don't display arrays (they take too much space)
+
+td_priv(scrollbarside)    
+                  left    Place all scrollbars at the left side
+                 right    Place all scrollbars at the right side
+
+td_priv(constrainscroll) 
+                     1    Don't scroll after last line in listing
+                      0    Normal scrolling
+
+td_priv(height)           Height of proc listing
+td_priv(listwidth)        Width of proc listing
+td_priv(varwidth)         Width of variable display
+td_priv(geometry)         Geometry of Debugger window. Use for position only!
+
+td_priv(preparedtag)      tag style for prepared lines
+td_priv(activetag)        tag style for currently active expression
+td_priv(breaktag)         tag style for breakpoints
+                Tag styles are used for .widget tag configure ...
+                For example "-background red -foreground blue" etc.
+
+td_priv(tagpriority)       priority of tags, lowest priority first.
+                Legal tag values are (default priority):
+                    prepared sel active break
+td_priv(useblt)       0    Don't use BLT, even if available
+                If unset, use BLT if it is available
+
+
+
+Relevant for the Chooser window:
+
+Variable        Value    Effect
+-----------------------------------------------------------------------
+
+td_priv(send)       0    Can't use send
+                    1    Can use it
+
+td_priv(scrollbarside) 
+                  left    Place all scrollbars at the left side
+                 right    Place all scrollbars at the right side
+
+td_priv(constrainscroll) 
+                     1    Don't scroll after last line in listing
+                     0    Normal scrolling
+
+td_priv(chooseheight)     Height of chooser box
+td_priv(choosewidth)      Width of chooser box
+td_priv(choosegeometry)   Geometry of Choose window. Use for position only!
+
+td_priv(hideownprocs) 
+                     1    Don't display procs belonging to TDebug
+                     0    Display those procs (be careful!)
+td_priv(hidetkprocs)    
+                     1    Don't display procs belonging to Tk, i.e.
+                          tk_*, auto_* and unknown.
+                     0    Display those procs
+td_priv(debugdir)         Set to the directory containing TdDebug.tcl.
+                Not necessary if it is the same as TdChoose.tcl.
+
+
+
+Relevant for the Backtrace window:
+
+Variable        Value    Effect
+-----------------------------------------------------------------------
+
+td_priv(backtraceheight)   Height of backtrace
+td_priv(backtracewidth)    Width of backtrace
+td_priv(backtracegeometry) Geometry of Backtrace window.
+                           Use for position only!
+
+Relevant for the ErrorTrace window:
+
+Variable        Value    Effect
+-----------------------------------------------------------------------
+
+td_priv(errorheight)       Height of error trace
+td_priv(errorwidth)        Width of error trace
+td_priv(errorgeometry)     Geometry of ErrorTrace window.
+                           Use for position only!
+
+Relevant for the WidgetHierarchy window:
+
+Variable        Value    Effect
+-----------------------------------------------------------------------
+
+td_priv(widgetsheight)      Height of hierarchy
+td_priv(widgetswidth)       Width of hierarchy
+td_priv(widgetsgeometry)    Geometry of WidgetHierarchy window.
+                            Use for position only!
+
+
+}}}
+{{{ Todo
+
+TDebug is nearing version 1.0. Nevertheless there are quite a few
+things left to do, including Bug/Feature-fixes as well as
+documentation and real development:
+
+* Better parsing. Switch statements don't work well yet.
+
+* Conditional breakpoints, watchpoints.
+
+* Better documentation !!!!
+
+* A real Help button, not just a dummy.
+
+* Make a dialog to display widget information - selectable from hierarchy
+  Maybe like TkInspekt ?
+
+* Support for [incr tcl]
+  How about a class browser ?
+
+}}}
+{{{ Bugs
+
+Some expressions don't parse well. This can't be fixed (I think) without 
+an unacceptable increase in parsing time.
+
+The following known problems exist:
+
+switch expressions of the type
+
+    switch $var {
+        1 {
+        do_something
+        }
+        2 { do_something_else}
+    }
+
+will fail for case 2.
+
+A multiple line expr without `\' will fail:
+
+    if {$var == 1 \
+            || $var == 2} {...}
+
+will work whereas
+
+    if {$var == 1
+            || $var == 2} {...}
+
+will fail.
+
+If you run into such problems, restore the offending lines via the selection
+mechanism and try again.
+
+}}}
+{{{ Credits
+
+Thanks to:
+    John Ousterhout    <ouster@sprite.berkeley.edu> for Tcl/Tk
+    Alessandro Rubini <rubini@ipvvis.unipv.it> for numerous good ideas
+        and speedups for parsing
+    Renzo Lazzarato <rlazzara@France.Sun.COM> fixed the td_priv(debugdir)
+        problem
+
+}}}
+
+{{{ Emacs local variables
+
+
+Local variables:
+mode: text
+folded-file: t
+End:
+
+}}}

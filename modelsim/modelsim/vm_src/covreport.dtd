@@ -1,0 +1,498 @@
+<!--
+  Document Type Definition for MTI coverage report (vcover -xml)
+
+  The coverage_report document element may contain either a code coverage
+  report generated with a command such as:
+
+     vcover report -xml -codeAll my.ucdb
+
+  or it may contain a functional coverage report generated with a command
+  such as:
+
+     vcover report -xml -directive -cvg my.ucdb
+
+  The document element (coverage_report) is the only element found in both
+  kinds of reports.
+
+  -->
+
+<!ELEMENT coverage_report ( code_coverage_report | functional_coverage_report ) >
+
+<!--
+  ===== Code Coverage DTD =====
+  The following elements are used only in the code coverage report.
+  =============================
+  -->
+
+<!--
+  Branch coverage summary
+    active:   Total number of branches
+	hits:     Number of executed branches
+	percent:  Percent of total branches executed
+  -->
+<!ELEMENT branches EMPTY >
+<!ATTLIST branches active CDATA #REQUIRED >
+<!ATTLIST branches hits CDATA #REQUIRED >
+<!ATTLIST branches percent CDATA #REQUIRED >
+
+<!--
+  Case statement coverage summary
+    active:   Total number of case elements
+	hits:     Number of executed case elements
+	percent:  Percent of total case elements executed
+  -->
+<!ELEMENT case ( celem+ ) >
+<!ATTLIST case active CDATA #REQUIRED >
+<!ATTLIST case hits CDATA #REQUIRED >
+<!ATTLIST case percent CDATA #REQUIRED >
+
+<!--
+  Case element coverage
+	fn:       File number in which condition occurs
+	hits:     Number of executed conditiones
+	ln:       Line number on which condition occurs
+	st:       [TBD]
+  -->
+<!ELEMENT celem EMPTY >
+<!ATTLIST celem fn CDATA #IMPLIED >
+<!ATTLIST celem hits CDATA #REQUIRED >
+<!ATTLIST celem ln CDATA #REQUIRED >
+<!ATTLIST celem st CDATA #REQUIRED >
+
+<!--
+  The type of elements occuring in a code_coverage_report element depend on
+  options passed to the report generator (ie: "-bydu", "-byinstance"). The
+  appropriate "by" attribute will be set to "1" and the others will not be
+  included in the code_coverage_report element. If the report includes line
+  details, the "lines" attribute will be set to "1". If the report contains
+  summary totals, the "totals" attribute will be set to "1".
+  -->
+<!ELEMENT code_coverage_report ( summaryByFile?, summaryByInstance?,
+                                 DuData*, fileData*, instanceData* ) >
+<!ATTLIST code_coverage_report byDU ( 0 | 1 ) #IMPLIED >
+<!ATTLIST code_coverage_report byFile ( 0 | 1 ) #IMPLIED >
+<!ATTLIST code_coverage_report byInstance ( 0 | 1 ) #IMPLIED >
+<!ATTLIST code_coverage_report lines ( 0 | 1 ) #IMPLIED >
+<!ATTLIST code_coverage_report totals ( 0 | 1 ) #IMPLIED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT col EMPTY >
+<!ATTLIST col i CDATA #REQUIRED >
+<!ATTLIST col label CDATA #REQUIRED >
+
+<!--
+  Condition coverage summary [TBD]
+    active:   Total number of conditiones
+	fn:       File number in which condition occurs
+	hits:     Number of executed conditiones
+	ln:       Line number on which condition occurs
+	percent:  Percent of total conditiones executed
+	st:       [TBD]
+  -->
+<!ELEMENT condition ( table? ) >
+<!ATTLIST condition active CDATA #REQUIRED >
+<!ATTLIST condition fn CDATA #IMPLIED >
+<!ATTLIST condition hits CDATA #REQUIRED >
+<!ATTLIST condition ln CDATA #REQUIRED >
+<!ATTLIST condition percent CDATA #REQUIRED >
+<!ATTLIST condition st CDATA #REQUIRED >
+
+<!--
+  Condition coverage summary
+    active:   Total number of conditiones
+	hits:     Number of executed conditiones
+	percent:  Percent of total conditiones executed
+  -->
+<!ELEMENT conditions EMPTY >
+<!ATTLIST conditions active CDATA #REQUIRED >
+<!ATTLIST conditions hits CDATA #REQUIRED >
+<!ATTLIST conditions percent CDATA #REQUIRED >
+
+<!--
+  Design unit top-level element (one per design unit)
+    du:   Design unit (module/entity) name
+	sec:  Architecture name (VHDL only)
+  -->
+<!ELEMENT DuData ( sourceTable?,
+                   statements?, stmt*,
+                   branches?, ( if | case )*,
+                   conditions?, condition*,
+                   expressions?, expression*,
+                   toggleSummary?, ( tog | toge | togenum )* ) >
+<!ATTLIST DuData du CDATA #REQUIRED >
+<!ATTLIST DuData sec CDATA #IMPLIED >
+
+<!--
+  Single value of a VHDL enumerated type
+    name:  Enumerated value name
+	c:     Count of hits
+  -->
+<!ELEMENT togenumval EMPTY >
+<!ATTLIST togenumval name CDATA #REQUIRED >
+<!ATTLIST togenumval c CDATA #IMPLIED >
+
+<!--
+  Expression coverage summary [TBD]
+    active:   Total number of conditiones
+	fn:       File number in which condition occurs
+	hits:     Number of executed conditiones
+	ln:       Line number on which condition occurs
+	percent:  Percent of total conditiones executed
+	st:       [TBD]
+  -->
+<!ELEMENT expression ( table? ) >
+<!ATTLIST expression active CDATA #REQUIRED >
+<!ATTLIST expression fn CDATA #IMPLIED >
+<!ATTLIST expression hits CDATA #REQUIRED >
+<!ATTLIST expression ln CDATA #REQUIRED >
+<!ATTLIST expression percent CDATA #REQUIRED >
+<!ATTLIST expression st CDATA #REQUIRED >
+
+<!--
+  Expresion coverage summary
+    active:   Total number of expressions
+	hits:     Number of executed expressions
+	percent:  Percent of total expressions executed
+  -->
+<!ELEMENT expressions EMPTY >
+<!ATTLIST expressions active CDATA #REQUIRED >
+<!ATTLIST expressions hits CDATA #REQUIRED >
+<!ATTLIST expressions percent CDATA #REQUIRED >
+
+<!--
+  Coverage for one source file (byFile mode)
+	path:  Source file path name
+  -->
+<!ELEMENT fileData ( sourceTable?,
+                     statements?, stmt*,
+                     branches?, ( if | case )*,
+                     conditions?, condition*,
+                     expressions?, expression*,
+                     toggleSummary?, ( tog | toge | togenum )* ) >
+<!ATTLIST fileData path CDATA #REQUIRED >
+
+<!--
+  File number to file path mapping element
+    fn:    File number (referenced in coverage report elements)
+	path:  Path to source file
+  -->
+<!ELEMENT fileMap EMPTY >
+<!ATTLIST fileMap fn CDATA #REQUIRED >
+<!ATTLIST fileMap path CDATA #REQUIRED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT ielem EMPTY >
+<!ATTLIST ielem false CDATA #REQUIRED >
+<!ATTLIST ielem fn CDATA #IMPLIED >
+<!ATTLIST ielem ln CDATA #REQUIRED >
+<!ATTLIST ielem st CDATA #REQUIRED >
+<!ATTLIST ielem true CDATA #REQUIRED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT if ( ielem+ ) >
+<!ATTLIST if active CDATA #REQUIRED >
+<!ATTLIST if hasElse ( 0 | 1 ) #REQUIRED >
+<!ATTLIST if hits CDATA #REQUIRED >
+<!ATTLIST if percent CDATA #REQUIRED >
+
+<!--
+  Coverage for one instance (byInstance mode)
+    du:    Design unit (module/entity) name
+	path:  Instance path identifier
+	sec:   Architecture name (VHDL only)
+  -->
+<!ELEMENT instanceData ( sourceTable?,
+                         statements?, stmt*,
+                         branches?, ( if | case )*,
+                         conditions?, condition*,
+                         expressions?, expression*,
+                         toggleSummary?, ( tog | toge | togenum )* ) >
+<!ATTLIST instanceData du CDATA #REQUIRED >
+<!ATTLIST instanceData path CDATA #REQUIRED >
+<!ATTLIST instanceData sec CDATA #IMPLIED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT row EMPTY >
+<!ATTLIST row body CDATA #REQUIRED >
+<!ATTLIST row hits CDATA #REQUIRED >
+<!ATTLIST row j CDATA #REQUIRED >
+
+<!--
+  Source file number-to-path map
+    files: Number of source files
+  -->
+<!ELEMENT sourceTable ( fileMap )+ >
+<!ATTLIST sourceTable files CDATA #REQUIRED >
+
+<!--
+  Statement coverage summary
+    active:   Total number of statements
+	hits:     Number of executed statements
+	percent:  Percent of total statements executed
+  -->
+<!ELEMENT statements EMPTY >
+<!ATTLIST statements active CDATA #REQUIRED >
+<!ATTLIST statements hits CDATA #REQUIRED >
+<!ATTLIST statements percent CDATA #REQUIRED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT stmt EMPTY >
+<!ATTLIST stmt fn CDATA #IMPLIED >
+<!ATTLIST stmt hits CDATA #REQUIRED >
+<!ATTLIST stmt ln CDATA #REQUIRED >
+<!ATTLIST stmt st CDATA #REQUIRED >
+
+<!--
+  By-file summary record
+    files:  Number of files reported
+  -->
+<!ELEMENT summaryByFile ( statements?, branches?, conditions?, expressions?, toggleSummary? ) >
+<!ATTLIST summaryByFile files CDATA #REQUIRED >
+
+<!--
+  By-instance summary record
+    instances:  Number of instances reported
+  -->
+<!ELEMENT summaryByInstance ( statements?, branches?, conditions?, expressions?, toggleSummary? ) >
+<!ATTLIST summaryByInstance instances CDATA #REQUIRED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT table ( col+, row+ ) >
+<!ATTLIST table cols CDATA #REQUIRED >
+<!ATTLIST table rows CDATA #REQUIRED >
+<!ATTLIST table unknown CDATA #REQUIRED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT tog EMPTY >
+<!ATTLIST tog name CDATA #REQUIRED >
+<!ATTLIST tog c0 CDATA #IMPLIED >
+<!ATTLIST tog c1 CDATA #IMPLIED >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT toge EMPTY >
+<!ATTLIST toge name CDATA #REQUIRED >
+<!ATTLIST toge c1H_0L CDATA #IMPLIED >
+<!ATTLIST toge c0L_1H CDATA #IMPLIED >
+<!ATTLIST toge c0L_Z CDATA #IMPLIED >
+<!ATTLIST toge cZ_0L CDATA #IMPLIED >
+<!ATTLIST toge c1H_Z CDATA #IMPLIED >
+<!ATTLIST toge cZ_1H CDATA #IMPLIED >
+
+<!--
+  The original "togenum" element lists, as attributes, every value of the enumerated
+  type with the counts represented as the value of the attribute. Variable attributes
+  cannot be represented in a DTD so instead a conversion script has been created to
+  represent the "togenum" as the parent of some number of "togenumval" child elements
+  which each represent one enumerated type value. See the "covxlat.xsl" stylesheet.
+  -->
+<!ELEMENT togenum ( togenumval+ ) >
+<!ATTLIST togenum name CDATA #REQUIRED >
+
+<!--
+  Toggle coverage summary
+    active:   Total number of signals
+	hits:     Number of executed signals
+	percent:  Percent of total signals executed
+  -->
+<!ELEMENT toggleSummary EMPTY >
+<!ATTLIST toggleSummary active CDATA #REQUIRED >
+<!ATTLIST toggleSummary hits CDATA #REQUIRED >
+<!ATTLIST toggleSummary percent CDATA #REQUIRED >
+
+<!--
+  ===== Functional Coverage DTD =====
+  The following elements are used only in the functional coverage report.
+  ===================================
+  -->
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT at_least ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT auto_bin_max ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT bin ( name, metric, goal, status, bin_rhs? ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT bin_rhs ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT bins ( bin+ ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT comment ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT count ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT coverinstance ( path, bin, option, coverpoint+ ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT coverpoint ( bin | bins | ignore_bins | illegal_bins | option | type_option )* >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT covertype ( path, ( bin | coverinstance | coverpoint | cross | type_option )* ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT cross ( bin | bins | cross_coverpoints | ignore_bins | illegal_bins | type_option )* >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT cross_coverpoint ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT cross_coverpoints ( cross_coverpoint+ ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT cross_num_print_missing ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT cvgreport ( covertype+ ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT design ( fcover+ ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT detect_overlap ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT dirtype ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT du ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT dutype ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT fcover ( name, du, dutype, dirtype, source, count, status ) >
+
+<!--
+  Top-level element of a functional coverage report
+  -->
+<!ELEMENT functional_coverage_report ( cvgreport, design ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT goal ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT ignore_bins ( name, metric, goal, status, bin_rhs? ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT illegal_bins ( name, metric, goal, status, bin_rhs? ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT metric ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT name ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT option ( at_least | auto_bin_max | comment | cross_num_print_missing
+                            | detect_overlap | goal | name | per_instance | weight )* >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT path ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT per_instance ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT source ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT status ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT strobe ( #PCDATA ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT type_option ( weight, goal, comment, strobe? ) >
+
+<!--
+  [TBD]
+  -->
+<!ELEMENT weight ( #PCDATA ) >

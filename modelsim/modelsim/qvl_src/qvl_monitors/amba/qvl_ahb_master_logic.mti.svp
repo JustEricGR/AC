@@ -1,0 +1,682 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+ * PURPOSE	This file is part of the 0-In CheckerWare.
+ *		It describes the AHB master monitor for the AMBA AHB bus.
+ *
+ * DESCRIPTION	This monitor checks the AMBA AHB master protocol.
+ *
+ * REFERENCE	AMBA Specification (Rev 2.0 13th May 1999, Issue A)
+ *              ARM FAQ 23rd January 2001
+ *
+ * USAGE
+
+ Block Diagram of a typical AHB-based system :
+ ---------------------------------------------
+ 
+                 +------------------+            +------------------+    +---+
+                 |    AHB Master    |            |    AHB Target    |    | A |
+                 +------------------+            +------------------+    | P |
+                          |                               |              | B |
+                          |                               |              |   |
+ +------------------+     |           AHB Bus             |              | B |
+ |    AHB Target    |----------------------------------------------------| r |
+ +------------------+                    |                               | i |
+                                         |                               | d |
+                                 +------------------+                    | g |
+                                 |    AHB Master    |                    | e |
+                                 +------------------+                    +---+
+ 
+ Examples of AHB master are : High-performance ARM processor, DMA bus master,
+ etc.
+ 
+ Examples of AHB target are : High-bandwidth Memory Interface, High-bandwidth
+ on-chip RAM, etc.  Note that the APB bridge is also
+ a target on the AHB bus.
+ 
+ Where is the monitor to be placed ?
+ -----------------------------------
+
+ The AHB MASTER monitor can be placed inside the AHB master device(s) for use as
+ checks with 0-In Check.  It can also be used as search goals and as constraints
+ with 0-In Search on the AHB master.
+ 
+ ***********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef ZI_CW_STAT_CNT_WIDTH
+// do nothing
+`else
+`define ZI_CW_STAT_CNT_WIDTH 64
+`endif // ZI_CW_STAT_CNT_WIDTH
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_ahb_master_logic (
+				 hgrantx,
+				 
+				 hready,
+				 hresp,
+				 
+				 hresetn,
+				 hclk,
+				 
+				 hrdata,
+				 
+				 htrans,
+				 haddr,
+				 hwrite,
+				 hsize,
+				 hburst,
+				 hprot,
+				 
+				 hwdata
+				);
+   
+  parameter Constraints_Mode = 0; 
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  parameter		      DATA_BUS_WIDTH = 32; 
+  wire [31:0] pw_DATA_BUS_WIDTH = DATA_BUS_WIDTH;
+
+  parameter		      CANCEL_FOLLOWING_TRANSFER_ON_ERROR_RESPONSE = 0;
+  wire [31:0] pw_CANCEL_FOLLOWING_TRANSFER_ON_ERROR_RESPONSE =
+                                    CANCEL_FOLLOWING_TRANSFER_ON_ERROR_RESPONSE;
+
+  parameter Over_Constraints_Mode = 0;
+  wire [31:0] pw_Over_Constraints_Mode = Over_Constraints_Mode;
+
+  parameter DISABLE_CHKS_ON_IDLE = 0;
+  wire [31:0] pw_DISABLE_CHKS_ON_IDLE = DISABLE_CHKS_ON_IDLE;
+
+  input [1:0]		      	hresp; 
+  input                         hgrantx;
+  input                         hready;
+   
+  input		      		hresetn;
+  input		      		hclk;
+   
+  input [DATA_BUS_WIDTH-1:0]	hrdata;
+   
+  input [1:0]		      	htrans; 
+
+  input [31:0]		      	haddr; 
+
+  input		      		hwrite; 
+
+  input [2:0]		      	hsize; 
+
+  input [2:0]		      	hburst; 
+
+  input [3:0]		      	hprot; 
+  input [DATA_BUS_WIDTH-1:0] 	hwdata;
+
+`protected
+
+    MTI!#HG=*Rr=>CVw3_rG,T}$*VBO!il<Ta[IAF:"o7"#<Sr/|E:-}?HC=>'aT1zX]lo"V'2+i-^E
+    mwECr[4XEA5"YB5BB-~D!9$;3R2o$K3od}22X:@Y[[xRUQ]}Q]5K,5uX3?zG<-DxY!~G^rnY@{aa
+    []2+r}r2pI<BBO$r#j=Bl,~5DITN|,D-2N1jnemjaBkX1ilmwG)}}H2?X7sln^n=CxQK[Bp<j'}w
+    XI7CNC/rV-oY+m\hm]C@I5-Z2EjHM?sVUuR\*sDpuVi]VIWY_:aT^Iokx1"X[Jpvp"s*v*+IC\As
+    #a<De]5wKJFexRRl[3eR=Z[HoeO!]Koye>1<<S7z#T?wjv|q?[*ZVnY;e!**XQ?}[psZ+DB{zvDJ
+    _$AkiEC<HXJD+vW#gY$<s73mmOVT]?wnlie,Xx~UlE_[i@o]e%:BZ7!rvJE=#A<.[u]UY|^s^!CK
+    uv~5ie;7{{c!V#l!I=-O\WH}V-eH$ozHY<R1_;A[T~}J12aUVGB%BK<A$$1x']jepOwT+Ek'x!nU
+    X]us1YrIHE?=!^G'kUY5pV2}Kp>r<+U$QJn{l?'laoBe31,~r\MVie@lKj2y((nolEjoSx#!l&e]
+    iGrIDwR]-ma[Zuz-K-PIfHRBwEO@3zG*U*7]*,N:E^C$7J1al#Q!fnU-QU$k=pB{@]^xI(_JU^7B
+    BkL})p*k^3D3r$V7>W73Hu[#E{Ovs\/r{_Uj>RlX^C*>pDEiAz@,o$x#p\<E~Arl}I]Tn2Y|?G={
+    FBV71;w1<tVnpEOaY1,lo7kDzYv@up8HU<5{hY3G]wBm\\i
+`endprotected
+   
+  parameter ZI_IDLE                  = 2'b00;
+  parameter ZI_BUSY                  = 2'b01;
+  parameter ZI_NONSEQUENTIAL         = 2'b10;
+  parameter ZI_SEQUENTIAL            = 2'b11;
+
+  parameter ZI_READ                  = 1'b0;
+  parameter ZI_WRITE                 = 1'b1;
+
+  parameter ZI_SINGLE                = 3'b000;
+  parameter ZI_INCR                  = 3'b001;
+  parameter ZI_WRAP4                 = 3'b010;
+  parameter ZI_INCR4                 = 3'b011;
+  parameter ZI_WRAP8                 = 3'b100;
+  parameter ZI_INCR8                 = 3'b101;
+  parameter ZI_WRAP16                = 3'b110;
+  parameter ZI_INCR16                = 3'b111;
+
+  parameter ZI_OKAY                  = 2'b00;
+  parameter ZI_ERROR                 = 2'b01;
+  parameter ZI_RETRY                 = 2'b10;
+  parameter ZI_SPLIT                 = 2'b11;
+
+  parameter ZI_BYTE                  = 3'b000;
+  parameter ZI_HALFWORD              = 3'b001;
+  parameter ZI_WORD                  = 3'b010;
+  parameter ZI_DOUBLEWORD            = 3'b011;
+  parameter ZI_4_WORD_LINE           = 3'b100;
+  parameter ZI_8_WORD_LINE           = 3'b101;
+  parameter ZI_512_BITS              = 3'b110;
+  parameter ZI_1024_BITS             = 3'b111;
+
+  parameter ZI_MASTER_INACTIVE_STATE = 4'h0;
+  parameter ZI_MASTER_ADDRESS_STATE  = 4'h1;
+  parameter ZI_MASTER_DATA_STATE     = 4'h2;
+  parameter ZI_MASTER_ERROR_STATE    = 4'h3;
+  parameter ZI_MASTER_RETRY_STATE    = 4'h4;
+  parameter ZI_MASTER_SPLIT_STATE    = 4'h5;
+  parameter ZI_MASTER_UNKNOWN_STATE  = 4'h6;
+
+  reg [3:0]		      	prev_state;
+  reg [3:0]		      	curr_state;
+  reg [3:0]		      	next_state;
+   
+  reg			      	latched_hgrantx;
+   
+  reg			      	latched_hready;
+   
+  reg [1:0]		      	latched_htrans;
+  reg [1:0]		      	latched_htrans_every_cycle;
+   
+  reg [31:0]		      	latched_haddr;
+  reg [31:0]		      	latched_haddr_every_cycle;
+  reg [31:0]		      	save_haddr_in_case_of_error_retry_or_split;
+  reg			      	latched_hwrite;
+  reg [2:0]		      	latched_hsize;
+  reg [2:0]		      	latched_hburst;
+  reg [2:0]		      	latched_hburst_every_cycle;
+  reg [3:0]		      	latched_hprot;
+   
+  reg [4:0]		      	beat_count;
+  reg [4:0]		      	next_beat_count;
+  reg			      	burst_in_progress;
+  reg			      	next_burst_in_progress;
+   
+  reg [31:0]		      	error_retry_or_split_address;
+  reg [31:0]		      	next_error_retry_or_split_address;
+  reg			      	error_pending;
+  reg			      	next_error_pending;
+  reg			      	retry_pending;
+  reg			      	next_retry_pending;
+  reg			      	split_pending;
+  reg			      	next_split_pending;
+   
+  reg	busy_transfer_issued_when_no_burst_in_progress_fire;
+  reg	first_transfer_cannot_be_sequential_fire;
+  reg	master_must_never_attempt_transfer_wider_than_width_fire;
+  reg	address_boundary_not_equal_to_size_of_transfer_fire;
+  reg	master_granted_bus_no_data_transfer_no_idle_transfer_fire;
+  //reg	addr_and_control_of_curr_xfer_not_stable_thru_ext_xfer_of_prev_fire;
+  reg	addr_of_curr_xfer_not_stable_thru_ext_xfer_of_prev_fire;
+  reg	control_of_curr_xfer_not_stable_thru_ext_xfer_of_prev_fire;
+  reg	ctrl_info_curr_xfer_not_identical_to_control_info_of_prev_xfer_fire;
+  reg	address_does_not_reflect_the_next_transfer_in_burst_during_busy_fire;
+  reg	address_of_curr_xfer_w_seq_is_not_related_to_addr_of_prev_transfer_fire;
+  reg	addr_of_curr_xfer_not_equal_to_addr_of_prev_xfer_fire;
+  reg	address_for_following_transfer_not_cancelled_on_error_fire;
+  reg	address_for_following_transfer_not_cancelled_on_retry_fire;
+  reg	address_for_following_transfer_not_cancelled_on_split_fire;
+  reg	master_continued_to_retry_transfer_error_response_fire;
+  reg	master_did_not_continue_to_retry_transfer_retry_response_fire;
+  reg	master_did_not_continue_to_retry_transfer_split_response_fire;
+
+  reg   no_zero_wait_state_okay_response_to_idle_transfer_fire;
+  reg   no_zero_wait_state_okay_response_to_busy_transfer_fire;
+  reg   error_response_requires_at_least_2_cycles_fire;
+  reg   retry_response_requires_at_least_2_cycles_fire;
+  reg   split_response_requires_at_least_2_cycles_fire;
+  reg   target_must_drive_response_OKAY_when_inserting_wait_states_fire;
+
+  reg	bus_unknown_to_unknown_fire;
+
+  wire error_fire =
+     (
+       busy_transfer_issued_when_no_burst_in_progress_fire                     |
+       first_transfer_cannot_be_sequential_fire                                |
+       master_must_never_attempt_transfer_wider_than_width_fire                |
+       address_boundary_not_equal_to_size_of_transfer_fire                     |
+       master_granted_bus_no_data_transfer_no_idle_transfer_fire               |
+//     addr_and_control_of_curr_xfer_not_stable_thru_ext_xfer_of_prev_fire     |
+       addr_of_curr_xfer_not_stable_thru_ext_xfer_of_prev_fire                 |
+       control_of_curr_xfer_not_stable_thru_ext_xfer_of_prev_fire              |
+       ctrl_info_curr_xfer_not_identical_to_control_info_of_prev_xfer_fire     |
+       address_does_not_reflect_the_next_transfer_in_burst_during_busy_fire    |
+       address_of_curr_xfer_w_seq_is_not_related_to_addr_of_prev_transfer_fire |
+       addr_of_curr_xfer_not_equal_to_addr_of_prev_xfer_fire                   |
+       address_for_following_transfer_not_cancelled_on_error_fire              |
+       address_for_following_transfer_not_cancelled_on_retry_fire              |
+       address_for_following_transfer_not_cancelled_on_split_fire              |
+//     master_continued_to_retry_transfer_error_response_fire                  |
+       master_did_not_continue_to_retry_transfer_retry_response_fire           |
+       master_did_not_continue_to_retry_transfer_split_response_fire           |
+
+       no_zero_wait_state_okay_response_to_idle_transfer_fire                  |
+       no_zero_wait_state_okay_response_to_busy_transfer_fire                  |
+       error_response_requires_at_least_2_cycles_fire                          |
+       retry_response_requires_at_least_2_cycles_fire                          |
+       split_response_requires_at_least_2_cycles_fire
+     );
+   
+  reg	okay_response_received_count_incr;
+  reg	error_response_received_count_incr;
+  reg	retry_response_received_count_incr;
+  reg	split_response_received_count_incr;
+   
+  // synopsys translate off
+   
+  function [8*8:1] state2name;
+    input [3:0] st;
+    begin
+      case (st)
+        ZI_MASTER_INACTIVE_STATE : state2name = "inactive";
+        ZI_MASTER_ADDRESS_STATE  : state2name = "address";
+        ZI_MASTER_DATA_STATE     : state2name = "data";
+        ZI_MASTER_ERROR_STATE    : state2name = "error";
+        ZI_MASTER_RETRY_STATE    : state2name = "retry";
+        ZI_MASTER_SPLIT_STATE    : state2name = "split";
+        ZI_MASTER_UNKNOWN_STATE  : state2name = "unkn";
+        default                  : state2name = "unkn";
+      endcase
+    end
+  endfunction
+   
+  wire [8*8:1] prev_state_name = state2name(prev_state);
+  wire [8*8:1] curr_state_name = state2name(curr_state);
+  wire [8*8:1] next_state_name = state2name(next_state);
+
+  function [13*8:1] htrans2name;
+    input [1:0] htrans;
+    begin
+      case (htrans)
+        ZI_IDLE          : htrans2name = "idle";
+        ZI_BUSY          : htrans2name = "busy";
+        ZI_NONSEQUENTIAL : htrans2name = "nonsequential";
+        //ZI_NONSEQUENTIAL : htrans2name = "nonseq";
+        ZI_SEQUENTIAL    : htrans2name = "sequential";
+        default          : htrans2name = "unknown";
+      endcase
+    end
+  endfunction
+
+  wire [13*8:1] htrans_name = htrans2name(htrans);
+   
+/*
+  reg [13*8:1]	htrans_name;
+   
+  always @(htrans) begin
+    case (htrans)
+      ZI_IDLE          : htrans_name = "idle";
+      ZI_BUSY          : htrans_name = "busy";
+      ZI_NONSEQUENTIAL : htrans_name = "nonsequential";
+      ZI_SEQUENTIAL    : htrans_name = "sequential";
+      default          : htrans_name = "unknown";
+    endcase
+  end
+*/
+   
+  function [7*8:1] hwrite2name;
+    input hwrite;
+    begin
+      case (hwrite)
+        ZI_READ  : hwrite2name = "read";
+        ZI_WRITE : hwrite2name = "write";
+        default  : hwrite2name = "unknown";
+      endcase
+    end
+  endfunction
+
+  wire [7*8:1] hwrite_name = hwrite2name(hwrite);
+
+/*
+  reg [7*8:1] hwrite_name;
+   
+  always @(hwrite) begin
+    case (hwrite)
+      ZI_READ  : hwrite_name = "read";
+      ZI_WRITE : hwrite_name = "write";
+      default  : hwrite_name = "unknown";
+    endcase
+  end
+*/
+
+  function [7*8:1] hburst2name;
+    input [2:0] hburst;
+    begin
+      case (hburst)
+        ZI_SINGLE : hburst2name = "single";
+        ZI_INCR   : hburst2name = "incr";
+        ZI_WRAP4  : hburst2name = "wrap4";
+        ZI_INCR4  : hburst2name = "incr4";
+        ZI_WRAP8  : hburst2name = "wrap8";
+        ZI_INCR8  : hburst2name = "incr8";
+        ZI_WRAP16 : hburst2name = "wrap16";
+        ZI_INCR16 : hburst2name = "incr16";
+        default   : hburst2name = "unknown";
+      endcase
+    end
+  endfunction
+
+  wire [7*8:1] hburst_name = hburst2name(hburst);
+
+/*
+  reg [7*8:1] hburst_name;
+   
+  always @(hburst) begin
+    case (hburst)
+      ZI_SINGLE : hburst_name = "single";
+      ZI_INCR   : hburst_name = "incr";
+      ZI_WRAP4  : hburst_name = "wrap4";
+      ZI_INCR4  : hburst_name = "incr4";
+      ZI_WRAP8  : hburst_name = "wrap8";
+      ZI_INCR8  : hburst_name = "incr8";
+      ZI_WRAP16 : hburst_name = "wrap16";
+      ZI_INCR16 : hburst_name = "incr16";
+      default   : hburst_name = "unknown";
+    endcase
+  end
+*/
+   
+  reg [7*8:1] hresp_name;
+   
+  always @(hresp) begin
+    case (hresp)
+      ZI_OKAY  : hresp_name = "okay";
+      ZI_ERROR : hresp_name = "error";
+      ZI_RETRY : hresp_name = "retry";
+      ZI_SPLIT : hresp_name = "split";
+      default  : hresp_name = "unknown";
+    endcase
+  end
+   
+  function [8*8:1] hsize2name;
+    input [2:0] hsize;
+    begin
+      case (hsize)
+        ZI_BYTE        : hsize2name = "8bits";
+        ZI_HALFWORD    : hsize2name = "16bits";
+        ZI_WORD        : hsize2name = "32bits";
+        ZI_DOUBLEWORD  : hsize2name = "64bits";
+        ZI_4_WORD_LINE : hsize2name = "128bits";
+        ZI_8_WORD_LINE : hsize2name = "256bits";
+        ZI_512_BITS    : hsize2name = "512bits";
+        ZI_1024_BITS   : hsize2name = "1024bits";
+        default        : hsize2name = "unknown";
+      endcase
+    end
+  endfunction
+
+  wire [8*8:1] hsize_name = hsize2name(hsize);
+
+/*
+  reg [8*8:1] hsize_name;
+   
+  always @(hsize) begin
+    case (hsize)
+      ZI_BYTE        : hsize_name = "8bits";
+      ZI_HALFWORD    : hsize_name = "16bits";
+      ZI_WORD        : hsize_name = "32bits";
+      ZI_DOUBLEWORD  : hsize_name = "64bits";
+      ZI_4_WORD_LINE : hsize_name = "128bits";
+      ZI_8_WORD_LINE : hsize_name = "256bits";
+      ZI_512_BITS    : hsize_name = "512bits";
+      ZI_1024_BITS   : hsize_name = "1024bits";
+      default        : hsize_name = "unknown";
+    endcase
+  end
+*/
+
+// SDI
+
+  reg fibre_created;
+
+  integer fiberHandle;
+  integer transactionHandle;
+  integer transactionHandleChild;
+
+  reg [13*8:1] pf_htrans_name;
+  reg [31:0]  pf_haddr;
+  reg [7*8:1] pf_hwrite_name;
+  reg [7*8:1] pf_hburst_name;
+  reg [7*8:1] pf_hsize_name;
+  reg [7*8:1] pf_interrupted_name;
+
+  reg [13*8:1] cf_htrans_name;
+  reg [31:0]  cf_haddr;
+  reg [7*8:1] cf_hwrite_name;
+  reg [7*8:1] cf_hburst_name;
+  reg [7*8:1] cf_hsize_name;
+
+`protected
+
+    MTI!#7Ve~SDE]e]ROopla^"XXlJKUAxzH'3u$k!UU8"ro5U}c>]#WQSk$?^V+wY;To2Q}>=VG#=_
+    !1]BW$a{-*zp/rYUUp3v?!RiaZrAwjwjA[{GOR5+DY>2WEA1OG;T#>lz,7-3u4.B}^VG=E1]O[n}
+    ~m1El-!7$EiC[1\2_w\EAp}rs\{@&s]H#L+GzHIwuvm<v3z$3W75,;MBtxl5>rrs?!w\=T_Y<,*o
+    32rjvA>W\RC}{Q5p>T<rZ1u57HEeiJ]ZF<1Tj>[zaor~Te7HAin$<l_e>@Qx_;x@3HH3}[#v*=vX
+    uk}Yp,\Wu7@]QMHTvT~O{+jx$^Q@TU7@QG$X1_j~J7d~UIHy#T*]r[<77k_UD'{vYW>[Q3zG_j{=
+    s//rj\;KV$!XB-nRwzR65]"}<_I%BaB\"5=N2x7V1;l5<Qz}$!KBVV151ZzDnToBZaHE!'1T}cel
+    DpWjVBAskOzw'XWxruoQ*e21m@Msmua=$s[u+wYR+VO]*[jv7DR-B#~FZa!#-vV7!EOUIree;^e]
+    GY!ZxWK7orB]G-T_,XVB1uXQ=KYzbLHX_~JX,iZ'!vQDJWBJ}zx=;'4wE+mO-EoOAV*%oHHXyb{G
+    _z#pre#I=_3lO}LbK5w*ihpK;Ala*vDr,3OuBHCW{B^;X5~EZURo~77U@w5*{_;Y<+,o>*i<~T-T
+    vvGs.;r<{'Q;p)|KXCV!TXs!C~~s+Y~Ge!pBm@e@a;A^,RI1{@BH>5G3GTA^rV!$Q7?Dp[AR~'~E
+    R3@no7ij'XwEwlDVr5G,^K^GO}H5!,T]#@{roe\^[77PI,R^5[V}zRY<3RxE$bip!IYum~<YJWB@
+    ]+3$$]Z]^o~Bu!=?e!G@!e3ze#y2Q}E>r2Uk1jCQezw~1sZW_W>w>sHZX!;}>{@To?AD*7U;U1U'
+    H!Q@o[C_'B-^RYQ%j#zm%1E3TO'K_$j,lozp@ITToX'vvWBi3}2m-],{Z$-zidZUAX$npwtIz,VD
+    5s>']@'{xGTO5}?AzX*u$@xEven5sDR&mlz*rAB?i]}z1p{l7Y*+}Vke"qE;KYd62Q2+k_w'[i}E
+    Eu-Casj\!G*3s,!;Qu7U3>}J7]ajZQpue,]QBsa^nO>s$pp<YX$+*k}\/P}{H;up}1I_HCIZea62
+    CQ5J$K{iaB7zIKD[C[~\Vjzq]{]2[XHWvX{YpR11dy)-O3pl-{*iI~QuODjxCTpJ*!}xow7EO}R$
+    #[[;${;H7Gp-U2jY_+^l@2e}~n?m}1'^z{z*H,xBXo*?^[5^'_CmXv-7}#Wx}-m>v7H!E[iE?\n*
+    w\msH\kj3O3)m$Eo*3@>aI;oU^OuGeunDkBsA$A3Foc7e_EKC$p<rrsCpaAOwDxjjZR?]_I}t,@H
+    W*1>J$,XpT_2z=Awm'wuv}<^{BmZ71_>kvD{*Q2Q[CxVsr\I*2}{5Za@J~CXTA{n3p<{vei5v5J5
+    [$RV'rYR=kewA4vqiDk1("o'1/O~*rYVz>{VJIOu,7MEpY25C{aC\x}Du3;A_5Q,C[2=k@WdgYi+
+    UrK+-sEeam$}{QwV7q^uHB<5eu5s@>i]r^+X$nDAAE77?__+,iSoZA<ne[xruR^*s*TYVnDrx2Bf
+    Qka*[={1pReaZ5z!5kaa7(Rn>nivTXwtF'2Y7,^^lV\{Y|\B{I\7B1X<K>G^kpydE!<T?RQ}]^#5
+    D$B{[<JIX'!{mU;>p[K,7OoD]QX#pa3Aa1jG&\XC7EoXIk*[wFj'<o|1e[u7#r}q,7J}%,+@}s]Q
+    l)#aH#TonYc^UJRQ,I;|dREp5?Ua~_iO3c*5Xw0e<{-aGO7>xARGeH]lew]BHe?RlTIz{!!:UI5v
+    rV7J(ZOAK$UI_7K!vJQ}Z~{;X1T+;ao]#=z{jCJ>@y:pw~<_O3xfQ}#pEeTY_5~s?]}+[>sV8#_o
+    CDlBZ7Y<le>_Ej>OU$2Q^iQ~GQ'T2Vsoz[I$Ozln5v'j!#-pIu=+#sD52|@Bm{,w2R9mY5-K}\Yt
+    %k>uRR@'soz+H'<Kw7|X}Q-$n_U,,3'3TjTC7<JkliUBnZ^u]=-\uSWrr<rxr^Nv_ECQra1V_w\c
+    ++$zf~zBB8-C{O~za-*]7rT}3A2}5ZeG+#7+@!i1Ujdge55o_A}G|$*la~Xv7;1^{RE_;xBB?l@$
+    pOnu71e[]&fEs}C3QX#4z^x~.*>WJ6+XYAAT1u^AKVzR#l{xZUGpQw*VGj@,}<[}jO=sx$t+CUs^
+    i5wl]JV5W3Do>no=kQ]rT7G^Gp@q*nz;[\sa'Ko]kY-~Ux_v4+xD{*_B,uG?\RAsW]1{^zOQw^A,
+    {*sW*?,iDrH-T$p}k)1w!H2DkGYZ7miVTB6OA7'k<o{XYU_wx#B*[\*^auua1@#rHp~vnR~U'[;y
+    rrov;Vm$<a3;-D{3{eO}<x1e^[wvOriR[:2BSWa5-Tou]kE#el-BmuzUwI#^v4=mvOSY'eU=rEmj
+    =^!BGGvB5Xm<s=m~olo#wE}*Y~WU*~T!{XwZ{<^@(kC+O-p[,}-;?A[,r$*,j=AGu2eJ[T\>C1YB
+    o8^[=rXomul~=]7'!x+X~s>UuOOo-an71I5*1,y@B=e*5[TzxX?$@1H:[][][#B@x<x3)v^z~GXa
+    nDi--5_+er~-l%lz#5T=}nJsVEpKYwnj*1W*$1*}]U}Z*'*alV_KJK#,;=%Er%!a~E'VkxkXQo2w
+    =7o^\ADj-DRa[>@z$p{r)dGm[VYGAmYzR2uIzrG#}Ry[aXVd]3v-3<\\'MZTr2mVBK~6QOYV*ekT
+    =k^#G{$I)0>'5C\Tol,a=ZVr#Cu$<EfzV>s]DGpopG@7Q{JJ,res1uG@=RkVoHV^oHkxk>Ca1JD3
+    G_'+'E3@zwo>BO~}8[zo!5<ZvKT*#toM$R]}n=D,_-<O*jR<7ReCZokI>v~p{HAwYI^^\_2o1EJ@
+    BH*x\,@_{^]-^3KkN0?X~~KA]{/BI]7d+7uCr;m??TG^[}knYn{'$D5e}E\G'zpnxA^,~,WVre5H
+    ZB<Ki_-?QFj8F<lpa~&gdDAUn,{5xeTWkTD{'Q7a^-B_rOH-Uw8>*r]h#EO<1}=UkE!l1eHwb1k1
+    5'BD!#BOO,*#7Woj>7;V=zT,@8W}Ins-$j-Q-T<>5IG]O^RO{};_+TojG!Vx[xEvA~zIZ1wX!VkE
+    Y+p];sw7BpEKGE>U4D<BG'Y_sKxGXYX<r$$A5B;V^}$KK0}rk53wj_?z!n@O7p*vTvE5_[eZW_$b
+    ,E*=^?XBC\}XuAYKBR[on[Ek},ICV{GiZV?5wrH>7@K\QC_ARY+YQ.B$?1)^u5lWQn]$ET5QV]-u
+    7<}j$!nq>xV3*?uV;<oE};V1+-$~I31V0x^*{I$A?$aTYEWT<R$k'K-QX\^VpxjU7lO2Bmn]QR{$
+    oeI@2=R@V'W!@EO1lV<\rxRjk5a5wu$mI'O<eDX72or*;RrQro]zjIDmZO1!XxBT$',Jpzx\ChJU
+    KwAYpQs'5~q*57}D^5@:ila<>{QQ31VQQI~Dq]En2Y'~+@_@3j@~3Y{^raRH@lCsUvK<@Ee<1zi\
+    +?[UV<}xrIP<_Z]gipEZ%}1Dx27\X*$#zmY1JEDj?]E1Cmj#p_*?xC\IOi_mI1Zno]WIup-B5kEi
+    nxUR1ssGxACE<71uW%t"B$VV6+_vlAY_^g}.kszEGeO](vuWu5W5'<zOX,kD_n{\x,GB#YC!kEXE
+    >=,{BT}oT=K*vTes[\Ko2s;=W*2GX^[~,<j#ZVkAl'#Uxk5EuJBujHI;ndXaRGpHGB_>1U?<AQ+j
+    ~RBu<D=-~?pk_#ran-7a^#1_e}VwL,*uHlj+]?^3?\1'sz[rO{X!{YzQ<boziExo1JY&o,KUQzsp
+    r*e\=CQC\Q#BXnp^=B=*hw5n~-]YZxn~JWh?{j}WA5uO!_<pr}UOwz+n,OVZE,@jYYQXa=mZYWp8
+    =?sv+7w}vTH2_#]zo'*+us;o?rxiQE-#<'GvIE>7p=mr,aY;7+Xs;$!RA-1e(HR~^7,pzBu+]D+^
+    CGQi38C>!=?l!\-}!{Q;@#2}5CoL;'T?z=sx,Ie{o@WZB2'TCXpi,kaZ}DjuXYpnr\D-*HW+_@,~
+    |7zeHBGW3aCE=RU]$*1+nj{jO;pu@G-B<2C}#QaIWj+{~BknWisl-Dp_{L~RW<G,pow{Bv[Qj77X
+    n')Ba@eaQU!f~Tm'V;<7|RZ=u=~<Vrl<'I{*RGZYr^Xn=7]Q#CJ!jlUWu#TT#=GC=xT-_?,']$TK
+    l|n$^B1a_1UC52_v+Q[Ou#_+mk$V$Wl?!+=JQD~V,;U}7mo2[u#D1=K\[sX7#J\KW'^\]\YRs?I;
+    Yz1aexCxe1vDK1,CzO'EwV2R-Yp<[A<{^+~<JTEH_>~a{'zaz_R^Vo3ezABm3$Y^]eppOA7a>T-s
+    xsA+[K>>I*RTO?{^Gjx1Du:zBjp7[QOAQI@5o\re^}'s={~r*'$jYXK,TEYy,;~p]-}HGZIV<eu{
+    HYKrL+U5X*\[CpR7ZY{Q~5C_>!\!@=@nI*K=*D7'23'p!E*=n2v_2XYJ!MOY7-wE1_okj]n1T~)7
+    ICBTV@r3UH<vi$pV,AEG$JTBzE$}2Q^}GUlCKB^>UrpUo{3RIQ^OJ7iA*Ae*}=-VnYXW|r$'D<{@
+    @5R,>/<-_BrVs7C[,,_A{[,kl;l?zj3IQU\Q(W=Ur$;K[rD-]IzJsk'*#!e^-Hs*s7'YYozEQX5B
+    !O?B-=>DnaO\uVvJX2UrCTB:y,AA]QVRaeXY<o!ZOiXwjNn_~v?*iJvv7J?$p](islBwRBT$E>Cp
+    **R6^k$W4ar_\s1Jm@sE@s^I2mwCR?D7@}pB$VA27G'HWF5~<~p'V{}l\p\IIvZOKQ^oR@@C}$Ym
+    j_Rd$T=rUAJT*BRa>X1#%RpuaoK7=]Ckw#7?<41?TE&Z{-A2p{Q7T1a>'r,Ywmx#YJ=;z+XZpJ[l
+    *wvW'p$I!R3D5JOOU@u7"yx;z[,^5wkBoVB{HuO[a!z_zu\xzTz'A>'1DKz[ETwe,HI7[V#a~5^<
+    vuNeo+OBZOG~T-3=U~TGf2H]-vBaxC]k>IU*a!]ZGk[>UmD3=q7^Q[7;oJo;\D1=}+3DVCrOeQkB
+    H^Y>~'BB;ry[?Y2XeG]^@7~knR7<.!,T-5Dv*($2uKr@~@cUoC@/e7W5KwR+~R;ro=7'htF'vxrI
+    vopp^WEYEHB?1?m'J\Cwr-^1^Qo1B<GMa$z,z~><VY'W}RVIe=sn?YQ{O*131sJ!KDQ{U,>wYsCQ
+    Vlwu$JnH<VX>'AT,\;zmo=xKxRBjal^2KY~++XY{Cj<IUp2!Orls^{VJ,aZZOvn{fW-oXY-Q$OK>
+    aOX@3QyO*@K=*]}jWa$GJA}]C>}8v?+oz\-s*1toLZzE!X^*]&C'IDYz=lZ=AY"a}[E,eJwSwI7J
+    \'CslvU^z8?5z*{=@V{BHjQ@~^^!'17D'^_v[@~[#@|?><{aI~RjD@Dx1_w*X\2Is,[1;^7m>7=v
+    E<WjU!m@7@$d^xT[+Q=';Bw_qGUj[a^RQji!>:Y[@_Y!3rm5[3w*ZjjnsOxl]pg==#mJ_Je-\<pn
+    UnV\7}Wv!Rl3s;eICTv#U{UlxUxgokQUuBwX%C=CI0}'QuFVZQ;hJD*BR3{j,[ZR,k=$7I1X@oUV
+    UnEG7;omq>w\xFmer[@VEO4@U7H;xH#D$VnaO723>R!7r2[$*wI=Xju3EQ'D}XRB]J_eGO}AX;u&
+    ;=e[~YiIfwV5lvWoV5Y,l=@]iI_7B9lE^X#Ce*>O~{3$U^;T$lB@mTBRAAK=OIueZWET-WT-Z?gf
+    eV?sos]Iv-EW]ro<rRTRb1YA<p{B!=~]l3>=,'u@sQ^#-#1,pr!>R~{xI+YRTJ{R{4[Ap-\~pn>A
+    <lG]aB$z?WE}T}w_A-H,31^jK<2sj^7KBeTlR11<EB7u!'^C?sv?pW*\^7sI\KlDJrsK@siV>UXB
+    vBfr5,v@VZoDB1<l;3^aYmOoYp'YZ-Op_I<b5mv32sjA:C\>>x!$[GG*V\^z@1@MQuwp'k+5po7A
+    7ij$'YIG7{D]k=+B2lO!2T7pVBpr>nY7I@T5BQ1jDB$n@hIC-YK.,,U1]Wp_u,;G~xR]y]\{or-~
+    D,Ere\Kj7I>$u4BD'Obb-X]K1!awRzj=oAn5(?*,#sknD7df;*D[x*ZkExi,rJ,5TQa}YDxikAe,
+    \~oAFeEAjJET5bUIO5XAuT#nwT=eOJv@Y2BV[!$mw1\Z+w#1e'oan3IQvR*wYnI3j~(]5@K\dp}r
+    #Qr[}<+A[Y$+'C<-oD2]\X[$7e>wl^I$vrs~'B^YWIVu?ex1K[?Eo\Ij'E+[3TOHwe7=DnOD-j^U
+    {@11KYa2\'*]-Wxo7IK$n!V#7aOEDK}3]I[<~@X^jj[3!Vz*pms\$VUw+}Yv=YVm_/Z^E{z{Or3U
+    J?Q?V>vv3]$QY}Ws5B*Q2*Enm!-C~]Bw~m?v<\to^u==G3pYYUvkeRVzBvCdv,Q?;Tnza$$pA+3u
+    *8zVsOg'*\5v}UR]>z*aVHITCIGr-1?+r!YQ!Hmj<^zTO}>bU5vsGA*3eZU$fs,XBlEY2kDU],C7
+    ZzK]\4rKT,VvGx3TCNTT*+-l~?h>Yz2U-m!UUQnal$5(jr#x~ao3jSnR=+pU\7Y+o+nv{21--11=
+    RR,U^lCR$@K,ziUIv<z3;2}GJui=o;sKBDviTwW'~1HOG}v1lYSL(1V11QDGX^EoTEB!GWAxQAj<
+    Z=7nu{<!]:%@n;7LQ~\WcR<Um^{{CvT!sBmZE\L8A]!j![~D}ZrAWD{AzbG2,ebOP;'CWCx]$4pK
+    3&Hwu<!UnIu=lOI-1RqJVUkvEv'4aH,@^{eU~p,Au*'C[Cr<V]G3eAlEwa-G77B{fRaUuR,@JY]A
+    ~U**@O*R3t1_D#z=Hz,\H**D?l*9v&uojw\x1_v~3s|5zCnc#X$@h.;>C,CDZzx_s;jAArBY{$7x
+    [2>1e=;QRYGn,we+x#RDw1Rv,37<>l*ZsI_BQxj;WOOk*{v2Xz[i'*A,Bp@<vD,7[*]9C@{aY\wl
+    IYJHp,E$=1^,_2js2'x^w+$J+-^A5Dv[F$-UEx[\AEE\=iUQm{{p3;a[KJ}V@j~Z_~Q]AR-7Re;Y
+    p$OH!xT3*pH$$OKQwF#e[z!vRs6$^1vnY<+Q~]_nV#3Es-5{+J5}W~n]Cnj=D]ePU+ZpI",Q<5'U
+    sKfR@=#v[Z$msX']CzCrnrawTY[Y-3R]mr;!G3e@*BED'k52oI+D'e2OjX{IGOl+O{Ww\izn\2Dl
+    UIAB,-_^e2;e)Ps%zV5lpW}j}WQerA1\Hp'pD+C={AvYp2Js]]j@jG3BwA=,s[#Q[os}K^$zATna
+    inXx~eZT,v<']Y5pQjw#B5olYI$V2[7lBR}!'l>*'_+YJ5Iw+A@m_>w71xv{Ove^A,rDf#{^kq7a
+    sBarGU?vHpea2>n*^G!{'#_mTmoHCW2jeCSvBGG{,HQ@HDEaz\re1-nI~D-KeA]X-rWzJ7Ar]slp
+    xxCB\2':(uT,>_lC3D{-7t'XlJusGm,B*W#\vHY[-GW\Y,eTJn&C'rD-ar~gtl]5[$E>ran}]v{U
+    xzO5ave+D?,,zj~*KA<p^n$7HGEH7ao7_*z,BwBu~^pjBZjHu%=!VZ12@^ve+1_-^+Uj1u7X]}?v
+    B<,k$XZ5@@a5K*IaA_2NQpCDYl1CR;a~x@v?o+J#Ijn[?><mjT^UeRQY~[e1lej\z]v__7I\zW<s
+    uR?}+{K]D_Bo)=T@C!-aaE7G{AU[e]*',k<Avz,j7WjCiL&Czx+13VB_KGQSEnejwT\o]D#p7<HA
+    w}a~|~TU\H-~o/C,BXFrl7<}$=^@=J~p[@=^5U#,_,u{$OCLprDe,nX<W}=[I;U_Kvsp~zrCT-uI
+    cp~nn+pvvVjC*(?noZA>D@nIKxJHD^Bo3X0d'+oZ]JWKbpHwB^eX-s~In.o}O1mTG=DQK?nX'xri
+    ,@Z{5{iBC7[BvmQlrjHsOz<>@[*3nj\[aj}U^ps[,vB3Rnb~'VW?z<Av?uI#Gepmx{JNzo}+GkD~
+    $xAZCQI}~^_pj@R*zC!Wz+2~xwJ^ek=oQK~$,>*BWe#_T}{\UzrQ!R*w'Rs;uvTAhujBK2XJj:[,
+    O2o}3YaeekL>-<'QkU{_=l5{V[!<n*XXe7T15IC52ZY_,{H{RR<px_''[aC+z-rwll-{YCj'GZ,8
+    a_x{H]}1XQ~n$p-Gi=Vo^az$R<Uz_pDI7{Z5O^a;OO{XuI+p_?=HjA}-#=5mi+'n#1x_,3Gs~-]C
+    9yB<>xQzYXEnBp)lxm5kppj5,QeuA_Ewpw^c0z5eG*zH$0;wzmQxjRV+2{7o3\u+E_5_71+avX@v
+    ~xG>7HP_UWuL0omAOwnGR3-KEliYn@vvC'w}G[z5GCC+x_\mE%G4G$?[\lZYa,XxIl+jCsYZwIV~
+    EGopZY<3TOBOx>z>n+D,I#r'mC?k>=wVK+nl<QwQvojzUC-'le!vJ[O#0<&Ap^7a7ZWz{om>lvHR
+    OR31eHaVABW15vA1mzsyvOTr_5xj_,[-pW*x+DH1IYZ1Q*a=R!$TQ^nKY~!3@,;>:XA[=:7^HKT-
+    ,_l}Z$,w*iJ+V2+527no[7,rl_zsIuDJ[>[zz[_v{'\]sWd=}TIG$kTl2AW5nrCz]7}r+@aR1w15
+    =kr?=w[7*eKivRBJ5K@j_3*c5a~->5RkQjEs+r#?iGk-xYawjHD#%[1[-5WrvxQOj?<I~L+j3?r_
+    QR*Uv+T<Ipl$!\3'Za.]p]o'\TJ!-pGp$}<6Dn$a$IRw}5!u#EoBFXsOsn+;$AHVi\}5jQl~OqLU
+    n}RO?CXGszv2OxUREom<pH=OGCe{I]O\Gr-TGBWn'IwwY$B7=7{zo=Du_,7,mOwCQxpOEICn}u;I
+    K'sT_o[5vTr*<Qk:75svz^<xEZ_1^ajX%UH]G]ou{=l2UheCvrx[$o_+C3=':Z5pDTs\<4n>X_GJ
+    wn]k,iBKze\e_a^w\$PBB+WooipuRu13l33J]oI9#p!p]vY>l;1-7Z_BBGa_(K]1>ok!2xU2,,KJ
+    #M?v1iBG7TzV>Z>U]~GewjI=!OeBlT,l_]=O;kVzBxC_GI*#@'Hj+3Ew]'5kaO!a@miox^R<>56B
+    }$B$\?2$]k\r<jVZBCT2a5Xo]HB\oxu<}_,,[-Y\msl7_}Tq@w@nu\\vEvj2{_^=7kr,xUlkeijX
+    T7CKI}A2UX;O_1DH\9s{AVZ}lrzeaI/^xTU'7>1}#><5]zH{aK=;[>p45p*Zx*xu@Ek-YaEHx1Tu
+    8nQHuBV>_:Ap55zdlBk}kIXjcB,u'!E!p7iTo]O]E}a3]f]N=$=OOw$jm1p{*Zwm/wE[C7!3Q&*G
+    ^1i]xi}V]\pYV@k,\jAr=vr{u]@\uJ[\-@u'jIYv_pwO1B\I=@QE-Q+v@IlYXA,@JU1ul;R>u5=^
+    =a3*RX4l]v=v@JxB,5i2<pIonO}7<=[/Q'u<571}u}ABQ;v'<}I=!X7[%)xwl7aI-UpKKk5lk?B[
+    ?]S\=>*vK<7^z@{?n+~#T2]},###Tvs}D7mTw;,KU<?,~l+#UnB07H2I$+K18Euo2sGek',*Ulu_
+    v_@sG^GO]UvZlwE;,Roww,OU7[aV+R<VRa+K;)vV~[DV@_-<~l5ZH+gK<^ar{Y~z,,IUe<Im7e2E
+    <m2=e}!F41HJ>R[K[DA!5T]O-^k<T.ZDY;$\A#W,!JV}QzgBJ_+TpZ#kw3\_UwQ=eHU4[juz[s-G
+    3{;OG?zn-^'1>1m~<waA8-w!;s@JuS[-2BXsX=CJAX5vYI.B~}'<R@D@}#>kl,wYx]Ek[<*R\kBU
+    B]DWrnrJYZ2W'ue-U\a']^x+QA7\x[$>=${5}]1TVG^Lr>p~Y#GDYe!xeJZ@V>'=3TZW}oJ>IA^C
+    xDU*7ZuC1Ej3-O<K=zkeDsw7$E;J'@KuUC?rCJ\v7_R}p;nl;Dkj,q\5ECmDO7QXu@>_\YYw;V^s
+    wxIVE[J=H;sO#=7#~o~C-kj+{<CA3Jmn[uQ5~p'WZCU'*HpK=ne$Gi(A$WAQ{Uo<BQ]+QlXY[QoT
+    YR$IDV',2J^5Juo\!rKaoX_3ax+5ojUC<W1ZU>EIC~a.K^]Baoo;U],Z;=*rrA$e,3RAOC_uzOrK
+    ezJm$~UH#=XY%Aj7n,,2oH*@+]CO=_+*BEkOj>li'T+,~T<7=D7v>[~_#y$rmBm=^rkDEv5VV@'i
+    ;G^s~7I7$1sW<$w+rO^wUmr'jH}uCv$~Or-R[XU5H\5YBJ_QawGn_~A=aYF2YI_2wD1$ku@-*<\\
+    Jl{-sU]*<[@\H]1$A13a\][%4Y^@3=UXozBKQduGesBzumIU+mGUT;<wB=sAC?TweIdIV$*as7{j
+    VTZ5}H;_\+r7'oR--1v~za=$Y]'^]vOO,ZKGKDeVsH[QnC=E7RCAv-Up7I_sO]Uo31--U$@QAB5}
+    nne[*OQz{v\Y~s[p'!G'#IwZ*+Oo#H}QlC@;7Rr=!o$jX_I3rj${<Ek>_u5R=,#_a+K*uI'{<WJs
+    WABunW-i7KA{[upR?<<jA}]O@jo7HwAQO7>#$'73X\*Y1{e_;3C]xQ+[s52:C[+>![}2.1[A@3oX
+    2o,\[QiQR3_\nj[
+`endprotected
+   
+   /*******************************************************************
+    * Collect Statistics
+    *******************************************************************/
+   
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] idle_transfer_issued_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] busy_transfer_issued_count;
+   
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] okay_response_received_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] error_response_received_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] retry_response_received_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] split_response_received_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] read_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] write_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] single_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] incr_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] wrap4_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] incr4_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] wrap8_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] incr8_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] wrap16_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] incr16_burst_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_byte_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_halfword_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_word_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_doubleword_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_4word_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_8word_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_512bits_count;
+   reg [`ZI_CW_STAT_CNT_WIDTH-1:0] hsize_1024bits_count;
+   
+   wire	      collect_stats;
+
+`protected
+
+    MTI!#,v?JV#[>7lo@IuKn7eveBGTK?-u-}*Z=7#Y?j7:Z1D[y}Z'p[n;x;D}OjuHzrQBV2[#BA^_
+    r'a>,=;Y[V$>s_!GieCawK<H]vT\ptCDiK1;H~Kr\GfIWsU$2C5kXp@=>lpZjpOpCmAf\QJeIG2B
+    movz-$rux+,j$?V[i$z[IG1GiI'D4G?QDFVI3$2,zmrzRu*~PTUO_+xiBvGw_3BxH$$j#m72Oa=#
+    Hjzkr^<s_ur1ZXR>[pc71\snasT)#I3p2e^jTO]~7YA#RYBoBa[GI_}ur5m+EXr2#55n~7ZvxXVa
+    *A^oZw~+E~-r>V{7_\5VEp!QBATOs=<rx'A#bY-m\=?KprJD->z-$({oQut'o=mOjaDVA}AC!=Zp
+    #m]]u,$z1;sLWz;OJR@vX_Yz=iCJU1Ua!H;GQX5TkAr;@-D=HD<oa+^7=axYW_=x{\*^C{;zt~}o
+    2->;Oa\+lBasUU'nOsDmv${jm:<z?{.^Cow2DpX/p?~5A=Xe$;>ZiR$~rCkru<D={BY}{<aA}mZ[
+    1Z-G$aD]Ajx[Q\ks}{^vW<oK,7!YaXou#jZ7u1_!,Z;#rx$Q?{X!VHw*y}#p;peoCqE-I2,l<VfI
+    wATOG-Gk7#JB#QW7==AwDundB)]xam-_CxK[aU-aZDr2JvBOYiYV'YMEsJv_#e!ZDpTaBk=]d7im
+    Y!vs#VXKn8\k{~uX1H?>;#w^-=1vH_ZIeAB;YRjsKj@va+Y1?#(aTX1^EVKx*rv6QA[CGnEwQAmv
+    _u\<3EV_Hn^YTT$C9^E>;'Wo1EDx{?-l<lY!z7k1KE[zRR!-z1vn7'*OHH1-Ve2wVD?^=Q[{O^>z
+    UDrU\Vsb~X[k1}sYwa'O/mB!_ziDz(!sjO[>!s\_5[R{_}V,-v*WQ_$lTxA[kp'KO[;w5K-Uu~~G
+    \@#$3O,ZQZ!z7WE*;UC;aQg_m>zirV<QrAJ'kZ?<YeJ=vw@<HI}oDwWzVzVg\,z5~-}!>^u+7Qjv
+    $3^*j2x1~E7O==l+UC_i]VC>51!'?']3}\K?*Gk?>TZ>L~s=?,}iHr#KRlwD]^ma<@o]?r_<X~eX
+    w~{HW*5B\IU=nR],pI3,wpEDp@[{R^[kaH<,2<aRi}/lsp7R<mUIXx]II5*&\2n}a=Y$*}B5B2o{
+    :nB]T3{-JX]}al1ABnI=~Ca=-p?\3BJ[{7o?swTT$KU[xKxQ-CX>[J<uW@EE;xHXAYDei_z~{vIo
+    !WTa1*C!DqQG}o6[B;D7x?p!GDY~j+zxlu*QrU<^<nxG*,iXlrD1^{XK>a$E3\wmx3}F:z_~la\p
+    uo@a+TVp32oD$<_J$D?H<up$QYG7j]<^~y_GkBKHH~DDYX5w<JXrAwyyl=K7lja!i1j~s'o$YOm3
+    B)Sc.puQ}mRQ_Di_;rG\\C7pe|_r5]x7wATT$Z(-|peek!jizO;oR^j><fKC-aTs<Dz=,Wp$Q!>T
+    }#;wB<w=e?<pEH$e;aG+7{ua=npZAKqvu+5HDvBzz5D;zzuY;_jXVZ}$\jG2Ij,JzEmFf?^w]$}}
+    25[}26kCeRTeI,vBw]5w^>lOa[+^[aWC!p!{*CJx+WBEjOe@*DT9>s\{3xa#XD|^'$!@\O@YQopv
+    X'1n*[o'D1TRYCU;_sxAC<*{Uangs2DXVKWRepGGq$*CoG-uo/T]i!E}Eu%={n{c,U-aJOC2+5lZ
+    =]jE_^KuJ[m}'1\[L?*{#0]nnABZ^!lDYO.3=#=H1*JlQVE]\7D'=<KlIQuesO]HA1DR-1\5iXEE
+    {V?X]mp[*A]^1'HvDw*Wsv\js>TK\m[Se!\kMEl{eQQmA-XWC+G}Kv#UpVe3n=;[YW[x}-rR;Cv^
+    HO6]^>_X{lJ.mT!!ZT[Qa_QGs_Auj[R{se+CCQ1G,!a!(kVETRm\7=~~{j2Bv{{KDzMWGUU@w2zQ
+    eBE]RwzdICprRn,JCY,r_IkCa_V3]{$lR@}ew_MG%ruXT\[V,-[\T$!2o%V^nuk{=Xs[ErYAlko]
+    pQC>vJIXTD8{G;2I-7lDjZp'uED1'*HispQp*m='*UeI_'=1\w3rw[+dz'xi#liI#wYQ}W-j'UeJ
+    ^lT
+`endprotected
+
+`include "qvl_ahb_master_monitor_assertions.svh"
+`include "qvl_ahb_master_monitor_cover.svh"
+   
+
+`qvlendmodule // qvl_ahb_master_monitor

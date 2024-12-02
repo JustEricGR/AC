@@ -1,0 +1,475 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_channel_data_integrity_assertions(
+                              active,
+			      clock,
+			      reset,
+			      areset,
+			      insert,
+			      remove,
+			      insert_data,
+			      remove_data,
+			      cancel,
+			      cancel_data,
+			      empty,
+			      data,
+			      insert_check,
+			      remove_check,
+			      empty_check,
+			      cancel_check,
+			      data_fire,
+			      insert_fire,
+			      remove_fire,
+			      empty_fire,
+			      cancel_fire,
+                              inserts_and_removes,
+			      inserts,
+			      removes,
+			      cancels,
+			      maximum_count,
+			      current_count,
+			      set_to_one_bitmap,
+			      set_to_zero_bitmap,
+			      each_bit_set_to_one,
+			      each_bit_set_to_zero,
+			      full_count,
+			      empty_count,
+			      high_water_count, support
+			      );
+   
+
+
+
+ 
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+//Instantiation dependant parameters
+parameter IN_DATA_WIDTH = 1; 
+parameter IN_DATA_COUNT = 1; 
+parameter IN_C = 1; 
+parameter IN_W = 1; 
+
+parameter RM_DATA_WIDTH = 1; 
+parameter RM_DATA_COUNT = 1; 
+parameter RM_C = 1; 
+parameter RM_W = 1; 
+
+parameter CNCL_DATA_WIDTH = 1; 
+parameter CNCL_DATA_COUNT = 1; 
+parameter CNCL_C = 1; 
+parameter CNCL_W = 1; 
+parameter CNCL_SPECIFIED = 0; 
+parameter CNCL_DATA_SPECIFIED = 0; 
+
+parameter DEPTH = 1; 
+parameter DEPTH_IS_SPECIFIED = 0; 
+parameter DEPTH_LOG2 = 1; 
+parameter HIGH_WATER = (DEPTH === 1) ? 1 : DEPTH-1; 
+parameter LATENCY = 0;
+parameter PASS = 0; 
+parameter REGISTERED = 0; 
+
+parameter INS_CHK_IS_ON = 0; 
+parameter EMPTY_CHK_IS_ON = 0;
+parameter CANCEL_CHK_IS_ON = 0;
+
+parameter CHKSM_W = 11;
+parameter PAD_W = (IN_DATA_WIDTH % CHKSM_W) ? (CHKSM_W - (IN_DATA_WIDTH % CHKSM_W)) : 0;  
+parameter TOTAL_W = IN_DATA_WIDTH + PAD_W;
+parameter CHUNCK_CNT = TOTAL_W/CHKSM_W;
+
+parameter DATA_CNT_W = DEPTH_IS_SPECIFIED ? DEPTH_LOG2 : 63;
+parameter IN_CNT_W = 1; 
+parameter RM_CNT_W = 1; 
+parameter CN_CNT_W = 1; 
+
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+input active; 
+input clock;  
+input areset; 
+input reset;  
+
+//required user specified inputs
+input [IN_DATA_WIDTH*IN_DATA_COUNT-1:0] insert_data; 
+input [IN_DATA_COUNT-1:0] insert; 
+input [RM_DATA_WIDTH*RM_DATA_COUNT-1:0] remove_data; 
+input [RM_DATA_COUNT-1:0] remove; 
+input [CNCL_DATA_WIDTH*CNCL_DATA_COUNT-1:0] cancel_data; 
+input [CNCL_DATA_COUNT-1:0] cancel; 
+input empty; 
+
+input data; 
+
+input remove_check; 
+input cancel_check; 
+input insert_check; 
+input empty_check; 
+
+output data_fire;
+output insert_fire;
+output remove_fire;
+output empty_fire;
+output cancel_fire;
+
+output [63:0] inserts_and_removes;
+output [63:0] inserts;
+output [63:0] removes;
+output [63:0] cancels;
+output [63:0] maximum_count;
+output [63:0] current_count;
+output [IN_DATA_WIDTH-1:0] set_to_one_bitmap;
+output [IN_DATA_WIDTH-1:0] set_to_zero_bitmap;
+
+output each_bit_set_to_one;
+output each_bit_set_to_zero;
+output [63:0] full_count;
+output [63:0] empty_count;
+output [63:0] high_water_count;
+
+reg data_fire;
+reg insert_fire;
+reg remove_fire;
+reg empty_fire;
+reg cancel_fire;
+
+reg insert_err;
+reg remove_err;
+reg empty_err;
+reg cancel_err;
+
+reg [63:0] inserts_and_removes;
+reg [63:0] inserts;
+reg [63:0] removes;
+reg [63:0] cancels;
+reg [63:0] maximum_count;
+reg [63:0] current_count;
+reg [IN_DATA_WIDTH-1:0] set_to_one_bitmap;
+reg [IN_DATA_WIDTH-1:0] set_to_zero_bitmap;
+
+reg each_bit_set_to_one;
+reg each_bit_set_to_zero;
+reg [63:0] full_count;
+reg [63:0] empty_count;
+reg [63:0] high_water_count;
+
+reg [DATA_CNT_W:0] data_cnt;
+reg [DATA_CNT_W:0] next_data_cnt;
+reg [IN_CNT_W:0] next_insert_cnt; 
+reg [RM_CNT_W:0] next_remove_cnt;
+reg [CN_CNT_W:0] next_cancel_cnt;
+reg [CHKSM_W-1:0] in_checksum, out_checksum;
+
+reg [CHKSM_W-1:0] next_in_checksum;
+reg [CHKSM_W-1:0] next_out_checksum;
+reg [IN_DATA_WIDTH*IN_DATA_COUNT-1:0] temp_in_data; 
+reg [RM_DATA_WIDTH*RM_DATA_COUNT-1:0] temp_out_data; 
+
+reg [CHKSM_W-1:0] in_cheksum_pipe[LATENCY:1];
+reg [RM_DATA_COUNT-1:0] rm_pipe[LATENCY:1];
+reg [CNCL_DATA_COUNT-1:0] cancel_pipe[LATENCY:1];
+reg [DATA_CNT_W:0] data_count_pipe[LATENCY:1];
+reg [RM_DATA_COUNT-1:0] temp_rm;
+reg [CNCL_DATA_COUNT-1:0] temp_cancel;
+
+wire [DATA_CNT_W:0] chk_data_cnt = LATENCY ? data_count_pipe[LATENCY] : data_cnt;
+wire [CHKSM_W-1:0] chk_in_checksum = LATENCY ? in_cheksum_pipe[LATENCY] : in_checksum;
+
+reg [IN_DATA_WIDTH-1:0] temp_set_to_1_bitmap;
+reg [IN_DATA_WIDTH-1:0] temp_set_to_0_bitmap;
+
+integer i, j, k;
+wire xz_detected;
+
+wire qvl_cdi_insert_fire_c;
+wire qvl_cdi_remove_fire_c;
+
+
+  wire qvl_cdi_data_fire_combo;
+  wire qvl_cdi_remove_fire_combo;
+  wire qvl_cdi_cancel_fire_combo;
+  wire qvl_cdi_insert_fire_combo;
+  wire qvl_cdi_empty_fire_combo;
+
+    reg [IN_CNT_W :0] next_insert_cnt_r;
+    reg [RM_CNT_W :0] next_remove_cnt_r;
+    reg [CN_CNT_W :0] next_cancel_cnt_r;
+    reg [DATA_CNT_W : 0] next_data_cnt_r;
+    reg remove_err_r;
+    reg insert_err_r;
+    reg cancel_err_r;
+ 
+    initial
+    begin
+    next_insert_cnt_r = 'b0;
+    next_remove_cnt_r = 'b0;
+    next_cancel_cnt_r = 'b0;
+    next_data_cnt_r = 'b0;
+    remove_err_r = 1'b0;
+    insert_err_r = 1'b0;
+    cancel_err_r = 1'b0;
+    end 
+
+
+
+assign xz_detected = 
+     (((^{insert,remove,cancel,empty}) === 1'bx) ||
+      (insert === 1'b1 && (^insert_data) === 1'bx) ||
+      (remove === 1'b1 && (^remove_data) === 1'bx) ||
+      (cancel === 1'b1 && (^cancel_data) === 1'bx));
+   
+`protected
+
+    MTI!#wn-?[{+{HIT+zi'?F3e>Tk\Blp~<oQCP=#7O|%Q}su];5D4K}'ix+A=*WUTz-zpJ]}u!}TT
+    1>IQvj?pPlD?KP*{DEJj,;D~_v'@^<e15<HE2sgWOzpqDAG}#{QDoVu7GjV;]~1pt,>G#@7TWr~w
+    wxs~a9_oi2u+5rPu}j#}@Kzm[l\,9PBp@D1Ba@y#=KYL}+Y>[52-H,~C^zix|Xwek3Yk!wT=+E_~
+    u=2D?i[G[Q$!U~<ael+\}F_^[Dl)ZwJXV?K2X>1R}JeR/r#pCG1-=Pj3Hv5pR*aU2m$D-aH<YJGY
+    XQBx}I^?B$B[@\7]{[n**D&"K[Y@a]erwY_m^}XnsVGibI?lnK+_DQV7Vl\{]B-}*ZnzVl+eK5@e
+    DLl\T']x;_\,kR;oo;6v~pzTjkI]<]~BD>*}UBAwlzzV?aT[2~j1AQXgEU7eua7s>v3;[mj=$*l#
+    ^Y^-6CwYHbe5!=lpUA1KXkE;j<vrJOjG'o,~Dz>zHAn$JCeQk5GsR\%F#rae-D{#zp#Z2XU!'1m#
+    F5eU$2^$YFl!G]u,]$kD]<l^BmuoXIzR3wVkx1[J}Iz-1W'G3[{e!<X1oKw}@=Ae<*s2s3VBEJ5D
+    @uS'm}Cq!{+T2Va3O}[<AsSOaELyKT;*>A$[w{<[zB[E=COiAT=]*<X;g~CZ};*''7;+<2AJuz>+
+    !1^mv_~X?xjm{*]Q\jg!Y=x;=i,![3Jir<@?Cm<'A[~GWO7%J,vG;^o2f$[[?9BCnuvQr<[s$R[$
+    <Ts3e7'XRE7,XRu^$D#>CwYQ~*qImU-Aw@m]=U#^}Go<QOuk99jaTHhjm>vvVR*2e#w'viW}mEas
+    z>@U6?a+D]B]Y$5]#GZYH3n~X#5{s2OHZ=$D>A_a{E}w[P{Ioib,;Vr#o'7Fn7A]E0;C]pEmJC~U
+    [5}=x_7x5[=;{Rh^?oI#A<ZoIG<BQsi8mH>}y=oTekH*^wvH*xon$$r/pk<J},Qi]ET1\^e]]5=?
+    [UXJSnRD*u'x@+amV}/eBWkhn}Zs,1?2kTuk\@XlvB3oK1jKdqIOOO^JziDAe=BKnCr>vwR_puXa
+    q}*k7'Gjk^>S'C>pf5uzW*DCj_-$7DBI=>Yiu^<7GioCX,i@s|;=7ueBDI\KmemD=n^<}[IW[_Ll
+    ~;wp;JHR\eW,'\]+D*+_Y#OaYq=;l+^J+ElBI;:}?<k@'TuJaAVer2lqqWo^mS-ju[=;7@KR*Kzg
+    ~R\GBeH#Y_+B=O7YriV*5K,#557?wRu#]2]W~I<@,-xGDQ3+CA@R9o:?>A-<XW3K[Z=wz7roDY}*
+    X{_41rn@^li_#U*1J}7n|rnpa?>v3'+=)Y5$Az<w*}<B[#Q*\p]JW@oC<Rr\Y{vH_r},$-=<3xw'
+    pEXvHY^KZ:1#KOvJ[uN}ovB*R[YL<U+}U-~r'IDKJ\w~zf!jI1mACVGmAV5C1e\[7YzWKkD#oJuv
+    #K/{]W[lTHW{QeJ+\*7=+mTa{<nmB$,[k@<[aGANz2sJp@C7=>Y>5DY*C;z=WosWT^$A1W{lxmG~
+    WQ~3UY3'p_#uk,@T[*VJqoav5D\J[s1nI0*#C[Du}!Z]Ae[H{[R=5l*J'pOe\jfQ+xr_Xo[2o<~j
+    <n}-AQ#'ImQ[y2<@1_o{>?Si_EK,leG?sp\CzTH\Y,~_T+;VK<z?D}k]\vAWIJTlHsxl^HGj>X<J
+    =j=*[p2xvov-+u}vZG_B@u*XT]{YX<\d-,vOE}rv@'W-vQ--e$esH<Y,sr(3x_p[EXvE[XGV=Ao"
+    W_2~x~eT_#IE}Y{*SjQeVUo{W^{@1D>CGo#J*[Js'vr)u=T_O>svjeH#UrRE5Te=^!x7aHsAj~2j
+    |\BrsNg7{-=7uupG1Y>{]WDx?nKcmza^ulr[71-_Yi[[~=$<bD[>;R2_[Bs{-15jHaU_Aclep@-w
+    Uoe~H[S8+&I=KCwa$1}bl;EACG1^2,Y}M>rWvez;!AQE!*J\2TXT12<-rIk$>,~UHY=XAAGQ'EOg
+    [RoRokaDRk\X_[=x%kE**Q]>nQzEsaEeAXO>ofxHB@}2]x-1<THlO^EAA^&h^T^\^21'W}3krT3E
+    Q<,?,iBp?1#[,a+[s^pAkDsV]|*p<CZ]UzFGz;AuE7,*A=!OR3>P?{j?!^**,j!AB2WBHYw{$U>O
+    -G<-!5_jqxre!~'XrB<'$UnvO,ws5Cu'IwwX3Hwe'l_!zjuJ^z^;[2]>OX^GmB2zW-B>28seDeEs
+    H;OZUmX>,IeT!mf6?Sv,YRaaJZ&N5#7RExRJ-e@#}H\+AXn2j@Cx/H+{~fR]Wremse}lJmZ7r}6J
+    w<@ICn^BKQ^;O[+3s5_QJHTHeT}oX@KzlIX=Qvx^jG5UX[Hnr#[oTJnkU-xC\vkjy}uAHcBsjBp2
+    <#_s<B"+HGC$}JV'w1sGB_J1>]TvWn;w{B{*,~u,L}J5Vo>XvYY7jd]Bl+erVEsp@=_Z;>=}owC$
+    z2[AO#?rs*;X[T(eE<Z+=\-5DCR+5vOa,~]+IQ{#T=TvZww=31WVzUTBkw;DsDm'iOR;1'{^m1=A
+    BmK]m;IRO\uxrj'zt\I5uUeeKRDTX$K]s]O;loV31VzIrB+a{--X@PC\2A17[iIK2[[BEpu]?\[X
+    -m9oV3^wOUpbWsU$Zp{5DzQx^#li:4HoiGu-;^e<pe/l*!*YUu^S)wX,@RDI$*5Cuo2UVUYZV3ev
+    j}I73i-V!B^{3s7Ae**Z;LYA+C15siLO;O7,@RHr'#'iVVJ7<n3I@Uu>rHpWVU{8CXEixYC,>j_O
+    v$X;_@K]+ps2O;v>7OKV+x[<(Bx'@U[@D>Ap!'[HYkjmD$k3<,m$Wc~8TU@V\a$^v~Y'51wIs7?s
+    jq$^O!.Y12?'Dj_7@]37!^^ARDUcX[ZWg=YW#fE5Q^lu7^=CX!EBVmG?]z0^rOHQaXJE<K_K\*_S
+    $_$D7+7!GJ!>i}BVW_27sVm>W=iowox;QX^\*Q3vi1R[BOjxk\^rm{A_pn~@CnUz^Q!,Rl}xa{55
+    2};HlV*oAYE};UpV/"lXjwd1wRzOXmuvuXE&x-XX;B$oWn~C]z5'<l2r]j^$fWp?nG?KXK_VX>*~
+    7GZJvi>2[UTlO}\QeIaeVT*pl>\e^OkZ^lX1<V[l<73j\I!_C'"~>T>fXz<@j[,p?Y-~D/2r-!H$
+    Tel5nVlmPRo'>}XYvp=w2/5B-<n>*ZK<J{Id=mTKDTl_#OOosiB-!Q3v5>'W<eR<7@}3#]R[G?*;
+    7#BokTD*<GVi[Jo]r2[Rm['Ahpalrx+7[IRaoxu3u$#^'1-;=85C>~}k_W#Xl'cCKHnC^KmY@wQO
+    i''VKuvTHO@j/?zI,o_B2zBkpQIxuEn]VOX~!\7C_cYA_KiGDeL^Ip{;[Y}'D?nT1j~v~>ZHpz>?
+    (m<=r{T!{=]JXJ$1;\O#*QJzKn13\^?[v-$xW7nH$}@]@}5A1rZ!53IaU]Xw>OITEajAepg)=el+
+    e@@Ypu[s\-z'Y[H_3=p5\Ca+vkj}'R1aInK]rOn7EOzQ1\*so72mg]IxZ*H@evJ,p[1C}|DwpD_Q
+    ]uNgwI{G^l-'e;~HC}^5s}ea_{rJg?1DJ)7mpT3er5e0[n}Y6Y*=E=3!u2xo-~7;#C'R@8nx1{$w
+    B\E$^#TTQ5]BzwGiOxmOD+7Jo7z\wjKrKrscG1\e{zjz@pi<WoYpWY5z1lCGtYOI]-7~X~7uBp\H
+    ]Ar,O+l$Q@,InI~CTWa,R[V]JF[zu[RR{}G'pXSesDY<^Kou]+-ah{TJZ1\EXr\?xV*mWm7~52OH
+    1TUe}I[rB)IA@WGWv\N@vj0t}.V1CxEzB{}sREnRD3;odVHBnV!OZZCs?oxYQ_XCika<Y\YXUsa7
+    wlswYUBJ~!G3xk^W{}*AGGB'oo3{5s\jU&^^#7~p}UTQWT-,VK^OQr*j^s<{[m[Clp>zWXIA@Cjn
+    T]xu'Q}V-{>];JXRWAkwR]O>]eO@*@!-wo;_rT<.8C'B>*H[V<}>#irYI!R;>>>@{y5D!xEs}D*O
+    #R[V;e3ep~D$kE>B7EX5XuwH>ao>-Z.=aDKIC+BH}unwveG@EX5}+QQ\=;j&nS_iX_k\=aa7
+`endprotected
+   
+`ifdef QVL_COVER_ON
+  assign qvl_cdi_insert_fire_c = (areset === 1'b0) && (reset ===1'b0) &&
+                                 (~((active !== 1'b1) || (xz_detected != 1'b0)))
+                                  && (insert_check && insert_err_r); 
+  assign qvl_cdi_remove_fire_c =  (areset === 1'b0) && (reset ===1'b0) &&
+                                 (~((active !== 1'b1) || (xz_detected != 1'b0)))
+                                  && (remove_check && remove_err_r); 
+`endif // QVL_COVER_ON
+
+`ifdef QVL_ASSERT_ON
+  assign global_condition = (areset === 1'b0) && (reset ===1'b0) &&
+                         (~((active !== 1'b1) || (xz_detected != 1'b0)));
+  assign qvl_cdi_data_fire_combo = (global_condition)&& (data && !chk_data_cnt 
+                                   && (chk_in_checksum !== out_checksum));
+  
+  assign qvl_cdi_insert_fire_combo = (global_condition)&& (insert_check &&
+                                      insert_err_r); 
+  
+  assign qvl_cdi_remove_fire_combo = (global_condition)&& (remove_check && 
+                                     remove_err_r); 
+  
+  assign qvl_cdi_empty_fire_combo = (global_condition) && 
+                                    (empty_check && empty && data_cnt);
+  
+  assign qvl_cdi_cancel_fire_combo = (global_condition) && (cancel_check &&
+                                     cancel_err_r); 
+
+`endif //QVL_ASSERT_ON
+
+`protected
+
+    MTI!#U}m!uV,Gmz'uEXK]0<CIYTaG$R_D_$-c13jV|.~5k$3]~[1nVl}XZ?ook[CK'#SBmQ_],kO
+    Nil'G=u>*VXRjO_^^.\e1WZ7E#}wCjH1ImaG~$BZDiNJRnaaO?H'!]oo@PHw'3zQ@=uVRu<E>x0U
+    ]xY]k>Glum}REAs];[=C\*v7mYDZE=C3xvz}i~WNWA_7IHoJR@I#5++p}*KjZrVZmXt+zZ]ECDB{
+    DjU{Tau%HC#-!E_A'3oH73Vw$kAGU{_*{EC<_m7al!u!oOX35'1H[~v5Pa,_!vBp[LWQE=0x'$la
+    Io[p.;j<{Y>>]$inWH\Kp6CV}O[5]ne@xWU>'@[T>Z3$DA.v1nWHsk#np-=Np5Y1:mHVxCklGJwO
+    QBlu5kT>o_'C<=[OV\W]_^IWo.\5?soX<jAGH3~RYJXliIJBo#J^-?,i@3./o#j$1V3'!UW-_7i~
+    ZX@,IQsiB+{AjV+5@wsE?RYYYW]AlROXtCZBDQ}e#+'}~^QR!VQ7;WB~['KZ-]Bz'ks<3c*-o'eW
+    }Go?u_q*WBValx2x~>\*w^UC?w$;Qs=ezUAVtg{G*?V*ZkQAQp1JrC+r53'V2$|}]mZ--GEzW@!m
+    $+JJQ~>}]U'G~,^j\_zj7Qs[#ICUa<mGe+~oi'Hk{$J5kY\Bs]~%2X*sKxI7e-{\K[XlzG#D1W'Q
+    aHjouv,+\'C~jX<BaaHCXeK=?H-@a'<p@7EsC{slv[{@xH=$Ql}Yw<sDv]~5VlWe7AVnpG>BO_G\
+    rem=w\V@YY$D&-$!XM1W<ROC\pZXQAY#-e*_Dn&$<<Q5pGlRACnvH=~xyr~51,$7nA*Wm]\Xoe-,
+    VC~X]:^i!XTD]TepJ#l!O?e7eW!Hs~6xQ2#Kn57ul=B5^#RQe\?'Rm~nUOn*3--*Uxz!a}K|9T7?
+    <leD$;<*Cv3Z{zbj@Jv{Ga3!<
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_cdi_data_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_data_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_cdi_data_check"),
+                          .msg            ({msg,"Checksum of the channel's output data stream did not match the checksum of the channel's input data stream."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_cdi_remove_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_remove_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_cdi_remove_check"),
+                          .msg            ({msg,"Channel was empty when data were removed."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 if(CANCEL_CHK_IS_ON)
+	   begin : asser_cdi_cancel_check 
+              A_qvl_cdi_cancel_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_cancel_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_cdi_cancel_check"),
+                          .msg            ({msg,"Data were canceled when the channel was empty."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+	 if(INS_CHK_IS_ON)
+	   begin : assert_cdi_insert_check
+              A_qvl_cdi_insert_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_insert_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_cdi_insert_check"),
+                          .msg            ({msg,"Data were inserted when the channel was full."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // block: cdi_insert_check
+	 if(EMPTY_CHK_IS_ON)
+	   begin : assert_cdi_empty_check
+              A_qvl_cdi_empty_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_empty_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_cdi_empty_check"),
+                          .msg            ({msg,"Empty asserted but the channel was not empty."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_cdi_data_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_data_fire_combo)));
+        M_qvl_cdi_remove_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_remove_fire_combo)));
+	 if(CANCEL_CHK_IS_ON)
+	   begin : assume_cdi_cancel_check
+              M_qvl_cdi_cancel_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_cancel_fire_combo)));
+	   end
+	 if(INS_CHK_IS_ON == 1)
+	   begin : assume_cdi_insert_check
+              M_qvl_cdi_insert_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_insert_fire_combo)));
+	   end
+	 if(EMPTY_CHK_IS_ON)
+	   begin : cdi_empty_check
+              M_qvl_cdi_empty_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_cdi_empty_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+    
+
+
+
+`endif //QVL_ASSERT_ON
+`include "qvl_channel_data_integrity_cover.svh"
+`qvlendmodule 

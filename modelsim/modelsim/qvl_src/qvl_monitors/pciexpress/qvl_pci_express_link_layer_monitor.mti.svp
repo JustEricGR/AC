@@ -1,0 +1,1835 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/******************************************************************************
+*
+* PURPOSE       This file is part of the Questa Verification Library (QVL).
+*
+* DESCRIPTION   This module implements the Data Link Layer of the
+*               PCI Express Monitor - both Transmit & Receive Side
+*
+* REFERENCE     PCI Express Base Specification Revision 1.0, July 22 2002
+*               PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*               PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+* CHECKS        Flow Control Initialization State Machine Checks
+*               Data Link Layer Packet Rules
+*               Data Link Layer Integrity - LCRC/Sequence Number Checks
+*
+******************************************************************************/
+
+`ifdef ZiCwDebug
+  `define ZiCwDebugDelay1 #1
+  `define ZiCwQuietIfNoCwDebug
+`else
+  `define ZiCwDebugDelay1
+  `define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+
+`qvlmodule qvl_pci_express_link_layer_monitor(areset,
+                                            reset,
+
+                                            phy_status,
+                                            link_layer_checks_disable,
+
+                                            tx_10b_code_violation,
+
+                                            tx_link_clk,
+                                            tx_level_select,
+
+                                            tx_descrambled_data,
+                                            tx_d_or_k_code,
+                                            tx_valid_code,
+
+                                            rx_10b_code_violation,
+
+                                            rx_link_clk,
+                                            rx_level_select,
+
+                                            rx_descrambled_data,
+                                            rx_d_or_k_code,
+                                            rx_valid_code,
+
+                                            max_payload_size,
+                                            maximum_max_payload_size,
+                                            max_read_req_size,
+                                            link_operating_width,
+  // PCI_EXPRESS_GEN2 code start
+                                            current_speed_5gt,
+  // PCI_EXPRESS_GEN2 code end  
+                                            link_up,
+
+                                            tx_replay_timer_elapsed,
+                                            tx_replay_num_elapsed,
+
+                                            // P,NP,Cpl DLL Type
+
+                                            tx_detected_lcrc_error,
+                                            tx_ended_lcrc_error,
+
+                                            tx_detected_retry_progress,
+                                            tx_ended_retry_progress,
+
+                                            rx_replay_timer_elapsed,
+                                            rx_replay_num_elapsed,
+
+                                            // P,NP,Cpl DLL Type
+
+                                            rx_detected_lcrc_error,
+                                            rx_ended_lcrc_error,
+
+                                            rx_detected_retry_progress,
+                                            rx_ended_retry_progress,
+
+                                            // Statistics
+
+                                            // Tx Side
+                                            tx_dllp_ack_detected,
+                                            tx_dllp_ack_ended,
+
+                                            tx_dllp_nak_detected,
+                                            tx_dllp_nak_ended,
+
+                                            tx_dllp_pm_enter_L1_detected,
+                                            tx_dllp_pm_enter_L1_ended,
+
+                                            tx_dllp_pm_enter_L23_detected,
+                                            tx_dllp_pm_enter_L23_ended,
+
+                                            tx_dllp_pm_active_req_L0s_detected,
+                                            tx_dllp_pm_active_req_L0s_ended,
+
+                                            tx_dllp_pm_active_req_L1_detected,
+                                            tx_dllp_pm_active_req_L1_ended,
+
+                                            tx_dllp_pm_request_ack_detected,
+                                            tx_dllp_pm_request_ack_ended,
+
+                                            tx_dllp_vendor_specific_detected,
+                                            tx_dllp_vendor_specific_ended,
+
+                                            tx_dllp_initfc1_p_detected,
+                                            tx_dllp_initfc1_p_ended,
+
+                                            tx_dllp_initfc1_np_detected,
+                                            tx_dllp_initfc1_np_ended,
+
+                                            tx_dllp_initfc1_cpl_detected,
+                                            tx_dllp_initfc1_cpl_ended,
+
+                                            tx_dllp_initfc2_p_detected,
+                                            tx_dllp_initfc2_p_ended,
+
+                                            tx_dllp_initfc2_np_detected,
+                                            tx_dllp_initfc2_np_ended,
+
+                                            tx_dllp_initfc2_cpl_detected,
+                                            tx_dllp_initfc2_cpl_ended,
+
+                                            tx_dllp_updatefc_p_detected,
+                                            tx_dllp_updatefc_p_ended,
+
+                                            tx_dllp_updatefc_np_detected,
+                                            tx_dllp_updatefc_np_ended,
+
+                                            tx_dllp_updatefc_cpl_detected,
+                                            tx_dllp_updatefc_cpl_ended,
+
+                                            tx_detected_dllp_pkt_valid,
+                                            tx_detected_dllp_pkt,
+                                            tx_ended_dllp_pkt_valid,
+                                            tx_ended_dllp_pkt,
+
+                                            tx_next_tlp_seq_num,
+                                            tx_ack_nak_sequence_number_of_dllp,
+
+                                            tx_replay_timer,
+                                            tx_acknak_timer,
+
+                                            tx_num_outstanding_tlps,
+                                            tx_incr_detected_duplicate_tlp,
+                                            tx_incr_ended_duplicate_tlp,
+
+                                            vc_tlp_transmitted,
+
+                                            // Rx Side
+                                            rx_dllp_ack_detected,
+                                            rx_dllp_ack_ended,
+
+                                            rx_dllp_nak_detected,
+                                            rx_dllp_nak_ended,
+
+                                            rx_dllp_pm_enter_L1_detected,
+                                            rx_dllp_pm_enter_L1_ended,
+
+                                            rx_dllp_pm_enter_L23_detected,
+                                            rx_dllp_pm_enter_L23_ended,
+
+                                            rx_dllp_pm_active_req_L0s_detected,
+                                            rx_dllp_pm_active_req_L0s_ended,
+
+                                            rx_dllp_pm_active_req_L1_detected,
+                                            rx_dllp_pm_active_req_L1_ended,
+
+                                            rx_dllp_pm_request_ack_detected,
+                                            rx_dllp_pm_request_ack_ended,
+
+                                            rx_dllp_vendor_specific_detected,
+                                            rx_dllp_vendor_specific_ended,
+
+                                            rx_dllp_initfc1_p_detected,
+                                            rx_dllp_initfc1_p_ended,
+
+                                            rx_dllp_initfc1_np_detected,
+                                            rx_dllp_initfc1_np_ended,
+
+                                            rx_dllp_initfc1_cpl_detected,
+                                            rx_dllp_initfc1_cpl_ended,
+
+                                            rx_dllp_initfc2_p_detected,
+                                            rx_dllp_initfc2_p_ended,
+
+                                            rx_dllp_initfc2_np_detected,
+                                            rx_dllp_initfc2_np_ended,
+
+                                            rx_dllp_initfc2_cpl_detected,
+                                            rx_dllp_initfc2_cpl_ended,
+
+                                            rx_dllp_updatefc_p_detected,
+                                            rx_dllp_updatefc_p_ended,
+
+                                            rx_dllp_updatefc_np_detected,
+                                            rx_dllp_updatefc_np_ended,
+
+                                            rx_dllp_updatefc_cpl_detected,
+                                            rx_dllp_updatefc_cpl_ended,
+
+                                            rx_detected_dllp_pkt_valid,
+                                            rx_detected_dllp_pkt,
+                                            rx_ended_dllp_pkt_valid,
+                                            rx_ended_dllp_pkt,
+
+                                            rx_next_tlp_seq_num,
+                                            rx_ack_nak_sequence_number_of_dllp,
+
+                                            rx_replay_timer,
+                                            rx_acknak_timer,
+
+                                            rx_num_outstanding_tlps,
+                                            rx_incr_detected_duplicate_tlp,
+                                            rx_incr_ended_duplicate_tlp,
+
+                                            vc_tlp_received,
+                                            extended_sync_enable,
+                                            L0s_entry_supported,
+                                            tx_n_fts,
+                                            rx_n_fts,
+                                            fc_init1_done,
+                                            fc_init2_done,
+                                            enable_recovery_state
+                                           );
+
+   parameter Constraints_Mode = 0;
+   wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+   parameter NUMBER_OF_LANES = 1;
+   wire [31:0] pw_NUMBER_OF_LANES = NUMBER_OF_LANES;
+
+   parameter DOUBLE_DATA_RATE = 0;
+   wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+   parameter RESERVED_FIELD_CHECK_ENABLE = 0;
+   wire [31:0] pw_RESERVED_FIELD_CHECK_ENABLE = RESERVED_FIELD_CHECK_ENABLE;
+
+   parameter VENDOR_SPECIFIC_ENCODING_ENABLE = 0;
+   wire [31:0] pw_VENDOR_SPECIFIC_ENCODING_ENABLE = 
+                                              VENDOR_SPECIFIC_ENCODING_ENABLE;
+
+   parameter OVERRIDE_TIMER_VALUE = 0;
+   wire [31:0] pw_OVERRIDE_TIMER_VALUE = OVERRIDE_TIMER_VALUE;
+
+   parameter REPLAY_TIMER_VALUE = 711;
+   wire [31:0] pw_REPLAY_TIMER_VALUE = REPLAY_TIMER_VALUE;
+   
+   parameter ACKNAK_TIMER_VALUE = 237;
+   wire [31:0] pw_ACKNAK_TIMER_VALUE = ACKNAK_TIMER_VALUE;
+
+   parameter DEVICE_TYPE = 0;
+   wire [31:0] pw_DEVICE_TYPE = DEVICE_TYPE;
+
+  //PCI_EXPRESS_GEN2 code start
+  parameter PCI_EXPRESS_GEN2 = 0;
+  //PCI_EXPRESS_GEN2 code end
+  wire [31:0] pw_PCI_EXPRESS_GEN2 = PCI_EXPRESS_GEN2;
+
+   parameter MAC_LAYER_SIDE = 1;
+   wire [31:0] pw_MAC_LAYER_SIDE = MAC_LAYER_SIDE;
+
+   parameter DLLP_PACKET_LENGTH = 64;
+   parameter RETRY_COUNT_VALUE = 4;
+   parameter RETRY_BUFFER_SIZE = 2048;
+   parameter FC_TIMEOUT_CYCLES = 100;
+   parameter LINK_WIDTH = (NUMBER_OF_LANES * 8);
+
+   parameter PHY_LAYER_CONSTRAINT = (Constraints_Mode == 1 && MAC_LAYER_SIDE == 0);
+   parameter MAC_LAYER_CONSTRAINT = (Constraints_Mode == 1 && MAC_LAYER_SIDE == 1);
+
+   input areset;
+   input reset;
+
+   input phy_status;
+   input link_layer_checks_disable;
+
+   input tx_10b_code_violation;
+
+   input tx_link_clk;
+   input tx_level_select;
+
+   input [LINK_WIDTH-1:0] tx_descrambled_data;
+   input [NUMBER_OF_LANES-1:0] tx_d_or_k_code;
+   input [NUMBER_OF_LANES-1:0] tx_valid_code;
+
+   input rx_10b_code_violation;
+
+   input rx_link_clk;
+   input rx_level_select;
+
+   input [LINK_WIDTH-1:0] rx_descrambled_data;
+   input [NUMBER_OF_LANES-1:0] rx_d_or_k_code;
+   input [NUMBER_OF_LANES-1:0] rx_valid_code;
+
+   input [2:0] max_payload_size;
+   input [2:0] maximum_max_payload_size;
+   input [2:0] max_read_req_size;
+   input [5:0] link_operating_width;
+// PCI_EXPRESS_GEN2 code start
+   input current_speed_5gt;
+// PCI_EXPRESS_GEN2 code end
+   output link_up;
+
+   output tx_replay_timer_elapsed;
+   output tx_replay_num_elapsed;
+
+   // P,NP,Cpl DLL Type
+
+   output tx_detected_lcrc_error;
+   output tx_ended_lcrc_error;
+
+   output tx_detected_retry_progress;
+   output tx_ended_retry_progress;
+
+   output rx_replay_timer_elapsed;
+   output rx_replay_num_elapsed;
+
+   output rx_detected_lcrc_error;
+   output rx_ended_lcrc_error;
+
+   output rx_detected_retry_progress; 
+   output rx_ended_retry_progress; 
+
+   // Statistics
+   output tx_dllp_ack_detected;
+   output tx_dllp_ack_ended;
+
+   output tx_dllp_nak_detected;
+   output tx_dllp_nak_ended;
+
+   output tx_dllp_pm_enter_L1_detected;
+   output tx_dllp_pm_enter_L1_ended;
+
+   output tx_dllp_pm_enter_L23_detected;
+   output tx_dllp_pm_enter_L23_ended;
+
+   output tx_dllp_pm_active_req_L0s_detected;
+   output tx_dllp_pm_active_req_L0s_ended;
+
+   output tx_dllp_pm_active_req_L1_detected;
+   output tx_dllp_pm_active_req_L1_ended;
+
+   output tx_dllp_pm_request_ack_detected;
+   output tx_dllp_pm_request_ack_ended;
+
+   output tx_dllp_vendor_specific_detected;
+   output tx_dllp_vendor_specific_ended;
+
+   output tx_dllp_initfc1_p_detected;
+   output tx_dllp_initfc1_p_ended;
+
+   output tx_dllp_initfc1_np_detected;
+   output tx_dllp_initfc1_np_ended;
+
+   output tx_dllp_initfc1_cpl_detected;
+   output tx_dllp_initfc1_cpl_ended;
+
+   output tx_dllp_initfc2_p_detected;
+   output tx_dllp_initfc2_p_ended;
+
+   output tx_dllp_initfc2_np_detected;
+   output tx_dllp_initfc2_np_ended;
+
+   output tx_dllp_initfc2_cpl_detected;
+   output tx_dllp_initfc2_cpl_ended;
+
+   output tx_dllp_updatefc_p_detected;
+   output tx_dllp_updatefc_p_ended;
+
+   output tx_dllp_updatefc_np_detected;
+   output tx_dllp_updatefc_np_ended;
+
+   output tx_dllp_updatefc_cpl_detected;
+   output tx_dllp_updatefc_cpl_ended;
+
+   output tx_detected_dllp_pkt_valid;
+   output [DLLP_PACKET_LENGTH - 1:0] tx_detected_dllp_pkt;
+   output tx_ended_dllp_pkt_valid;
+   output [DLLP_PACKET_LENGTH - 1:0] tx_ended_dllp_pkt;
+
+   output [11:0] tx_next_tlp_seq_num;
+   output [11:0] tx_ack_nak_sequence_number_of_dllp;
+
+   output [15:0] tx_replay_timer;
+   output [15:0] tx_acknak_timer;
+
+   output [11:0] tx_num_outstanding_tlps;
+   output tx_incr_detected_duplicate_tlp;
+   output tx_incr_ended_duplicate_tlp;
+
+   output vc_tlp_transmitted;
+
+   // Rx Side
+   output rx_dllp_ack_detected;
+   output rx_dllp_ack_ended;
+
+   output rx_dllp_nak_detected;
+   output rx_dllp_nak_ended;
+
+   output rx_dllp_pm_enter_L1_detected;
+   output rx_dllp_pm_enter_L1_ended;
+
+   output rx_dllp_pm_enter_L23_detected;
+   output rx_dllp_pm_enter_L23_ended;
+
+   output rx_dllp_pm_active_req_L0s_detected;
+   output rx_dllp_pm_active_req_L0s_ended;
+
+   output rx_dllp_pm_active_req_L1_detected;
+   output rx_dllp_pm_active_req_L1_ended;
+
+   output rx_dllp_pm_request_ack_detected;
+   output rx_dllp_pm_request_ack_ended;
+
+   output rx_dllp_vendor_specific_detected;
+   output rx_dllp_vendor_specific_ended;
+
+   output rx_dllp_initfc1_p_detected;
+   output rx_dllp_initfc1_p_ended;
+
+   output rx_dllp_initfc1_np_detected;
+   output rx_dllp_initfc1_np_ended;
+
+   output rx_dllp_initfc1_cpl_detected;
+   output rx_dllp_initfc1_cpl_ended;
+
+   output rx_dllp_initfc2_p_detected;
+   output rx_dllp_initfc2_p_ended;
+
+   output rx_dllp_initfc2_np_detected;
+   output rx_dllp_initfc2_np_ended;
+
+   output rx_dllp_initfc2_cpl_detected;
+   output rx_dllp_initfc2_cpl_ended;
+
+   output rx_dllp_updatefc_p_detected;
+   output rx_dllp_updatefc_p_ended;
+
+   output rx_dllp_updatefc_np_detected;
+   output rx_dllp_updatefc_np_ended;
+
+   output rx_dllp_updatefc_cpl_detected;
+   output rx_dllp_updatefc_cpl_ended;
+
+   output rx_detected_dllp_pkt_valid;
+   output [DLLP_PACKET_LENGTH - 1:0] rx_detected_dllp_pkt;
+   output rx_ended_dllp_pkt_valid;
+   output [DLLP_PACKET_LENGTH - 1:0] rx_ended_dllp_pkt;
+
+   output [11:0] rx_next_tlp_seq_num;
+   output [11:0] rx_ack_nak_sequence_number_of_dllp;
+
+   output [15:0] rx_replay_timer;
+   output [15:0] rx_acknak_timer;
+
+   output [11:0] rx_num_outstanding_tlps;
+   output rx_incr_detected_duplicate_tlp;
+   output rx_incr_ended_duplicate_tlp;
+
+   output vc_tlp_received;
+
+   // L0s adjustment inputs
+
+   input extended_sync_enable;
+   input L0s_entry_supported;
+   input [7:0] tx_n_fts;
+   input [7:0] rx_n_fts;
+   input fc_init1_done;
+   input fc_init2_done;
+   input enable_recovery_state;
+
+   // Output ports
+   wire link_up;
+  
+   wire tx_replay_timer_elapsed;
+   wire tx_replay_num_elapsed;
+
+   wire tx_detected_lcrc_error;
+   wire tx_ended_lcrc_error;
+
+   wire tx_detected_retry_progress;
+   wire tx_ended_retry_progress;
+
+   wire rx_replay_timer_elapsed;
+   wire rx_replay_num_elapsed;
+
+   wire rx_detected_lcrc_error;
+   wire rx_ended_lcrc_error;
+
+   wire rx_detected_retry_progress;
+   wire rx_ended_retry_progress;
+
+   wire [15:0] tx_replay_timer;
+   wire [15:0] tx_acknak_timer;
+
+   wire [15:0] rx_replay_timer;
+   wire [15:0] rx_acknak_timer;
+   /**************************************************************************/
+
+   /******************** Internal Parameters *********************************/
+   // Data Link Control and Management State Machine
+   parameter ZI_DL_DOWN_STATE = 0;
+   parameter ZI_DL_INIT_1_STATE = 1;
+   parameter ZI_DL_INIT_2_STATE = 2;
+   parameter ZI_DL_ACTIVE_STATE = 3;
+
+   // ACK/NAK Encoding
+   parameter ZI_DLLP_TYPE_ACK            =  0;  // 0000 0000
+   parameter ZI_DLLP_TYPE_NAK            = 16;  // 0001 0000
+
+   // PM Encoding
+   parameter ZI_DLLP_TYPE_PM_ENTER_L1    = 32;  // 0010 0000
+   parameter ZI_DLLP_TYPE_PM_ENTER_L23   = 33;  // 0010 0001
+   parameter ZI_DLLP_TYPE_PM_ACT_L0s     = 34;  // 0010 0010
+   parameter ZI_DLLP_TYPE_PM_ACT_L1      = 35;  // 0010 0011
+   parameter ZI_DLLP_TYPE_PM_REQ_ACK     = 36;  // 0010 0100
+   parameter ZI_DLLP_TYPE_VENDOR_SPEC    = 48;  // 0011 0000
+
+   // VCx Flow Control Encoding
+   parameter ZI_DLLP_TYPE_INITFC1_P      =   8; // 0100 0xxx
+   parameter ZI_DLLP_TYPE_INITFC1_NP     =  10; // 0101 0xxx
+   parameter ZI_DLLP_TYPE_INITFC1_Cpl    =  12; // 0110 0xxx
+   parameter ZI_DLLP_TYPE_INITFC2_P      =  24; // 1100 0xxx
+   parameter ZI_DLLP_TYPE_INITFC2_NP     =  26; // 1101 0xxx
+   parameter ZI_DLLP_TYPE_INITFC2_Cpl    =  28; // 1110 0xxx
+   parameter ZI_DLLP_TYPE_UPDATE_FC_P    =  16; // 1000 0xxx
+   parameter ZI_DLLP_TYPE_UPDATE_FC_NP   =  18; // 1001 0xxx
+   parameter ZI_DLLP_TYPE_UPDATE_FC_Cpl  =  20; // 1010 0xxx
+   /**************************************************************************/
+
+   /*********** Data Link Control and Management State Machine ***************/
+   reg data_link_up;
+   wire [1:0] dlcmsm_present_state;
+   reg [1:0] dlcmsm_next_state;
+   reg [1:0] dlcmsm_present_state_posedge;
+   reg [1:0] dlcmsm_present_state_negedge;
+   /**************************************************************************/
+
+   /************ Flow Control Initialization State Machine *******************/
+
+   wire vc_tlp_transmitted;
+   wire r_vc_tlp_transmitted;
+   reg r_vc_tlp_transmitted_posedge;
+   reg r_vc_tlp_transmitted_negedge;
+
+   wire vc_tlp_received;
+   wire r_vc_tlp_received;
+   reg r_vc_tlp_received_posedge;
+   reg r_vc_tlp_received_negedge;
+   /**************************************************************************/
+
+   /***************** DLLP Type Encoding *************************************/
+   // Transmitted DLLP Type 
+   // ACK/NAK Type
+   wire tx_dllp_ack_detected;
+   wire tx_dllp_nak_detected; 
+
+   // PM/Vendor Type
+   wire tx_dllp_pm_enter_L1_detected;
+   wire tx_dllp_pm_enter_L23_detected;
+   wire tx_dllp_pm_active_req_L0s_detected;
+   wire tx_dllp_pm_active_req_L1_detected;
+   wire tx_dllp_pm_request_ack_detected;
+   wire tx_dllp_vendor_specific_detected;
+
+   // Init FC1 Type
+   wire tx_lanes_dllp_initfc1_p_detected;
+   wire tx_lanes_dllp_initfc1_np_detected;
+   wire tx_lanes_dllp_initfc1_cpl_detected;
+ 
+   // Init FC2 Type
+   wire tx_lanes_dllp_initfc2_p_detected;
+   wire tx_lanes_dllp_initfc2_np_detected;
+   wire tx_lanes_dllp_initfc2_cpl_detected;
+
+   // Update FC Type
+   wire tx_lanes_dllp_updatefc_p_detected;
+   wire tx_lanes_dllp_updatefc_np_detected;
+   wire tx_lanes_dllp_updatefc_cpl_detected;
+
+   // Init FC1 Type
+   wire tx_dllp_initfc1_p_detected;
+   wire tx_dllp_initfc1_np_detected;
+   wire tx_dllp_initfc1_cpl_detected;
+ 
+   // Init FC2 Type
+   wire tx_dllp_initfc2_p_detected;
+   wire tx_dllp_initfc2_np_detected;
+   wire tx_dllp_initfc2_cpl_detected;
+
+   // Update FC Type
+   wire tx_dllp_updatefc_p_detected;
+   wire tx_dllp_updatefc_np_detected;
+   wire tx_dllp_updatefc_cpl_detected;
+
+   // Unknown Type
+   wire tx_dllp_unknown_detected;
+
+   // Init1 FC/Init2 FC/Update FC Packet 
+   wire tx_init_fc1_detected;
+   wire tx_init_fc2_detected;
+   wire tx_updatefc_detected;
+
+   // ACK/NAK Type
+   wire tx_dllp_ack_ended;
+   wire tx_dllp_nak_ended;
+
+   // PM/Vendor Type
+   wire tx_dllp_pm_enter_L1_ended;
+   wire tx_dllp_pm_enter_L23_ended;
+   wire tx_dllp_pm_active_req_L0s_ended;
+   wire tx_dllp_pm_active_req_L1_ended;
+   wire tx_dllp_pm_request_ack_ended;
+   wire tx_dllp_vendor_specific_ended;
+
+   // Init FC1 Type
+   wire tx_lanes_dllp_initfc1_p_ended;
+   wire tx_lanes_dllp_initfc1_np_ended;
+   wire tx_lanes_dllp_initfc1_cpl_ended;
+ 
+   // Init FC2 Type
+   wire tx_lanes_dllp_initfc2_p_ended;
+   wire tx_lanes_dllp_initfc2_np_ended;
+   wire tx_lanes_dllp_initfc2_cpl_ended;
+
+   // Update FC Type
+   wire tx_lanes_dllp_updatefc_p_ended;
+   wire tx_lanes_dllp_updatefc_np_ended;
+   wire tx_lanes_dllp_updatefc_cpl_ended;
+   
+   // Init FC1 Type
+   wire tx_dllp_initfc1_p_ended;
+   wire tx_dllp_initfc1_np_ended;
+   wire tx_dllp_initfc1_cpl_ended;
+ 
+   // Init FC2 Type
+   wire tx_dllp_initfc2_p_ended;
+   wire tx_dllp_initfc2_np_ended;
+   wire tx_dllp_initfc2_cpl_ended;
+
+   // Update FC Type
+   wire tx_dllp_updatefc_p_ended;
+   wire tx_dllp_updatefc_np_ended;
+   wire tx_dllp_updatefc_cpl_ended;
+   
+   // Unknown Type
+   wire tx_dllp_unknown_ended;
+
+   // Init1 FC/Init2 FC/Update FC Packet 
+   wire tx_init_fc1_ended;
+   wire tx_init_fc2_ended;
+   wire tx_updatefc_ended;
+
+   // Ack Nak Sequence Number
+   wire [11:0] tx_detected_acknak_seq_num;
+   wire [11:0] tx_ended_acknak_seq_num; 
+
+   // Received DLLP Type
+   // ACK/NAK Type
+   wire rx_dllp_ack_detected;
+   wire rx_dllp_nak_detected;
+
+   // PM/Vendor Type
+   wire rx_dllp_pm_enter_L1_detected;
+   wire rx_dllp_pm_enter_L23_detected;
+   wire rx_dllp_pm_active_req_L0s_detected;
+   wire rx_dllp_pm_active_req_L1_detected;
+   wire rx_dllp_pm_request_ack_detected;
+   wire rx_dllp_vendor_specific_detected;
+
+   // Init FC1 Type
+   wire rx_lanes_dllp_initfc1_p_detected;
+   wire rx_lanes_dllp_initfc1_np_detected;
+   wire rx_lanes_dllp_initfc1_cpl_detected;
+   
+   // Init FC2 Type
+   wire rx_lanes_dllp_initfc2_p_detected;
+   wire rx_lanes_dllp_initfc2_np_detected;
+   wire rx_lanes_dllp_initfc2_cpl_detected;
+
+   // Update FC Type
+   wire rx_lanes_dllp_updatefc_p_detected;
+   wire rx_lanes_dllp_updatefc_np_detected;
+   wire rx_lanes_dllp_updatefc_cpl_detected;
+   
+   // Init FC1 Type
+   wire rx_dllp_initfc1_p_detected;
+   wire rx_dllp_initfc1_np_detected;
+   wire rx_dllp_initfc1_cpl_detected;
+   
+   // Init FC2 Type
+   wire rx_dllp_initfc2_p_detected;
+   wire rx_dllp_initfc2_np_detected;
+   wire rx_dllp_initfc2_cpl_detected;
+
+   // Update FC Type
+   wire rx_dllp_updatefc_p_detected;
+   wire rx_dllp_updatefc_np_detected;
+   wire rx_dllp_updatefc_cpl_detected;
+   
+   // Unknown Type
+   wire rx_dllp_unknown_detected;
+
+   // Init1 FC/Init2 FC/Update FC Packet
+   wire rx_init_fc1_detected;
+   wire rx_init_fc2_detected;
+   wire rx_updatefc_detected;
+
+   // ACK/NAK Type
+   wire rx_dllp_ack_ended;
+   wire rx_dllp_nak_ended;
+   
+   // PM/Vendor Type
+   wire rx_dllp_pm_enter_L1_ended;
+   wire rx_dllp_pm_enter_L23_ended;
+   wire rx_dllp_pm_active_req_L0s_ended;
+   wire rx_dllp_pm_active_req_L1_ended;
+   wire rx_dllp_pm_request_ack_ended;
+   wire rx_dllp_vendor_specific_ended;
+
+   // Init FC1 Type
+   wire rx_lanes_dllp_initfc1_p_ended;
+   wire rx_lanes_dllp_initfc1_np_ended;
+   wire rx_lanes_dllp_initfc1_cpl_ended;
+   
+   // Init FC2 Type
+   wire rx_lanes_dllp_initfc2_p_ended;
+   wire rx_lanes_dllp_initfc2_np_ended;
+   wire rx_lanes_dllp_initfc2_cpl_ended;
+
+   // Update FC Type
+   wire rx_lanes_dllp_updatefc_p_ended;
+   wire rx_lanes_dllp_updatefc_np_ended;
+   wire rx_lanes_dllp_updatefc_cpl_ended;
+
+   // Init FC1 Type
+   wire rx_dllp_initfc1_p_ended;
+   wire rx_dllp_initfc1_np_ended;
+   wire rx_dllp_initfc1_cpl_ended;
+   
+   // Init FC2 Type
+   wire rx_dllp_initfc2_p_ended;
+   wire rx_dllp_initfc2_np_ended;
+   wire rx_dllp_initfc2_cpl_ended;
+
+   // Update FC Type
+   wire rx_dllp_updatefc_p_ended;
+   wire rx_dllp_updatefc_np_ended;
+   wire rx_dllp_updatefc_cpl_ended;
+
+   // Unknown Type
+   wire rx_dllp_unknown_ended;
+
+   // Init1 FC/Init2 FC/Update FC Packet
+   wire rx_init_fc1_ended;
+   wire rx_init_fc2_ended;
+   wire rx_updatefc_ended;
+
+   // Ack Nak Sequence Number
+   wire [11:0] rx_detected_acknak_seq_num;
+   wire [11:0] rx_ended_acknak_seq_num; 
+   /**************************************************************************/
+
+   /**************** Instantiation of Packet Parser **************************/
+   wire [DLLP_PACKET_LENGTH-1:0] tx_current_dllp_pkt;
+   wire tx_current_dllp_pkt_valid;
+
+   wire [DLLP_PACKET_LENGTH-1:0] tx_detected_dllp_pkt;
+   wire tx_detected_dllp_pkt_valid;
+
+   wire [DLLP_PACKET_LENGTH-1:0] tx_ended_dllp_pkt;
+   wire tx_ended_dllp_pkt_valid;
+
+   wire [LINK_WIDTH-1:0] tx_current_tlp_pkt;
+   wire tx_current_tlp_pkt_valid;
+
+   wire [LINK_WIDTH-1:0] tx_detected_tlp_pkt;
+   wire tx_detected_tlp_pkt_valid;
+   wire tx_detected_null_tlp_pkt_valid;
+
+   wire [LINK_WIDTH-1:0] tx_ended_tlp_pkt;
+   wire tx_ended_tlp_pkt_valid;
+   wire tx_ended_null_tlp_pkt_valid;
+
+   wire [11:0] tx_current_tlp_seq_num; 
+   wire tx_current_tlp_seq_num_valid;
+   wire [31:0] tx_current_tlp_header; 
+   wire tx_current_tlp_header_valid; 
+
+   wire [11:0] tx_detected_tlp_seq_num; 
+   wire tx_detected_tlp_seq_num_valid;
+   wire [31:0] tx_detected_tlp_header;
+   wire tx_detected_tlp_header_valid;
+
+   wire [11:0] tx_ended_tlp_seq_num;
+   wire tx_ended_tlp_seq_num_valid;
+   wire [31:0] tx_ended_tlp_header;
+   wire tx_ended_tlp_header_valid;
+
+   wire tx_lcrc_inverted_of_detected_crc;
+   wire tx_lcrc_inverted_of_ended_crc;
+
+   wire fire_tx_detected_tlp_link_crc_error;
+   wire fire_tx_ended_tlp_link_crc_error;
+
+   wire [DLLP_PACKET_LENGTH-1:0] rx_current_dllp_pkt;
+   wire rx_current_dllp_pkt_valid;
+
+   wire [DLLP_PACKET_LENGTH-1:0] rx_detected_dllp_pkt;
+   wire rx_detected_dllp_pkt_valid;
+
+   wire [DLLP_PACKET_LENGTH-1:0] rx_ended_dllp_pkt;
+   wire rx_ended_dllp_pkt_valid;
+
+   wire [LINK_WIDTH-1:0] rx_current_tlp_pkt;
+   wire rx_current_tlp_pkt_valid;
+
+   wire [LINK_WIDTH-1:0] rx_detected_tlp_pkt;
+   wire rx_detected_tlp_pkt_valid;
+   wire rx_detected_null_tlp_pkt_valid;
+
+   wire [LINK_WIDTH-1:0] rx_ended_tlp_pkt;
+   wire rx_ended_tlp_pkt_valid;
+   wire rx_ended_null_tlp_pkt_valid;
+
+   wire [11:0] rx_current_tlp_seq_num;
+   wire rx_current_tlp_seq_num_valid;
+   wire [31:0] rx_current_tlp_header;
+   wire rx_current_tlp_header_valid;
+
+   wire [11:0] rx_detected_tlp_seq_num;
+   wire rx_detected_tlp_seq_num_valid;
+   wire [31:0] rx_detected_tlp_header;
+   wire rx_detected_tlp_header_valid;
+
+   wire [11:0] rx_ended_tlp_seq_num;
+   wire rx_ended_tlp_seq_num_valid;
+   wire [31:0] rx_ended_tlp_header;
+   wire rx_ended_tlp_header_valid;
+
+   wire rx_lcrc_inverted_of_detected_crc;
+   wire rx_lcrc_inverted_of_ended_crc;
+
+   wire fire_rx_detected_tlp_link_crc_error;
+   wire fire_rx_ended_tlp_link_crc_error;
+   /**************************************************************************/
+
+   /**************** Instantiation of Retry Management ***********************/
+   wire [11:0] tx_next_tlp_seq_num;
+   wire [11:0] tx_ack_nak_sequence_number_of_dllp;
+   wire [11:0] rx_next_tlp_seq_num;
+   wire [11:0] rx_ack_nak_sequence_number_of_dllp;
+
+   wire [11:0] tx_num_outstanding_tlps;
+   wire tx_incr_detected_duplicate_tlp;
+   wire tx_incr_ended_duplicate_tlp;
+
+   wire [11:0] rx_num_outstanding_tlps;
+   wire rx_incr_detected_duplicate_tlp;
+   wire rx_incr_ended_duplicate_tlp;
+   /**************************************************************************/
+
+   /************************** Fire Signals **********************************/
+
+   wire fire_tx_detected_dllp_reserved_field_error;
+   wire fire_tx_ended_dllp_reserved_field_error;
+
+   wire fire_rx_detected_dllp_reserved_field_error;
+   wire fire_rx_ended_dllp_reserved_field_error;
+   /**************************************************************************/
+
+   /********************** String Signals for State Machine ******************/
+   reg [255:0] dlcmsm_present_state_string;
+   reg [255:0] dlcmsm_next_state_string;
+
+   reg [255:0] tx_ended_type_dllp_string;
+   reg [255:0] rx_ended_type_dllp_string;
+
+   reg [255:0] tx_detected_type_dllp_string;
+   reg [255:0] rx_detected_type_dllp_string;
+   /**************************************************************************/
+
+`protected
+
+    MTI!#*&~[i2$pi?oAo>BY!T1!Wa$Z7$yBOHR7;[Uuji2w}Y[[#AD,Q~\(O*<~Q}#_7B+s'@CQY+v
+    OFaD+!vjDsj]^[5>vX]WRROaAUsE'#27@]QpRJ*VT7&'F#TZ5=*?'JHrU*G~3G,Tu?[\nvC<mjaZ
+    #}#';7?lCYnxueu0y<HHsXQ;=7H<k,$>OnEbS31vQ-<e}eek^,E'mE\vZJ<\V'J}@o=XJ+',wXe^
+    'x^;Ba=7rvKT[3}]A$I\+}IA!?]D]jB+uL/1h1Iv]^}C{TBVlHE5lTEJ,;[]wbuO3{mATpvW-YQi
+    1?'V-oKwH\gglK!',3wWpX[7]_A}Bj_\@Hv[5;p;H{Ir[/^QAlh--r2LQ#QO-x@I$!'}{_l{}zo]
+    -,}x1=n!!Yr~>a=ivX<J{$sip^5{}G5?$jA'n}kZrwQ[*lm}*p$eDo?}]\Jo5~jiD]<@/<'lC1KT
+    o='n_a+aB7n*lU+]<Rv@[,m<BUV+Ko?oBX[[#Vv#>l>@[]\{Dj{w,g^+3$SI?Xr7-YI]~'Dij#D,
+    PVjZ-}a^u1;E@xj,x;sZ73Omxx=?{oZD<HQ=Tw[3'e2e@C<_*!I-WAG~2N^WHlGV-$51Z!!=uU}C
+    Uuali!:*_=-vKD_'l>{L?YoESG#mEo}ajYxsn-BDXY?H[Yx}EkrD2]1i]$-J-Tv^K%y)D<I^zrXe
+    ?EeV\s~elksA^.AA<[o{rUt>I<UD?zKBV52Z*IB(AN*$[7\1>7z@KElm;xVUn>?zXI^upi5>ledJ
+    a[}\nwE!oo!&8y*@[7-CxlBarw@EY?z\={e{-m/7[a{2pA$Bznr2ovT~n>re]J@iBQi/7k}s|z#*
+    zuX<lIUawKaQ^;[e\QmIo'<j>12@RR\lU171TZHsE1dJ{^Y'2GK_1Hr,>_AjKUn;5@^2T*sO<;vY
+    rRYraDGlh%B=3Ym]EzH5}7iH~\x3Q<p+DEu[O<ap$!-zJ-~AV<s{wk#]2l_x{n_Q[I"]Opv3.5VC
+    ztWo7,iGsTM=iC3+{G\vZe'nxZpEkJWW+!,Y[jHCaprpU>~;lZ7B]*W$BWHH,jWCTE-@HmHT*~E5
+    ++JlZ*r5'>A\=]sQk7_];z{@}aYSp~s^-Er3!$z@l;mRVonVwRkpsVZuoY#rIC<wpT!ZQGismEUO
+    DH[=Z-Al=wm'2}Z^+YH_WOrj&{\}u1_?s\Gv,w$<[=u!]Tj2'AHJzX*~U<5Y3xpCAv5>=nr~wDa^
+    ]PCR\s3nUIkDCmmaCYpInsos\Ov?D[$o55w>aW1[wv{+{^CXGVCKsrUVVB5Y$Ria1V7ls#K$z?uI
+    k[@59{$ju9CEsxt#+\1YY;,*'rVu{I%]+[w#7wZ}'eiYzkD='}##$HK}RR_?XUusn^3QoJu)}W-r
+    k1^!o\Zn4L3j;K*,\J~n'O[x{\YTss?oHV3+TJQPzZ}+=;]>sOJT_?Zk)V+IBKxmv@$UjpkY;Qe,
+    m>Hn$pJ{!?Or~*,A7-8l!HOk$uoxwCA.l7WYn]lO~8~']=Q"XA@W1n+5:Ge;~]j1}spl\\k\12_X
+    $[pXX3OA}]*n_{wY2;<n2ZOp!lAKKE[1jU'n2K*zwO;\#*lAO<vxD>-rx!<}om>wJQo]KC[72mp>
+    Hn]DY7G^V'Bak<'AGp5JW$C<1+o[3Raanx}aK];U58_}vlOX}QKTr1EOO7o;TGIO2!2j6@+jw3GQ
+    ^WBxX+^pIvaJC:(}=e[sivB[2T#Xs]OeeY\AU]\aEXB3>=ZB'zGlw\k/QARU'o?WG}Cxn$!*AoxX
+    9_*Ws3TTnpO--5XYeoE@Et{EuV*xTJ:jRa[zRHm2alGp!YVx\Xp^@o7ouek1QwX{r+{C-az5++r$
+    \B3,lR1D1_vp?aZ$aK3pr$kGV,#sIGIl.AVJU@*ET}-G_3U\B{CXDIW\VCpvGDs{-[T[vGDn#c9}
+    u>@&V=-@@5@U1[@2IjpK,=U'zaIuG_vkH=r,^cD^va5aw[sap2D6Y3>pf|~C<7)C$E#9G<vWOBHV
+    -RelaCe$I}^7;r5zS8QIs?lDH{Yje\snI?#nJY{G*A=_^n=nG*~nu-8upeYkp+'jCI$$WIpd3*,#
+    GCjePAr]=~7;T*QZxsEX^$!=CU'$7Yk_5o^Zk;v3Ool+jjU\GR;>3azIIQ=XaO'H<MjV}?zwwe}!
+    A1[W}kpA!
+`endprotected
+   /**************************************************************************/
+
+   /************************* Output Ports ***********************************/
+   assign link_up = data_link_up;
+
+   // Tx Side
+
+
+   assign tx_detected_lcrc_error = fire_tx_detected_tlp_link_crc_error;
+   assign tx_ended_lcrc_error = fire_tx_ended_tlp_link_crc_error;
+
+   // Rx Side
+
+   assign rx_detected_lcrc_error = fire_rx_detected_tlp_link_crc_error;
+   assign rx_ended_lcrc_error = fire_rx_ended_tlp_link_crc_error;
+   /**************************************************************************/
+
+   /******************** DLLP - Reserved Field Check *************************/
+   assign fire_tx_detected_dllp_reserved_field_error = 
+                (tx_detected_dllp_pkt_valid) && 
+                (((tx_dllp_ack_detected || tx_dllp_nak_detected) && 
+                    (|tx_detected_dllp_pkt[23:16] != 1'b0 || 
+                     |tx_detected_dllp_pkt[31:28] != 1'b0)) ||
+                 ((tx_init_fc1_detected || tx_init_fc2_detected ||
+                   tx_updatefc_detected) && 
+                  (|tx_detected_dllp_pkt[23:22] != 1'b0 ||
+                   |tx_detected_dllp_pkt[29:28] != 1'b0)) ||
+                 ((tx_dllp_pm_enter_L1_detected || 
+                   tx_dllp_pm_enter_L23_detected ||
+                   tx_dllp_pm_active_req_L0s_detected ||
+                   tx_dllp_pm_active_req_L1_detected  ||
+                   tx_dllp_pm_request_ack_detected) && 
+                  |tx_detected_dllp_pkt[39:16] != 1'b0));
+
+   assign fire_tx_ended_dllp_reserved_field_error =
+                (tx_ended_dllp_pkt_valid) && 
+                (((tx_dllp_ack_ended || tx_dllp_nak_ended) && 
+                    (|tx_ended_dllp_pkt[23:16] != 1'b0 || 
+                     |tx_ended_dllp_pkt[31:28] != 1'b0)) ||
+                 ((tx_init_fc1_ended || tx_init_fc2_ended ||
+                   tx_updatefc_ended) && 
+                  (|tx_ended_dllp_pkt[23:22] != 1'b0 ||
+                   |tx_ended_dllp_pkt[29:28] != 1'b0)) ||
+                 ((tx_dllp_pm_enter_L1_ended ||
+                   tx_dllp_pm_enter_L23_ended ||
+                   tx_dllp_pm_active_req_L0s_ended ||
+                   tx_dllp_pm_active_req_L1_ended  ||
+                   tx_dllp_pm_request_ack_ended) &&
+                  |tx_ended_dllp_pkt[39:16] != 1'b0));
+
+   assign fire_rx_detected_dllp_reserved_field_error =
+                (rx_detected_dllp_pkt_valid) &&
+                (((rx_dllp_ack_detected || rx_dllp_nak_detected) &&
+                    (|rx_detected_dllp_pkt[23:16] != 1'b0 ||
+                     |rx_detected_dllp_pkt[31:28] != 1'b0)) ||
+                 ((rx_init_fc1_detected || rx_init_fc2_detected ||
+                   rx_updatefc_detected) &&
+                  (|rx_detected_dllp_pkt[23:22] != 1'b0 ||
+                   |rx_detected_dllp_pkt[29:28] != 1'b0)) ||
+                 ((rx_dllp_pm_enter_L1_detected || 
+                   rx_dllp_pm_enter_L23_detected ||
+                   rx_dllp_pm_active_req_L0s_detected ||
+                   rx_dllp_pm_active_req_L1_detected  ||
+                   rx_dllp_pm_request_ack_detected) && 
+                  |rx_detected_dllp_pkt[39:16] != 1'b0));
+
+   assign fire_rx_ended_dllp_reserved_field_error =
+                (rx_ended_dllp_pkt_valid) &&   
+                (((rx_dllp_ack_ended || rx_dllp_nak_ended) &&      
+                    (|rx_ended_dllp_pkt[23:16] != 1'b0 ||   
+                     |rx_ended_dllp_pkt[31:28] != 1'b0)) ||
+                 ((rx_init_fc1_ended || rx_init_fc2_ended ||
+                   rx_updatefc_ended) &&    
+                  (|rx_ended_dllp_pkt[23:22] != 1'b0 ||
+                   |rx_ended_dllp_pkt[29:28] != 1'b0)) ||
+                 ((rx_dllp_pm_enter_L1_ended ||
+                   rx_dllp_pm_enter_L23_ended ||
+                   rx_dllp_pm_active_req_L0s_ended ||
+                   rx_dllp_pm_active_req_L1_ended  ||
+                   rx_dllp_pm_request_ack_ended) &&
+                  |rx_ended_dllp_pkt[39:16] != 1'b0));
+   /**************************************************************************/
+
+   /******** DLLP Type Parser - Transmitted Packets **************************/
+   // ACK/NAK Type
+   assign tx_dllp_ack_detected = (tx_detected_dllp_pkt[15:8] == 
+                                                        ZI_DLLP_TYPE_ACK);
+   assign tx_dllp_nak_detected = (tx_detected_dllp_pkt[15:8] == 
+                                                        ZI_DLLP_TYPE_NAK);
+
+   // PM/Vendor Type
+   assign tx_dllp_pm_enter_L1_detected = (tx_detected_dllp_pkt[15:8] == 
+                                                    ZI_DLLP_TYPE_PM_ENTER_L1);
+   assign tx_dllp_pm_enter_L23_detected = (tx_detected_dllp_pkt[15:8] == 
+                                                    ZI_DLLP_TYPE_PM_ENTER_L23);
+   assign tx_dllp_pm_active_req_L0s_detected = (tx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L0s);
+   assign tx_dllp_pm_active_req_L1_detected = (tx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L1);
+   assign tx_dllp_pm_request_ack_detected = (tx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_REQ_ACK);
+   assign tx_dllp_vendor_specific_detected = (tx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_VENDOR_SPEC);
+
+   // Init FC1 Type
+   assign tx_dllp_initfc1_p_detected = tx_lanes_dllp_initfc1_p_detected; 
+   assign tx_dllp_initfc1_np_detected = tx_lanes_dllp_initfc1_np_detected; 
+   assign tx_dllp_initfc1_cpl_detected = tx_lanes_dllp_initfc1_cpl_detected; 
+
+   // Init FC2 Type
+   assign tx_dllp_initfc2_p_detected = tx_lanes_dllp_initfc2_p_detected; 
+   assign tx_dllp_initfc2_np_detected = tx_lanes_dllp_initfc2_np_detected; 
+   assign tx_dllp_initfc2_cpl_detected = tx_lanes_dllp_initfc2_cpl_detected; 
+
+   // Update FC Type
+   assign tx_dllp_updatefc_p_detected = tx_lanes_dllp_updatefc_p_detected; 
+   assign tx_dllp_updatefc_np_detected = tx_lanes_dllp_updatefc_np_detected;
+   assign tx_dllp_updatefc_cpl_detected = tx_lanes_dllp_updatefc_cpl_detected; 
+
+   // Init FC1 Type
+   assign tx_dllp_initfc1_p_ended = tx_lanes_dllp_initfc1_p_ended; 
+   assign tx_dllp_initfc1_np_ended = tx_lanes_dllp_initfc1_np_ended; 
+   assign tx_dllp_initfc1_cpl_ended = tx_lanes_dllp_initfc1_cpl_ended; 
+
+   // Init FC2 Type
+   assign tx_dllp_initfc2_p_ended = tx_lanes_dllp_initfc2_p_ended; 
+   assign tx_dllp_initfc2_np_ended = tx_lanes_dllp_initfc2_np_ended; 
+   assign tx_dllp_initfc2_cpl_ended = tx_lanes_dllp_initfc2_cpl_ended; 
+
+   // Update FC Type
+   assign tx_dllp_updatefc_p_ended = tx_lanes_dllp_updatefc_p_ended; 
+   assign tx_dllp_updatefc_np_ended = tx_lanes_dllp_updatefc_np_ended; 
+   assign tx_dllp_updatefc_cpl_ended = tx_lanes_dllp_updatefc_cpl_ended; 
+
+   // INIT FC1 Type
+   assign tx_lanes_dllp_initfc1_p_detected = (tx_detected_dllp_pkt[15:11] ==
+                                              ZI_DLLP_TYPE_INITFC1_P); 
+   assign tx_lanes_dllp_initfc1_np_detected = (tx_detected_dllp_pkt[15:11] ==
+                                               ZI_DLLP_TYPE_INITFC1_NP);  
+   assign tx_lanes_dllp_initfc1_cpl_detected = (tx_detected_dllp_pkt[15:11] ==
+                                                ZI_DLLP_TYPE_INITFC1_Cpl);  
+
+   // INIT FC2 Type
+   assign tx_lanes_dllp_initfc2_p_detected = (tx_detected_dllp_pkt[15:11] ==
+                                              ZI_DLLP_TYPE_INITFC2_P);  
+   assign tx_lanes_dllp_initfc2_np_detected = (tx_detected_dllp_pkt[15:11] ==
+                                               ZI_DLLP_TYPE_INITFC2_NP);  
+   assign tx_lanes_dllp_initfc2_cpl_detected = (tx_detected_dllp_pkt[15:11] ==
+                                                ZI_DLLP_TYPE_INITFC2_Cpl); 
+
+   // Update FC Type
+   assign tx_lanes_dllp_updatefc_p_detected = (tx_detected_dllp_pkt[15:11] ==
+                                               ZI_DLLP_TYPE_UPDATE_FC_P);  
+   assign tx_lanes_dllp_updatefc_np_detected = (tx_detected_dllp_pkt[15:11] ==
+                                                ZI_DLLP_TYPE_UPDATE_FC_NP); 
+   assign tx_lanes_dllp_updatefc_cpl_detected = (tx_detected_dllp_pkt[15:11] ==
+                                                 ZI_DLLP_TYPE_UPDATE_FC_Cpl); 
+
+   // Unknown Type
+   assign tx_dllp_unknown_detected = !(tx_dllp_ack_detected || 
+                                       tx_dllp_nak_detected ||
+                                       tx_dllp_pm_enter_L1_detected ||
+                                       tx_dllp_pm_enter_L23_detected ||
+                                       tx_dllp_pm_active_req_L0s_detected ||
+                                       tx_dllp_pm_active_req_L1_detected ||
+                                       tx_dllp_pm_request_ack_detected ||
+                                       tx_dllp_vendor_specific_detected ||
+                                       tx_lanes_dllp_initfc1_p_detected ||
+                                       tx_lanes_dllp_initfc1_np_detected ||
+                                       tx_lanes_dllp_initfc1_cpl_detected ||
+                                       tx_lanes_dllp_initfc2_p_detected ||
+                                       tx_lanes_dllp_initfc2_np_detected ||
+                                       tx_lanes_dllp_initfc2_cpl_detected ||
+                                       tx_lanes_dllp_updatefc_p_detected ||
+                                       tx_lanes_dllp_updatefc_np_detected ||
+                                       tx_lanes_dllp_updatefc_cpl_detected);
+
+   // ACK/NAK Type
+   assign tx_dllp_ack_ended = (tx_ended_dllp_pkt[15:8] == ZI_DLLP_TYPE_ACK);
+   assign tx_dllp_nak_ended = (tx_ended_dllp_pkt[15:8] == ZI_DLLP_TYPE_NAK);
+
+   // PM/Vendor Type
+   assign tx_dllp_pm_enter_L1_ended = (tx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ENTER_L1);
+   assign tx_dllp_pm_enter_L23_ended = (tx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ENTER_L23);
+   assign tx_dllp_pm_active_req_L0s_ended = (tx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L0s);
+   assign tx_dllp_pm_active_req_L1_ended = (tx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L1);
+   assign tx_dllp_pm_request_ack_ended = (tx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_REQ_ACK);
+   assign tx_dllp_vendor_specific_ended = (tx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_VENDOR_SPEC);
+
+   // INIT FC1 Type
+   assign tx_lanes_dllp_initfc1_p_ended = (tx_ended_dllp_pkt[15:11] ==
+                                           ZI_DLLP_TYPE_INITFC1_P); 
+   assign tx_lanes_dllp_initfc1_np_ended = (tx_ended_dllp_pkt[15:11] ==
+                                            ZI_DLLP_TYPE_INITFC1_NP); 
+   assign tx_lanes_dllp_initfc1_cpl_ended = (tx_ended_dllp_pkt[15:11] ==
+                                             ZI_DLLP_TYPE_INITFC1_Cpl); 
+
+   // INIT FC2 Type
+   assign tx_lanes_dllp_initfc2_p_ended = (tx_ended_dllp_pkt[15:11] ==
+                                           ZI_DLLP_TYPE_INITFC2_P); 
+   assign tx_lanes_dllp_initfc2_np_ended = (tx_ended_dllp_pkt[15:11] ==
+                                            ZI_DLLP_TYPE_INITFC2_NP); 
+   assign tx_lanes_dllp_initfc2_cpl_ended = (tx_ended_dllp_pkt[15:11] ==
+                                             ZI_DLLP_TYPE_INITFC2_Cpl); 
+
+   // Update FC Type
+   assign tx_lanes_dllp_updatefc_p_ended = (tx_ended_dllp_pkt[15:11] ==
+                                            ZI_DLLP_TYPE_UPDATE_FC_P); 
+   assign tx_lanes_dllp_updatefc_np_ended = (tx_ended_dllp_pkt[15:11] ==
+                                             ZI_DLLP_TYPE_UPDATE_FC_NP); 
+   assign tx_lanes_dllp_updatefc_cpl_ended = (tx_ended_dllp_pkt[15:11] ==
+                                              ZI_DLLP_TYPE_UPDATE_FC_Cpl); 
+
+   // Unknown Type
+   assign tx_dllp_unknown_ended = !(tx_dllp_ack_ended ||
+                                    tx_dllp_nak_ended ||
+                                    tx_dllp_pm_enter_L1_ended ||
+                                    tx_dllp_pm_enter_L23_ended ||
+                                    tx_dllp_pm_active_req_L0s_ended ||
+                                    tx_dllp_pm_active_req_L1_ended ||
+                                    tx_dllp_pm_request_ack_ended ||
+                                    tx_dllp_vendor_specific_ended ||
+                                    tx_lanes_dllp_initfc1_p_ended ||
+                                    tx_lanes_dllp_initfc1_np_ended ||
+                                    tx_lanes_dllp_initfc1_cpl_ended ||
+                                    tx_lanes_dllp_initfc2_p_ended ||
+                                    tx_lanes_dllp_initfc2_np_ended ||
+                                    tx_lanes_dllp_initfc2_cpl_ended ||
+                                    tx_lanes_dllp_updatefc_p_ended ||
+                                    tx_lanes_dllp_updatefc_np_ended ||
+                                    tx_lanes_dllp_updatefc_cpl_ended);
+
+   // Init FC1, Init FC2 packets transmitted
+   assign tx_init_fc1_detected = (tx_lanes_dllp_initfc1_p_detected  || 
+                                  tx_lanes_dllp_initfc1_np_detected ||
+                                  tx_lanes_dllp_initfc1_cpl_detected);
+   assign tx_init_fc2_detected = (tx_lanes_dllp_initfc2_p_detected ||  
+                                  tx_lanes_dllp_initfc2_np_detected ||
+                                  tx_lanes_dllp_initfc2_cpl_detected);
+   assign tx_init_fc1_ended = (tx_lanes_dllp_initfc1_p_ended  ||
+                               tx_lanes_dllp_initfc1_np_ended ||
+                               tx_lanes_dllp_initfc1_cpl_ended);
+   assign tx_init_fc2_ended = (tx_lanes_dllp_initfc2_p_ended || 
+                               tx_lanes_dllp_initfc2_np_ended ||
+                               tx_lanes_dllp_initfc2_cpl_ended);
+
+   // Update FC Packets transmitted
+   assign tx_updatefc_detected = (tx_lanes_dllp_updatefc_p_detected ||
+                                  tx_lanes_dllp_updatefc_np_detected ||
+                                  tx_lanes_dllp_updatefc_cpl_detected);
+   assign tx_updatefc_ended = (tx_lanes_dllp_updatefc_p_ended || 
+                               tx_lanes_dllp_updatefc_np_ended ||
+                               tx_lanes_dllp_updatefc_cpl_ended);
+
+   // Received Ack/Nak Sequence Number
+   assign tx_detected_acknak_seq_num = {tx_detected_dllp_pkt[27:24],
+                                        tx_detected_dllp_pkt[39:32]};
+   assign tx_ended_acknak_seq_num = {tx_ended_dllp_pkt[27:24],
+                                     tx_ended_dllp_pkt[39:32]};
+  /***************************************************************************/
+
+  /************ DLLP Type Parser - Receive Packets ***************************/
+   // ACK/NAK Type
+   assign rx_dllp_ack_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                        ZI_DLLP_TYPE_ACK);
+   assign rx_dllp_nak_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                        ZI_DLLP_TYPE_NAK);
+
+   // PM/Vendor Type
+   assign rx_dllp_pm_enter_L1_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ENTER_L1);
+   assign rx_dllp_pm_enter_L23_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ENTER_L23);
+   assign rx_dllp_pm_active_req_L0s_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L0s);
+   assign rx_dllp_pm_active_req_L1_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L1);
+   assign rx_dllp_pm_request_ack_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_REQ_ACK);
+   assign rx_dllp_vendor_specific_detected = (rx_detected_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_VENDOR_SPEC);
+
+   // Init FC1 Type
+   assign rx_dllp_initfc1_p_detected = rx_lanes_dllp_initfc1_p_detected;
+   assign rx_dllp_initfc1_np_detected = rx_lanes_dllp_initfc1_np_detected;
+   assign rx_dllp_initfc1_cpl_detected = rx_lanes_dllp_initfc1_cpl_detected;
+
+   // Init FC2 Type
+   assign rx_dllp_initfc2_p_detected = rx_lanes_dllp_initfc2_p_detected;
+   assign rx_dllp_initfc2_np_detected = rx_lanes_dllp_initfc2_np_detected;
+   assign rx_dllp_initfc2_cpl_detected = rx_lanes_dllp_initfc2_cpl_detected;
+
+   // Update FC Type
+   assign rx_dllp_updatefc_p_detected = rx_lanes_dllp_updatefc_p_detected;
+   assign rx_dllp_updatefc_np_detected = rx_lanes_dllp_updatefc_np_detected;
+   assign rx_dllp_updatefc_cpl_detected = rx_lanes_dllp_updatefc_cpl_detected;
+
+   // Init FC1 Type
+   assign rx_dllp_initfc1_p_ended = rx_lanes_dllp_initfc1_p_ended;
+   assign rx_dllp_initfc1_np_ended = rx_lanes_dllp_initfc1_np_ended;
+   assign rx_dllp_initfc1_cpl_ended = rx_lanes_dllp_initfc1_cpl_ended;
+
+   // Init FC2 Type
+   assign rx_dllp_initfc2_p_ended = rx_lanes_dllp_initfc2_p_ended;
+   assign rx_dllp_initfc2_np_ended = rx_lanes_dllp_initfc2_np_ended;
+   assign rx_dllp_initfc2_cpl_ended = rx_lanes_dllp_initfc2_cpl_ended;
+
+   // Update FC Type
+   assign rx_dllp_updatefc_p_ended = rx_lanes_dllp_updatefc_p_ended;
+   assign rx_dllp_updatefc_np_ended = rx_lanes_dllp_updatefc_np_ended;
+   assign rx_dllp_updatefc_cpl_ended = rx_lanes_dllp_updatefc_cpl_ended;
+
+   // INIT FC1 Type
+   assign rx_lanes_dllp_initfc1_p_detected = (rx_detected_dllp_pkt[15:11] ==
+                                              ZI_DLLP_TYPE_INITFC1_P); 
+   assign rx_lanes_dllp_initfc1_np_detected = (rx_detected_dllp_pkt[15:11] ==
+                                               ZI_DLLP_TYPE_INITFC1_NP);
+   assign rx_lanes_dllp_initfc1_cpl_detected = (rx_detected_dllp_pkt[15:11] ==
+                                                ZI_DLLP_TYPE_INITFC1_Cpl); 
+
+   // INIT FC2 Type
+   assign rx_lanes_dllp_initfc2_p_detected = (rx_detected_dllp_pkt[15:11] ==
+                                              ZI_DLLP_TYPE_INITFC2_P); 
+   assign rx_lanes_dllp_initfc2_np_detected = (rx_detected_dllp_pkt[15:11] ==
+                                               ZI_DLLP_TYPE_INITFC2_NP); 
+   assign rx_lanes_dllp_initfc2_cpl_detected = (rx_detected_dllp_pkt[15:11] ==
+                                                ZI_DLLP_TYPE_INITFC2_Cpl);
+
+   // Update FC Type
+   assign rx_lanes_dllp_updatefc_p_detected = (rx_detected_dllp_pkt[15:11] ==
+                                               ZI_DLLP_TYPE_UPDATE_FC_P); 
+   assign rx_lanes_dllp_updatefc_np_detected = (rx_detected_dllp_pkt[15:11] ==
+                                                ZI_DLLP_TYPE_UPDATE_FC_NP); 
+   assign rx_lanes_dllp_updatefc_cpl_detected = (rx_detected_dllp_pkt[15:11] ==
+                                                 ZI_DLLP_TYPE_UPDATE_FC_Cpl); 
+
+   // Unknown Type
+   assign rx_dllp_unknown_detected = !(rx_dllp_ack_detected ||
+                                       rx_dllp_nak_detected ||
+                                       rx_dllp_pm_enter_L1_detected ||
+                                       rx_dllp_pm_enter_L23_detected ||
+                                       rx_dllp_pm_active_req_L0s_detected ||
+                                       rx_dllp_pm_active_req_L1_detected ||
+                                       rx_dllp_pm_request_ack_detected ||
+                                       rx_dllp_vendor_specific_detected ||
+                                       rx_lanes_dllp_initfc1_p_detected ||
+                                       rx_lanes_dllp_initfc1_np_detected ||
+                                       rx_lanes_dllp_initfc1_cpl_detected ||
+                                       rx_lanes_dllp_initfc2_p_detected ||
+                                       rx_lanes_dllp_initfc2_np_detected ||
+                                       rx_lanes_dllp_initfc2_cpl_detected ||
+                                       rx_lanes_dllp_updatefc_p_detected ||
+                                       rx_lanes_dllp_updatefc_np_detected ||
+                                       rx_lanes_dllp_updatefc_cpl_detected);
+
+   // ACK/NAK Type
+   assign rx_dllp_ack_ended = (rx_ended_dllp_pkt[15:8] == ZI_DLLP_TYPE_ACK);
+   assign rx_dllp_nak_ended = (rx_ended_dllp_pkt[15:8] == ZI_DLLP_TYPE_NAK);
+
+   // PM/Vendor Type
+   assign rx_dllp_pm_enter_L1_ended = (rx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ENTER_L1);
+   assign rx_dllp_pm_enter_L23_ended = (rx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ENTER_L23);
+   assign rx_dllp_pm_active_req_L0s_ended = (rx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L0s);
+   assign rx_dllp_pm_active_req_L1_ended = (rx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_ACT_L1);
+   assign rx_dllp_pm_request_ack_ended = (rx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_PM_REQ_ACK);
+   assign rx_dllp_vendor_specific_ended = (rx_ended_dllp_pkt[15:8] ==
+                                                    ZI_DLLP_TYPE_VENDOR_SPEC);
+
+   // INIT FC1 Type
+   assign rx_lanes_dllp_initfc1_p_ended = (rx_ended_dllp_pkt[15:11] ==
+                                           ZI_DLLP_TYPE_INITFC1_P); 
+   assign rx_lanes_dllp_initfc1_np_ended = (rx_ended_dllp_pkt[15:11] ==
+                                            ZI_DLLP_TYPE_INITFC1_NP);
+   assign rx_lanes_dllp_initfc1_cpl_ended = (rx_ended_dllp_pkt[15:11] ==
+                                             ZI_DLLP_TYPE_INITFC1_Cpl);
+
+   // INIT FC2 Type
+   assign rx_lanes_dllp_initfc2_p_ended = (rx_ended_dllp_pkt[15:11] ==
+                                           ZI_DLLP_TYPE_INITFC2_P); 
+   assign rx_lanes_dllp_initfc2_np_ended = (rx_ended_dllp_pkt[15:11] ==
+                                            ZI_DLLP_TYPE_INITFC2_NP); 
+   assign rx_lanes_dllp_initfc2_cpl_ended = (rx_ended_dllp_pkt[15:11] ==
+                                             ZI_DLLP_TYPE_INITFC2_Cpl); 
+
+   // Update FC Type
+   assign rx_lanes_dllp_updatefc_p_ended = (rx_ended_dllp_pkt[15:11] ==
+                                            ZI_DLLP_TYPE_UPDATE_FC_P); 
+   assign rx_lanes_dllp_updatefc_np_ended = (rx_ended_dllp_pkt[15:11] ==
+                                             ZI_DLLP_TYPE_UPDATE_FC_NP); 
+   assign rx_lanes_dllp_updatefc_cpl_ended = (rx_ended_dllp_pkt[15:11] ==
+                                              ZI_DLLP_TYPE_UPDATE_FC_Cpl); 
+
+   // Unknown Type
+   assign rx_dllp_unknown_ended = !(rx_dllp_ack_ended ||
+                                    rx_dllp_nak_ended ||
+                                    rx_dllp_pm_enter_L1_ended ||
+                                    rx_dllp_pm_enter_L23_ended ||
+                                    rx_dllp_pm_active_req_L0s_ended ||
+                                    rx_dllp_pm_active_req_L1_ended ||
+                                    rx_dllp_pm_request_ack_ended ||
+                                    rx_dllp_vendor_specific_ended ||
+                                    rx_lanes_dllp_initfc1_p_ended ||
+                                    rx_lanes_dllp_initfc1_np_ended ||
+                                    rx_lanes_dllp_initfc1_cpl_ended ||
+                                    rx_lanes_dllp_initfc2_p_ended ||
+                                    rx_lanes_dllp_initfc2_np_ended ||
+                                    rx_lanes_dllp_initfc2_cpl_ended ||
+                                    rx_lanes_dllp_updatefc_p_ended ||
+                                    rx_lanes_dllp_updatefc_np_ended ||
+                                    rx_lanes_dllp_updatefc_cpl_ended);
+
+   // Init FC1, Init FC2 packets received
+   assign rx_init_fc1_detected = (rx_dllp_initfc1_p_detected  ||
+                                  rx_dllp_initfc1_np_detected ||
+                                  rx_dllp_initfc1_cpl_detected);
+   assign rx_init_fc2_detected = (rx_dllp_initfc2_p_detected ||
+                                  rx_dllp_initfc2_np_detected ||
+                                  rx_dllp_initfc2_cpl_detected);
+   assign rx_init_fc1_ended = (rx_dllp_initfc1_p_ended  ||
+                               rx_dllp_initfc1_np_ended ||
+                               rx_dllp_initfc1_cpl_ended);
+   assign rx_init_fc2_ended = (rx_dllp_initfc2_p_ended ||
+                               rx_dllp_initfc2_np_ended ||
+                               rx_dllp_initfc2_cpl_ended);
+
+   // Update FC Packets received
+   assign rx_updatefc_detected = (rx_dllp_updatefc_p_detected ||
+                                  rx_dllp_updatefc_np_detected ||
+                                  rx_dllp_updatefc_cpl_detected);
+   assign rx_updatefc_ended = (rx_dllp_updatefc_p_ended ||
+                               rx_dllp_updatefc_np_ended ||
+                               rx_dllp_updatefc_cpl_ended);
+
+   // Received Ack/Nak Sequence Number
+   assign rx_detected_acknak_seq_num = {rx_detected_dllp_pkt[27:24],
+                                        rx_detected_dllp_pkt[39:32]};
+   assign rx_ended_acknak_seq_num = {rx_ended_dllp_pkt[27:24],
+                                     rx_ended_dllp_pkt[39:32]};
+  /***************************************************************************/
+
+  /*************** Data Link Control and Management State Machine ************/
+  /***************************************************************************/
+   assign dlcmsm_present_state = (tx_level_select) ?
+                                    dlcmsm_present_state_posedge :
+                                    dlcmsm_present_state_negedge;
+`protected
+
+    MTI!#=7?7?5iZ*}OZs]@zpp,as>enB<72}-n,N/a*o"#E!!FN[zR]6naK[O\aK|o_]p!T*<~}iTi
+    YZ2Com~'zj3E*!3ZYV@js~32Ql}3&aNwz!7UrBI}n!J3nruAT]#u[{vu=k7HE2Za[I@Uh2C'T<w1
+    1M]$<a'l}<{<vikjH@!RpREQk$vZO3#U=^ml1nGCav#n~}*,A+7EJZGQ!W.-\enImm;|R+Z![}lo
+    c}v\Q}jnuX>j~v;@TuInA>=zr7@aT;G,xQmYpZr^U_7@#CrZa,m+H@D~eArG^J=QH.Wo[kxV^Ix7
+    ?u]$=@&GVup^;E#ZHHuOXpJ*?sAx#YZ>^7a\CpU)OkW3@wT^IKZB'_s$OE^sv\a@[\\pxpevTs*a
+    #5EaE_>^={TI+Q!A=+]X'e1mB(Rm<wL.z5]$_limCaYa)o]VXXRI^pU{,nQ,l+VA}KlrOCoYYZ\u
+    nBuY=qJG<BzmA?B]o$Ap;CT[wEi=B@U$rxkw<CYAue=WGBAIHC?Y@{@-*D]_135Qe!H}<eU='p-_
+    -@K+5;^!]wyezz7#App6gMKBowG@jx{*\'oAC3/k<@^iBDz{I$T~E^Hk]k]zO#<s~HT[HRmBHY^v
+    S_me!x{@Wo<
+`endprotected
+  /******************* Flow Control ******************************************/
+   assign vc_tlp_transmitted = (tx_ended_tlp_pkt_valid ||
+                                tx_ended_null_tlp_pkt_valid ||
+                                tx_detected_tlp_pkt_valid ||
+                                tx_detected_null_tlp_pkt_valid);
+
+   assign vc_tlp_received = (rx_ended_tlp_pkt_valid ||
+                             rx_ended_null_tlp_pkt_valid ||
+                             rx_detected_tlp_pkt_valid ||
+                             rx_detected_null_tlp_pkt_valid);
+
+   assign r_vc_tlp_transmitted = (tx_level_select) ? 
+                                  r_vc_tlp_transmitted_posedge : 
+                                  r_vc_tlp_transmitted_negedge;
+   
+   assign r_vc_tlp_received = (rx_level_select) ? r_vc_tlp_received_posedge :
+                                                  r_vc_tlp_received_negedge;
+
+`protected
+
+    MTI!#*7*}j_{<Iw~A_Zx^27-3_C+p5$Gmw5Is};-CsjkrB}Uu1p];QeY+Vv>mXNl~w+7![Qw7\_@
+    X{rCj?)}k;RmvE[{ok}1#r@Qk3k=[r~eaA5TB3}DH$,|dYHp@Ks^^}k>OITn]&^]au}~V$]C,ze~
+    X-c7mx<Y5?}[HJrj~=lBZo;S7A^eH]n^}>u^]171{w-<.!7Iw[2I?'~lW=a}vAlWEMc$|rvsJV$H
+    *+$<3x27XU[[G&<U+Db#]<KXQI?7;llY>\Vxl3!rQ7]o2K2Kh*D'aQmYa^O-\}uh^=R2@[KwHeZI
+    xDe~EJzEXaxp.p?*+uD$O&U$v3];Av@Y4ws!AHw\WT}-vD7H]^~Qrw}*w=2~+l}3#/XR{[>>JaNo
+    Ko$ujo!sUU-Ap\a1lAW&-[1~)7RnRe7};=m>vT=U=(>r]o"#E\\X<Y3sV@XBXpJQ?RH'?,k+>@-\
+    R5U3+^kke+QenAO1n>]da=3-x~v_r@pUVj3TnHT{_wZUeJxKFEJR;[RRVX1K3\v<]E+nYJA$B}@e
+    ~?==2C1ZA[k5iI\W7ZA'pO}1{rT[~kok,oO{zg~QpzxGi,O3>-DDZ>,kK7u5ivf?TvnQJUZ,F'JA
+    nC?XIG8:0$$e\}kp!,Wp'!RXVp~vvZ5rl%U}k<Ca*_[qBp\zpzZVrY\UoQUlIex=}tioI3OT^$UR
+    E=sHIK;pnQ%J7}n[p'+)<XpH@U'?q5ke#;ETp"I#KA:vT;DA1-e~x5<5w-IOA'vhYa*Wx-AYDI*$
+    =viZu\=7<+D3rkZugHw7'$}XBv3OW_Xn[pn7'a=?_mRiEk^;Hx'm[sA_\N>azw?-3r>l}oBWC}~{
+    w~w5eT[l<H-TJG**A;EkeV2a@H#jO?wRR5"EaQGOlYi''+D,E}<<siEslkea}#eQ$DXnRi]\Cw*=
+    {\O"R'kIpwWE^B^XOkXO{_e#Y]+~$W<p=C@A9q}VBv*1Tu4^7HXn_ve~o13b@*{uTp$m7]{wB_Uu
+    -]][1_unl3Kv}m~CC=D{l3O>fiI[zQ#uznD]JX[iIRaAj<w1xM3{Br31m]ne<E_jX#B5-X=k}xn1
+    u@1]zeluCYM!^H}7o2A^x;nh%#Xn,=#+Tu<I1'r<Y7#'C^?WuDOXzC}k_"}r7vZxeZ+,K}'a$,6F
+    Q@o]Z{B{n]L}mTJeu~mfw*euv}vuE?~<>[CBDOe{?_B5WGOjGwvB_-vKUa@[E7C>$o>Bexv=XQ?[
+    WsoGs}Amk}mZ3OIsTR;D%+\5u}x!#Ql1kk$G@kTIZvZX7x$Y]}8p\l-Xom{$_r+Bk{Y'w{m&>\l>
+    xwero~]OQ7#mHY[KX}E"@-vnCwT$
+`endprotected
+   /**************************************************************************/
+
+   /****************** Instantiation of Packet Parser ************************/
+   // Tx Side
+   qvl_pci_express_link_pkt_parser #(PHY_LAYER_CONSTRAINT,
+                                       NUMBER_OF_LANES,
+                                       DOUBLE_DATA_RATE,
+                                       RESERVED_FIELD_CHECK_ENABLE,
+                                       VENDOR_SPECIFIC_ENCODING_ENABLE,
+                                       DEVICE_TYPE,
+                                       1) // Tx
+      DLL_TX_PKT_PARSER(
+         .areset(areset), 
+         .reset(reset),
+
+         .phy_status(phy_status),
+         .link_layer_checks_disable(link_layer_checks_disable),
+         .link_10b_code_violation(tx_10b_code_violation),
+
+         .link_clk(tx_link_clk),
+         .level_select(tx_level_select),
+
+         .d_or_k_code(tx_d_or_k_code),
+         .valid_code(tx_valid_code),
+         .descrambled_data(tx_descrambled_data),
+         .link_operating_width(link_operating_width),
+
+         .dlcmsm_present_state(dlcmsm_present_state),
+         .dlcmsm_next_state(dlcmsm_next_state),
+
+         .fc_init1_done(fc_init1_done),
+         .r_vc_tlp_detected(r_vc_tlp_transmitted),
+
+         .init_fc1_detected(tx_init_fc1_detected),
+         .init_fc2_detected(tx_init_fc2_detected),
+
+         .init_fc1_ended(tx_init_fc1_ended),
+         .init_fc2_ended(tx_init_fc2_ended),
+
+         .dllp_unknown_detected(tx_dllp_unknown_detected),
+         .dllp_unknown_ended(tx_dllp_unknown_ended),
+
+         .dllp_vendor_specific_detected(tx_dllp_vendor_specific_detected),
+         .dllp_vendor_specific_ended(tx_dllp_vendor_specific_ended),
+
+         .fire_detected_dllp_reserved_field_error(fire_tx_detected_dllp_reserved_field_error),
+         .fire_ended_dllp_reserved_field_error(fire_tx_ended_dllp_reserved_field_error),
+
+         .current_dllp_pkt(tx_current_dllp_pkt),
+         .current_dllp_pkt_valid(tx_current_dllp_pkt_valid),
+
+         .detected_dllp_pkt(tx_detected_dllp_pkt),
+         .detected_dllp_pkt_valid(tx_detected_dllp_pkt_valid),
+
+         .ended_dllp_pkt(tx_ended_dllp_pkt),
+         .ended_dllp_pkt_valid(tx_ended_dllp_pkt_valid),
+
+         .current_tlp_pkt(tx_current_tlp_pkt),
+         .current_tlp_pkt_valid(tx_current_tlp_pkt_valid),
+
+         .detected_tlp_pkt(tx_detected_tlp_pkt),
+         .detected_tlp_pkt_valid(tx_detected_tlp_pkt_valid),
+      .detected_null_tlp_pkt_valid(tx_detected_null_tlp_pkt_valid),
+
+         .ended_tlp_pkt(tx_ended_tlp_pkt),
+         .ended_tlp_pkt_valid(tx_ended_tlp_pkt_valid),
+         .ended_null_tlp_pkt_valid(tx_ended_null_tlp_pkt_valid),
+
+         .current_tlp_seq_num(tx_current_tlp_seq_num),
+         .current_tlp_seq_num_valid(tx_current_tlp_seq_num_valid),
+         .current_tlp_header(tx_current_tlp_header),
+         .current_tlp_header_valid(tx_current_tlp_header_valid),
+
+         .detected_tlp_seq_num(tx_detected_tlp_seq_num),
+         .detected_tlp_seq_num_valid(tx_detected_tlp_seq_num_valid),
+         .detected_tlp_header(tx_detected_tlp_header),
+         .detected_tlp_header_valid(tx_detected_tlp_header_valid),
+
+         .ended_tlp_seq_num(tx_ended_tlp_seq_num),
+         .ended_tlp_seq_num_valid(tx_ended_tlp_seq_num_valid),
+         .ended_tlp_header(tx_ended_tlp_header),
+         .ended_tlp_header_valid(tx_ended_tlp_header_valid),
+
+         .lcrc_inverted_of_detected_crc(tx_lcrc_inverted_of_detected_crc),
+         .lcrc_inverted_of_ended_crc(tx_lcrc_inverted_of_ended_crc),
+
+        .fire_detected_tlp_link_crc_error(fire_tx_detected_tlp_link_crc_error),
+         .fire_ended_tlp_link_crc_error(fire_tx_ended_tlp_link_crc_error),
+         .max_payload_size((maximum_max_payload_size > max_payload_size)? max_payload_size : maximum_max_payload_size),
+         .max_read_req_size(max_read_req_size)
+      );
+   // Rx Side
+   qvl_pci_express_link_pkt_parser #(MAC_LAYER_CONSTRAINT,
+                                       NUMBER_OF_LANES,
+                                       DOUBLE_DATA_RATE,
+                                       RESERVED_FIELD_CHECK_ENABLE,
+                                       VENDOR_SPECIFIC_ENCODING_ENABLE,
+                                       DEVICE_TYPE,
+                                       0) // Rx
+      DLL_RX_PKT_PARSER(
+         .areset(areset),
+         .reset(reset),
+
+         .phy_status(phy_status),
+         .link_layer_checks_disable(link_layer_checks_disable),
+         .link_10b_code_violation(rx_10b_code_violation),
+
+         .link_clk(rx_link_clk),
+         .level_select(rx_level_select),
+
+         .d_or_k_code(rx_d_or_k_code),
+         .valid_code(rx_valid_code),
+         .descrambled_data(rx_descrambled_data),
+         .link_operating_width(link_operating_width),
+
+         .dlcmsm_present_state(dlcmsm_present_state),
+         .dlcmsm_next_state(dlcmsm_next_state),
+
+         .fc_init1_done(fc_init1_done),
+         .r_vc_tlp_detected(r_vc_tlp_received),
+
+         .init_fc1_detected(rx_init_fc1_detected),
+         .init_fc2_detected(rx_init_fc2_detected),
+
+         .init_fc1_ended(rx_init_fc1_ended),
+         .init_fc2_ended(rx_init_fc2_ended),
+
+         .dllp_unknown_detected(rx_dllp_unknown_detected),
+         .dllp_unknown_ended(rx_dllp_unknown_ended),
+
+         .dllp_vendor_specific_detected(rx_dllp_vendor_specific_detected),
+         .dllp_vendor_specific_ended(rx_dllp_vendor_specific_ended),
+
+         .fire_detected_dllp_reserved_field_error(fire_rx_detected_dllp_reserved_field_error),
+         .fire_ended_dllp_reserved_field_error(fire_rx_ended_dllp_reserved_field_error),
+
+         .current_dllp_pkt(rx_current_dllp_pkt),
+         .current_dllp_pkt_valid(rx_current_dllp_pkt_valid),
+
+         .detected_dllp_pkt(rx_detected_dllp_pkt),
+         .detected_dllp_pkt_valid(rx_detected_dllp_pkt_valid),
+
+         .ended_dllp_pkt(rx_ended_dllp_pkt),
+         .ended_dllp_pkt_valid(rx_ended_dllp_pkt_valid),
+
+         .current_tlp_pkt(rx_current_tlp_pkt),
+         .current_tlp_pkt_valid(rx_current_tlp_pkt_valid),
+
+         .detected_tlp_pkt(rx_detected_tlp_pkt),
+         .detected_tlp_pkt_valid(rx_detected_tlp_pkt_valid),
+      .detected_null_tlp_pkt_valid(rx_detected_null_tlp_pkt_valid),
+
+         .ended_tlp_pkt(rx_ended_tlp_pkt),
+         .ended_tlp_pkt_valid(rx_ended_tlp_pkt_valid),
+         .ended_null_tlp_pkt_valid(rx_ended_null_tlp_pkt_valid),
+
+         .current_tlp_seq_num_valid(rx_current_tlp_seq_num_valid),
+         .current_tlp_header_valid(rx_current_tlp_header_valid),
+         .current_tlp_seq_num(rx_current_tlp_seq_num),
+         .current_tlp_header(rx_current_tlp_header),
+
+         .detected_tlp_seq_num(rx_detected_tlp_seq_num),
+         .detected_tlp_seq_num_valid(rx_detected_tlp_seq_num_valid),
+         .detected_tlp_header(rx_detected_tlp_header),
+         .detected_tlp_header_valid(rx_detected_tlp_header_valid),
+
+         .ended_tlp_seq_num(rx_ended_tlp_seq_num),
+         .ended_tlp_seq_num_valid(rx_ended_tlp_seq_num_valid),
+         .ended_tlp_header(rx_ended_tlp_header),
+         .ended_tlp_header_valid(rx_ended_tlp_header_valid),
+
+         .lcrc_inverted_of_detected_crc(rx_lcrc_inverted_of_detected_crc),
+         .lcrc_inverted_of_ended_crc(rx_lcrc_inverted_of_ended_crc),
+
+         .fire_detected_tlp_link_crc_error(fire_rx_detected_tlp_link_crc_error),
+         .fire_ended_tlp_link_crc_error(fire_rx_ended_tlp_link_crc_error),
+         .max_payload_size((maximum_max_payload_size > max_payload_size)? max_payload_size : maximum_max_payload_size),
+         .max_read_req_size(max_read_req_size)
+      );
+   /**************************************************************************/
+
+   /******************* Instantiation of Retry Management *******************/
+   qvl_pci_express_link_retry_mgmt #(Constraints_Mode,
+                                       DOUBLE_DATA_RATE,
+                                       OVERRIDE_TIMER_VALUE,
+                                       REPLAY_TIMER_VALUE,
+                                       ACKNAK_TIMER_VALUE,
+                                       PCI_EXPRESS_GEN2)
+       DLL_RETRY_MGMT(
+          .areset(areset),
+          .reset(reset),
+
+          .phy_status(phy_status),
+          .link_layer_checks_disable(link_layer_checks_disable),
+          .link_up(data_link_up),
+
+          .max_payload_size((maximum_max_payload_size > max_payload_size)? max_payload_size : maximum_max_payload_size),
+          .link_operating_width(link_operating_width),
+
+          .tx_link_clk(tx_link_clk),
+          .tx_level_select(tx_level_select),
+          .tx_valid_code(|tx_valid_code),
+
+          .tx_detected_acknak_seq_num(tx_detected_acknak_seq_num),
+          .tx_ended_acknak_seq_num(tx_ended_acknak_seq_num),
+
+          .tx_detected_dllp_ack(tx_dllp_ack_detected && tx_detected_dllp_pkt_valid),
+          .tx_ended_dllp_ack(tx_dllp_ack_ended && tx_ended_dllp_pkt_valid),
+
+          .tx_detected_dllp_nak(tx_dllp_nak_detected && tx_detected_dllp_pkt_valid),
+          .tx_ended_dllp_nak(tx_dllp_nak_ended && tx_ended_dllp_pkt_valid),
+
+          .tx_current_tlp_pkt_valid(tx_current_tlp_pkt_valid),
+
+          .tx_detected_tlp_pkt_valid(tx_detected_tlp_pkt_valid), // Fix
+          //.tx_detected_tlp_pkt_valid(tx_detected_tlp_pkt_valid && tx_detected_tlp_seq_num_valid && !fire_tx_detected_tlp_link_crc_error),
+          .tx_detected_null_tlp_pkt_valid(tx_detected_null_tlp_pkt_valid), // Fix
+   //.tx_detected_null_tlp_pkt_valid(tx_detected_null_tlp_pkt_valid && !fire_tx_detected_tlp_link_crc_error),
+          .tx_detected_bad_tlp_pkt_valid(fire_tx_detected_tlp_link_crc_error), 
+
+          .tx_ended_tlp_pkt_valid(tx_ended_tlp_pkt_valid),
+          //.tx_ended_tlp_pkt_valid(tx_ended_tlp_pkt_valid && tx_ended_tlp_seq_num_valid && !fire_tx_ended_tlp_link_crc_error),
+          .tx_ended_null_tlp_pkt_valid(tx_ended_null_tlp_pkt_valid),
+         //.tx_ended_null_tlp_pkt_valid(tx_ended_null_tlp_pkt_valid && !fire_tx_ended_tlp_link_crc_error),
+          .tx_ended_bad_tlp_pkt_valid(fire_tx_ended_tlp_link_crc_error),
+
+          .tx_detected_tlp_seq_num(tx_detected_tlp_seq_num),
+          .tx_ended_tlp_seq_num(tx_ended_tlp_seq_num),
+
+          .tx_replay_timer_elapsed(tx_replay_timer_elapsed),
+          .tx_replay_num_elapsed(tx_replay_num_elapsed),
+
+          .tx_detected_retry_progress(tx_detected_retry_progress),
+          .tx_ended_retry_progress(tx_ended_retry_progress),
+
+          .tx_next_tlp_seq_num(tx_next_tlp_seq_num),
+          .tx_ack_nak_sequence_number_of_dllp(tx_ack_nak_sequence_number_of_dllp),
+
+          .tx_replay_timer(tx_replay_timer),
+          .tx_acknak_timer(tx_acknak_timer),
+
+          .tx_num_outstanding_tlps(tx_num_outstanding_tlps),
+          .tx_incr_detected_duplicate_tlp(tx_incr_detected_duplicate_tlp),
+          .tx_incr_ended_duplicate_tlp(tx_incr_ended_duplicate_tlp),
+
+          .rx_link_clk(rx_link_clk),
+          .rx_level_select(rx_level_select),
+          .rx_valid_code(|rx_valid_code),
+
+          .rx_detected_acknak_seq_num(rx_detected_acknak_seq_num),
+          .rx_ended_acknak_seq_num(rx_ended_acknak_seq_num),
+
+          .rx_detected_dllp_ack(rx_dllp_ack_detected && rx_detected_dllp_pkt_valid),
+          .rx_ended_dllp_ack(rx_dllp_ack_ended && rx_ended_dllp_pkt_valid),
+
+          .rx_detected_dllp_nak(rx_dllp_nak_detected && rx_detected_dllp_pkt_valid),
+          .rx_ended_dllp_nak(rx_dllp_nak_ended && rx_ended_dllp_pkt_valid),
+
+          .rx_current_tlp_pkt_valid(rx_current_tlp_pkt_valid),
+
+          .rx_detected_tlp_pkt_valid(rx_detected_tlp_pkt_valid), // Fix
+          //.rx_detected_tlp_pkt_valid(rx_detected_tlp_pkt_valid && rx_detected_tlp_seq_num_valid && !fire_rx_detected_tlp_link_crc_error),
+          .rx_detected_null_tlp_pkt_valid(rx_detected_null_tlp_pkt_valid), // Fix
+   //.rx_detected_null_tlp_pkt_valid(rx_detected_null_tlp_pkt_valid && !fire_rx_detected_tlp_link_crc_error),
+          .rx_detected_bad_tlp_pkt_valid(fire_rx_detected_tlp_link_crc_error),
+
+          .rx_ended_tlp_pkt_valid(rx_ended_tlp_pkt_valid), // Fix
+
+          //.rx_ended_tlp_pkt_valid(rx_ended_tlp_pkt_valid && rx_ended_tlp_seq_num_valid && !fire_rx_ended_tlp_link_crc_error),
+          .rx_ended_null_tlp_pkt_valid(rx_ended_null_tlp_pkt_valid), // Fix
+         //.rx_ended_null_tlp_pkt_valid(rx_ended_null_tlp_pkt_valid && !fire_rx_ended_tlp_link_crc_error),
+          .rx_ended_bad_tlp_pkt_valid(fire_rx_ended_tlp_link_crc_error),
+
+          .rx_detected_tlp_seq_num(rx_detected_tlp_seq_num),
+          .rx_ended_tlp_seq_num(rx_ended_tlp_seq_num),
+// PCI_EXPRESS_GEN2 code start
+          .current_speed_5gt(current_speed_5gt),
+// PCI_EXPRESS_GEN2 code end                  
+
+          .rx_replay_timer_elapsed(rx_replay_timer_elapsed),
+          .rx_replay_num_elapsed(rx_replay_num_elapsed),
+
+          .rx_detected_retry_progress(rx_detected_retry_progress),
+          .rx_ended_retry_progress(rx_ended_retry_progress),
+
+          .rx_next_tlp_seq_num(rx_next_tlp_seq_num),
+          .rx_ack_nak_sequence_number_of_dllp(rx_ack_nak_sequence_number_of_dllp),
+
+          .rx_replay_timer(rx_replay_timer),
+          .rx_acknak_timer(rx_acknak_timer),
+
+          .rx_num_outstanding_tlps(rx_num_outstanding_tlps),
+          .rx_incr_detected_duplicate_tlp(rx_incr_detected_duplicate_tlp),
+          .rx_incr_ended_duplicate_tlp(rx_incr_ended_duplicate_tlp),
+
+          .extended_sync_enable(extended_sync_enable),
+          .L0s_entry_supported(L0s_entry_supported),
+          .tx_n_fts(tx_n_fts),
+          .rx_n_fts(rx_n_fts),
+          .enable_recovery_state(enable_recovery_state)
+          );
+   /*************************************************************************/
+
+   /****************** Data Link Layer Checks ********************************/
+
+   /******************* Transmitter Side *************************************/
+   // Check Name : PCI_EXPRESS_DLP_TLP_IN_DL_DOWN - No : 1
+   // Check Name : PCI_EXPRESS_FC_DLLP_IN_DL_ACTIVE - No : 2
+   // Check Name : PCI_EXPRESS_TLP_IN_FC_INIT1 - No : 3
+   // Check Name : PCI_EXPRESS_FC_DLLP_IN_FC_INIT1 - No : 4 ***No Rx***
+   // Check Name : PCI_EXPRESS_FC_DLLP_IN_FC_INIT2 - No : 5 ***No Rx***
+   // Check Name : PCI_EXPRESS_SAME_HDRFC_DLLP_FC_INIT1 - No : 6 ***No Rx***
+   // Check Name : PCI_EXPRESS_SAME_DATAFC_DLLP_FC_INIT1 - No : 7 ***No Rx***
+   // --------------------------------------------------------------
+   // Check Name : PCI_EXPRESS_DLL_PKT_16BIT_CRC - No : 8
+   // Check Name : PCI_EXPRESS_UNDEFINED_DLLP_ENCODING - No : 9
+   // Check Name : PCI_EXPRES_VENDOR_SPEC_DLLP_TYPE - No : 10
+   // Check Name : PCI_EXPRESS_RESERVED_FIELD_ERROR - No : 11
+   // Check Name : PCI_EXPRESS_DLL_PKT_LENGTH - No : 12
+   // Check Name : PCI_EXPRESS_TLP_LINK_CRC - No : 13
+   // Check Name : PCI_EXPRESS_NULL_TLP_LINK_CRC - No : 14
+   // Check Name : PCI_EXPRESS_NULL_TLP_WITH_END - No : 15
+   // --------------------------------------------------------------
+   // Check Name : PCI_EXPRESS_FIRST_TLP_AFTER_LINK_UP - No : 16
+   // Check Name : PCI_EXPRESS_INCR_SEQ_NUM_TLP - No : 17
+   // Check Name : PCI_EXPRESS_SEQ_NUM_AFTER_NULL_TLP - No : 18
+   // Check Name : PCI_EXPRESS_REPLAY_TIMER_EXPIRED - No : 19
+   // Check Name : PCI_EXPRESS_NO_TLP_AFTER_RETRY : No : 20
+   // Check Name : PCI_EXPRESS_ALL_OLD_TLPs_RETRY - No : 21
+   // Check Name : PCI_EXPRESS_RETRY_AFTER_NAK - No : 22
+   // Check Name : PCI_EXPRESS_MAX_UNACKD_TLP - No : 23
+   // Check Name : PCI_EXPRESS_REPLAY_NUM_EXPIRED - No : 24
+   // Check Name : PCI_EXPRESS_ACKD_TLP - No : 25
+   // Check Name : PCI_EXPRESS_ACKNAK_SEQ_NUM - No : 26
+   // Check Name : PCI_EXPRESS_ACKNAK_TIMER_EXPIRED - No : 27
+   // Check Name : PCI_EXPRESS_NO_ACK_DLLP_FOR_NULL_TLP - No : 28
+   // Check Name : PCI_EXPRESS_NO_NAK_DLLP_FOR_TLP - No : 29 ***No Rx***
+   /**************************************************************************/
+
+   /******************* Receiver Side ****************************************/
+   // Check Name : PCI_EXPRESS_DLP_TLP_IN_DL_DOWN - No : 1
+   // Check Name : PCI_EXPRESS_FC_DLLP_IN_DL_ACTIVE - No : 2
+   // Check Name : PCI_EXPRESS_TLP_IN_FC_INIT1 - No : 3
+   // --------------------------------------------------------------
+   // Check Name : PCI_EXPRESS_DLL_PKT_16BIT_CRC - No : 8
+   // Check Name : PCI_EXPRESS_UNDEFINED_DLLP_ENCODING - No : 9
+   // Check Name : PCI_EXPRES_VENDOR_SPEC_DLLP_TYPE - No : 10
+   // Check Name : PCI_EXPRESS_RESERVED_FIELD_ERROR - No : 11
+   // Check Name : PCI_EXPRESS_DLL_PKT_LENGTH - No : 12
+   // Check Name : PCI_EXPRESS_TLP_LINK_CRC - No : 13 
+   // Check Name : PCI_EXPRESS_NULL_TLP_LINK_CRC - No : 14
+   // Check Name : PCI_EXPRESS_NULL_TLP_WITH_END - No : 15
+   // --------------------------------------------------------------
+   // Check Name : PCI_EXPRESS_FIRST_TLP_AFTER_LINK_UP - No : 16
+   // Check Name : PCI_EXPRESS_INCR_SEQ_NUM_TLP - No : 17
+   // Check Name : PCI_EXPRESS_SEQ_NUM_AFTER_NULL_TLP - No : 18
+   // Check Name : PCI_EXPRESS_REPLAY_TIMER_EXPIRED - No : 19
+   // Check Name : PCI_EXPRESS_NO_TLP_AFTER_RETRY : No : 20
+   // Check Name : PCI_EXPRESS_ALL_OLD_TLPs_RETRY - No : 21
+   // Check Name : PCI_EXPRESS_RETRY_AFTER_NAK - No : 22
+   // Check Name : PCI_EXPRESS_MAX_UNACKD_TLP - No : 23
+   // Check Name : PCI_EXPRESS_REPLAY_NUM_EXPIRED - No : 24
+   // Check Name : PCI_EXPRESS_ACKD_TLP - No : 25
+   // Check Name : PCI_EXPRESS_ACKNAK_SEQ_NUM - No : 26
+   // Check Name : PCI_EXPRESS_ACKNAK_TIMER_EXPIRED - No : 27
+   // Check Name : PCI_EXPRESS_NO_ACK_DLLP_FOR_NULL_TLP - No : 28
+   /**************************************************************************/
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_pci_express_link_layer_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_link_layer_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_link_layer_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_link_layer_monitor
+`include "zi_cw_pci_express_link_layer_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_pci_express_link_layer_monitor.v

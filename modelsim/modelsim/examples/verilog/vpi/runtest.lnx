@@ -1,0 +1,33 @@
+#!/bin/sh
+#Copyright 1991-2009 Mentor Graphics Corporation
+#
+#All Rights Reserved.
+#
+#THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY INFORMATION WHICH IS THE PROPERTY OF 
+#MENTOR GRAPHICS CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE TERMS.
+
+# VPI Test Compilation and Execution Script for Linux
+
+# NOTE: The environment variable MTI_HOME must be set to point to your
+#       modeltech installation directory before invoking this script.
+#       Example: setenv MTI_HOME /usr/local/modeltech
+
+machine=`uname -m`
+if [ "$machine" = "x86_64" ] ; then
+# 32-bit compile on x86_64
+# GCC compilation (-g for debug symbols)
+gcc -c -m32 -g -I$MTI_HOME/include vpi_test.c
+gcc -shared -m32 -o vpi_test.sl vpi_test.o
+MTI_VCO_MODE=32
+export MTI_VCO_MODE
+else
+# GCC compilation (-g for debug symbols)
+gcc -c -g -I$MTI_HOME/include vpi_test.c
+ld -shared -Bsymbolic -o vpi_test.sl vpi_test.o
+fi
+
+rm -rf work
+vlib work
+vlog prim.v dff.v top.v
+
+vsim -c -do vsim.do top -pli vpi_test.sl

@@ -1,0 +1,126 @@
+#
+# MtiLabel
+# ----------------------------------------------------------------------
+# Implements a simple label, but relief color is different from label
+# coloring.  This way label background color does not affect the light
+# and dark coloring of the relief.
+#
+# ----------------------------------------------------------------------
+#  AUTHOR: Brian Griffin             EMAIL: bgriffin@model.com
+#
+#  @(#) $Id: //dvt/mti/rel/6.5b/src/tkgui/mtilabel.itk#1 $
+# ----------------------------------------------------------------------
+#            Copyright 2002-2009 Mentor Graphics Corporation
+# ======================================================================
+# See the file "license.terms" for information on usage and
+# redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+
+#
+# Usual options.
+#
+itk::usual Mtilabel {
+    keep -cursor -font -width -height
+}
+
+# ------------------------------------------------------------------
+#                            MTILABEL
+# ------------------------------------------------------------------
+class mtiwidgets::Mtilabel {
+    inherit itk::Widget
+
+	itk_option define -borderwidth borderWidth BorderWidth 2
+	itk_option define -relief relief Relief sunken
+	itk_option define -labelbackground labelBackground LabelBackground grey50
+	itk_option define -labelforeground labelForeground LabelForeground black
+
+    constructor {args} {}
+    destructor {}
+}
+    
+#
+# Provide a lowercased access method for the Labeledwidget class.
+# 
+proc ::mtiwidgets::mtilabel {pathName args} {
+    uplevel ::mtiwidgets::Mtilabel $pathName $args
+}
+
+# ------------------------------------------------------------------
+#                        CONSTRUCTOR
+# ------------------------------------------------------------------
+body mtiwidgets::Mtilabel::constructor {args} {
+	#
+	# Create a frame for the childsite widget.
+	#
+	itk_component add -protected lwchildsite {
+		frame $itk_interior.lwchildsite
+	} {
+		ignore -width -height
+	}
+    
+	#
+	# Create label.
+	#
+	itk_component add label {
+		label $itk_component(lwchildsite).label -borderwidth 0 -highlightthickness 0 -relief flat
+	} {
+		usual
+		keep -wraplength -underline -text -textvariable -takefocus -state
+		keep -padx -pady -justify -image -highlightbackground -bitmap
+		keep -anchor -activeforeground -activebackground
+		keep -width
+		ignore -highlightcolor -highlightthickness -borderwidth -relief
+		rename -background -labelbackground labelBackground LabelBackground
+		rename -foreground -labelforeground labelForeground LabelForeground
+	}
+
+	#
+	# Set the interior to be the childsite for derived classes.
+	#
+	set itk_interior $itk_component(lwchildsite)
+
+	#
+	# Pack interior and label
+	pack $itk_interior -side top -fill both -expand 1
+	pack $itk_component(label) -side top -fill both -expand 1
+
+	#
+	# Initialize the widget based on the command line options.
+	#
+	eval itk_initialize $args
+}
+
+# ------------------------------------------------------------------
+#                           DESTURCTOR
+# ------------------------------------------------------------------
+body mtiwidgets::Mtilabel::destructor {} {
+}
+
+# ------------------------------------------------------------------
+#                             OPTIONS
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# OPTION: -borderwidth
+#
+# Specified the borderwidth for the widget
+# ------------------------------------------------------------------
+configbody mtiwidgets::Mtilabel::borderwidth {
+	$itk_interior configure -borderwidth $itk_option(-borderwidth)
+}
+
+# ------------------------------------------------------------------
+# OPTION: -relief
+#
+# Specified the borderwidth for the widget
+# ------------------------------------------------------------------
+configbody mtiwidgets::Mtilabel::relief {
+	$itk_interior configure -relief $itk_option(-relief)
+}
+
+# ------------------------------------------------------------------
+#                            METHODS
+# ------------------------------------------------------------------
+
+
+

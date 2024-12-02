@@ -1,0 +1,46 @@
+#!/bin/sh
+# ----------------------------------------------------------------------
+#  DEMO: Colbutton in mtiwidgets
+# ----------------------------------------------------------------------
+#\
+exec itkwish "$0" ${1+"$@"}
+package require Mtiwidgets
+
+# itkwish interprets the rest...
+# ----------------------------------------------------------------------
+. configure -background white
+
+frame .cf -borderwidth 2 -relief sunken
+pack .cf -padx 4 -pady 4
+set cf .cf
+
+mtiwidgets::colbutton $cf.cb -text "States" -command sortit
+iwidgets::scrolledlistbox $cf.lb \
+	-relief sunken -borderwidth 1 \
+	-vscrollmode dynamic -hscrollmode none 
+pack $cf.cb -fill x
+pack $cf.lb
+
+set stateList [list Maine "New Hampshire" Vermont Massachusetts "Rhode Island" Conneticut "New York" Pennsylvania "New Jersey" Delware Maryland Virgina "West Virgina" "North Carolina" Kentucky "South Carolina" Tennisee Georgia Florida]
+
+proc sortit {} {
+	global cf stateList
+	switch [$cf.cb cget -sortstate] {
+		up {
+			$cf.cb configure -sortstate none
+			set sortedList $stateList
+		}
+		down {
+			$cf.cb configure -sortstate up
+			set sortedList [lsort -dictionary -decreasing $stateList]			
+		}
+		default {
+			$cf.cb configure -sortstate down
+			set sortedList [lsort -dictionary -increasing $stateList]
+		}
+	}
+	$cf.lb delete 0 end
+	eval $cf.lb insert 0 $sortedList
+}
+
+sortit

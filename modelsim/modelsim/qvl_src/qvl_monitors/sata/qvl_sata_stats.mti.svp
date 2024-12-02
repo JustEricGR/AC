@@ -1,0 +1,241 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of 0-In CheckerWare.
+*
+* DESCRIPTION This monitor checks the Serial ATA interface for compliance with
+*             Serial ATA specification>.
+*
+* REFERENCES  Serial ATA specification revision 2.5, 27th October 2005
+*             Serial ATA: High Speed Serialized AT Attachment Revision 1.0a,
+*             7-January-2003
+*             Serial ATA II: Extensions to Serial ATA 1.0a Revision 1.2,
+*             27-August-2004
+*             SATA PHY Interface Specification (SAPIS) Draft Rev 0.90, February
+*             8, 2002
+*
+*
+* USAGE       This sub-module is instantiated in the zi_cw_sata_link_monitor 
+*             module.
+*
+* LAST MODIFIED: 25th January 2006
+*
+**************************************************************************/
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_sata_stats (areset,
+                              reset,
+                              clk,
+                              level_select,
+                              collect_stats,
+                              hold_p_detected,
+                              holda_p_detected,
+                              eof_p_detected,
+                              dmat_p_detected,
+                              r_ok_p_detected,
+                              r_err_p_detected,
+                              r_hold_p_detected,
+                              r_holda_p_detected,
+                              r_eof_p_detected,
+                              r_dmat_p_detected,
+                              r_r_ok_p_detected,
+                              r_r_err_p_detected,
+                              fis_count_less,
+                              fis_count_more,
+                              hold_p_2_holda_p_latency_min_count,
+                              hold_p_2_holda_p_latency_max_count,
+                              dmat_p_2_eof_p_latency_min_count,
+                              dmat_p_2_eof_p_latency_max_count,
+                              eof_p_2_r_ok_p_latency_min_count,
+                              eof_p_2_r_ok_p_latency_max_count,
+                              fis_count_exceeded_pio_count,
+                              fis_count_less_pio_count 
+                             );
+  // This parameter configures whether data is available on both clock edges or
+  // on single edge of the clock.
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  input areset;
+  input reset;
+  input clk;
+  input level_select;
+  input collect_stats;
+  input hold_p_detected;
+  input holda_p_detected;
+  input eof_p_detected;
+  input dmat_p_detected;
+  input r_ok_p_detected;
+  input r_err_p_detected;
+  input r_hold_p_detected;
+  input r_holda_p_detected;
+  input r_eof_p_detected;
+  input r_dmat_p_detected;
+  input r_r_ok_p_detected;
+  input r_r_err_p_detected;
+  input fis_count_less;
+  input fis_count_more;
+  output [63:0] hold_p_2_holda_p_latency_min_count;
+  output [63:0] hold_p_2_holda_p_latency_max_count;
+  output [63:0] dmat_p_2_eof_p_latency_min_count;
+  output [63:0] dmat_p_2_eof_p_latency_max_count;
+  output [63:0] eof_p_2_r_ok_p_latency_min_count;
+  output [63:0] eof_p_2_r_ok_p_latency_max_count;
+  output [63:0] fis_count_exceeded_pio_count;
+  output [63:0] fis_count_less_pio_count;
+
+  wire f_hold_p_2_holda_p_latency_min_count;
+  wire f_dmat_p_2_eof_p_latency_min_count;
+  wire f_eof_p_2_r_ok_p_latency_min_count;
+  wire [63:0] latency_count;
+  wire [63:0] dmat_count;
+
+  reg [63:0] latency_count_pos;
+  reg [63:0] dmat_count_pos;
+  reg [63:0] hold_p_2_holda_p_latency_min_count_pos;
+  reg [63:0] hold_p_2_holda_p_latency_max_count_pos;
+  reg [63:0] dmat_p_2_eof_p_latency_min_count_pos;
+  reg [63:0] dmat_p_2_eof_p_latency_max_count_pos;
+  reg [63:0] eof_p_2_r_ok_p_latency_min_count_pos;
+  reg [63:0] eof_p_2_r_ok_p_latency_max_count_pos;
+  reg [63:0] fis_count_exceeded_pio_count;
+  reg [63:0] fis_count_less_pio_count;
+
+  reg [63:0] latency_count_neg;
+  reg [63:0] dmat_count_neg;
+  reg [63:0] hold_p_2_holda_p_latency_min_count_neg;
+  reg [63:0] hold_p_2_holda_p_latency_max_count_neg;
+  reg [63:0] dmat_p_2_eof_p_latency_min_count_neg;
+  reg [63:0] dmat_p_2_eof_p_latency_max_count_neg;
+  reg [63:0] eof_p_2_r_ok_p_latency_min_count_neg;
+  reg [63:0] eof_p_2_r_ok_p_latency_max_count_neg;
+  reg fis_count_exceeded_pio_count_neg;
+  reg fis_count_less_pio_count_neg;
+  reg f_hold_p_2_holda_p_latency_min_count_pos;
+  reg f_hold_p_2_holda_p_latency_min_count_neg;
+  reg f_dmat_p_2_eof_p_latency_min_count_pos;
+  reg f_dmat_p_2_eof_p_latency_min_count_neg;
+  reg f_eof_p_2_r_ok_p_latency_min_count_pos;
+  reg f_eof_p_2_r_ok_p_latency_min_count_neg;
+  //----------------------------------------------------------------------------
+`protected
+
+    MTI!#[,U-}eJ3$w^7$w@]!<n@!}oeSm{$@a51ir3>3N9#>R$Csill_QT;wG-(>}lv}m>_+=Uv-U5
+    ^y7e{*7JXOwhyo*-3YIzIelV[=u]^V@z<s7p[E"lxw}v#>@j?}~B_sR$0MBpQw[~rGlT[T#-rJ9*
+    jQ]t$.HzX\i5Bsmsiv!EeGLRll@D$3YvUB{+rU-u-2emX>\~jVW9%/"v*ITVERD\Z+2O7==z;mO5
+    5pu|HO$$G\e\{Q?1k[Q;;^BQ5>}{~eJBT7VaTxpsBKZ5jGx],Z-*C=D~R$qCK'Eg6r!pjwA2U*u+
+    ''@]p*+]Jh#BXze$re21nBb{<A+KGml:n1XZ\*eO]@sjBV#\WEwpuv3a$D}3$>7=7$u\}E>~GmEz
+    !wGH{QTX>7$1x-~I55rDsw3~S!G7O6B}\ne|r@<3[-U$~5>vfAYB^fv2wHNe#12p3DA6N5ZE<xTZ
+    Vzi
+`endprotected
+  //----------------------------------------------------------------------------
+  assign latency_count = level_select ? latency_count_pos : latency_count_neg;
+  assign dmat_count = level_select ? dmat_count_pos : dmat_count_neg;
+
+`protected
+
+    MTI!#iOz]UaOT-GRlsTx>GsA]QrYsu_Q';$Hj"FBWh7i>A=Zo[uU~Y7{VITN:"GUx\B,Yi@7G37x
+    *CGExUs>]pwYj,-X{+X_AHc=ji2}+,p@j_;!}$<ED##!'i?s\<W=aXE]\ZO_Ap<>7=*BIuAm{Q^H
+    T!pH]~xVV3Gp<*sBk4}-x,=ku?^3^I}<Ou'@Gpp+OZpXoB5;>-4'a7\YJoHXo[>1T>u8T1J2JO?\
+    wa'aBJ,RT}oOzpm?\Es!^ZH3'XHYZ-pkknVxI\#Yk<B21xl]\1[u|/oKZ@3l1!l?AX0Ip*l=Vxk+
+    Xr~j!*oxW^j3'BTaExD#xwlB5-+NAs=s*==ovz5D++EA,@w^sRnIz,:+U@O3\<na<]sVE3=3CA;-
+    EEHD!1+HE[Z\I#rU1De<5+pF53ovrTA!{QXCQ]iZoI,}5w}}vTB{RY7jlin>5x'x^YRTlB}T-[xC
+    7I#2#H_xa.\{{7O\oQ^>\A~CxTKS]oR^X}enNQ\V[+OOJ^'pU=2TujG__l]K24,sTx^i[[olRmA[
+    i</\Y^1JE2
+`endprotected
+  //----------------------------------------------------------------------------
+  assign hold_p_2_holda_p_latency_min_count = level_select  
+                                       ? hold_p_2_holda_p_latency_min_count_pos 
+                                       : hold_p_2_holda_p_latency_min_count_neg;
+  assign hold_p_2_holda_p_latency_max_count = level_select  
+                                       ? hold_p_2_holda_p_latency_max_count_pos 
+                                       : hold_p_2_holda_p_latency_max_count_neg;
+  assign dmat_p_2_eof_p_latency_min_count = level_select  
+                                        ? dmat_p_2_eof_p_latency_min_count_pos
+                                        : dmat_p_2_eof_p_latency_min_count_neg;
+  assign dmat_p_2_eof_p_latency_max_count = level_select  
+                                        ? dmat_p_2_eof_p_latency_max_count_pos
+                                        : dmat_p_2_eof_p_latency_max_count_neg;
+  assign eof_p_2_r_ok_p_latency_min_count = level_select 
+                                       ? eof_p_2_r_ok_p_latency_min_count_pos
+                                       : eof_p_2_r_ok_p_latency_min_count_neg;
+  assign eof_p_2_r_ok_p_latency_max_count = level_select 
+                                       ? eof_p_2_r_ok_p_latency_max_count_pos
+                                       : eof_p_2_r_ok_p_latency_max_count_neg;
+  assign f_hold_p_2_holda_p_latency_min_count = level_select
+                                     ? f_hold_p_2_holda_p_latency_min_count_pos
+                                     : f_hold_p_2_holda_p_latency_min_count_neg;
+  assign f_dmat_p_2_eof_p_latency_min_count = level_select
+                                       ? f_dmat_p_2_eof_p_latency_min_count_pos
+                                       : f_dmat_p_2_eof_p_latency_min_count_neg;
+  assign f_eof_p_2_r_ok_p_latency_min_count = level_select
+                                      ? f_eof_p_2_r_ok_p_latency_min_count_pos
+                                      : f_eof_p_2_r_ok_p_latency_min_count_neg;
+
+`protected
+
+    MTI!#G-~~{jr^QIjvx{TU;]rEyrn+Z]HZoJpv[*ZuI7m[GInomNQApC!C@D}D?!5>}OX=?a[~U,w
+    7yQejKTsEHF#YDs{{wKO}\<_E!J)AwAB<E3mHH{U2vvlGmu-aoe^b*H<7I\[*-A2W7lsiO3Ho[o*
+    Tip{2jUWAVIJxmE_U^SOOVHOI<7I7-QATB_$^1>iTliYTl@P>XI?Bup_e+@3;RzRJ*TDV>A@$@I^
+    a+BxpRu;[zuE^~$e7+l~}2<n7Q*Ri]*!f2\#G3=[x[Ir>cx/oXT]Brlze'5DQuD]w{'Y^1\vlT[1
+    QC]UjnQ;sGTTo*Cr">On+<Yt.<Hjlr@muo-Z]z!nBjGAEsk=Yvs!-RXXuCxxums'29k>Rxq1mvv:
+    |XC@@9u$D-ED[+qsU2X&5a1A_U[Z+5jD:'Vn=l@Zs2eEZsQn[^Xx+oslV5E2U'W!V[a~C!nWuBke
+    5CX;vR>^ssR25W^Z}=TY@I^1p;[A!G}\B;U[#/Fo<E1kE1Zn+UwPxwnZE!1>'rG1{z#}N;B=A{5>
+    ;nsOu5>C{+anAi+Xl1oO5?^in>BvmCZ{JpR;Ys]Dsr<souo7Ooim;sx+}(!o1^Hvua;7['!=xinn
+    {xeoz2X1_Yu^iT@Dl^2EW2_Cpk2^QK[3a{zJ=~'YwzQZZ1hL-|zaE!Q[AWoWm=IJOn*\@Us[n^5x
+    vJ^_R<*Tv$TYYaApww|&=;$!AC+2BsZsO^@$HAZns?v[N4^o5xV*CpBE2TUBU>_V?>z_<Cw}u!};
+    =_CE?>,Y?@+_WUiGe:di+,{<Dw?#Q]w3->^5_eTkAeZXG~+zWGW__JZE1Bj+GzTCJO5_sJJ}$}aB
+    l*7_zn<*$5-gZ,'3G+7ePkw~mxC\HZOmwv}=G(>ARowovE3$^]l^vx'ekGCpv,O-;sb_!!O#A+W7
+    l,]Ka^?+}Q=]^Xn1x@\7}iW^W+osVUsPx_5k_}G3$vG5ETGTVCRiOITo*_{ZBev-5o+<vBWp8VI~
+    =RH!<I3Y_oa+,?YEnmEY1pP\w[jADYlo~xX_K<D,rJ<n,}\hlW,W|Qa]jKEJ\VTDoSN)A-H_e>jK
+    }vZU*]^2hCEH~RC,WuD_iiz<s*-7^<[[$e#ua='$<msa}ioG2o>ZlpD\W&*,k~XG}C+C?V^~Ws;w
+    oIOjY]\Tzk;v1i46^+V_v@WkWeT,V7uWXCm{jrvl][T3JQK$mjnGBJ<_BC$Q;QTD@-CiW>Cs5R*a
+    ;v2C5Q-~!Ewv@CDs!THn^$!HnjK}:1}e,5C7R;XH-?oraGEuAO1#GTUpx1Up?IUljuVHBs'Rpj<U
+    \?'n~rZ^*HDVRHxxl?C<jvyLu+^n,7CHWjo$rAva]~a_DUVOHOpJ9z\?<b~,]H$XO1!Qr;6gGm_x
+    l,''Kt?H@,Ez-*+sRCQ{'k-Vnsm$Zn-scno$Kll!H@lGn{Gj+O~p+-EOG^ROTGWm?#x-B{>!O!Ce
+    +DvUOfRExG>RH1Iie!k5B\>$<2B*$VC<x7^vjVloR[Wsv'>^[j2j@vz}vzUI'@e<IEYB+K$XxJXQ
+    O-\ux*$AQU?=K#Q$KCmDRC]{1Vil5ewr\UO5Cv{eTv[XpVfp1<sH{j$KVpsFaOe;*~m]QH*oUCVn
+    r''AYrDutYx2E:,im<:Vm}A{'wZFy,2KEk*-J
+`endprotected
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sata_core_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sata_core_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sata_core_monitor
+`include "zi_cw_sata_core_monitor.zi_chx.inc"
+`endif
+`endif
+`qvlendmodule

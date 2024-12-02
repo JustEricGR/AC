@@ -1,0 +1,126 @@
+	     User Preferences - Storage and manipulation
+
+     Changes in the treatment of modelsim.tcl and .modelsim files
+		       in ModelSim version 6.1
+
+
+The "modelsim.tcl" file -
+
+User preferences control how the user interface presents information
+and how some interactions with the user interface will behave. Prior
+to 6.0, user preferences were stored in the modelsim.tcl file. This
+was done explicitly with the "write preferences" command or via the
+menu Tools->Save Preferences. This operation saved the Tcl variables
+listed in table 1.
+
+    	  ForceTranslateTable  PrefDragDrop    PrefProcess   
+    	  ListTranslateTable   PrefFCovers     PrefProfile   
+    	  LogicStyleTable      PrefGeometry    PrefSignals   
+    	  PrefAssertions       PrefLibrary     PrefSource    
+    	  PrefCompare          PrefList        PrefStartup   
+    	  PrefCoverage         PrefMain        PrefStructure
+	  PrefDataflow         PrefMemory      PrefVariables
+          PrefDefault          PrefPostscript  PrefWave      
+          WildcardFilter
+
+		 Table 1. - Saved preference variables
+
+This operation would only save the settings that were different from
+the default values. Also, user_hook settings are not saved. This is
+because they usually require accompanying
+ user code which is not saved
+with this operation. See the Users Reference Manual for details of
+what each preference does and it's default setting.
+
+The PrefGeometry setting is a special case that stores the current
+geometry of any window open at the time of the operation. This
+geometry setting has precedence over any default geometry preference
+(e.g. PrefWave(geometry)) for that specific instance of the window.
+
+The modelsim.tcl file is explicitly loaded by ModelSim at
+invocation. The file is created and managed by the user using the
+write preferences command. Since the file is located in the current
+working directory or referenced via the MODELSIM_TCL environment
+variable, the user can or must customize the settings for each
+project. This also means that multiple users working in the same
+project get the same preferences.
+
+Note also, that the environment variable MODELSIM_TCL can be a list of
+files separated by ':' (or ';' on Windows). These files are loaded in
+the order specified in the variable.
+
+Even though the Tools->Save Preferences menu option has been removed,
+as it is no longer the preferred way to save preferences, the write
+preference command is still available to create modelsim.tcl files from
+the current preference settings.
+
+The ".modelsim" file -
+
+The .modelsim file (on MS Windows, the Registry is used) stores user
+specific settings such as printer preferences, and project history.
+The main window multiple pane layout information and main window
+geometry is also stored here. Table 2 lists the various items
+currently stored in this file. The .modelsim file is stored in the
+users home directory, or the file specified by the environment
+variable MODELSIM_PREFERENCES, so there is only one per user and is
+not tied to any specific project or working directory.
+
+     Column visibility, size, location (in multi-column windows)
+     Compare dataset open history
+     Directory History
+     Font scale factor (one per DISPLAY)
+     Last Directory
+     Last Project
+     MDI window mode
+     Printer Settings
+     Project History
+     System encoding
+     Toolbar visibility, location
+     Welcome window flag
+     Window pane layouts
+     "do not show this again..." warning flags
+
+	   Table 2. - User preferences stored in .modelsim
+
+Beginning with release 6.0, all preferences stored in modelsim.tcl are
+also stored in .modelsim. The difference is that these preferences are
+stored implicitly upon exit. This makes it unnecessary for users to
+explicitly save changes via the "write preferences" command or
+Tools->Save Preferences menu. The user's stored preferences in
+modelsim.tcl file, however, are still read and used. These preferences
+have precedence over the .modelsim preferences. One consequence of
+this change is that preferences read from the modelsim.tcl will be
+subsequently stored in the .modelsim file the first time ModelSim is
+run.
+
+Window Geometry -
+
+All window geometry information is stored in the layout record stored
+in the .modelsim file. This includes a windows undocked size and
+location. There are 3 default layouts used in the 3 major modes of the
+simulator, a) when no design is loaded, b) when simulating a design,
+and c) when simulating with code coverage.  <Insert info about user
+defined layouts here>.
+
+Undocked window geometries are stored in the PrefGeometry preference.
+There is one geometry stored for each type of window.  So, source,
+wave, list, and memory windows, no matter how many are present, will
+only store a single geometry. This applies to the other window panes as
+well, but there can only be one instance of these windows.
+
+The Pref<WinType>(Geometry) settings, for all practical purposes, are
+no longer used. The only time these values are used is when no other
+geometry specification can be found.
+
+Undocking Windows -
+
+All windows are docked by default. All the window panes will retain
+there dock state between invocations. MDI, are treated differently
+since they are multiple-instance windows. To force these windows to
+always opened undocked, the PrefMain(ViewUndocked) preference is used.
+This preference contains a list of window types that will open
+undocked. An example value would be "wave list" which means that all
+wave and list windows will open undocked, and all other windows will
+open docked.
+
+

@@ -1,0 +1,892 @@
+
+                    Release Notes For ModelSim Altera 6.1
+
+                 Copyright Mentor Graphics Corporation 2005
+                            All rights reserved.
+  This document contains information that is proprietary to Mentor Graphics
+                                Corporation.
+    The original recipient of this document may duplicate this document in
+                                whole or in
+  part for internal business purposes only, provided that this entire notice
+                               appears in all
+  copies. In duplicating any part of this document, the recipient agrees to
+                                 make every
+  reasonable effort to prevent the unauthorized use and distribution of the
+                                proprietary
+                                information.
+
+
+
+                                Jun 06 2005
+   ______________________________________________________________________
+
+     Product Installation and Licensing Information
+   For  brief  instructions  about  product installation please visit the
+   "install_notes" file in www.model.com. The install_notes file can be viewed
+   at:
+   [1]http://www.model.com/products/release.asp
+   For detailed information about product installation and licensing see the
+   ModelSim Start Here Guide. The manual can be downloaded from:
+   [2]http://www.model.com/support/documentation.asp
+
+
+     Release Notes Archives
+   For release notes of previous versions visit the release notes archive at:
+   [3]http://www.model.com/support/default.asp
+   or  find  them  in  the installed modeltech tree in <path to modeltech
+   installation>/docs/rlsnotes
+
+
+     How to get Support
+
+   This OEM product is supported by Altera Corporation
+     * World-Wide-Web Support
+       [4]http://www.altera.com/mySupport
+
+
+   ______________________________________________________________________
+
+  Index to Release Notes
+
+     [5]Key Information
+
+     [6]User Interface Defects Repaired in 6.1
+
+     [7]Verilog Defects Repaired in 6.1
+
+     [8]PLI Defects Repaired in 6.1
+
+     [9]VHDL Defects Repaired in 6.1
+
+     [10]FLI Defects Repaired in 6.1
+
+     [11]VITAL Defects Repaired in 6.1
+
+     [12]SystemC Defects Repaired in 6.1
+
+     [13]PSL Defects Repaired in 6.1
+
+     [14]Mixed Language Defects Repaired in 6.1
+
+     [15]General Defects Repaired in 6.1
+
+     [16]Mentor Graphics DRs Repaired in 6.1
+
+     [17]Known Defects in 6.1
+
+     [18]Product Changes to 6.1
+
+     [19]New Features Added to 6.1
+   ______________________________________________________________________
+
+   Key Information
+     * You must recompile or refresh your models if you are moving forward from
+       6.0x  or  earlier  release versions. See "Regenerating your design
+       libraries" in the User's Manual for more information on refreshing your
+       models.
+     * Acrobat reader version 4.0 or greater must be used to read any .pdf file
+       contained in version 5.5c or greater.
+     *
+     * The HP-UX 10.20 platform is no longer supported as of the 5.7 release.
+       The hp700 platform executables are built on HP-UX 11.0. Please note that
+       in  order  for  FLI/PLI shared libraries to be loaded and executed
+       correctly by the hp700 version of vsim, they must be compiled and linked
+       on HP-UX 11.0.
+     * Beginning with the 5.6 release (on Windows platforms only), attempts to
+       link in libvsim.lib or tk83.lib using the Microsoft Visual C++ linker
+       version 5.0 will fail with a message similar to "Invalid file or disk
+       full: cannot seek to 0xaa77b00". Microsoft Visual C++ version 6.0 should
+       be used.
+     * Beginning with the 5.8 release, FLEXlm licensing software is upgraded to
+       version 8.2. For floating licenses it will be necessary to verify that
+       the vendor daemon (i.e., modeltech or mgcld) and the license server
+       (i.e., lmgrd) have FLEXlm versions equal to or greater than 8.2. The
+       vendor daemons and lmgrd that are shipped with this release will be
+       FLEXlm version 8.2. If the current FLEXlm version of your vendor daemon
+       and lmgrd are less than 8.2, then you need to stop your license server
+       and restart it using the vendor daemon and lmgrd contained in this
+       release. If you use nodelocked licenses you don't need to do anything.
+     * Beginning in the 5.8 release, SDF files compressed in the Unix compress
+       format (.Z) are no longer supported, but the GNU zip format (.gz)is
+       supported. Therefore, we only when read in compressed SDF files that are
+       created with the GNU zip (gzip) extension. A file is not require to have
+       a .gz extension, but it will error on files that have a .Z extension.
+     * The EM64T platform is supported as of the 6.0b release.
+       The support includes EM64T machines loaded with Suse 9.1 OS or RedHat
+       Enterprise Linux 3 Update 3 OS and the following linux configurations.
+          + 32-bit linux
+          + 64-bit linux_x86_64
+       FlexLM v8.2a (which is currently shipped in 6.0x) is not supported on an
+       EM64T machine loaded with Suse 9.1 OS.
+     * Support of SystemC has dependencies on both operating system versions
+       and C++ compiler versions. The OS support is slightly different than the
+       simulation environments OS support for designs without SystemC content.
+       Also, 64-bit compilation is not supported for SystemC designs.
+       Supported Operating Systems and C++ compilers:
+          + RedHat 7.3 and greater, gcc 3.2
+          + RedHat EWS2.1/7.2 and greater, gcc 3.2.3 (simulation environment
+            version 5.8b and greater)
+          + SunOS 5.6 and Solaris 7, gcc 3.2
+          + Solaris 8 and 9, gcc 3.3
+          + HP-UX 11.0 and greater, aCC 3.45
+          + Win32 XP and 2000, gcc 3.2.3 (Simulation environment versions 6.0
+            and greater)
+     * Starting in the 6.1 release, the vsim -dpiexportobj option has changed
+       behavior somewhat. This primarily affects win32 and rs6000 users.
+         1. You shouldn't put an extension on the object filename. That will be
+            done for you automatically now.
+         2. There is no longer a need to add "-c -do 'quit -f'" to the vsim
+            -dpiexportobj command line.
+       The examples/systemverilog/dpi/simple_calls runtest.bat files have been
+       modified to show the correct flow now.
+     * CDEBUG compatibility information by platform.
+          + On HP-UX 11.0, the built-in HP wdb 3.3 program is used as the
+            underlying C/C++ debugger. In order to run wdb successfully, you
+            must have installed HP-UX PHSS_23842, or a superseding patch.
+            Without this patch installed, error messages will occur during
+            CDEBUG startup.
+          + On rs6000, gdb-6.0 works with gcc-3.2. Additionally, when creating
+            shared objects, 'ld' (/bin/ld) should be used, not 'gcc'. This
+            combination works with AIX-5.1. On AIX-5.1 use gcc-3.2-aix51. The
+            native compiler /bin/cc is not compatible with gdb-6.0.
+     * The vcom compiler default language has been changed from VHDL-1987 to
+       VHDL-2002. To choose a specific language version:
+          + select the appropriate version from the compiler options menu in
+            the GUI,
+          + invoke vcom using switches -87, -93, or -2002, or
+          + set the VHDL93 variable in the [vcom] section of modelsim.ini.
+            Appropriate values for VHDL93 are:
+               o 0, 87, or 1987 for VHDL-1987;
+               o 1, 93, or 1993 for VHDL-1993;
+               o 2, 02, or 2002 for VHDL-2002.
+     * Although  the  vlog compiler currently supports some SystemVerilog
+       features, these extensions are not enabled by default because they
+       require new language keywords that may conflict with identifiers in
+       existing code. There are two ways to enable SystemVerilog features: the
+       first is by using the -sv command line option and the second is by
+       naming the source file with a ".sv" suffix.
+     * The LE product does not support VHDL. However, it does support Verilog
+       and SystemC.
+     * The 6.1 release will use the following licensing versions: FLEXlm v9.5;
+       Mentor Graphics Licensing MGLS v2004.2 and PCLS 2004.328. CRITICAL
+       LICENSING INFORMATION: For this beta release of the product, the FLEXlm
+       licensing software being used is version 9.5. For floating licenses it
+       will be necessary to verify that the vendor daemon (i.e., mgcld) and the
+       license server (i.e., lmgrd) have FLEXlm versions equal to or greater
+       than  9.5. The vendor daemons and lmgrd that are shipped with this
+       release will be FLEXlm version 9.5. If the current FLEXlm version of
+       your vendor daemon and lmgrd are less than 9.5 then it will be necessary
+       to stop your license server and restart it using the vendor daemon and
+       lmgrd contained in this release. If you use node locked licenses you
+       don't need to do anything.
+     * SystemVerilog Program blocks are now supported except for the $exit()
+       task.
+     * The default time unit for SystemC can be set using the "ScTimeUnit"
+       variable in the modelsim.ini file. By default ScTimeUnit is set to 1 ns.
+       The  default  time  unit  in  SystemC  can  also  be set using the
+       sc_set_default_time_unit() function before any time based object like
+       sc_clock or sc_time is created.
+     * vlog,vcom and vopt command line options will be case sensitive similar
+       to the vsim command line options.
+     * The following platform changes are effective as of the 6.0 release.
+          + The 64-bit simulator is supported on the AMD Opteron and compatible
+            processors  running 64-bit Linux (SuSE 9.0 (x86-64) or RedHat
+            Enterprise Linux WS release 3) as the linux_x86_64 platform. The
+            profiling feature is not supported in 64-bit mode. The 32-bit
+            simulator for the linux platform may also be installed and used
+            concurrently on these systems.
+          + RedHat 6.0 through 7.1 are no longer supported.
+     * The following Windows platforms will be discontinued as of the 6.2
+       release:
+          + Windows 98
+          + Windows ME
+          + Windows NT 4.0
+     * The following lists the supported platforms:
+          + win32aloem - Windows 98, Me, NT, 2000, XP
+          + sunos5aloem - Solaris 2.6, 7, 8, 9
+          + hp700aloem - HP-UX 11
+          + linuxaloem - RedHat 7.2 and higher.
+   ______________________________________________________________________
+
+   User Interface Defects Repaired in 6.1
+     * Memory tab in Workspace window is invoked by default now. User does not
+       need to explicitly invoke the menu item View -> Debug Windows -> Memory.
+     * mem compare CLI is now provided from GUI mode. The syntax is mem compare
+       <-mem ref_mem | -file ref_file> actual_mem.
+     * The Memory window now uses "Import" instead of "Load" for loading the
+       memory data, and "Export" instead of "Save As..." for saving the memory
+       data.
+     * The edit command did not work correctly on the Windows platform. It
+       failed to launch the user defined editor.
+     * The -wlfnoopt switch now disables the WLF viewer from considering WLF
+       optimizations  when  viewing a WLF file. Up until this release the
+       -wlfnoopt switch had only affected the writing of the WLF file. The WLF
+       viewer has always used optimization data if present in the WLF file.
+     * The readers command for a single bit of bus signal showed the readers of
+       the complete bus.
+     * The editor crashed during a Find and Replace operation.
+     * The Create Testbench wizard (in the source templates) produced a TCL
+       stacktrace while creating a VHDL use clause for the testbench.
+     * ModelSim crashed if the first window encountered during invocation was
+       undocked.  Typically  this  is the Workspace window, but it is not
+       necessarily limited to this window.
+     * On Windows only, if a file type is registered with any tool other than
+       ModelSim, ModelSim did not use that tool to edit the file of that type
+       and used ModelSim's source editor instead.
+     * There was a problem with the WLF size limit -wlfslim and/or WLF time
+       limit -wlftlim options which caused intermittent crashes depending on
+       number of logged signals.
+     * There was a problem with key board accelerators in the Wave window. Keys
+       f, i, etc. were not modifying zoom properly when the Wave window was
+       activated.
+     * The dock and undock features are now supported for the Memory Data Pane.
+     * The compare add command failed to handle sub-elements of vectors.
+     * The Wave window will now automatically scroll when an item is dragged
+       near the top or bottom sides of the name column.
+     * Modelsim failed to use the environment variable EDITOR if it contains
+       spaces.
+     * When  the  backspace key was used in the source editor, it behaved
+       differently depending on if the editor was docked or undocked.
+     * A problem in the WLF writer code caused VHDL variables to display the
+       incorrect waveform in the Wave window when significantly zoomed out.
+     * In the Wave window 'bitwise' expansion of compared busses crashed the
+       simulator.
+     * Creating a virtual signal crashed if the (concat_noflatten) qualifier
+       was used and the virtual signal contained Verilog nets.
+     * excluding an instance from the coverage misses pane caused repeated
+       items to appear in the instance coverage pane. this issue has been
+       fixed.
+   ______________________________________________________________________
+
+   Verilog Defects Repaired in 6.1
+     * The compiler failed to detect an illegal UDP table entry specifying a
+       non-X output for all X inputs.
+     * Expressions of the form "a==b" sometimes incorrectly evaluated to 1'bx
+       in optimized designs, if one of the operands was a compile-time constant
+       with some x or z bits and some known bits.
+     * Assignments with an LHS wider than 32 bits, and with a smaller RHS which
+       evaluated to all x's, sometimes did not show x's in all bits of the LHS
+       in an optimized design.
+     * Error and warning reporting with -source crashed sometimes with code
+       coverage messages. The crash was observed with condition coverage on
+       certain designs.
+     * $fread() did not trigger events when loading memories. Now an event
+       control (eg. "always @(mem[0])") executes when $fread() loads "mem".
+     * The  vlog  compiler hung in certain cases when compiling a task or
+       function with assignment statements where the target of the assignments
+       was a concatenation of hierarchical references.
+     * The virtual signal command did not work with optimized Verilog cell
+       ports.
+     * The simulator crashed with corrupted memory if branch code coverage was
+       on and a Verilog case statement had a case alternative that was not a
+       constant, such as a parameter.
+     * Code coverage was not working inside Verilog interface blocks.
+     * vlog  crashed when attempting to access multiple dimensions for an
+       undefined variable.
+     * vlog produced an incorrect undefined error instead of creating implicit
+       wires for cases such as:
+       assign {a,c} = 2'b10;
+       assign a = 1, c = 0;
+     * Arrays of enums are now properly initialized at the start of simulation.
+     * The write timing command on a Verilog module caused a segmentation
+       violation in certain cases.
+     * ModelSim crashed with the system function $value$plusargs if the plusarg
+       string did not have a format string.
+     * In some cases the setuphold and recrem timing checks with negative
+       limits (both values) were not being handled properly. Now limits are set
+       to zero.
+     * Anonymous generate loops and unconditional anonymous generate blocks now
+       conform to the external naming convention specified in the Verilog 2005
+       LRM.
+     * There were problems involving interactions between untyped parameter
+       evaluation and generate constructs.
+     * Very large times in $setup/$hold timing violation messages are now
+       reported  with  the  correct time precision. For example, when the
+       resolution and precision is 10 ps, time 45035996273704952 ps will now be
+       reported as 45035996273704950 ps rounded to the nearest 10 ps.
+     * The simulator crashed with a SIGFPE when performing division on signed
+       bit variables with width less than 32.
+     * A non-blocking assignment to a hierarchically referenced memory element
+       failed to assign the correct value in some cases.
+   ______________________________________________________________________
+
+   PLI Defects Repaired in 6.1
+     * There were two typos in vpi_user.h. vpiTimeSkew has been corrected to be
+       vpiTimeskew, and vpiFullSkew has been corrected to be vpiFullskew.
+   ______________________________________________________________________
+
+   VHDL Defects Repaired in 6.1
+     * On 64-bit platforms, records containing access types had only 32-bits of
+       the access type initialized to 0s. In most, but not all, cases the other
+       32-bits were also 0s.
+     * When type conversion or function expression was used as an actual for
+       component  instance, size or length mismatches between actuals and
+       formals were not detected. Modelsim now detects such cases and produces
+       an appropriate error.
+     * If  the user has defined their own functions named rising_edge and
+       falling_edge incorrect optimization occurred in some cases.
+     * Files declared in protected type bodies now work properly.
+     * `path_name and `instance_name attributes now produce correct library
+       names  for  subprograms  in packages in libraries other than work.
+       Subprogram path name components are now written with a type signature as
+       part of the name.
+     * The error handling for signal assignment to undeclared identifier was
+       not correct. Additional internal error messages are no longer produced.
+     * Fatal errors encountered during simulation elaboration will now print
+       the line number of the error along with file and scope. To revert to the
+       previous message format, or to change the format of the string that is
+       printed, modify (and uncomment) the AssertionFormatBreakLine string in
+       modelsim.ini.
+     * A simulator crash occurred in certain cases when a subprogram containing
+       a local array was inlined within another subprogram, which itself was
+       inlined within another.
+     * There  was  a  problem  in  which  doing  a  toggle add on certain
+       std_logic_vector signals would not add all the bits to toggle coverage.
+     * There was a compilation crash for the case when the -check_synthesis
+       option was used and a subprogram was inlined inside a process and the
+       process sensitivity list contained object, which is used in any actual
+       expression of the subprogram call.
+   ______________________________________________________________________
+
+   FLI Defects Repaired in 6.1
+   ______________________________________________________________________
+
+   VITAL Defects Repaired in 6.1
+   ______________________________________________________________________
+
+   SystemC Defects Repaired in 6.1
+     * sccom crashed when linking in a design library with no SystemC objects.
+     * In some cases, when the user does not name his instances, signals or
+       ports explicitly SystemC crashed.
+     * sccom no longer has a hard include of the current directory. If you need
+       to include the current directory then a -I. option must be passed to
+       sccom.
+   ______________________________________________________________________
+
+   PSL Defects Repaired in 6.1
+   ______________________________________________________________________
+
+   Mixed Language Defects Repaired in 6.1
+   ______________________________________________________________________
+
+   General Defects Repaired in 6.1
+     * vsim crashed in certain cases with corrupted memory if branch code
+       coverage was on and a Verilog case statement had a case alternative that
+       was not a constant, such as a parameter.
+     * vopt did not work when library mappings contained Windows style drive
+       names.
+     * The simulator crashed when signal_force() or $signal_force() was used
+       with the restart command.
+     * In some cases the simulator spuriously produce the error "Internal Error
+       in add_line_object_rec".
+     * A memory whose bounds are defined by parameters can be marked as sparse
+       in debug (non-vopt) mode. The user needs to use mti_sparse attribute or
+       /*sparse*/ metacomment for doing this.
+     * The WLFDeleteOnQuit modelsim.ini setting did not work.
+     * The mem display command displays a maximum of 1000 lines at a time.
+       However, the user can use the mem save command to save the contents of
+       larger memories.
+     * An error was not detected if a vsim command line generic value (-G or
+       -g) was used to set generics of the same name but different types.
+     * When -cover c was specified to vlog, long expressions in the Verilog
+       code caused vlog to crash in some cases.
+     * The use of the -filemap_elab vsim switch caused ModelSim to crash in
+       certain situations.
+     * The vsim +delayed_timing_checks switch caused a crash due to searching
+       for timing checks to move to the delayed net on the wrong nets and then
+       failing to find them.
+     * vlog -refresh caused a hang and core-dump in certain cases.
+     * vsim in certain cases crashed when loading a coverage exclude file if
+       the  file contained a line (not a range) that referred to the last
+       executable line in the source file.
+     * When a SDF statement contains only null values ModelSim did not issue a
+       warning. This was particularly a problem in SDF files that had empty
+       typical  timing  values,  (e.g.  (3::5)), and -sdftyp was used for
+       annotation. In this situation no timing values were annotated and the
+       user was not alerted.
+     * Environment variables are now fully expanded in files specified with the
+       -f option. This applies to vcom, vlog, vopt, sccom and vsim. A new
+       modelsim.ini variable can be set to disable this function, although in
+       some cases expansion will still occur (the tool will behave as it did in
+       previous releases). The .ini file variable is "ExpandEnvVarsInDashF",
+       and must be set to a "0" to disable the expansion. The variable must be
+       set in the appropriate section of the .ini file ([vcom], [vlog], etc).
+     * vcover had a version compatibility problem. When version 6.0b or later
+       read a coverage database file from pre-6.0b, it would read it ok and
+       process the data ok, but when it wrote the data out, the branch data
+       would be in the old format, resulting in loss of data the next time that
+       output would be read. This has been fixed.
+     * vcover had a version compatibility problem. When version 6.0b or later
+       read a coverage database file from pre-6.0b, it would read it ok and
+       process the data ok, but when it wrote the data out, the branch data
+       would be in the old format, resulting in loss of data the next time that
+       output would be read. This has been fixed.
+   ______________________________________________________________________
+
+   Mentor Graphics DRs Repaired in 6.1
+     * dts0100218049 - Spurious value assigned to generic where there is a type
+       mismatch using -G.
+     * dts0100219672 - MS: ** Fatal: (SIGSEGV) Bad pointer access. Closing
+       vsimk.
+     * dts0100220110 - Missing warning about -sdftyp value not found.
+     * dts0100238876 - crash during "vlog" when using "-source" switch.
+     * dts0100258238 - ModelSim crashes if $value$plusargs has an incorrect
+       argument.
+     * dts0100245782 - While creating a test bench using "Create testbench
+       wizard" in language template option, gives script errors.
+     * dts0100248003 - Force on a slice gives no error message.
+     * dts0100219957 - # ** Fatal: (SIGSEGV) Bad pointer access on reading past
+       the end of file.
+     * dts0100260366 - "-title" option does not work with view command.
+     * dts0100218109 - Wave window display not correct for one of two signals.
+     * dts0100257206 - Modelsim does not support "wait for time" construct.
+     * dts0100238380 - Internal error when compiling configurations.
+     * dts0100220401 - Compilation error using the reserved word 'open' in
+       parameter association list of subprogram call.
+     * dts0100254250 - ModelSim segfaults when loading optimized design.
+     * dts0100218224 - Wave window only shows parts of signals on .
+     * dts0100254827 - Coverage with sub-programs declared in arch/process.
+     * dts0100257974 - Modelsim 6.1beta SIGSEGV
+       'ZN15sc_prim_channel21mti_prim_channel_initEv     +    0xd5'    in
+       'work/systemc.so'.
+     * dts0100239632 - Short delay when editing text in docked source window.
+     * dts0100225950 - The user can not change severity from warning to error
+       with Modelsim 6.0a.
+     * dts0100243963 - Issue with parameters when instantiating Verilog in
+       VHDL.
+     * dts0100261016 - Bit assignment in System Verilog.
+     * dts0100223788 - Unable to Undock Wave Window when Maximized.
+     * dts0100266696  -  ModelSim successfully compiles Verilog code with
+       duplicate register declarations and then crashes upon elaboration of the
+       resulting model.
+     * dts0100264597 - Add wave commands not executed from macro properly.
+     * dts0100267592 - Zooming in changes simulation results.
+   ______________________________________________________________________
+
+   Known Defects in 6.1
+     * When  condition  coverage  is on, if-condition short-circuiting is
+       disabled. All terms in the condition are evaluated.
+     * Code coverage has known problems with rtl code in generate blocks.
+       (Instances are OK.) As a first step toward fixing these problems we have
+       turned off code coverage in all generate blocks. Later we will turn it
+       on for just those blocks that are successfully generated.
+     * Using the -y option with vlog to compile SystemVerilog source files will
+       cause vlog to crash if there are any declarations in $unit scope.
+     * Parameters declared in SystemVerilog packages or $unit scope using a
+       constant function in the parameter value will cause an internal error in
+       vlog.
+   ______________________________________________________________________
+
+   Product Changes to 6.1
+     * The optimization of Verilog gates is now more aggressive which can
+       impact the visibility of primitive gates from the PLI. Users can add
+       +acc=m to disable the optimization and preserve the visibility of gates.
+       This is normally only an issue if designs have PLI routines that iterate
+       over unnamed primitive gates.
+     * The modelsim.ini variables ShowIntMem ShowEnumMem and Show3DMem have
+       been removed.
+     * The following DPI facilities have changed in order to adhere to the IEEE
+       P-1800 standard.
+          + DPI  import and export declarations use "DPI-C" as their decl
+            string.
+          + Standard definitions and utilities for packed array data have new
+            names and new parameter profiles.
+          + Strings passed across language boundaries as parameters observe
+            clarified semantics for direction mode.
+          + Packed 2-state arrays with a width of 32 or fewer bits are no
+            longer  legal  C  function  return value types; as input mode
+            parameters they are now passed by reference, rather than by value.
+          + DPI applications using the new standard are binary compatible;
+            deprecated features for source-level compatibility are no longer
+            supported.
+     * Three toggle menus "ShowIntMem", "ShowEnumMem" and "Show3DMem" are
+       removed from "View" -> "Filter".
+     * To reposition or undock a Main window pane, the title double bar is used
+       to drag the pane to it's new location. This drag feature has been moved
+       to a smaller handle in the center of the title bar. This will reduce
+       accidental drag errors when the user wants to move a sash and grabs the
+       title bar instead.
+     * vopt now prevents the design-unit name specified with the -o switch from
+       containing uppercase or non-alphanumeric characters. Previous releases
+       did not enforce this restriction, however vopt or vsim might fail subtly
+       if such a name was specified.
+     * The UserTimeUnit was read from the ini file at the time a design was
+       loaded. It is now read during simulator startup.
+     * $dumpports  accepts  additional  non-standard arguments to control
+       compression, direction, and to ignore the strength range resolution
+       required in 1364. These options may also be controlled from the command
+       line. In Verilog, only drivers contributing the winning strength value
+       are counted to determine which state character to print. The strength
+       value for both zero and one are printed if they are the same, otherwise
+       only the winning strength is printed. See "Capturing port driver data"
+       in the VCD chapter of the User's Manual for more information. Strength
+       values were reported incorrectly in some cases.
+     * The  Profile window's window type has been changed from profile to
+       profilemain. The profile_details window type has been changed from
+       profile_details to profiledetails. (See description of view command for
+       more information on window type). To view the profile window, type the
+       view profilemain command; to view the profile details window, type the
+       view profiledetails command. The command view profile will open both
+       windows.
+     * Prior use of the VHDL package 'util_wc', from the modelsim_lib library,
+       will cause library refresh incompatibilities in 6.1. This package was
+       first introduced in 6.0b and allowed additional capabilities that are
+       now a default part of the 'util' package. Therefore, the 'util_wc'
+       package is no longer available in 6.1. The packages mentioned provide
+       access to the Signal Spy functions.
+     * Unpacked arrays of 2 or 4-state packed arrays are now passed as DPI
+       parameters in P1800-compliant fashion, appearing in canonical format for
+       imported C routines.
+     * The vsim -dpiexportobj flow has changed slightly from 6.0 to 6.1. First,
+       you no longer need to use a file extension on the argument you pass to
+       -dpiexportobj.  The  system  will automatically add an appropriate
+       extension for you. Second, it is no longer necessary to add the -do
+       "quit -f" argument to the vsim -dpiexportobj command line. vsim will
+       automatically quit if invoked from an OS command shell. vsim will also
+       behave properly if invoked from within the simulator's GUI.
+     * Prior to 6.1, commands from the -do command line option appeared in the
+       transcript exactly as specified in the command line. As of this release,
+       multiple commands in the -do option will be split apart and executed
+       separately. This way it will be possible to distinguish results printed
+       in the transcript for each command.
+   ______________________________________________________________________
+
+   New Features Added to 6.1
+     * Support for continuous assignment to variables (ie, non-nets) has been
+       added, including cases where the target is an indexed array, sliced
+       array, or field within a struct. Multiple assignments are also detected
+       on individual elements and fields. This occurs during compilation when
+       possible, otherwise during elaboration.
+     * Incremental compilation has been implemented in vopt, and has been made
+       the  default.  In  other words, if an existing optimized design is
+       specified with the -o option to vopt, it attempts to reuse elements of
+       the design that it determines have not changed. This results in a large
+       boost  in the performance of vopt when a design has been minimally
+       modified.
+     * SystemVerilog queues and tagged unions are now supported.
+     * SystemVerilog 'ref' ports on modules (but not tasks or functions) are
+       supported.
+     * The  vlog  and  vopt compilers now accept a -timescale option that
+       specifies the default timescale for modules not having an explicit
+       timescale directive in effect during compilation. The format of the
+       -timescale argument is the same as that of the `timescale directive. For
+       example, -timescale "1 ns / 1 ps".
+     * Support for source file viewing in view mode has been added.
+     * Support for SystemVerilog time-literals has been added. Examples:
+       initial #0.023us x = a;
+       assign #30000ps y = a;
+     * Memtool is now supporting associative array.
+     * The simulator now recognizes 'string concatenation' as specified in
+       section 7.12 of the LRM: "...if any of the operands is of type string,
+       the concatenation is treated as a string, and all other arguments are
+       implicitly converted to the string type..."
+     * The  "Contains" name filtering currently used for filtering in the
+       Objects window is now supported in the Structure view as well. Also, for
+       both windows, basic regular expressions (BRE) may be used. BREs have the
+       following special characters:
+       *
+       a sequence of 0 or more matches of the atom
+       \{m\}
+       a sequence of exactly m matches of the atom
+       \{m,\}
+       a sequence of m or more matches of the atom
+       \{m,n\}
+       a sequence of m through n (inclusive) matches of the atom; m may not
+       exceed n
+       The forms using \{ and \} are known as bounds. The numbers m and n are
+       unsigned  decimal  integers  with permissible values from 0 to 255
+       inclusive.
+       An atom is one of:
+       \(re\)
+       (where re is any regular expression) matches a match for re, with the
+       match noted for possible reporting
+       \(\)
+       matches an empty string, noted for possible reporting
+       [chars]
+       a bracket expression, matching any one of the chars
+       .
+       matches any single character
+       See the Tcl manual under re_syntax for more detailed information on
+       Basic Regular Expressions.
+     * The $cast system task/function has been implemented.
+     * Individual variables in tasks and functions may now be specified as
+       'static' or 'automatic'.
+     * The vcover code coverage utility now supports instance-specific toggles
+       and summing the instances of each design unit. vcover also now supports
+       source code annotation and the printing of condition and expression
+       truth tables. The vcover report -dumptables ... option forces printing
+       of the truth tables even though fully covered. The -noannotate option
+       turns off source code annotation.
+     * The "JobSpy" feature is now built into the simulator. Previously it was
+       available as an unsupported add-on application. This feature allows
+       users to connect to a running simulation and interact with it remotely.
+       For more information, refer to the User's Manual.
+     * DPI supports strings as imported and exported function return values.
+     * Memtool now can save the format of opened memory data panes into the do
+       file.
+       With this feature, the user can load the do file for memories with
+       previous setting. By activating either the memory list window or the
+       memory data panes, "File" -> "Save As..." is to save memory format into
+       the do file. And "File" -> "Load..." is to load the do file.
+     * Support for scope resolution operator has been added. It can be used to
+       access items from package, class and $unit scopes .
+     * Join_none  and  Join_any  keywords are supported now for fork-join
+       construct.
+     * The simulator now supports source information for SystemC processes.
+     * SystemC global signals, ports, and instances are now debuggable. SystemC
+       static  data  members  of  signals,  ports, and instances are also
+       debuggable.
+     * Debug support was added for SystemC tlm_fifo.
+     * The simulator now supports SystemC 2.1. It uses the October 12th, 2004
+       beta release of the OSCI SystemC 2.1 reference simulator.
+     * SystemC events (sc_event) is supported in the GUI and CLI.
+     * The  simulator now includes the header files and examples from the
+       approved  OSCI SystemC TLM 1.0(Transaction Level Modeling) Library
+       Standard. TLM can be used for simulation with no extra switches or
+       files. TLM objects except tlm_fifo are not yet debuggable.
+          + Examples and documentation are in examples/systemc/tlm.
+          + TLM headers (tlm_*.h) are in include/systemc.
+       Example:
+       cd examples/systemc/tlm/whitepaper_examples/example_3_2
+       sccom -I../../utils -I../basic_protocol -I../user -g \
+       main.cc \
+       ../user/master.cc ../user/mem_slave.cc \
+       ../user/switch_master.cc
+       sccom -link
+     * PrefMemory(ExpandPackedMem) preference variable is added.
+       This  variable  can take values '0' and '1'. The default value '0'
+       indicates  that in the Memory window all the packed dimensions are
+       treated like a single vector. The value '1' indicates that the packed
+       dimensions need to be expanded like any unpacked dimension in the Memory
+       window.
+     * A new toggle menu "Expand Packed Memories" is added under "View" ->
+       "Filter".
+     * LRM sections 23.15 - 23.18 for $readmem and $writemem commands have been
+       implemented.  The  commands  support packed, associative, dynamic,
+       enumerated type and multi-dimensional arrays.
+     * The Structure window will now automatically expand the tree when a
+       selection is made of a context that is not currently visible. This
+       feature can be disabled by setting $PrefStructure(autoExpand) to 0.
+     * The Structure window will suppress the implicit wires processes. This
+       feature can be disabled by setting PrefStructure(HideImplicitWires) to
+       0.
+     * sc_export, a SystemC 2.1 feature is now supported for debug in the
+       simulator GUI if it is connected to a debuggable channel.
+     * vopt now more fully supports VHDL design units. The VHDL compiler (vcom)
+       includes the switches -vopt and -novopt which determine whether code is
+       produced during compilation or elaboration/optimization. See the Command
+       Reference for more information.
+     * The simulator can now annotate SDF timing from a compiled SDF file. We
+       have observed elaboration time reductions from 25% to 60%. The SDF
+       compiler is called "sdfcom" and is documented in the Command Reference.
+       A compiled SDF file may be specified on the vsim command line with the
+       -sdfmin,  -sdftyp  or  -sdfmax  switch,  or  as  the filename in a
+       $sdf_annotate() system task in the Verilog source. Note the following
+       limitations:
+          + Currently the feature is supported for purely Verilog regions only.
+            For example, assume that a VHDL testbench instantiates a Verilog
+            module "dut". If all the sub-instances of "dut" are Verilog then
+            you  may  annotate  a  compiled SDF file for the region under
+            (including) "dut". If the annotated region is not pure Verilog, the
+            simulator will issue an error message.
+          + This feature is supported in SE only.
+     * SystemVerilog bind statement is now supported. bind can be used to bind
+       a Verilog design unit to a Verilog design unit or VHDL design unit. Note
+       the following limitations:
+         1. The actual in the port map is restricted to the following:
+               o simple  variable  expression  (e.g.,  reg1, wire1, bit1,
+                 std_logic_vector_actual)
+               o hierarchical reference when the target is a Verilog design
+                 unit (e.g., test.dut.wire1;)
+               o Verilog literal (e.g., 1'b1, 4'hf)
+               o interface
+            Other expressions for the actual are not supported (e.g., 'wire1 &
+            wire2' on actual is illegal).
+         2. The same restriction holds for parameter mapping. It can either be
+            a  simple parameter expression, a hierarchical reference to a
+            parameter, a literal, or a parametrized type.
+         3. Hier ref from target into bind instance is not allowed but hier ref
+            from bind instance into target is allowed.
+         4. When binding Verilog to VHDL, the same mixed language restrictions
+            apply as making direct instance.
+         5. bind  statements are allowed in module, interface and program
+            blocks.  It  is  not  allowed in compilation unit scope. This
+            restriction should be lifted by 6.1 production.
+         6. The  instance that is being bound cannot contain another bind
+            statement.
+         7. The  target  of  the bind can either be a VHDL entity or VHDL
+            entity(arch) pair. To specify a complete VHDL design unit, the same
+            escaping  mechanism is used as when instantiating VHDL inside
+            Verilog (i.e., \lib.ent(arch)).
+         8. When  the target is a VHDL entity, then the bound instance is
+            created under the last compiled architecture.
+         9. ". named" port connections work in cases where the target is VHDL
+            or Verilog, but ".*" works only when the target is Verilog.
+        10. Although VHDL does not allow reading of an out port, the out port
+            can  be  used in the actual of the bind statement. In case of
+            multiple drivers on an out, it is not guaranteed that the bind
+            instance will get either the unresolved contribution or the final
+            resolved value. Depending on how the ports are collapsed, the value
+            read can be the partially resolved value.
+     * New key bindings have been added to the main window U/I:
+          + F2: Move Active pane to the previous pane.
+          + Shift-F2: Move Active pane to the next pane.
+          + F3: Toggle zoom mode of current Active pane.
+       The F2 and Shift-F2 keys work in zoom mode also.
+     * The coverage save command has a new option -onexit, which when specified
+       will cause the command to be executed when the simulator exits.
+     * The toggle report command has a new option -onexit, which when specified
+       causes the command to be executed when the simulator exits.
+     * The  toggle  add  command has a new option -exclude {<list>} which
+       specifies that bits of a bus be excluded from toggle computations and
+       reports. <list> is a space-separated list of integers or ranges, where a
+       range is two integers separated by either ":" or "-". The range must be
+       in the same ascending or descending order as the signal declaration. If
+       a second toggle add -exclude command is issued on the same signal, the
+       latest command will override the earlier one.
+     * SystemVerilog Clocking Blocks are now supported except for Hierarchical
+       expressions, Clocking block events, and Synchronous drives.
+     * SystemVerilog Final Blocks are now supported.
+     * A  new command, dataset config, may be used to view or set dataset
+       configurations  mid-simulation. Available options include -wlfopt,
+       -wlfdeleteonquit, and -wlfcachesize. See the Command Reference for
+       detailed usage.
+     * WLF Reader Caching has been implemented for 6.1. WLF reader caching
+       caches blocks of the WLF file to reduce redundant file I/O. This should
+       have significant benefit to customers with slow networks. By default
+       caching  is  turned  off.  It can be enabled with the WLFCacheSize
+       modelsim.ini variable or the vsim -wlfcachesize switch. Both the ini
+       variable and the command line switch take a size value which is the
+       number of megabytes to allocate for the cache. The allocated size is on
+       a per WLF file basis. The size may be controlled within the GUI using
+       the dataset config command.
+     * The  restart, checkpoint, and restore commands now work on designs
+       containing  SystemVerilog  DPI constructs. vsim -restore (aka Cold
+       Restore) works as well.
+       Note that for user DPI C code that works with heap memory, care should
+       be taken to use mti_Malloc() rather than raw malloc() or new. Any memory
+       allocated with mti_Malloc() is guaranteed to be correctly restored
+       during checkpoint restore. Any memory allocated with raw malloc will not
+       be restored correctly. Simulator crashes can result in that case.
+     * The  profile  report  command has a new option -onexit, which when
+       specified will cause the command to be executed when the simulator
+       exits.
+     * A new source code pragma has been added for excluding bits of buses from
+       toggle coverage. The format for Verilog is:
+       // coverage toggle_ignore <simple_signal_name> "<list>"
+       and for vhdl:
+       -- coverage toggle_ignore <simple_signal_name> "<list>"
+       where <list> is a space-separated list of bit indices or ranges, where a
+       range is two integers separated by ':' or '-'. The range must be in the
+       same ascending or descending order as the signal declaration. Quotes are
+       required  around  the  list.  The pragma must be placed within the
+       declarative   region  of  the  module  or  architecture  in  which
+       <simple_signal_name> is declared.
+     * New  simulator license exclusion switches to be used with the vsim
+       command:
+          + lic_no_slvhdl (don't checkout qhsimvh or vsim license features)
+          + lic_no_slvlog  (don't  checkout  qhsimvl or vsim-vlog license
+            features)
+          + lic_no_mix (don't checkout msimhdlmix or hdlmix license features)
+          + lic_no_lnl (don't checkout msimhdlsim or hdlsim license features)
+          + lic_mixed_only (don't checkout qhsimvh, vsim, qhsimvl, or vsim-vlog
+            license features)
+          + lic_lnl_only (don't checkout qhsimvh, vsim, qhsimvl, vsim-vlog,
+            msimhdlmix, or hdlmix)
+       There are also corresponding settings in the License section of the
+       modelsim.ini file:
+          + noslvhdl
+          + noslvlog
+          + nomix
+          + nolnl
+          + mixedonly
+          + lnlonly
+     * Automatic command help has been added to the GUI command prompt. When a
+       command is typed in at the prompt, a dropdown box is shown listing the
+       available commands matching what has been typed so far. The Up and Down
+       arrow keys, or the mouse may be used to select the desired command. When
+       a unique command has been entered, the command usage is presented in the
+       drop down box.
+       This feature can be disabled by setting PrefMain(EnableCommandHelp) to
+       0; it is enabled by default.
+     * Verilog bind can now exist in unit scope. It should be noted that when
+       bind is in unit scope, the bind only becomes effective when that unit
+       package gets elaborated by vsim. And package gets elaborated only when a
+       design unit that depends on that package gets elaborated. So if a user
+       has only binds in a file in unit scope and he tries to compile that file
+       standalone, the file will compile fine but the binds will never get
+       elaborated.  A warning to this effect is generated by vlog if bind
+       statements are found in unit scope but there are no top level modules.
+     * Verilog  bind now allows portmapping a VHDL enum to a Verilog port
+       vector. The port vector can be of any size less then or equal to 32.
+       This  portmapping is supported for both input and output port. The
+       integer value of the enum is first converted to a bit vector before
+       connecting  to Verilog formal port. Note that you cannot connect a
+       literal enum value as an actual, rather the actual has to be a signal.
+       This kind of portmapping between VHDL enum and Verilog vector is only
+       allowed when the Verilog is instantiated under VHDL through bind and is
+       not supported in case of a normal instantiation.
+     * DPI  export  and  import of task and function declarations are now
+       supported in package and global scope.
+     * A new program called qverilog which has been added to provide a one
+       stop,  out of the box, optimized compile and simulation of Verilog
+       designs.
+     * The view command has two new features: view without any arguments will
+       return a list of window class names of all the windows currently open;
+       and view with one or more options and no window classes or window names
+       specified will apply the options to the currently open windows. To
+       undock all currently viewed windows, use the command view -undock.
+     * The find instances command now displays the primary design unit name.
+     * A new modelsim.ini variable CoverageNoSub has been added to turn off
+       code coverage in VHDL subprograms. The compiler option can be set also
+       from the GUI compile options dialog under the Coverage tab.
+     * SystemC now includes additional type support with mixed languages:
+          + sc_bigint/sc_biguint
+          + sc_signed/sc_unsigned
+          + sc_fixed/sc_ufixed
+          + sc_fixed_fast/sc_ufixed_fast
+          + sc_fix/sc_ufix
+          + sc_fix_fast/sc_ufix_fast
+          + short/unsigned short
+          + long long/unsigned long long
+          + float
+          + double
+     * qverilog one-step compile and simulate supports the SystemVerilog Direct
+       Programming Interface (DPI) feature. Consult the user documentation for
+       more information on qverilog.
+     * Sometimes the toggle report command would show additional signals than
+       the  coverage  report  command, due to objects declared in Verilog
+       functions and tasks. A new option -toggleNoSubs has been added to vsim
+       to turn off toggle coverage for objects declared within functions and
+       tasks.
+     * A memory within a Verilog struct or VHDL record is identified as a
+       memory. A static member of a class that is a memory is also identified
+       as a memory.
+     * Unpacked arrays of packed struct and packed unions are identified as
+       memories.
+     * View source opens files in read only mode by default. To view source
+       files in edit mode, the user can set PrefSource(ReadOnly) to zero.
+     * The Verilog file I/O system task $feof had been implemented.
+     * The simulator now supports multiple user-defined window layouts. The
+       size, position and visibility of all windows can be saved as a layout.
+       The window layouts can be loaded at any time, and are controlled via a
+       new Window->Layout menu. Refer to the GUI Reference manual for more
+       details.
+     * System Verilog time-literals in assignments are now supported. For
+       example:
+       time t = 5ns;
+     * The BIDIRECTSKEW statement from SDF 4.0 is now supported. (NETDELAY and
+       LABEL are not yet supported).
+     * Prior to 6.1, user interface preferences were stored in a file, on
+       unix/linux in the users HOME directory, and in the registry on Windows.
+       Starting in this release the user can define where these preferences
+       should  be  stored.  This  is  done using the MODELSIM_PREFERENCES
+       environment variable. Setting this variable with the path of a file will
+       cause ModelSim to use this file instead of the default location. The
+       file does not need to exist beforehand, ModelSim will initialize it.
+       Also, if this file is read-only, ModelSim will not update or otherwise
+       modify the file. This variable may contain a relative pathname and in
+       this case the file will be relative to the working directory at the time
+       the tool is started.
+
+

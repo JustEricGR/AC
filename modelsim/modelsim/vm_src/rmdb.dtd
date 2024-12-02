@@ -1,0 +1,156 @@
+<!--
+  ===============================================================
+  This is the DTD for the Run Manager configuration database.
+  ===============================================================
+  -->
+
+<!--
+  The document element is "rmdb".
+  -->
+
+<!ELEMENT rmdb ( method | rmdb | runnable | usertcl )* >
+
+<!ATTLIST rmdb created CDATA #IMPLIED >
+<!ATTLIST rmdb loadtcl CDATA #IMPLIED >
+<!ATTLIST rmdb modified CDATA #IMPLIED >
+<!ATTLIST rmdb options CDATA #IMPLIED >
+<!ATTLIST rmdb version NMTOKEN "1.0" >
+
+<!--
+  A "runnable" is a single test or group of tests or runnables.
+  Runnables may be nested in groups to any reasonable level. The
+  name of each runnable must be unique. A group may be sequential
+  (ie: type="seq") or non-sequential (ie: type="group").
+
+  Although the DTD format doesn't allow for this, there should be
+  no more than one of each of the elements listed within any given
+  Runnable element.
+  -->
+
+<!ELEMENT runnable ( parameters | members | method | localfile
+                   | preScript | execScript | mergeScript | postScript | triageScript )* >
+
+<!ATTLIST runnable base CDATA #IMPLIED >
+<!ATTLIST runnable foreach CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST runnable if CDATA #IMPLIED ><!-- param expanded, TCL eval'ed -->
+<!ATTLIST runnable name NMTOKEN #REQUIRED >
+<!ATTLIST runnable repeat CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST runnable sequential ( yes | no ) #IMPLIED >
+<!ATTLIST runnable type ( group | task | base ) #REQUIRED >
+<!ATTLIST runnable unless CDATA #IMPLIED ><!-- param expanded, TCL eval'ed -->
+
+<!--
+  Each runnable may define "parameter" elements which represent
+  key/value pairs used to expand the command macros. The "parameters"
+  element groups the parameters under a single element.
+  -->
+
+<!ELEMENT parameters ( parameter* ) >
+
+<!ELEMENT parameter ( #PCDATA ) >
+
+<!ATTLIST parameter accept CDATA #IMPLIED >
+<!ATTLIST parameter ask CDATA #IMPLIED >
+<!ATTLIST parameter name NMTOKEN #REQUIRED >
+<!ATTLIST parameter type ( file | tcl | text ) #IMPLIED >
+
+<!--
+  Groups contain "member" elements, each of which matches the name
+  of a single unique runnable. The "members" element groups the
+  members under a single element.
+  -->
+
+<!ELEMENT members ( member* ) >
+
+<!ELEMENT member ( #PCDATA ) >
+
+<!--
+  Each runnable may define "localfile" elements which represent
+  additional files to be generated in the working directory before
+  any Action script is executed.
+  -->
+
+<!ELEMENT localfile ( command* ) >
+
+<!ATTLIST localfile expand ( yes | no ) #IMPLIED >
+<!ATTLIST localfile name CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST localfile src CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST localfile type ( copy | link ) #IMPLIED >
+
+<!--
+  Each runnable may define three scripts (pre- and post-scripts
+  are only meaningful for a group). Each may consist of zero or
+  more command strings (templates).
+  -->
+
+<!ELEMENT preScript ( command* ) >
+
+<!ATTLIST preScript file CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST preScript launch CDATA #IMPLIED >
+<!ATTLIST preScript mintimeout CDATA #IMPLIED >
+<!ATTLIST preScript ucdbfile CDATA #IMPLIED ><!-- param expanded -->
+
+<!ELEMENT execScript ( command* ) >
+
+<!ATTLIST execScript file CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST execScript launch CDATA #IMPLIED >
+<!ATTLIST execScript mintimeout CDATA #IMPLIED >
+<!ATTLIST execScript ucdbfile CDATA #IMPLIED ><!-- param expanded -->
+
+<!ELEMENT mergeScript ( command* ) >
+
+<!ATTLIST mergeScript file CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST mergeScript launch CDATA #IMPLIED >
+<!ATTLIST mergeScript mintimeout CDATA #IMPLIED >
+<!ATTLIST mergeScript ucdbfile CDATA #IMPLIED ><!-- param expanded -->
+
+<!ELEMENT postScript ( command* ) >
+
+<!ATTLIST postScript file CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST postScript launch CDATA #IMPLIED >
+<!ATTLIST postScript mintimeout CDATA #IMPLIED >
+<!ATTLIST postScript ucdbfile CDATA #IMPLIED ><!-- param expanded -->
+
+<!ELEMENT triageScript ( command* ) >
+
+<!ATTLIST triageScript file CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST triageScript launch CDATA #IMPLIED >
+<!ATTLIST triageScript mintimeout CDATA #IMPLIED >
+<!ATTLIST triageScript ucdbfile CDATA #IMPLIED ><!-- param expanded -->
+
+<!--
+  A "command" element contains a single command string (template).
+  Commands may appear in both "method" and "runnable" elements.
+  -->
+
+<!ELEMENT command ( #PCDATA ) >
+
+<!--
+  A "method" contains a single command template used to launch a
+  given script in a specific way (for example, on a grid).
+  -->
+
+<!ELEMENT method ( command* ) >
+
+<!ATTLIST method action CDATA #IMPLIED >
+<!ATTLIST method base CDATA #IMPLIED >
+<!ATTLIST method context CDATA #IMPLIED >
+<!ATTLIST method if CDATA #IMPLIED ><!-- param expanded, TCL eval'ed -->
+<!ATTLIST method maxrunning CDATA #IMPLIED ><!-- currently ignored -->
+<!ATTLIST method mintimeout CDATA #IMPLIED >
+<!ATTLIST method name NMTOKEN #IMPLIED >
+<!ATTLIST method runnable CDATA #IMPLIED >
+<!ATTLIST method unless CDATA #IMPLIED ><!-- param expanded, TCL eval'ed -->
+
+<!--
+  A method can contain any number of "usertcl" elements, each of
+  which conatins some method-specific TCL procedure overrides.
+  -->
+
+<!ELEMENT usertcl ( #PCDATA ) >
+
+<!ATTLIST usertcl base CDATA #IMPLIED >
+<!ATTLIST usertcl file CDATA #IMPLIED ><!-- param expanded -->
+<!ATTLIST usertcl if CDATA #IMPLIED ><!-- param expanded, TCL eval'ed -->
+<!ATTLIST usertcl name NMTOKEN #REQUIRED >
+<!ATTLIST usertcl unless CDATA #IMPLIED ><!-- param expanded, TCL eval'ed -->

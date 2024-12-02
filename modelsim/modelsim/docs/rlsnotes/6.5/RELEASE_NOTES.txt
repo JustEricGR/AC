@@ -1,0 +1,919 @@
+
+                    Release Notes For ModelSim Altera 6.5
+
+
+                                Jan 22 2009
+
+               Copyright 1991-2009 Mentor Graphics Corporation
+                            All rights reserved.
+  This document contains information that is proprietary to Mentor Graphics
+   Corporation. The original recipient of this document may duplicate this
+  document in whole or in part for internal business purposes only, provided
+  that this entire notice appears in all copies. In duplicating any part of
+    this document the recipient agrees to make every reasonable effort to
+      prevent the unauthorized use and distribution of the proprietary
+                                information.
+
+   TRADEMARKS: The trademarks, logos and service marks ("Marks") used herein
+    are the property of Mentor Graphics Corporation or other third parties.
+   No one is permitted to use these Marks without the prior written consent
+    of Mentor Graphics or the respective third-party owner. The use herein
+   of a third-party Mark is not an attempt to indicate Mentor Graphics as a
+     source of a product, but is intended to indicate a product from, or
+  associated with, a particular third party. The following are trademarks of
+   of Mentor Graphics Corporation: Questa, ModelSim, JobSpy, and Signal Spy.
+        A current list of Mentor Graphics trademarks may be viewed at
+               www.mentor.com/terms_conditions/trademarks.cfm.
+
+   End-User License Agreement: You can print a copy of the End-User License
+         Agreement from: www.mentor.com/terms_conditions/enduser.cfm.
+   ______________________________________________________________________
+
+     Product Installation and Licensing Information
+   For  brief  instructions  about  product installation please visit the
+   "install_notes" file in www.model.com. The install_notes file can be viewed
+   at:
+   [1]http://www.model.com/products/release.asp
+   For detailed information about product installation and licensing see the
+   ModelSim Start Here Guide. The manual can be downloaded from:
+   [2]http://www.model.com/support/documentation.asp
+
+
+     Release Notes Archives
+   For release notes of previous versions visit the release notes archive at:
+   [3]http://www.model.com/support/default.asp
+   or  find  them  in  the installed modeltech tree in <path to modeltech
+   installation>/docs/rlsnotes
+
+
+     How to get Support
+
+   ModelSim Altera is supported by Altera Corporation
+     * World-Wide-Web Support
+       [4]http://www.altera.com/mySupport
+
+
+   ______________________________________________________________________
+
+  Index to Release Notes
+
+     [5]Key Information
+
+     [6]User Interface Defects Repaired in 6.5
+
+     [7]Verilog Defects Repaired in 6.5
+
+     [8]PLI Defects Repaired in 6.5
+
+     [9]VHDL Defects Repaired in 6.5
+
+     [10]FLI Defects Repaired in 6.5
+
+     [11]VITAL Defects Repaired in 6.5
+
+     [12]SystemC Defects Repaired in 6.5
+
+     [13]Assertion Defects Repaired in 6.5
+
+     [14]Mixed Language Defects Repaired in 6.5
+
+     [15]Coverage Defects Repaired in 6.5
+
+     [16]General Defects Repaired in 6.5
+
+     [17]Mentor Graphics DRs Repaired in 6.5
+
+     [18]Known Defects in 6.5
+
+     [19]Product Changes to 6.5
+
+     [20]New Features Added to 6.5
+   ______________________________________________________________________
+
+   Key Information
+     * The following lists the supported platforms:
+          + win32aloem - Windows 2000, XP
+          + sunos5aloem - Solaris 8, 9, 10
+          + linuxaloem - RedHat 7.2 and higher.
+   ______________________________________________________________________
+
+   User Interface Defects Repaired in 6.5
+     * When using analog formatting it was possible for the waveform to be
+       drawn outside of its row
+     * The  drivers command displayed MIPD or anonymous for nets that had
+       interconnect delays. The problem is fixed to display the appropriate
+       driver name.
+     * "Identify Memories Within Cells" was not working properly through the
+       GUI menu in the Memory window.
+     * The "Expand Packed Memories" menu was not functioning properly and it
+       was not updating the Memory window correctly when toggling its value. It
+       has been fixed.
+     * Fixed a problem where the display of a Verilog register signals would be
+       missing transitions when zoomed out.
+     * Fixed some inconsistencies in the command completion behavior within the
+       Transcript window
+     * Within a given VHDL architecture, if multiple blocks exist with the same
+       name, objects declared within the blocks would get confused. This would
+       result in incorrect results for the add log, add wave, add list, and
+       examine commands.
+     * Verilog process variables can now be logged.
+     * The simulator crashed when trying to add a SystemVerilog static string
+       array into the Wave window or List window.
+     * SystemVerilog inout typed enums did not show any value in the Wave
+       window.
+     * In Wave window, expanding any bus which has been assigned a color causes
+       a crash of the simulator. This issue has been resolved.
+     * Testplan Import in the Verification Manager failed if the directory or
+       filename of the input or output files had spaces in them.
+     * For   the   Wave  window,  the  Save  Image  dialog  accessed  via
+       File->Export->Image... menu pick did not automatically add the .bmp
+       extension when Files of type was set to "Bitmap (*.bmp)".
+     * Wave window postscript printing does not work with some printers. This
+       issue has been resolved.
+     * Verilog reg bits and VHDL array elements where sometimes displayed
+       incorrectly when the display was zoomed out.
+     * The  simulator now supports the restoration of source files with a
+       restored layout. The Layout->Configure menu pick raises a dialog which
+       allows  a  user  to  set their layout preferences. If the "Restore
+       Source..." choice is selected, the source files that were open when the
+       layout was last saved will also be restored.
+   ______________________________________________________________________
+
+   Verilog Defects Repaired in 6.5
+     * Non-protected design units following a protected region read with vlog
+       could cause design corruption.
+     * Print an error (vlog-2244) when a variable has an initializer, and that
+       variable defaults to 'static' in a spot where it could be declared
+       'automatic', and where the initializer might be expected to be evaluated
+       more than once. This error is suppressible. For example:
+       forever begin
+       int i = 3; // Error, since 'i' defaults to static.
+       static int j = 4; // Okay.
+       automatic int k = 5; // Okay.
+     * Nested system function calls such as the following might have given
+       wrong results.
+       res = $bitstoreal($realtobits(x)) / $bitstoreal($realtobits(y));
+     * An aggregate rand_mode status of dynamic array is now maintained. A call
+       to the rand_mode task of a dynamic array (e.g. "dyn_arry.rand_mode(0)")
+       will:
+          + set the rand_mode of each element of the array;
+          + set the 'aggregate' rand_mode of the array (new behavior).
+       On a subsequenet call to randomize, the 'aggregate' rand_mode status is
+       tested before resizing the dynamic array. If the aggregate rand_mode is
+       inactive (0) the array will not be resized.
+     * vlog  now treats files with extensions of .svh as SystemVerilog by
+       default.
+     * We now support external references to queues. Example:
+       initial begin
+           packet apkt = new;
+           int idx[$];
+           idx = top.q.find_first_index with (do_comp(apkt,item));
+           top.q = top.q[idx[0]+1:$];
+           end
+     * Port handles of a module instance specified as an argument to $dumpports
+       are now automatically preserved in an optimized design.
+     * When a part select expression is used as LHS of an 'inside' operator, it
+       would sometimes produce this internal error:
+       Internal error: ../../../src/vlog/vgenexpr.c(10888) !is_cancelledOf(e)
+       and in some cases it would give wrong results. This is now fixed.
+     * In some cases 'real' values passed over 'real' to 'real' module ports
+       might have rounded off to integers. This has now been fixed.
+     * Unpacked arrays used as RHS of 'inside' operators might have produced
+       illegal errors in the incremental flow such as:
+       Error: (vsim-3978) test.v(10): Cannot mix packed and unpacked types in
+       this operation.
+     * Simple macros can be both defined and used within the context of another
+       macro.
+     * Simulatenous data and reference events to $setuphold & $recrem can cause
+       redundant timing check violation messages to be generated.
+     * Event triggers on non-static class properties were not being sensitized
+       to changes in the class variable. If the class handle change results in
+       a different value for the trigger expression, the event will now be
+       triggered.
+     * When vlog was compiling code in a SystemVerilog $unit scope it failed to
+       clean up library files generated for other platforms. This could result
+       in other platforms executing with older compiled versions of the code.
+     * Passing  compilation unit name as a design unit to vopt might have
+       resulted in a crash. This has now been fixed.
+     * A verilog file was parsed as a SV file when vlog was run with -mfcu and
+       one of the files had something in $unit scope.
+     * vlog  and  vopt  would  sometimes  report an internal error when a
+       hierarchical reference was used to call first(), last(), next() and
+       prev() on an associative array. The error message was:
+       ** Error: bug.sv(14): Internal error: ../../../src/vlog/vgenexpr.c(7833)
+       t
+     * Some optimized sequential cell does not function correctly after a
+       timingcheck violation. Its output would appear stuck at X.
+     * Using  sampled  value functions like $sampled, $rose or $fell in a
+       fork..join_none or fork..join_any block that was not inside a task or
+       function generated the following internal error in some cases:
+       ** Error: test.sv(17): Internal error: ../../../src/vlog/vgencode.c(77)
+       vl_save_stack_on_wait
+     * Declaration a parameter or localparam with a complex value expression
+       inside of a task or function would sometimes give an internal error
+       like:
+         ** Error: test.sv(12): Internal error:
+       ../../../src/vlog/vgencode.c(129) vl_save_stack_on_wait
+     * vlog would crash when reading the Verilog source text "`pragma reset
+       protect".
+     * The  wrong delay path is selected when an unoptimized Verilog cell
+       specifies the delay path as "dataa *> dataout".
+     * Assigning an unsized 'x' or 'z' to a register wider than 32-bits only
+       set the low 32-bits.
+   ______________________________________________________________________
+
+   PLI Defects Repaired in 6.5
+     * The vpiReg and vpiNet iterations on vpiRegArray and vpiNetArray objects
+       respectively used to return elemental objects indexed through the full
+       range of indices, including packed indices. This has been changed so
+       that only the unpacked indices are iterated. Thus it is now possible for
+       these  iterations  to  return objects of type vpiPackedArrayNet or
+       vpiPackedArrayVar; or nets and regs with multiple packed ranges. This
+       change is in line with an IEEE clarification for the behavior of these
+       iterations on arrays with at least one unpacked and one or more packed
+       ranges.
+     * This release enhances support for the placement of VPI Value Change
+       Callbacks on aggregate net constructs and their subelements. Certain
+       cases are not yet fully supported, in particular, vpiStructNets and
+       their decompositions.
+     *
+       For a bit select of an unpacked wire object, which is in itself a packed
+       vector, the function acc_handle_tfarg() will now return the acc object
+       handle correctly, while acc_fetch_value() will return the value of this
+       acc object correctly.
+       For example, for the array:
+       wire [3:0] clk_a_phasesel [3:0];
+       The calls to acc_handle_tfarg() and acc_fetch_value()involving the
+       object clk_a_phasesel[3] will work correctly.
+       Previously, both the functions returned NULL for this case.
+     * This release fixes some problems with the bits derived by VPI iteration
+       on some classes of nets and ports.
+     * Some learn mode defects have been fixed. One defect caused the simulator
+       to crash when the VPI application used the vpi_put_value() function
+       under certain conditions. Another defect caused the simulator to crash
+       for some SignalSpy usages.
+   ______________________________________________________________________
+
+   VHDL Defects Repaired in 6.5
+     * Under some conditions the drivers of a process could be determined
+       incorrectly. This would result in either an error if the signals are not
+       resolved  or  multiple drivers would be created if the signals are
+       resolved.
+     * VHDL file operations now support large files (>2Gbytes) on 32-bit OSes
+       that support 64-bit files.
+     * Illegal type conversions on formal ports are now correctly flagged.
+       Previously the simulator could crash or give invalid values.
+     * Complex  expressions  in  the  binding  indications of a component
+       configuration could be incorrectly optimized.
+     * A protected method call was erroneously not allowed in a concurrent
+       procedure call statement. Now it is allowed.
+     * The simulator could crash when elaborating a design with a subtype local
+       to a function and in which the subtype refers to array attributes of the
+       return value of that function.
+   ______________________________________________________________________
+
+   FLI Defects Repaired in 6.5
+     * mti_GetSignalSubelements would incorrectly report an error if the signal
+       argument was a signal that did not contain any scalar signals. A signal
+       will not contain any scalar signals if it is an array of length 0 (NULL
+       array) or is record with no fields or all the fields are NULL arrays.
+   ______________________________________________________________________
+
+   VITAL Defects Repaired in 6.5
+   ______________________________________________________________________
+
+   SystemC Defects Repaired in 6.5
+     * Added support for SystemVerilog disable statement that involves DPI-SC
+       calls.
+   ______________________________________________________________________
+
+   Assertion Defects Repaired in 6.5
+     * When the vsim -assertdebug switch is not specified, assertion pass
+       reporting  is not enabled. The assertion GUI and reports have been
+       changed to reflect that pass settings are not being honored by showing a
+       "-" in their fields.
+     * When the top hierarchy and thread life panes in the ATV window were
+       sized such that the user needs to scroll to the bottom to see the bottom
+       terms (in normal descending order), the bottom term was not visible in
+       the names hierarchy pane. It was hidden below the scrollbar.
+     * When the thread life pane in the ATV window was sized such that the pane
+       was too short to see the entire assertion expression but was long enough
+       to see the entire thread life, the stipple pattern shadding only went to
+       the right side of the visible area, and when scrolled to the right (to
+       see the right side of the assertion expression) the stipple pattern was
+       absent.
+     * When undocked, the View menu for the ATV window was blank.
+     * vsim crashed when using boolean repeats with repeat count greater than
+       10,000.
+     * vlog gave a parsing error for valid embedded PSL code present in a
+       module  compiled with the -v switch which is not being used in the
+       design.
+     * Forward referencing in now supported in PSL.
+     * vlog gave an error when the concatenation operator '{var}' was used in
+       PSL built-in functions.
+     * Use of unclocked PSL built-ins in an abort expression caused vlog to
+       give an internal error.
+   ______________________________________________________________________
+
+   Mixed Language Defects Repaired in 6.5
+   ______________________________________________________________________
+
+   Coverage Defects Repaired in 6.5
+     * In Compiler Options Coverage tab GUI the following changes are made.
+          + The -cover has changed to +cover
+          + Corrected the optimization level option to -coveropt
+          + Removed the Ignore VHDL Subprograms checkbutton
+     * FSM transitions were not getting covered by the initial value of the
+       current state variable. This has now been fixed.
+     * The -ignoredusig option is added in vcover merge to disable the design
+       unit signature checking for detecting source code mismatch between
+       merging  UCDB  files. The following description should be added to
+       document this option.
+        By default the simulator performs checks on source code stability when
+            performing operations like merging statement coverage, or other
+            source-based data. If one UCDB is generated with version X of file
+            t.v, and then another UCDB is generated with version Y of file t.v,
+            it doesn't make sense to merge the source-based coverage metrics in
+            those two UCDB's. This kind of checking is known as design unit
+            signature checking.
+            The  use of `ifdef to conditionally define code is a cause of
+            legitimate differences between the design source in two different
+            UCDB's. In order to work around The simulator's DU signature check,
+            you can use the -ignoredusig option with vcover merge.
+            You should not use -ignoredusig lightly, without validating that
+            the differences in source code are OK. Mis-use of -ignoredusig can
+            lead  to  very confusing coverage results, such as reports of
+            branches on lines with no branch, or reports of statements in areas
+            that are commented out, etc.
+     * Fixed the possibility of a vsim crash when code coverage is on and a
+       SystemVerilog generate block contains an instance which is inlined. For
+       the  moment  we are inhibiting inlining of the instance within the
+       generate block. A full repair will not be possible in the 6.4x release
+       sequence, but will be included in a later release.
+     * The GUI incorrectly highlighted portions of text when multiple Verilog
+       statements were found on a single line of source.
+   ______________________________________________________________________
+
+   General Defects Repaired in 6.5
+     * The string "(null)" appears in the transcript when some SignalSpy errors
+       are suppressed. This issue has been resolved.
+     * vcover could crash when merging UCDB files for certain VHDL designs.
+       This has been corrected.
+     * Collapsed dumpport values for busses could sometimes be reversed. This
+       has been fixed.
+     * Attempting to add wave, list or log a VlTypedef would cause a crash.
+     * The Verilog API method for transaction recording, $begin_transaction(),
+       failed to handle its "begin_time" parameter correctly. The parameter was
+       treated as if it were a 32-bit integer time. This has been corrected.
+     * For the -vcdstim feature, ascending order busses (i.e. 0 to 31) could
+       sometimes be reversed in the resulting vcdstim resimulation.
+   ______________________________________________________________________
+
+   Mentor Graphics DRs Repaired in 6.5
+     * dts0100380994 - Support of selectively turning code coverage on and off
+       with pragmas.
+     * dts0100402805 - Requirement to write textio files larger than 2 Gbyte.
+     * dts0100428841 - Warning [BSOB] - Bit-select into 'rdp_wrben' is out of
+       bounds doesn't appear in -novopt flow.
+     * dts0100454452 - Timing checks ... hold violation error.
+     * dts0100472191 - Common package for mixed language design.
+     * dts0100478435 - Customer requested to add two separate Contains menu -
+       one for Workspace and the other for Objects window.
+     * dts0100480545 - Show Drivers option within Objects Window GUI.
+     * dts0100481316 - Request better way for displaying large amounts of
+       covergroup bin data in GUI.
+     * dts0100481499 - tcheck_set for setuphold issue.
+     * dts0100503382 - Request better handling of WLF data when doing File >
+       Open.
+     * dts0100506285 - Add system function $get_initial_random_seed.
+     * dts0100508249 - Debug RTL: The transitions in a FSM are not labeled.
+       This must be possible at least optionally.
+     * dts0100508255 - Debug RTL: simplify use model for FSM recognition.
+     * dts0100508522 - Correction to 6.4 User Manual section "Binding to VHDL
+       Enumerated Types".
+     * dts0100509374 - Debug RTL: Hyperlinked source navigation.
+     * dts0100510503 - Problem inserting local var class object into SV Queue.
+     * dts0100510915 - Various queue features do not compile when accessed as a
+       class member of a parametric class.
+     * dts0100512903 - $dumpports writes EVCD file but with no activity.
+     * dts0100513673  -  Have  the  ability to delete the mapping of many
+       libraries: vmap -del LIB1 LIB2 LIB3 ... .
+     * dts0100519624 - Autogrouping of signals when dragging onto Wave window.
+     * dts0100520667 - Real expression assignment to real port fails with
+       elaboration warning.
+     * dts0100522902 - Clarify documentation concerning `uselib usage with
+       SystemVerilog.
+     * dts0100524972  - Would like to import constants using "-mixedsvvh"
+       switch.
+     * dts0100529201 - Would like to be able to have the same zoom in/out to a
+       "point" using mouse scroll in the Wave window as in the Dataflow window.
+     * dts0100531373   -   Workspace-window  description  should  details
+       hierarchical/local coverage modes.
+     * dts0100536289 - Inconsistencies with slices of strings.
+     * dts0100536943 - No switch +incdir+ or equivalent with vopt -pslfile_vl.
+     * dts0100539483 - drivers command displays MIPD.
+     * dts0100543980 - The GUI setting Identify Memories Within Cells does not
+       work.
+     * dts0100544421 - Inside operator with logic variables return wrong values
+       when the range of variables is smaller than the range of values in the
+       'inside' operator'.
+     * dts0100544431 - Inside operator when used with constraints for 'logic'
+       variables, fails for bits > 32.
+     * dts0100545180 - Crash when assigning color to wave in Wave window.
+     * dts0100545454 - Object window 'contains', keep search string as region
+       is changed.
+     * dts0100547150 - vlog assertion failure with parameter in a task.
+     * dts0100550185 - Issue with the event suppression optimization code.
+     * dts0100550304 - Numerical overflow error in $begin_transaction().
+     * dts0100550403 - Internal error: ../../../src/vlog/vgenexpr.c(7851).
+     * dts0100525157 - Wrong "signal has multiple drivers failure".
+     * dts0100543642 - Signal information in the Wave window disappears when
+       zooming.
+     * dts0100453378 - VHDL concurrent calls to a shared variable methods are
+       flagged as illegal statements.
+     * dts0100496326 - EVCD bus order reversed.
+     * dts0100551190 - Continuous assignment of an unsized x or z to a net
+       wider than 32-bits.
+   ______________________________________________________________________
+
+   Known Defects in 6.5
+     * On Windows platform, If Destructor breakpoint on SystemC object is set
+       via command "bp -c < function_name >", Debugger sometimes does not stop
+       at the breakpoint.
+     * On  Windows  platform,  if  breakpoint  is set on a SystemC object
+       destructor, Debugger sometimes crashes while quitting simulation. This
+       crash can be avoided by setting env variable SC_NO_LIB_UNLOAD, which
+       will prevent unloading of the shared library.
+     * The simulator will hang if it tries to create a WLF file while running
+       on a Linux 64-bit operating system from a working directory which does
+       not support large files. One common instance of this is executing an add
+       wave command, when the working directory was created under an older
+       32-bit Linux OS.
+       This  is  a  Linux operating system bug and cannot be fixed by the
+       simulator.
+       A workaround for release 6.3 and above is to execute the simulator with
+       command line option -wlfnolock.
+     * The stack unwinder on the linux_x86_64 OS is unreliable. The unwinder is
+       the fundamental facility provided by the OS for sampling where program
+       execution is at. The unwinder is necessary for gathering performance
+       data. This is a known issue with this specific OS and is why performance
+       data will be incorrect or non-existent on this platform.
+     * Users should be mindful of enabling both performance profiling and
+       memory  profiling at the same time. Memory profiling requires much
+       overhead  process,  and it can skew the results of the performance
+       profiling data.
+     * On certain (RedHat) Linux Operating System versions the "-restore"
+       feature  occasionally  fails. This is due to the memory allocation
+       security (anti-hacking) feature of Linux. RedHat Enterprise release v.3
+       update3 was the first version to have this security feature. In these
+       Linux releases two consecutive program invocations do not get the same
+       memory allocation foot-print. For the "-restore" feature the simulator
+       relies  on having the same memory allocation foot-print. Users are
+       advised to re-try this feature a few times as on average 3 out of 5
+       attempts are successful. In recent Linux versions, an override for this
+       anti-hacking feature is provided. Please use it at your own discretion.
+     * In code coverage, there is no way to exclude a condition or expression
+       table row for the case of more than one table on a line and the table in
+       question is not the first table on the line.
+     * Support  of debugging C code during a quit command was disabled on
+       Windows. The corresponding C Debug command cdbg stop_on_quit was also
+       disabled on Windows.
+     * Specparams can be learned during the learn flow, but cannot be found on
+       consumption. The workaround is to use full +acc deoptimization.
+     * On Red Hat Enterprise Linux release 5 platform, If SIGSEGV signal occurs
+       during the simulation and if CDEBUG is on, C-debugger traps the signal,
+       and when continued, vsim gets terminated right away, instead of exiting
+       with proper error status.
+     * For  viewing  events  in Expanded Time in the List window, use the
+       configure list command with the -delta events option. events is added to
+       the all, collapse, and none options for the -delta argument. These
+       options control the details shown in the List window and in writing list
+       files. This was documented incorrectly in the "Expanded Time Viewing in
+       the List Window" section of the "Waveform Analysis" chapter of the
+       User's Manual. The write list -events command serves a different purpose
+       (which has not changed) and is NOT used to control Expanded Time viewing
+       in List window.
+     * The examine, searchlog, and seetime commands have NOT been enhanced for
+       use with Expanded Time. This was documented incorrectly in the "Expanded
+       Time Viewing with examine and Other Commands" section of the "Waveform
+       Analysis" chapter of the User's Manual.
+     * If you have code coverage on in VHDL and get the following sort of
+       warning:
+       # Loading mypackage(body)
+       #  Internal  Warning  in process_sub: failed to find local inlined
+       subprogram called in pkg
+       # (mypackage ); flags 7 filenum 0 lineno 241 tokno 2
+       # Disabling code coverage for this inlined subprogram
+       Then add the -noFunctionInline option to vcom for that package, or
+       reorder the subprograms in the package body to be defined before they
+       are used.
+     * Code coverage is now giving results for SystemVerilog nested modules,
+       interfaces and program blocks. One remaining issue is that if a nested
+       module has more than one instance, only one of the instances will show
+       code coverage data, and the data therein will be the sum of all the
+       instances of that module. This will be improved in a later release.
+     * The vpiPorts iteration on vpiEnumNet, vpiIntegerNet, and vpiStructNet
+       VPI objects has been disabled as it was incomplete and unsafe to use.
+   ______________________________________________________________________
+
+   Product Changes to 6.5
+     * In previous versions of the simulator, a random seed was sometimes
+       assigned to processes created for non-blocking-assignments, and this
+       could affect random-stability, depending on optimizations that were in
+       effect.  In  6.5, this is no longer the case; but it may result in
+       different results involving randomization from 6.4x.
+     * FSM  recognition  reporting in the coverage FSM flow has been made
+       consistent with the FSMDEBUG flow. Both flows will only dump the number
+       of FSMs detected by default. The -fsmverbose option can be used to
+       display FSM RECOGNITION INFO, if required.
+     * The default keyboard shortcuts for the cut/copy/paste operations have
+       been  changed  to  match  the  Windows  standard  of Control-X/C/V
+       respectively. A new preference setting (Main/PCEditBindingsOnUnix)
+       category has been added to control this. Note, any opened text windows
+       at the time the preference is changed will not see the change until the
+       next time the GUI is started.
+     * A new search capability has been added for all windows that previously
+       supported use of the Contains toolbar and/or the "Edit > Find..." menu.
+       This new "Search Bar" will appear along the bottom edge of the window
+       it's being used from. It completely replaces the old Contains toolbar
+       and individual Find dialog boxes. For those windows that support both
+       filtering and finding, the mode for the Search Bar would need to be set
+       accordingly (the last selected mode for the Search Bar is remembered
+       between sessions). The various ways of choosing the mode are:
+          + use Control+M while the Search Bar has the keyboard focus
+          + select the mode from the Search Bar's menu (located on icon at far
+            left)
+          + click the label text which indicates the current mode
+       The current mode of the Search Bar is displayed as a text label to the
+       left of the type-in field, as well as by the icon located at the left
+       edge of the type-in area. The main benefit of having the filtering
+       functionality within the Search Bars is that each window now has its own
+       unique type-in field as opposed to having to share the common Contains
+       toolbar. The latter could lead to confusion over what is shown in the
+       toolbar and the filtered content of the windows. There is also a simple
+       history mechanism to allow saving search strings for later use. The
+       keyboard shortcuts to support this are:
+          + Control+S -- save current search text into history list
+          + Control+P -- retrieve previous search text
+          + Control+N -- retrieve next search text
+     * You must now change the encoding of your character representations with
+       the encoding system command, where the syntax is:
+              encoding system <encoding_name> To obtain a complete list of
+       <encoding_name>  options,  use  the encoding names command with no
+       arguments. Previously you could perform this action with the View >
+       Encoding menu, which has been removed.
+     * The VPI compatibility for this release defaults to the 2009 IEEE 1800
+       standard. This introduces, among other things, new VPI types for packed
+       arrays of struct nets and struct variables. Normative files vpi_user.h,
+       sv_vpi_user.h and vpi_compatibility.h are supplied with the latest known
+       standardized contents. Users should however be aware that at the time of
+       release the IEEE 1800-2009 was not complete.
+     * Event order differences between an optimized and unoptimized design have
+       been reduced with this release. Specifically, event propagation through
+       Verilog zero-delay continuous assignment and primitive networks has been
+       changed such that optimizations involving these networks are much less
+       likely to result in behavioral differences. However, note that a design
+       depending on the old event ordering may not behave the same with this
+       release. Both, the unoptimized and optimized behavior may change, but
+       should match each other more closely. Ideally, "races" should be removed
+       from the design, but, if desired, the user may revert back to the old
+       event ordering by specifying the -noimmedca vsim option or by setting
+       the following line in the modelsim.ini file:
+       ImmediateContinuousAssign = 0
+     * Code coverage information is no longer saved under design units in UCDB
+       files. Instead, code coverage data for design units are constructed
+       on-the-fly when a UCDB file is opened in IN_MEMORY mode. The information
+       is constructed by merging all code coverage data from instances in the
+       UCDB into the corresponding design unit. This has two main implications
+       for UCDB API users:
+         1. Using APIs to create code coverage data under design units is not
+            allowed anymore and the API calls will error out.
+         2. Opening  UCDB  files in read-streaming mode will not generate
+            callbacks under design units since there is no code coverage data
+            anymore.
+     * The PrefMain(ShowFilePane) preference is now obsolete. The Files pane
+       will follow current layout as do all other windows.
+     * The view * command is now obsolete. The argument "*" will be ignored
+       with no note warning or error. A window name or window name prefix must
+       be supplied in order to open or configure any windows.
+     * When a non-existent entry of an associative array is read, a default
+       value is returned. We now re-initialize that value each time, in case
+       the user modified it. The exception is if the user set an explicit
+       default value.
+       For example:
+       integer bar[integer][$]; // Assoc. array of queues.
+       task execute();
+       // Below, bar[2] doesn't exist, so we return the default value,
+       // an empty queue. The user is pushing 777 onto it.
+       bar[2].push_back(777);
+       // Referencing bar[2] again now returns an empty queue. In previous
+       // versions, we returned {777}. The $display now prints 'x'.
+       $display ("bar [2][0] = %0d", bar[2][0]);
+     * Some  changes  have  been  made  to  toggle coverage specific vsim
+       command-line options.
+          + The  -togglevlogints option has been removed as SystemVerilog
+            integer types are now supported for toggle coverage by default.
+          + The following vsim command-line options have been changed as they
+            were inconsistent with our convention.
+               o -togglenoints CHANGED TO -notoggleints
+               o -togglenovlogints CHANGED TO -notogglevlogints
+     * We now treat a slice of a string as a string. This seems obvious, but it
+       is not described anywhere in the LRM. The following is now supported:
+              string line = "Hello there";
+              string targ;
+              initial targ = line[0:5];
+     * The option -fsmdebug has been deprecated. A new letter code 'f' has been
+       added to +acc to enable FSM detection and debugging. This also makes it
+       possible to have module and instance bases selection with FSM debug.
+       +acc without any letter code with automatically enable +acc=f.
+     * Conditional timing check expressions are displayed as they appear in the
+       HDL description. In the past equivalent conditions were displayed. For
+       example:
+       &&& (cond === 0)
+       was dispayed as
+       &&& (~cond)
+     * In some cases the -vmake flag will be required to correctly capture
+       Verilog source file dependencies.
+   ______________________________________________________________________
+
+   New Features Added to 6.5
+     * Non-blocking-assignments to SystemVerilog expressions, such as a field
+       within a struct, or an element of an unpacked array, are now optimized
+       for improved performance.
+     * The bp command has been enhanced to accept multiple -inst options. This
+       feature can be used to set multiple instance-path conditions on a single
+       breakpoint.  Also,  the  bp  command can now be issued on the same
+       breakpoint with different -inst option arguments. Default behavior is to
+       override earlier breakpoint condition with the new one. New -appendinst
+       option has been added. This option can be used to change the default
+       behavior, and append the new instance-path condition to the earlier
+       condition. This feature is supported for both HDL and C breakpoints.
+     * Coverage commands now support handling datasetName:/path when using
+       command line, previously coverage commands only worked on the current
+       dataset. Now coverage commands allow specifying which dataset to work on
+       if multiple datasets are opened, if no dataset is specified on the
+       command  line  the  current  dataset  is used by default. Only one
+       datasetName per command invocation is supported.
+     * Support for Mentor Dynamic Extensions has been added to SCV. These
+       extensions will add support for the following:
+          + Named constraints
+          + Dynamic enabling and disabling of named constraints
+          + Support for constrained randomization of std::vector data type
+          + Support for Randomly Sized "Fixed-Max" Arrays
+     * The vmap -del command has been enhanced to support multiple library
+       mappings. This way, more then one library mapping may be deleted with a
+       single command invocation.
+     * The Wave/List Signal Search functionality has been enhanced to allow
+       specifying an end time for the search. When an end is specified, the
+       search  will return the number of matched events within the search
+       region. The searchlog command has also been enhanced to add a new option
+       named -endtime which will also limit the search to finding only those
+       matches between the start and end times.
+     * Code coverage pragmas have been enhanced to support selectively turning
+       coverage off and on for the following:
+          + specific expressions and conditions in a line of source code, based
+            on their expressions/condition numbers.
+          + specific  rows  from  the  FEC/UDP truth tables. -feccondrow,
+            -fecexprrow, -condrow and -exprrow option have been added to the
+            -item option of code coverage pragmas to facilitate this support.
+     * Toggle coverage has been enhanced to support the following SystemVerilog
+       types:
+          + structures
+          + packed unions
+          + fixed-size multi-d arrays
+          + real
+     * A new option -togglevlogenumbits has been added in vsim to support
+       'customized linearization' of SystemVerilog enums. When this option is
+       in effect, SystemVerilog enums are treated as reg vectors (considering
+       the size of the reg-vector to be the size of the base type of enum) for
+       toggle coverage and counts are be kept for each bit.
+     * Support for SETUPHOLD added to tcheck_set and tcheck_status commands.
+     * The Tcl foreach command now supports iterating over multi-dimension,
+       dynamic and associative arrays, For example:
+        int arr[2][ ][classX];
+            foreach (arr[i,j,k]) begin
+        ...
+       end
+
+     The export declaration is now supported in SystemVerilog packages.
+
+     The new PSL replicator construct "for" is now supported in Modelsim and
+   Questa.
+
+     Added a run-time warning message for out of bounds bit-selects in initial
+   blocks. It is suppressable using +nowarnBSOB on the vsim command line.
+
+     Environment variable NoAutoSDFCompile now can be used to disable automatic
+   SDF compiling for flows that support it.
+
+     The learn feature (as present in Verilog PLI/VPI) has been incorporated
+   into the FLI functions.
+   Instances (as in regions), signals, ports and variables information are
+   learnt (dumped) into the OCF (acc and ocm) files in an incremental flow with
+   -learn flag.
+   During later optimized runs, these files can be used used for optimization
+   control in vsim by specifying any one of these files:
+   -voptargs="-f file_path"
+   -voptargs="-ocf file_path"
+   -voptargs="-ocf file_path"
+   These flags can also be used directly with vopt.
+   The optimizer preserves the access to the objects/region specified in the
+   files.
+
+     The  simulator supports "unpacked array concatenation" as defined in
+   Section 10.10 of the LRM.
+
+     The Dataflow window can compute and display all paths from one net to
+   another. This analysis can be accessed via either:
+     * "Point  to  Point" in the dataflow popup menu. Two nets need to be
+       selected before issuing the command.
+          + Select the first (source) with a mouse click.
+          + Select the second (destination) with a SHIFT-mouse click.
+          + Then execute the "Point to Point" command from the popup menu.
+     * add data -connect <source net> <destination net> command.
+
+   To display these paths, the dataflow widget is put into greymode--that is,
+   all  components  and  nets  are shown in grey. Then, the source net is
+   highlighted in yellow, intermediate processes and nets are orange and the
+   terminal net is colored red. In order to return to regular dataflow display,
+   use the "Erase Highlight" popup menu pick.
+   If there are too many processes in the paths from source to destination, the
+   analysis attempts to provide a single path. The threshold used is the value
+   of "p2plimit" in the dataflow section of Preferences. The default value is
+   400.
+
+     The ATV window has been enhanced to include panes which show the values of
+   the Design Objects in the assertion expression at the times the expression
+   is evaluated.
+
+     The Verification Management windows, browser and tracker, now can save and
+   load their column layouts and filter information via the Export and Import
+   menu. This information used to be saved automatically in the .modelsim file
+   only. Now the user can also use Export and Import through the GUI with the
+   filename they wish and this information is not embedded with other users
+   information as in the .modelsim file. This feature helps the column layout
+   and filter information to be easily used among different users.
+
+     A new argument -testextract for coverage reporting commands has been added
+   to facilitate the generation of test specific results. This applies to UCDB
+   files generated by a test-associated merge only. It can be used either from
+   VIEWCOV mode using the coverage report command, or from the stand-alone
+   vcover utility. Both commands accept the argument in this form:
+   coverage/vcover report [-testextract < test_name_or_pattern >]
+   The user can specify multiple testextract arguments in the same invocation
+   to combine results from multiple tests. This applies to reports generated in
+   plain text and XML formats only, HTML reports are not supported. Two changes
+   to the report format happen when using the new argument. A header line
+   appears at the top of the report listing test name(s) used to generate the
+   report. Another change is that the word "hit" will show up in place of the
+   count  number.  This is due to the fact that UCDB files store only the
+   aggregated coverage counts from all tests, and test-specific numbers cannot
+   be reproduced.
+
+     Two new switches have been added to the view command, -names and -aliases.
+   The -names switch will list all the valid window names that may be used with
+   the view command. The -aliases switch will list all the alternative names,
+   for example "testbrowser" which is an alias for "browser". (Aliases are used
+   for backward compatibility when window names have changed from previous
+   releases.)
+
+     The Wave window now supports zooming using the Control-Key + Mouse Wheel.
+   This feature is similar to the use of the Mouse Wheel in the Dataflow,
+   Schematic, and FSM viewers.
+
+     The Wave window has a new short-cut key: Control-G which will perform
+   auto-grouping of the selected signals in the window. The signals are placed
+   in groups based on the parent context path of the signals. In other words
+   they  are  grouped by region. The group name is made further unique by
+   appending a unique group name, e.g. "Group3", based on the value of the user
+   preference PrefWave(GroupName). If the preference is blank (""), then this
+   unique label is not appended to the parent instance path for the group
+   label.
+
+   The Control-G shortcut can be used immediately following a Drag-n-Drop
+   operation since the newly added signals are already selected. If a group
+   already exist for a given region, any new signals that are auto-grouped with
+   Control-G will be added to the existing group.
+
+     The FSM viewer now supports an option to display the condition expressions
+   for each transition.
+
+     The Object window's popup menu now has a "Goto Driver" item that provides
+   the same functionality that is available within the Source windows.
+
+     Support has been added for VHDL external names in 6.5. To access this
+   feature the compiler switch -2008 needs to be used on the vcom command.
+   Currently only external names to other VHDL objects are supported. External
+   names to constants work can currently only target generics not declared
+   constants.
+
+     The Source window now supports Hyperlinked navigation. The source code is
+   visualized in a hyperlinked way which enables the user to jump from the
+   usage of an object to its declaration. The initial phase of this feature
+   supports the current operations:
+     * Jump from the usage of a signal, parameter, macro or a variable to its
+       declaration.
+     * Jump from a module declaration to its instantiation and vice versa.
+     * Navigate back and forth between visited source files.
+
+     A new modelsim.ini variable "CodeLinkAutoLoad" is added in [vsim] section
+   that  is 0 by default. When this variable is set to 1, the contents of
+   $CODELINK_HOME/sim/ms.cmd  file,  if  present,  are  added to the vsim
+   command-line. When CodeLinkAutoLoad is set to 1 and the environment variable
+   CODELINK_HOME is not set, a warning is issued.
+
+     VHDL package sharing at the SystemVerilog-VHDL mixed-language boundary has
+   been enhanced to support VHDL constants of all types that are currently
+   supported at the SystemVerilog-VHDL mixed-language boundary.
+
+     Mixed language support of VHDL instantiation of Verilog modules having
+   bidirectional pass switches (tran primitives) internally connected to their
+   ports has been improved. Full bidirectional operation is now supported if
+   the following requirements are met:
+     * The Verilog port is declared with mode "inout".
+     * The connected VHDL signal is of type or subtype "std_logic".
+     * The connected port hierarchy above the VHDL signal does not cross any
+       other mixed language boundaries, and the top-level signal is also of
+       type or subtype "std_logic".
+
+     Added  support  for  automatically preserving HDL targets of SystemC
+   SignalSpy/control_foreign_signal/observe_foreign_signal/scv_connectcallsin
+   vopt.
+
+     Added support for hierarchical references in actual expressions while
+   binding  to  VHDL targets using the SystemVerilog bind construct. Only
+   hierarchical references that terminate in a VHDL scope are supported.
+
+     Added   a   new   system   function   $get_initial_random_seed.  The
+   $get_initial_random_seed function has no arguments and returns the integer
+   value  of  the  initial  random  seed,  as specified via the "Sv_Seed"
+   modelsim.ini variable or by using the -sv_seed vsim command-line option.
+
+     Some VHDL-2008 features are supported. These features can be accessed by
+   using the vcom command line option -2008. The temporary command line option
+   -200X_DRAFT is no longer supported. For a complete description of supported
+   features see the technote "vhdl2008.note".
+
+     Encryption of VHDL source files is now supported. For details see technote
+   "vhdl_encryption.note".
+
+     A new zoom capability has been added for Wave windows that allows setting
+   the zoom range of all currently opened Wave windows to match that of the
+   active Wave window. New menu items have been added as well as a new button
+   in the "Zoom" toolbar. This new capability can be used via the "M" keyboard
+   short in Wave windows.
+
+     The icons related to UCDB files in the Verification Browser have been
+   upgraded. The base U and M icons are still present, but they now contain
+   adornments  that  express  additional information about the UCDB files
+   associated with those icons. If a 'p' is present in the upper right area of
+   the icon, that means the UCDB file contains a Verification Plan. If a U icon
+   contains a 'p', that means the UCDB file only contains a Verification Plan.
+   The M icons now have numbers on the lower right, which indicate the type of
+   merge that was performed to create the UCDB file:
+    1. indicates a -totals merge.
+    2. indicates a -testassociated merge.
+
+     The code coverage icons displayed in the Hits columns of the Source window
+   have been updated to show a finer granularity of information. There are now
+   three basic kinds of icon in the Hits column: Exclusion, Missed Coverage,
+   and Checkmark.
+
+   The  exclusion  icons  are based on a large green E graphic. The icons
+   potentially contain other, smaller graphics that convey further information
+   about the line's coverage status. If any exclusion is present on a line, an
+   Exclusion icon will be displayed, and the Missed and Checkmark icons will
+   not be displayed. The Exclusion icons appear in the following priority
+   order:
+    1. E-with-red-x - some items are excluded; some unexcluded items have
+       missed coverage
+    2. E-with-orange-asterisk - some or all items excluded; some excluded items
+       are hit
+    3. E-with-green-checkmark - some items are excluded; all unexcluded items
+       are hit
+    4. E - every single item on the line is excluded; none are hit
+
+   The Missed Coverage icons have the next highest priority after the Exclusion
+   icons. That means they will only be displayed if there are no Exclusions
+   applied  to  the current line. The following Missed Coverage icons are
+   available:
+    1. X - More than one kind of coverage on the line was missed
+    2. X-with-s - One or more statements on the line were missed
+    3. X-with-b - One or more branches on the line were missed
+    4. X-with-c - One or more conditions on the line were missed
+    5. X-with-e - One or more expressions on the line were missed
+
+   Finally, if there are no exclusions on a line, and no Missed Coverage, then
+   a big green checkmark icon is displayed.
+
+     When using the File > Open method to open a WLF log file, the contained
+   signals were automatically added into a wave window. A new Wave window
+   preference has been added to control whether this "auto add" is done. The
+   setting is accessed in the Preferences dialog, on the "By Name" page, in the
+   "Wave" section. The name of the setting is "OpenLogAutoAddWave".
+
+     virtual interface elements are now supported in Covergroup (i.e. they can
+   be used in coverpoint expression, bin iff expression, sample event, and
+   option assignment). This was not allowed per IEEE 1800-2008 LRM.
+
+

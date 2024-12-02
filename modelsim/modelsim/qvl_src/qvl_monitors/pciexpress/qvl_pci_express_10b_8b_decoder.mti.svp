@@ -1,0 +1,225 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+* PURPOSE     This file is part of the Questa Verification Library (QVL).
+*
+* DESCRIPTION This monitor checks the PCI Express interface for compliance
+*             with PCI Express Base specification - Physical layer
+*             specifications. 
+*
+* REFERENCE   PCI Express Base Specification, Revision 1.0, July 22 2002.
+*             PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*             PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+* USAGE       This sub module is instantiated in the top level PCI Express
+*             monitor.  
+*
+***********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_express_10b_8b_decoder (
+					 reset,
+					 areset,
+                                         clk,
+                                         level_select,
+					 phy_layer_checks_disable,
+					 electrical_idle_detected,
+					 pci_10b_data,
+					 pci_valid,
+					 pci_current_rd,
+
+					 pci_8b_data,
+					 pci_d_or_k_code,
+					 pci_10b_code_violation
+					 );
+
+  // Parameter declarations
+
+  parameter Constraints_Mode = 0;
+  parameter MAX_LINK_WIDTH = 1;
+  parameter TX_INTERFACE = 0;
+  parameter DOUBLE_DATA_RATE = 0;
+
+  // Input declarations
+
+  input reset;
+  input areset;
+  input clk;
+  input level_select;
+  input phy_layer_checks_disable;
+  input [31:0] electrical_idle_detected;
+
+  input [32 * 10 - 1:0] pci_10b_data; // 10b code
+  input [31:0] pci_valid; // Indicates that a valid 10b code is there
+  input [31:0] pci_current_rd; // Current running disparity
+
+  // Output declarations
+
+  output [32 * 8 - 1:0] pci_8b_data; // 8b data
+  output [31:0] pci_d_or_k_code; // Control signal or data
+  output [31:0] pci_10b_code_violation; // active low signal which 
+				        // indicates 10b code 
+				        // is invalid.
+
+  // Internal parameter declarations
+
+  parameter ZI_RECEIVE_CONSTRAINT = !TX_INTERFACE & Constraints_Mode;
+  parameter ZI_POSITIVE = 1'b1;
+  parameter ZI_NEGATIVE = 1'b0; 
+
+  // Register declarations
+
+  reg [MAX_LINK_WIDTH * 8 - 1:0] int_pci_8b_data_posedge;
+  reg [MAX_LINK_WIDTH * 8 - 1:0] int_pci_8b_data_negedge;
+  reg [MAX_LINK_WIDTH - 1:0] pci_d_or_k_code_posedge;
+  reg [MAX_LINK_WIDTH - 1:0] pci_d_or_k_code_negedge;
+  reg [MAX_LINK_WIDTH - 1:0] pci_10b_code_violation_posedge;
+  reg [MAX_LINK_WIDTH - 1:0] pci_10b_code_violation_negedge;
+  reg [31:0] temp_pci_current_rd;
+
+  reg [9:0] temp_pci_10b_data;
+  reg [7:0] temp_pci_8b_data;
+  reg temp_pci_10b_code_violation;
+  reg temp_pci_d_or_k_code;
+  reg [9:0] rev_temp_reg;
+
+  reg [(MAX_LINK_WIDTH +1) * 8 - 1:0] next_pci_8b_data;
+  reg [MAX_LINK_WIDTH - 1:0] next_pci_10b_code_violation;
+  reg [MAX_LINK_WIDTH - 1:0] next_pci_d_or_k_code;
+
+  // Wire declarations
+
+  wire [(MAX_LINK_WIDTH +1) * 8 - 1:0] int_pci_8b_data;
+  wire [MAX_LINK_WIDTH - 1:0] int_pci_d_or_k_code;  
+  wire [MAX_LINK_WIDTH - 1:0] int_pci_10b_code_violation;
+
+  integer i;
+
+`protected
+
+    MTI!#KsA[@-oO."/;V]-V@+^z}QzoY}E-{\o}~Ao_r?=zqz3'_7~+lDB{p'H12xO'n7#=_:-Rv5q
+    oAYQvK;[7nO^%m$>~oz>3mQ}XoTG,Bv;]pTZA|=o~;fQz?{_U*Hqe>VZ()#aD_wlrz^WA[O\1,oC
+    Yx$iJ{dpjI[l3e*6ZSD{6<R{-qKw_v'B<p^*3WaH}~^uET}C$n~]'Gj2}Ar]o!r]{p%maJ'$@_7D
+    JOTla1H0vYGOH=ADvvZJ7l#p8G3;T\xoieR-D+vl,>DCB^r}*<AXTs,==DpR^'uXe(i]5aRH-#V=
+    ]i**{1A^mv?*rGZG=u5$$\-no#]_B#AC2!2XlrER{+zaH^PEZ{Yu7nJle[nTB'iTDTsQmR]VeE,H
+    HoOv0DmYacYH]v|z2eJ3-\UR<
+`endprotected
+  assign int_pci_d_or_k_code = (level_select) ?
+                      pci_d_or_k_code_posedge : pci_d_or_k_code_negedge;
+
+  assign int_pci_10b_code_violation = (level_select) ?
+                  pci_10b_code_violation_posedge : pci_10b_code_violation_negedge;
+
+  assign int_pci_8b_data = (level_select) ?
+                      int_pci_8b_data_posedge : int_pci_8b_data_negedge; 
+
+  assign pci_8b_data = next_pci_8b_data[(MAX_LINK_WIDTH+1)*8-1:8];
+  assign pci_10b_code_violation = next_pci_10b_code_violation;
+  assign pci_d_or_k_code = next_pci_d_or_k_code;
+
+`protected
+
+    MTI!#eeo[!>[+IHKWT}TZV]~{nR{,8*=R-_RQis3CwN9~7W$nskIvRk#~AYfLI%hijTRFGNL\VQY
+    IJ@<1ZH{q?TI?:v5>o3{{x_vHD1!TBr#prY_VX,@>Y+wZ$De,[N1OXo(wCEp^Bms\x5@iwr\Q3}u
+    r?RmmY^E)iT[@XN+xaC,,Q>7=\ay-XZ5'@=poZ^+us+o$oo+j-!u[3B}Bm\OrD?Uz#C~leY'=?1W
+    JrDwy#s!X}I#s^9Al{QW_,C@D;WYlGuiaww$EOp,,;VC+*Re5A>BA=HO^s;H[l^;Tn~6BBInAr]x
+    mBaIW1<5OR_}sV<{qIJ7[C~Wno_ADXoVr_~RztEBmmm7I{16ns[i]zu1'22r1J*@_[mKs7+]]}9]
+    i~,!U$sxnEo}gm1!lb7Y7!V<**]Ip;R'R,_'pnS+TY$kYD~9{=OBB2[EH*;pG,?3'e];]ln^]=}X
+    T["<D<};Hj^u\ZO5,!7)H1=[3<-?:BI?D1TGBY5$v+T'iN}TE3|ZA+Y{zH_+=i[aAz5v>^;J[Y@K
+    EV<6Js+;RiWW5VVpd*;-*I5moxl-1P1~1XqHT2KRD*E1E9]CkQz+Gk::9~{p>kGsXeiTZlv~Ja+D
+    DkVV5Ei+z%E,kjajp}[zXaCJ}<[2T]WQvl@{RX#e7$GxK{_tI5R#IWnY5x\*slZD8kH[!XU+Zk5o
+    CBjfO+E;CZ]Gl5+\r^TBE?p2l;=z?ozkv|G-\,YT^\,NA[<<1;X{IEx!s3lu[Voz#e$ZAD2#iEVW
+    :zG#uon$2*3UC]UuUQ-poBU'osY[;wwGa'27lUVA32^+p3C?,7\'uC=}W6<w,i+$+uK-oHG;!w!<
+    e^nRk-4GHx,=E#7!Oul";'5Z!C+nEr[@AOY7-x;3WVWQHj<Qz{H7+[V>#Uvv?QuxRO-xU$Qi^?w5
+    rIvzr=~@Vx#3-RH$MKBV*_-D{+wI3gGXY]];UBAwW!Bm3E+}5_DBV~lUZIvXBkAj-<E>X^Ljo7un
+    \ps'EE*zDUo&=Y}<}:F=7[J?]lu$rDUl@!ro}}=*e\'l]Cz):xmKB3$+u6v-2Gz}rTSVm5'CveXC
+    <v[OR$;>\nrLOeTz7_W+\Up>wC;Y5*1svIXrKw3;znaOTe\ur#]_iD-[j'--<]l#;v,[C2J>*G<R
+    [#\js[B!QweZYXW!<V?E[HeOUOHCK]!!z;1JHOvrm,}Y51A~/;RvUoQ3=lE,V<7oEe|NEC[=}Y*x
+    |Q*5j!+rK7}WrU[zKd1n@<e+j*XpY7}7;B\>-<#I[^$vj=Q1?$s2,<$@'mY_BupE*[T1_XdY2v$]
+    3xJ=X7l_a7$x!XW'@aO^@nr!]Ok#72EK{1~K8a}?U~,2AQ2Q<55?HK,}HQu^5\>Y_BDT'=l'nao~
+    =<+aalJ!E#wUkH}e#!r?ajz-7%p321XrU^}i1Cb5~^>N4V*?ZCWO\kQu=D$DGHsz;rX--IAo!r=e
+    B!-u~7^k-:E(?]vWi=pua$HBL^E_{^n,XrkHGE#sDIx]-z-B*B7Csl^u[iwD!<suH_=;Hlem@KHs
+    H]]w!Dl@VA]27@lTkp{<m][E#K',71sOR{RT+w>}CEeYD\2B!_k}AH}1$Gkeigkj_?UXCl#E;#uq
+    msG_~CaIUp2?O;Q7=$G!o7$TCs{_3$H,5X,ko\Zpn^2n[-pWp@E~B_~zn}Awb,YW2kXr*l\JZH$Z
+    ~\iAX@$^sK,CrroJ]s!B*RV7s?52'i*<DF7l{Ws<,JD+'?o~RB,]jwv5AKsA1;U>m37B!e-=w?GO
+    ^^-+T,-5!!~<nx-]X37[}^'n}ejr#jIHBEQl<x=+Zz+Gi3KDsO|E,z{o2{{R+CY*\@mCem*E_+l[
+    ;EWs>s=X>]ZE[pXgQlRVx'Ix*7rjXww{IZnICk$Rn><wQm2JG3VQF+TVW1!R_Wp[-I+A~6#A^]}2
+    rEDCpa7\*?K'$v.vXJwJaHXCKxxsGmGTn'])P7m2Xww$u3_X}B*u\%f?Iuov'-'-VT1'#mG3==wL
+    'I=7/o2oES1]--~5YjoD@*1RlU^-VjZG?Az7AwV,Rkp+>e4%AT$-r*^\7-X\d^2]R+r+Ge1sJzu2
+    ulHY#M!w{a=uqRo$H'-e~NKs@w!5_57jQ+J1YG:<X{{}>3nP(*BRiCU2ABu+JTXO[]nEK(5joB5w
+    >~u*peV1u,$G=Ww}=,F=?21]}/E=BE$;IZjlR-'D{ZwT5isp\nz_;\vJlm-o<ox]7!3_r^D7kYH]
+    ?p^=ounT37Om$n12BRr;*{ouV{'TAswwp,eve~=+mQpEVI*H[u;>B<YKYuY_1Qjp?!EO}A,C#>%Z
+    \[ku_V3TX9YzWGz_=I72U@CRu@EVA^!7es}?zk_5auwVP-*{}Rz{*Eaz12C~BYV#121DD=EG=vZ\
+    iDGWo=zQ>Q#U[Vm,Y5C}!P_*!Yt7<*}r=~20}wEV}*;eC@rQIiXv813~>/7{oGov,+.Q\z;[wFK}
+    {npB+l=nBAI5I+Hpr<$Z@#KN*CcE{eWu=oYuY+}QI)\>p'^m\5oRzr0wTBRpQoO]#wHGuQaNTG,C
+    js-$^Yh?^#ui_U}>$El,DsktE<DDD=>}1Tw^^-J[aA^;3UQ<IpT+>H7DF{E{/"#'>+Ujl}k<5lz7
+    RvJ_>Eo?Q!5$Voav}H2]nV^{5jj=rvIwjkgz,7nHv=vJ'g[{_$O!eroUnB,s}'+E[1VHIEz47J~R
+    -e5jl+oAO!-2-vs<$w*np(Oe!ZjE,khr_JIoC2*lnGwk{Qs\UQQr*CH'g-->pxu\D2OW}~E[WP\^
+    !W4s-+mw>W[mezG_=*'t_GsCU}mAp3p[F[@X*^!~5QpBvnV=*1}o'?-Yo}u@Z@5rj]o*Ei-zVLs[
+    #kOa*$X]-}z2o#v+U7$JYE(Ng3LkG#[WvQu|!$=_?5RxsX,RJEK~eUw'?>v'jG<Gw5;zW]H>OK]3
+    xGlX1R~m<XpKf7_$n-pA7{<<5a''nr@v\;Ul1B+1e,l?<C7?~[7Ex,R@vKO,rw'}O(zdaDZwK7k?
+    \oTkBCz'aC^B1UKziX@@Z][<C.1z~}YOw~^ZVBw$+pTpR2;,J'ICJzV!;slOa-E<[0iY-ZM~[J7(
+    1C[X_W]^YKuxUjVir.'Y^2(*1K=C7G3a-\e{a$!'BkG$\>u3a>j:To'n*]5}u<XrYB37**e[ZBox
+    eG>;C'~[Y+5?Y9{E3-xG>CG?[UG=al~]EQl_;$7@7\BKm[-EwZVazwt5KIz}Z7jzU@^AvjZ(m^W7
+    T}uxgUeO^w-&}+X#K^Q=OKXZaD\r#w@\4Co]X.xVw,Uz{7p?CDBlEv5<^X{T[u7mx\nCJj]t$Bn<
+    -'Vx?R$XJC;!{pEa=;UV*ouT=qkTJZ^HRXIxIBI\aQ(Aw]eKXuDaA!@{I$-'^$+S#H+$LRBX;_RB
+    BlQB<#5AV5HwT<+;r^YKO;r-B1nHZFE?ve<h=>=l.9I1!XIZRvV~,jU7lv;nj?#Q7l'Ek*|oHV>Q
+    vi!lzn]o'X!;EoJEP}~5UMu7a}Vz<s{UYR+[2kWEooB3wX7%$Y\zV!lXNIvZjIXQ;41+<YPKe{=[
+    7xR#v'!I}_515C~EY#7v*m1'_^uvaEQHQmX!}w{J\E<!je;1'\D~z+k1+vm1{CW[X$\dU{}[:J&e
+    $>Afg5~E!$=R]7RX{Y,ERlV2m7z-?65::mEk<?TE,8'[Y]=\O]C>l,#nf~7$BY=}mz*jx\RUJ>jo
+    B^1j^oG=T#DJGG}zo'>s;-EJ<N}JYQJ_X7'DY~NC-BR]QB1uek@96$vri3+HI'T[V<5J5!\ZJU1U
+    *}D{>_X\B+-U'\O'#K{HrB7>I]mGr]-V+6zW]Q|ZAaJpqn&wn!VvuZ?=$XT,f~-e};z,{}UOQ_O7
+    AQhrZZZIoj>SICeZD'!nVv<]wHX<Bs]r3seDJ*-U[u<#uV]3BkWn_k'{;V3zQ>2]2RA'rJj\V\U$
+    *TvH7i,]V-AwEE5umj?kK7Zo{_Ge3E;Ups;55!HVm5o=DYRro.k1-rEj}CwUul:^+ZEoHpw=n5^9
+    {[m<]2{_sOKI'],u~w_E*~'<Cvn<}ip_BYBx[e}j|kO[3r5v#Z_*OO-ssK1-k3$v2K_1TG,A']la
+    V.jQk\nsV@{G~XQ_'GC{+vDD?C%>sHWGK75ViR2:LZv!I|~oHwNh>I;=v2-B"^?=rEx!=;8<vsu\
+    lZrj@_\=,1T_rW5;ok{RHWI7~IC#Q?>WX!Y{{Z!=+R_)IsK1iH*OpsjHB1a+'~oVze#k\A@7lK}$
+    QY$KeUQlnAz=Y3^@'vkzT7u=w-x~3COZ^A_K2lA@X'7#;elw;j!{.1\[JzZl[U[+J7{*}h)z22Ai
+    >*WYJ~U-D\2AQOpyh_&7;GJ^;=w$5Z_!T]5C$~?~ovU1G}[_Ei>17w~p7{DXnIu1pe7xmJ[Hl=#;
+    zD{<{$<=JaG@Q!V"i<1i::UE\Q^DmQV2xXA]DazOm5Jo',&'K5op!AX}A_>s3Dr[R>UxKVAtwU_v
+    GGAJ_zv[>\{^\eOsHHT}IZVG:Gu*<OjoJD$k$7pp{E;GDj*X?DE?ur}\K^^J{
+`endprotected
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_10b_8b_decoder.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_10b_8b_decoder.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_10b_8b_decoder
+`include "zi_cw_pci_express_10b_8b_decoder.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule

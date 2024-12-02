@@ -1,0 +1,386 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation            
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Ethernet RGMII Monitor.
+ *
+ * DESCRIPTION   This monitor checks the Etherent frames for alignment
+ *               related violations and malformed packets by observing
+ *               the RGMII (Reduced Gigabit Media Independent I/F).
+ *               This module internally instantiates two link monitors,
+ *               one each for the Tx link and the Rx link respectively. 
+ *               
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *
+ * INPUTS        areset - asynchronous reset (active high)
+ *               reset  - synchronous reset (active high)
+ *               txc    - transmit interface clock
+ *               td     - transmit data (4-bit SDR)
+ *               tx_ctl - transmit control signal 
+ *               rxc    - receive interface clock
+ *               rd     - receive data (4-bit SDR)
+ *               rx_ctl - receive control signal 
+ *
+ *
+ *
+ * MONITOR INSTANTIATION
+ *                  
+ *                                  + +
+ *                                  | |
+ *                                  | |
+ *                  +---------------+-+----------------+
+ *                  |    LLC - Logical Link Control    |
+ *                  +----------------------------------+
+ *                  |      MAC Control (optional)      |  L
+ *                  +----------------------------------+  I
+ *                  |    MAC - Media Access Control    |  N
+ *                  +----------------------------------+  K
+ *                  |   RS - Reconciliation Sublayer   |
+ *                  |                                  |  L
+ *                  |        +---------------+         |  A
+ *                  |        | RGMII MONITOR |         |  Y
+ *                  |        +------+-+------+         |  E
+ *                  |               | |                |  R
+ *                  +---------------+-+----------------+
+ *                                  | |
+ *                                  | | RGMII
+ *                                  | |
+ *                  +---------------+-+----------------+  P
+ *                  |               | |                |  H
+ *                  |        +------+-+------+         |  Y
+ *                  |        | RGMII MONITOR |         | 
+ *                  |        +---------------+         |  L
+ *                  |                                  |  A
+ *                  |  PCS - Physical Coding Sublayer  |  Y
+ *                  +----------------------------------+  E
+ *                  | PMA - Physical Medium Attachment |  R
+ *                  +---------------+-+----------------+
+ *                                  | |
+ *                                  | |
+ *                                  + +
+ *
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+ `ifdef QVL_SV_COVERGROUP_OFF
+  //DO nothing
+ `else
+  `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+   // Do nothing
+  `else
+  `define QVL_MW_FINAL_COVER
+  `endif 
+`endif
+
+`qvlmodule qvl_gigabit_ethernet_rgmii_logic (areset,
+                                             reset,
+                                             txc,
+                                             td,
+                                             tx_ctl,
+                                             rxc,
+                                             rd,
+                                             rx_ctl
+                                            );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis.
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate as to which side of the RGMII link
+  // the monitor is instantiated. This parameter, along with the Constraints
+  // Mode parameter is used in constraining the correct side in case of the
+  // formal analysis.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  // Set this parameter to the desired length of Jumbo frames. The default
+  // length of Jumbo frames is taken to be 9K bytes (9126 bytes).
+
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved 
+  // values in fields. By default, these checks will be performed.
+
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+
+  // Set this parameter to 1 if the monitor is instantiated on a Half 
+  // Duplex link. The default value of 1 indicates that the monitor is 
+  // instantiated on a full duplex interface.
+
+  parameter HALF_DUPLEX = 0;
+  wire [31:0] pw_HALF_DUPLEX = HALF_DUPLEX;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  parameter SLOT_TIME = 512;
+  wire [31:0] pw_SLOT_TIME = SLOT_TIME;
+
+  parameter JAM_SIZE = 32;
+  wire [31:0] pw_JAM_SIZE = JAM_SIZE ;
+
+  parameter BURST_LIMIT = 65536;
+  wire [31:0] pw_BURST_LIMIT = BURST_LIMIT ;
+ 
+  parameter DUPLEX_MODE_INDICATION = 0;
+  wire [31:0] pw_DUPLEX_MODE_INDICATION = DUPLEX_MODE_INDICATION ;
+
+  parameter CLK_SPEED_INDICATION = 0;
+  wire [31:0] pw_CLK_SPEED_INDICATION = CLK_SPEED_INDICATION ;
+
+  parameter ZI_CONSTRAINT_MAC_SIDE = (Constraints_Mode == 1 &&
+                                      MAC_SIDE == 1);
+  parameter ZI_CONSTRAINT_PHY_SIDE = (Constraints_Mode == 1 &&
+                                      MAC_SIDE == 0);
+  
+  parameter ZI_PREAMBLE_FIELD = 8'h55;
+  parameter ZI_SFD_FIELD = 8'hD5;
+
+  input areset;
+  input reset;
+  input txc;
+  input [3:0] td;
+  input tx_ctl;
+  input rxc;
+  input [3:0] rd;
+  input rx_ctl;
+
+  //Internal variables
+  wire [1:0] tx_ctrl;
+  wire [7:0] txd_gmii;
+  wire [1:0] rx_ctrl;
+  wire [7:0] rxd_gmii;
+  wire col_gmii;
+  wire  crs_gmii;
+  reg  crs_gmii_tx;
+  reg  crs_gmii_rx;
+
+  wire tx_interface_idle;
+  wire rx_interface_idle;
+
+  reg crs_rgmii; 
+
+  //Variable related to wrapper
+  reg [3:0] txd_high;
+  reg [3:0] txd_low;
+  reg       tx_en_gmii; 
+  reg       r_tx_en_gmii;
+  reg       tx_er_gmii;
+  reg       r_tx_er_gmii;
+
+  reg [3:0] rxd_high;
+  reg [3:0] rxd_low;
+  reg       rx_dv_gmii;
+  reg       r_rx_dv_gmii;
+  reg       rx_er_gmii;
+  reg       r_rx_er_gmii;
+  reg check_carrier_extend_tx;
+  reg check_carrier_extend_rx;
+  reg nibble_neg_not_equal_nibble_pos;
+  
+  //Wires for check enables
+  wire tx_and_rx_interface_active_violation;
+  wire reserved_values_on_tx_interface;
+  wire reserved_values_on_rx_interface;
+  wire tx_en_asserted_starting_with_non_preamble;
+  wire rx_dv_asserted_starting_with_non_preamble_or_sfd;
+  wire carrier_extn_on_tx_not_following_frame;
+  wire carrier_extn_on_rx_not_following_frame;
+  wire tx_er_asserted_during_frame;
+  wire rx_er_asserted_during_frame;
+  wire tx_extension_error;
+  wire rx_extension_error;
+  wire invalid_duplex_indication;
+  wire invalid_clk_speed_indication;
+  wire reserved_clk_speed_indication;
+  wire invalid_nibble_on_negedge;
+
+`protected
+
+    MTI!#kXAl=&j=2{=\s[5I7*@|<A]A@lCYArr[fqKNF:X^#{|1@pWBOBj7Ya}Wj+_xG\iN@l}ra_H
+    VmrE-r74XEA5"YB5BB-~D!9$;3R2o$K3od}22X:@Y[[xRUQ]}Q]5K,5uX3?zG<-DxY!~G^rnY@{a
+    a[]2+r}r2pI<BBO$r#j=Bl,~5DITN|,D-2N1jnemjaBkX1ilmwG)}}H2?X7sln^n=CxQK[Bp<j'}
+    wXI7CNC/rV-oY+m\hm]C@I5-Z2EjHM?sVUuR\*sDpuVi]VIWY_:aT^Iokx1"X[Jpvp"s*v*+IC\A
+    s#a<De]5wKJFexRRl[3eR=Z[HoeO!]KopK1RD^l}^;C~b^>Y[/(?'+AVI*~GGOz7$Q\_w+=C'iVT
+    $p@Aj{J{Y-79.Q]GlI+<mx*Bp]]WW?R[T,sYw?t}'z1P"KC^7[\[Ei{7T'QpGNFpEk]11Br&zRu{
+    xp*pImA;i[-rYX;$|QrCeU_Yz[Jolxdso!2[k-*YX_BuD_i(SH+-}IX~sq,wT[jG}pp?$25A;EUG
+    \kO2{X=}E='7j@vZ_?,A^Rq%lAri![nATa[lROuaREl5-6E$<OcRsW#_i>}J_HQoppYr>;~H}*]j
+    wTK)YA$5om=X{zE=$;!OOHX,7#g1w~T8l"o$@o7*[+zo#$A=R!xHl5Q\**D5eR_o,i4}o?DdVn3}
+    Da@XXIR^n1pX<^17+wCAM2l*lwHRHHI5+]AQ[+GK!F@^-~J$oT)"B3K@IJu>Ya7OI=CC5@^i!nXx
+    =zkYs\YTW5*@-9$\?[.-zUK+Y,@
+`endprotected
+
+  assign tx_ctrl   = {tx_en_gmii, tx_er_gmii};
+  assign rx_ctrl   = {rx_dv_gmii, rx_er_gmii};
+  assign txd_gmii  = {txd_high, txd_low};
+  assign rxd_gmii  = {rxd_high, rxd_low};
+  assign crs_gmii  =  crs_gmii_tx || crs_gmii_rx;
+  
+  //If Tx is in carrier extend state then if rx_dv asserted then that is not treated as collision.
+  assign col_gmii   = ((tx_en_gmii === 1'b1) && (crs_rgmii === 1'b1 || rx_dv_gmii === 1'b1 ))?1'b1 : 1'b0 ;
+`protected
+
+    MTI!#5A1U{nrz~U{$m*-HzI@vC}+aR11sC5j?};<R~siU]Q{Ws7?]xI<oEl?mKXn@}Wx+?oRibvN
+    =w~WGP%k7\ov>HGEn*n_^<v1O$iq>Ypk7A2?mEY>3s?=RWG>>DeG7'a@]wCnH'+^,1Kk|o@$OV-l
+    jmj!D\Apo-eZnvKop5}IRsO<DCD\no]>Y^2Kk+eTzo_@]jOl>3H*$z)xp->19n1W5up#Hw5Es7]1
+    iO2<>kwG-Ioa5'B>$+=5I9'3z?%iIET}D3seKUrUYw@a_Y]sf=V@kmI\!1rp5(|j{V$1UDxz=YH4
+    LOv'+}+~oY>7$p+=AconrkozW17$'<uGj2Womw11^pP^l'D{s\o'~=ppVpBBnOazD'$pQp@pT\J*
+    23+ZB#a1E22YTeG$m,DO'iH!lI#VU5X[3^QEvm~rn$p1?jVd>'ZQ'p#Zk<7DkD@o}J+QH+A^A{TB
+    -T0O~JEt1Z*jUQ#2-H!JUw{[r?,EQD~+eO7=5DB[5]V\xxA{_o!C1*n@E3p?DXjzB}i5{OY^rve?
+    QXe?T^^'ZI2W@{{IkUwIplW~+a>BYR+QBuw*lRCXHQpzo]s<~{}5Ri$oE~z2JQGpWzm<49k<ExW1
+    D{AA2Ooz5[^m,anVIj!52Ir']X-<AC_weuYG=5~IV?Ul~'#Xe[x>^-W,Q$@j+=$j7K#,_RzBSG7_
+    jo7DAY?J2^Je[ju}!Y{3R^B$r>V=*,}A]Y]U71vYl<Rw^s7D5X^+;^Bp=1WxBx3}YL6gI|E+]o/J
+    HwrK=\oE3nkVOa$we*IzlKV_K>XVe5>TXC#%:G_?_<Ce_+5>K,R@]1?si/$*XvTY^7:a}pzTpuQ"
+    ^r2=rn;uK_=^;r#[wjU^9-BJ2rQ?{9K5V\Oz,U\;n*XD@$=WAwm*u+]E2n@r1xZa7<p\^^vpx]<+
+    a~R,VG^*Q'-<E=*wACP2*sikj?zp<BpA$QxI!9{j~j=!XZO*R;=K2nuE$!Xou!upoj+TxCT-Kuzj
+    ]oVKWvfD3C'?e^uWs{+rm+wDsT[7R1,'Ye;SkVz=Vo^EOi5\,J;om[[!~aQD+vkHo3=oKrin@V'T
+    2}WTx-=K$T>[Y[@vv7=vAt=<r1#[a+Kn+ep$O3RGev1eu+TH[ZHrs?^ppvliJ'r~Bp}AK}k]Q;-v
+    QOO-5_37j'noZ?VT~Z_7Asj{Guix-Ke}<,ezB_rpV[_Z*kSmDRUD!oCFmzvi*+wYk1;V_r^s-jJu
+    kG+2wQ-xl*vJdTa>7Wo1JBlKa*-Q3@nO{r2xwvp[]*D;X[x^{e[jUal_Hk'vHD=nB5+2R\_i,Eu1
+    +z,@RAn_$2Es2Z'zZax_1k7s!u\exO*nv-oe$}[7z{}EkYz7C__RuZz+K[mrojz@U~1z7]gGA<3*
+    ]\@]2BH=ul'$;n#7O[
+`endprotected
+  assign invalid_duplex_indication  = (DUPLEX_MODE_INDICATION &&((HALF_DUPLEX == 0 && rx_dv_gmii === 1'b0 && rx_er_gmii === 1'b0 
+                                       && rxd_gmii[7] !== 1'b1 && rxd_gmii[3] !== 1'b1 ) ||
+                                      (HALF_DUPLEX == 1 && rx_dv_gmii === 1'b0 && rx_er_gmii === 1'b0 
+                                       && rxd_gmii[7] !== 1'b0 && rxd_gmii[3] !== 1'b0)));
+
+  assign invalid_clk_speed_indication  = (CLK_SPEED_INDICATION && rx_dv_gmii === 1'b0 && rx_er_gmii === 1'b0
+                                          && rxd_gmii[2:1] !== 2'b10 && rxd_gmii[6:5] !== 2'b10);
+
+  assign reserved_clk_speed_indication = (CLK_SPEED_INDICATION && rx_dv_gmii === 1'b0 && rx_er_gmii === 1'b0
+                                          && rxd_gmii[2:1] == 2'b11 && rxd_gmii[6:5] === 2'b11); 
+
+  assign invalid_nibble_on_negedge = ((DUPLEX_MODE_INDICATION || CLK_SPEED_INDICATION) && nibble_neg_not_equal_nibble_pos);
+
+  assign tx_interface_idle = (tx_en_gmii === 1'b0 && tx_er_gmii === 1'b0);
+
+  assign rx_interface_idle = (rx_dv_gmii === 1'b0 && (rx_er_gmii === 1'b0 ||
+    (rx_er_gmii === 1'b1 && rxd_gmii === 8'b0)));
+
+  // Check assigns
+  // Note that all these checks are active only in half duplex mode.
+
+  assign tx_and_rx_interface_active_violation = (HALF_DUPLEX == 1 &&
+    (tx_interface_idle == 1'b0 && rx_interface_idle == 1'b0));
+
+  assign carrier_extn_on_tx_not_following_frame = 
+    (tx_en_gmii === 1'b0 && tx_er_gmii === 1'b1 && (txd_gmii === 8'h0F || txd_gmii === 8'h1F) &&
+     r_tx_en_gmii === 1'b0 && check_carrier_extend_tx === 1'b1 );
+  
+  assign carrier_extn_on_rx_not_following_frame = 
+    (rx_dv_gmii === 1'b0 && rx_er_gmii === 1'b1 && (rxd_gmii === 8'h0F || rxd_gmii === 8'h1F) &&
+     r_rx_dv_gmii === 1'b0 && check_carrier_extend_rx === 1'b1);
+
+  assign reserved_values_on_tx_interface = 
+         (tx_en_gmii === 1'b0 && tx_er_gmii === 1'b1 && txd_gmii !== 8'h0F && txd_gmii !== 8'h1F && RGMII_TX_MONITOR.MAC_MONITOR.packet_col_check_gmii !== 1'b0);
+
+  assign reserved_values_on_rx_interface = 
+    (rx_dv_gmii === 1'b0 && rx_er_gmii === 1'b1 && rxd_gmii !== 8'hFF && rxd_gmii !== 8'h0E &&
+     rxd_gmii !== 8'h0F && rxd_gmii !== 8'h1F);
+
+  assign tx_en_asserted_starting_with_non_preamble = 
+    (tx_en_gmii === 1'b1 && r_tx_en_gmii === 1'b0 && tx_er_gmii === 1'b0 && txd_gmii !== ZI_PREAMBLE_FIELD);
+
+  assign rx_dv_asserted_starting_with_non_preamble_or_sfd = 
+    (rx_dv_gmii === 1'b1 && r_rx_dv_gmii === 1'b0 && rx_er_gmii === 1'b0 && rxd_gmii !== ZI_PREAMBLE_FIELD &&
+     rxd_gmii !== ZI_SFD_FIELD);
+
+  assign tx_er_asserted_during_frame = (tx_en_gmii === 1'b1 && tx_er_gmii === 1'b1);  //Transmit Error Propogation
+  assign rx_er_asserted_during_frame = (rx_dv_gmii === 1'b1 && rx_er_gmii === 1'b1);  //Data reception Error
+  assign tx_extension_error          = (HALF_DUPLEX === 1 && tx_en_gmii === 1'b0 && tx_er_gmii ===1'b1 && txd_gmii === 8'h1f);   //TX Extension Error 
+  assign rx_extension_error          = (HALF_DUPLEX === 1 && rx_dv_gmii === 1'b0 && rx_er_gmii ===1'b1 && rxd_gmii === 8'h1f );  //RX Extension Error 
+  
+
+  // Tx and Rx link monitor instantiations
+  qvl_gigabit_ethernet_gmii_link_monitor
+    #(.Constraints_Mode(Constraints_Mode),                                  //Used to mark checks as constraints
+      .MAC_SIDE(MAC_SIDE),                                                  //Configures location of monitor instance
+      .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),                    //Specifies Jumbo frame length
+      .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE),            //Enables/Disables reserved value checking
+      .TX_INTERFACE(1),                                                     //Indicates the direction of data - TX I/F
+      .HALF_DUPLEX(HALF_DUPLEX),                                            //Configures RGMII as Half/Full duplex
+      .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),          //Configuring MAc to count tagged data in min size
+      .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED),  //Configures RGMII to support Reserved Frame               
+      .SLOT_TIME(SLOT_TIME),                                               
+      .JAM_SIZE(JAM_SIZE),                                               
+      .BURST_LIMIT(BURST_LIMIT)                                               
+     )
+      RGMII_TX_MONITOR
+          (.areset(areset),
+           .reset(reset),
+           .clk(txc),
+           .data(txd_gmii),
+           .ctrl(tx_ctrl),
+           .col(col_gmii),
+           .crs(crs_gmii)
+          );
+ 
+  qvl_gigabit_ethernet_gmii_link_monitor
+    #(.Constraints_Mode(Constraints_Mode),                                  //Used to mark checks as constraints
+      .MAC_SIDE(MAC_SIDE),                                                  //Configures location of monitor instance
+      .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),                    //Specifies Jumbo frame length
+      .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE),            //Enables/Disables reserved value checking
+      .TX_INTERFACE(0),                                                     //Indicates the direction of data - RX I/F
+      .HALF_DUPLEX(HALF_DUPLEX),                                            //Configures RGMII as Half/Full duplex
+      .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),          //Configuring MAc to count tagged data in min size
+      .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED),  //Configures RGMII to support Reserved Frame               
+      .SLOT_TIME(SLOT_TIME),                                               
+      .JAM_SIZE(JAM_SIZE),                                               
+      .BURST_LIMIT(BURST_LIMIT)                                               
+      )
+      RGMII_RX_MONITOR                                              
+          (.areset(areset),
+           .reset(reset),
+           .clk(rxc),
+           .data(rxd_gmii),
+           .ctrl(rx_ctrl),
+           .col(col_gmii),
+           .crs(crs_gmii)
+          );
+  
+//--------------------------------------------------------------------------
+// OVL SVA Assertions are included here
+//--------------------------------------------------------------------------
+
+`include "qvl_gigabit_ethernet_rgmii_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_rgmii_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_rgmii_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_rgmii_monitor
+`include "zi_cw_gigabit_ethernet_rgmii_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_gigabit_ethernet_rgmii_logic

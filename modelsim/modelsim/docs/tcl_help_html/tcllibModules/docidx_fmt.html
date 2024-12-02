@@ -1,0 +1,342 @@
+<! -- -*- tcl -*- doctools manpage
+   -->
+<html><head>
+<title>docidx_fmt - Documentation tools </title>
+</head>
+<! -- Generated from file './modules/doctools/docidx_fmt.man' by tcllib/doctools with format 'html'
+   -->
+<! -- Copyright &copy; 2003 Andreas Kupries &lt;andreas_kupries@users.sourceforge.net&gt;
+   -->
+<! -- CVS: $Id$ docidx_fmt.n
+   -->
+
+<body>
+<h1> docidx_fmt(n) 1.0 doctools &quot;Documentation tools&quot;</h1>
+<h2><a name="name">NAME</a></h2>
+<p>
+<p> docidx_fmt - Specification of simple tcl markup for an index
+
+
+
+<h2><a name="synopsis">SYNOPSIS</a></h2>
+<p>
+<table border=1 width=100% cellspacing=0 cellpadding=0><tr            bgcolor=lightyellow><td bgcolor=lightyellow><table 0 width=100% cellspacing=0 cellpadding=0><tr valign=top ><td ><a href="#1"><b class='cmd'>vset</b> <i class='arg'>varname</i> <i class='arg'>value</i></a></td></tr>
+<tr valign=top ><td ><a href="#2"><b class='cmd'>vset</b> <i class='arg'>varname</i></a></td></tr>
+<tr valign=top ><td ><a href="#3"><b class='cmd'>include</b> <i class='arg'>filename</i></a></td></tr>
+<tr valign=top ><td ><a href="#4"><b class='cmd'>comment</b> <i class='arg'>text</i></a></td></tr>
+<tr valign=top ><td ><a href="#5"><b class='cmd'>lb</b> </a></td></tr>
+<tr valign=top ><td ><a href="#6"><b class='cmd'>rb</b> </a></td></tr>
+<tr valign=top ><td ><a href="#7"><b class='cmd'>index_begin</b> <i class='arg'>text</i> <i class='arg'>title</i></a></td></tr>
+<tr valign=top ><td ><a href="#8"><b class='cmd'>index_end</b> </a></td></tr>
+<tr valign=top ><td ><a href="#9"><b class='cmd'>key</b> <i class='arg'>text</i></a></td></tr>
+<tr valign=top ><td ><a href="#10"><b class='cmd'>manpage</b> <i class='arg'>file</i> <i class='arg'>label</i></a></td></tr>
+<tr valign=top ><td ><a href="#11"><b class='cmd'>url</b> <i class='arg'>url</i> <i class='arg'>label</i></a></td></tr>
+</table></td></tr></table>
+<h2><a name="description">DESCRIPTION</a></h2>
+<p>
+<p>
+
+This manpage specifies a documentation format for indices. It is
+intended to complement both the <strong>doctools</strong> format for writing
+manpages and the <strong>doctoc</strong> format for writing tables of
+contents. See <strong>doctools_fmt</strong> and <strong>doctoc_fmt</strong> for the
+specification of these two formats.
+
+<p>
+
+This format is called <strong>docidx</strong>.
+
+It provides all the necessary commands to write an index for a group
+of manpages.
+
+Like for the <strong>doctools</strong> and <strong>doctoc</strong> formats a package
+is provided implementing a generic framework for the conversion of
+<strong>docidx</strong> to a number of different output formats, like HTML,
+TMML, nroff, LaTeX, etc.
+
+The package is called <strong>doctools::idx</strong>, its documentation can
+be found in <strong>docidx</strong>.
+
+People wishing to write a formatting engine for the conversion of
+<strong>docidx</strong> into a new output format have to read
+<strong>docidx_api</strong>. This manpage will explain the interface between
+the generic package and such engines.
+
+
+<h2><a name="overview">OVERVIEW</a></h2>
+<p>
+
+<strong>docidx</strong> is similar to LaTex in that it consists primarily of
+text, with markup commands embedded into it. The format used to mark
+something as command is different from LaTeX however. All text between
+matching pairs of [ and ] is a command, possibly with
+arguments. Note that both brackets have to be on the same line for a
+command to be recognized.
+
+<p>
+
+In this format plain text is not allowed, except for whitespace, which
+can be used to separate the formatting commands described in the next
+section (<a href="#formattingcommands">FORMATTING COMMANDS</a>).
+
+
+<h2><a name="formattingcommands">FORMATTING COMMANDS</a></h2>
+<p>
+
+First a number of generic commands useable anywhere in a
+<strong>docidx</strong> file.
+
+<dl>
+
+<dt><a name="1"><b class='cmd'>vset</b> <i class='arg'>varname</i> <i class='arg'>value</i></a><dd>
+
+
+Sets the formatter variable <i class='arg'>varname</i> to the specified
+<i class='arg'>value</i>. Returns the empty string.
+
+<br><br>
+<dt><a name="2"><b class='cmd'>vset</b> <i class='arg'>varname</i></a><dd>
+
+
+Returns the value associated with the formatter variable
+<i class='arg'>varname</i>.
+
+<br><br>
+<dt><a name="3"><b class='cmd'>include</b> <i class='arg'>filename</i></a><dd>
+
+
+Instructs the system to insert the expanded contents of the file named
+<i class='arg'>filename</i> in its own place.
+
+<br><br>
+<dt><a name="4"><b class='cmd'>comment</b> <i class='arg'>text</i></a><dd>
+
+
+Declares that the marked <i class='arg'>text</i> is a comment.
+
+</dl>
+
+
+Commands to insert special plain text. These bracket commands are
+necessary as plain brackets are used to denote the beginnings and
+endings of the formatting commands and thus cannot be used as normal
+characters anymore.
+
+<dl>
+
+<dt><a name="5"><b class='cmd'>lb</b> </a><dd>
+
+
+Introduces a left bracket into the output.
+
+<br><br>
+<dt><a name="6"><b class='cmd'>rb</b> </a><dd>
+
+
+Introduces a right bracket into the output.
+
+</dl>
+
+
+
+And now the relevant markup commands.
+
+<dl>
+
+<dt><a name="7"><b class='cmd'>index_begin</b> <i class='arg'>text</i> <i class='arg'>title</i></a><dd>
+
+
+This command starts an index. It has to be the very first
+
+<em>markup</em> command in a <strong>docidx</strong> file. Plain text is not
+allowed to come before this command. Only the generic commands (see
+above: <b class='cmd'>vset</b>, <b class='cmd'>include</b>, <b class='cmd'>comment</b>) can be used before
+it.
+
+<br><br>
+
+The <i class='arg'>text</i> argument provides a label for the whole group of
+manpages the index refers to. Often this is the name of the package
+(or extension) the manpages belong to.
+
+<br><br>
+
+The <i class='arg'>title</i> argument provides the title for the index.
+
+<br><br>
+
+Each index has to contain at least one <b class='cmd'>key</b>.
+
+
+<br><br>
+<dt><a name="8"><b class='cmd'>index_end</b> </a><dd>
+
+
+This command closes an index. Nothing is allowed to follow it.
+
+
+<br><br>
+<dt><a name="9"><b class='cmd'>key</b> <i class='arg'>text</i></a><dd>
+
+
+This commands starts the list of manpages and other entities which
+refer to the keyword named by the argument <i class='arg'>text</i>.
+
+<br><br>
+
+Each key section has to contain at least one index element, either
+<b class='cmd'>manpage</b> or <b class='cmd'>url</b>.
+
+
+<br><br>
+<dt><a name="10"><b class='cmd'>manpage</b> <i class='arg'>file</i> <i class='arg'>label</i></a><dd>
+
+
+This command describes an individual index element. Each such element
+belongs to the last occurence of a <b class='cmd'>key</b> command coming before the
+index.
+
+<br><br>
+
+The <i class='arg'>file</i> argument refers to the file containing the actual
+manpage refering to that key. The second argument is used to label the
+reference.
+
+<br><br>
+
+To preserve convertibility of this format to various output formats
+the filename argument <i class='arg'>file</i> is considered to contain a symbolic
+name. The actual name of the file will be inserted by the formatting
+engine used to convert the input, based on a mapping from symbolic to
+actual names given to it.
+
+
+<br><br>
+<dt><a name="11"><b class='cmd'>url</b> <i class='arg'>url</i> <i class='arg'>label</i></a><dd>
+
+
+This is the second command to describe an index element. The
+association to the key it belongs to is done in the same way as for
+the <b class='cmd'>manpage</b> command. The first however is not the symbolic name
+of the file refering to that key, but an url describing the exact
+location of the document indexed here.
+
+</dl>
+
+<h2><a name="notes">NOTES</a></h2>
+<p>
+
+<ol>
+<li>
+
+Using an appropriate formatting engine and some glue code it is
+possible to automatically generate a document in <strong>docidx</strong>
+format from a collection of manpages in <strong>doctools</strong> format.
+
+
+</ol>
+
+<h2><a name="example">EXAMPLE</a></h2>
+<p>
+
+As an example an index for all manpages belonging to this module
+(doctools) of package <strong>tcllib</strong>.
+
+<p>
+
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+[index_begin tcllib/doctools {Documentation tools}]
+ [key HTML]
+  [manpage didxengine]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtformatter]
+  [manpage dtocengine]
+  [manpage dtocformat]
+  [manpage mpexpand]
+ [key TMML]
+  [manpage didxengine]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtformatter]
+  [manpage dtocengine]
+  [manpage dtocformat]
+  [manpage mpexpand]
+ [key conversion]
+  [manpage didxengine]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtformatter]
+  [manpage dtocengine]
+  [manpage dtocformat]
+  [manpage mpexpand]
+ [key documentation]
+  [manpage doctools]
+  [manpage dtformatter]
+ [key index]
+  [manpage didxengine]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtocformat]
+ [key interface]
+  [manpage didxengine]
+  [manpage dtformatter]
+  [manpage dtocengine]
+ [key manpage]
+  [manpage didxengine]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtformatter]
+  [manpage dtocengine]
+  [manpage dtocformat]
+  [manpage mpexpand]
+ [key markup]
+  [manpage didxengine]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtformatter]
+  [manpage dtocengine]
+  [manpage dtocformat]
+  [manpage mpexpand]
+ [key nroff]
+  [manpage didxengine]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtformatter]
+  [manpage dtocengine]
+  [manpage dtocformat]
+  [manpage mpexpand]
+ [key {table of contents}]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtocengine]
+  [manpage dtocformat]
+ [key toc]
+  [manpage didxformat]
+  [manpage doctools]
+  [manpage dtformat]
+  [manpage dtocengine]
+  [manpage dtocformat]
+[index_end]
+</pre></td></tr></table></p>
+
+
+
+<h2><a name="seealso">SEE ALSO</a></h2>
+<p>
+docidx, docidx_api, doctoc_fmt, doctools_fmt
+<h2><a name="keywords">KEYWORDS</a></h2>
+<p>
+HTML, LaTeX, TMML, generic markup, index, keywords, markup, nroff
+<h2><a name="copyright">COPYRIGHT</a></h2>
+<p>
+Copyright &copy; 2003 Andreas Kupries &lt;andreas_kupries@users.sourceforge.net&gt;<br>
+</body></html>

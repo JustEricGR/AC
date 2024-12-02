@@ -1,0 +1,163 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h" 
+
+`qvlmodule qvl_same_assertions( 
+                                active,
+				clock,
+				reset,
+				areset,
+				zivar,
+				used,
+				used_cond,
+				same,
+				same_fire,
+				evaluations,
+				set_to_one_bitmap,
+				set_to_zero_bitmap,
+				each_bit_set_to_one,
+				each_bit_set_to_zero,
+			        support
+			       );
+
+
+
+
+
+  parameter Constraints_Mode = 0; 
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = " QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter MATCH_XZ         = 0; 
+
+  //Instantiation dependant parameters
+  parameter VAR_ITEM_COUNT = 1; 
+  parameter VAR_ITEM_WIDTH = 1; 
+  parameter WIDTH = VAR_ITEM_COUNT*VAR_ITEM_WIDTH; 
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input active; 
+  input	clock;  
+  input	areset; 
+  input	reset;  
+
+  //required user specified inputs
+  input [WIDTH-1:0] zivar; 
+  input	used;            
+  input	used_cond;       
+ 
+  input same; 		
+  output same_fire;
+
+  output [63:0] evaluations;
+  output [VAR_ITEM_WIDTH-1:0] set_to_one_bitmap;
+  output [VAR_ITEM_WIDTH-1:0] set_to_zero_bitmap;
+  output each_bit_set_to_one;
+  output each_bit_set_to_zero;
+
+  reg same_fire;
+  reg same_viol;
+  reg [63:0] evaluations;
+  reg [VAR_ITEM_WIDTH-1:0] set_to_one_bitmap;
+  reg [VAR_ITEM_WIDTH-1:0] set_to_zero_bitmap;
+  wire each_bit_set_to_one = &set_to_one_bitmap;
+  wire each_bit_set_to_zero = &set_to_zero_bitmap;
+
+  wire xorzdetected = ^zivar;
+
+`ifdef QVL_ASSERT_ON  
+  wire same_fire_combo;
+`endif
+
+`ifdef QVL_ASSERT_ON
+  assign same_fire_combo = (reset === 1'b0) &&
+                  (areset === 1'b0) &&
+                  (active === 1'b1) &&
+                  (({VAR_ITEM_COUNT{zivar[VAR_ITEM_WIDTH-1:0]}}) !== zivar)&&
+                  (MATCH_XZ ||
+                  ((zivar^zivar) === {WIDTH{1'b0}})) &&
+                  (same === 1'b1) && 
+                  (!used ||(used && (used_cond === 1'b1)));
+`endif
+`protected
+
+    MTI!#]@*mKpATJ}@IF}{C}?E\KAE;<r,2XNk[k[xZzi5i>$MA|CUX7IA>KV_uY!em*=1\A7?Um=7
+    kuZ5k^027@BQ~{$^AzOG2I$aTjipQmjRle]D)Dn1p;vRi13'A^Gp@#=_=$Ys*nY/RAGkmDYo{{<?
+    eE7<L/ioijs?UQ,?[7{aV<b!<H^Ep-Z|:1na27{a-v@Ck!ae,P7XT[7WxQiwZUo!avsnl[lku*T{
+    G*:CNF[J+j2Uav1m-sK<_*!Y#CY2WT'I~IRO$Rw^AQ)[w1=uGJYTA3@aCin=D?Q^vR{~7'!Cu@Gs
+    x_HG*wTrJ{kK\J'u<WY)}9ER?Ur<Em>''~Y[2]^H*]@E+X#alU3}1V~-}=FNe?]IlZD;@Rj!A5k=
+    \lr<}REj:K773[@CEmj3e[@su}e}Xhm_OTUU-l'D7zATAJp?1#ntaU]x}lewV*3OEEcB@}2_#np7
+    #A=VUW\ZD=kX<+Vq~w<aXCX7E+mTW'e*g,>\ri1re"Ia}HkjOaAQZWwOHpdE@p?]3nBBn\5T-@]x
+    J$iHaZRj]!UUwUK_Yu@^BA3KYllR!Y52s,}@Q}_QoXsJz<OtQ3>v}/JRnQOpu2UVpxXn\3Y^?74=
+    @JOG7a37xr}{\7G=~AwTl<m7X1]\umY^K-H(=,?I$KpGas>!Qo!<BmJ1zx>#h6'*Vv!T1}y=QtYj
+    ,iW>AR7mpA>sY'1?XO3rzvKnTOVa[@Hek]3Os$$XZm;nZ+GI,]&Zl_JC[$\2X=~w<DKLO-2O'&[2
+    <_rX2V/\GlZDi$uxn3*3r\?,<RJ7R?YH7'l5[j~\&pI~R!15CE0\=V1yOvkpXsnC2T-DBKBwQH@G
+    xE==}Ok{xOGm+ElUD@Xu+{_wmIk~pf\pxC7HC]'zs<<>TT<Q2ze7_aU^*H_$=-RkD?>I\^D;o+>n
+    OQU7{gO'jeBA2'EuWv6iYzxl5m<1rw[DY3>O+zi_}wE/I3lZH><!k_p1I3sk=_D5DUW'KR<T{{Xm
+    C2T<Ibskm>pXVk5i
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert 
+        A_qvl_same_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (same_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_same_check"),
+                          .msg            ({msg,"Not all vectors in the expression had the same value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume 
+        M_qvl_same_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (same_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore 
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif
+
+`include "qvl_same_cover.svh"
+
+`qvlendmodule

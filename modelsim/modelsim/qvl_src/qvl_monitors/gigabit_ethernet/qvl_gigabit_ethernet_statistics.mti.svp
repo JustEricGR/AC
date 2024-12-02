@@ -1,0 +1,766 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//       U.S. Patent Numbers 6,175,946, 6,292,765, 6,609,229, 6,848,088     
+//                               and 6,885,983                              
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Gigabit Ethernet Statistics updation
+ *               module.
+ *
+ * DESCRIPTION   This module collects and updates various statistics
+ *               and corner cases pertaining to MAC, GMII, XGMII, XAUI
+ *               and XSBI interfaces.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`qvlmodule qvl_gigabit_ethernet_statistics (areset,
+                                            reset,
+                                            clk,
+                                            level_select,
+                                            collect_stats,
+                                            present_state,
+                                            next_state,
+                                            last_state,
+                                            data,
+                                            r_data,
+                                            vid,
+                                            frame_type,
+                                            frame_size_count,
+                                            requested_length,
+                                            inter_frame_gap,
+                                            mii_statistics,
+                                            gmii_statistics,
+                                            xgmii_statistics,
+                                            xaui_statistics,
+                                            xsbi_statistics,
+                                            total_frames_count,
+                                            data_frames_count,
+                                            ctrl_frames_count,
+                                            jumbo_frames_count,
+                                            untagged_data_frames_count,
+                                            vlan_tagged_data_frames_count,
+                                            priority_tagged_data_frames_count,
+                                            untagged_pause_frames_count,
+                                            vlan_tagged_pause_frames_count,
+                                            priority_tagged_pause_frames_count,
+                                            untagged_jumbo_frames_count,
+                                            vlan_tagged_jumbo_frames_count,
+                                            priority_tagged_jumbo_frames_count,
+                                            frames_with_global_address_count,
+                                            frames_with_local_address_count,
+                                            frames_with_group_address_count,
+                                            frames_with_individual_address_count,
+                                            min_size_untag_data_pkt_count,
+                                            max_size_untag_data_pkt_count,
+                                            packets_with_pad_count,
+                                            remote_faults_count,
+                                            local_faults_count,
+                                            lane0_termnates_count,
+                                            lane1_termnates_count,
+                                            lane2_termnates_count,
+                                            lane3_termnates_count,
+                                            align_column_count,
+                                            sync_column_count,
+                                            skip_column_count,
+                                            valid_block_count,
+                                            data_block_count,
+                                            control_block_count,
+                                            idle_block_count,
+                                            error_block_count,
+                                            s0_block_count,
+                                            s4_block_with_idle_count,
+                                            s4_block_with_os_count,
+                                            t0_block_count,
+                                            t1_block_count,
+                                            t2_block_count,
+                                            t3_block_count,
+                                            t4_block_count,
+                                            t5_block_count,
+                                            t6_block_count,
+                                            t7_block_count,
+                                            longest_ipg,
+                                            shortest_ipg,
+                                            invalid_frame_length_count,
+                                            max_align_interval,
+                                            min_align_interval,
+                                            collisions_statistics_count,
+                                            false_carrier_statistics_count,
+                                            carrier_extn_statistics_count,
+                                            back_to_back_frames_statistics_count
+                                           );
+
+  // This parameter indicates whether the monitor is instantiated on a 1 Gigabit 
+  // Ethernet GMII interface or an XGMII interface. This parameter is applicable 
+  // only in the MAC monitor.
+
+  parameter GMII = 0;
+  wire [31:0] pw_GMII = GMII;
+ 
+  // This parameter holds the information whether this instance of the monitor 
+  // is on the Transmit interface or the receive interface.
+
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+
+  parameter DDR = 0;
+  wire [31:0] pw_DDR = DDR;
+
+  parameter MII_MON = 0;
+  wire [31:0] pw_MII_MON = MII_MON;
+
+  input areset;
+  input reset;
+  input clk;
+  input level_select;
+  input collect_stats;
+  input [4:0] present_state;
+  input [4:0] next_state;
+  input [4:0] last_state;
+  input [31:0] data;
+  input [31:0] r_data;
+  input [11:0] vid;
+  input [15:0] frame_type;
+  input [15:0] frame_size_count;
+  input [15:0] requested_length;
+  input [63:0] inter_frame_gap;
+  input [07:0] mii_statistics;
+  input [07:0] gmii_statistics;
+  input [07:0] xgmii_statistics;
+  input [07:0] xaui_statistics;
+  input [15:0] xsbi_statistics;
+
+  output [63:0] total_frames_count;
+  output [63:0] data_frames_count;
+  output [63:0] ctrl_frames_count;
+  output [63:0] jumbo_frames_count;
+  output [63:0] untagged_data_frames_count;
+  output [63:0] vlan_tagged_data_frames_count;
+  output [63:0] priority_tagged_data_frames_count;
+  output [63:0] untagged_pause_frames_count;
+  output [63:0] vlan_tagged_pause_frames_count;
+  output [63:0] priority_tagged_pause_frames_count;
+  output [63:0] untagged_jumbo_frames_count;
+  output [63:0] vlan_tagged_jumbo_frames_count;
+  output [63:0] priority_tagged_jumbo_frames_count;
+  output [63:0] frames_with_global_address_count;
+  output [63:0] frames_with_local_address_count;
+  output [63:0] frames_with_group_address_count;
+  output [63:0] frames_with_individual_address_count;
+  output [63:0] min_size_untag_data_pkt_count;
+  output [63:0] max_size_untag_data_pkt_count;
+  output [63:0] packets_with_pad_count;
+  output [63:0] remote_faults_count;
+  output [63:0] local_faults_count;
+  output [63:0] lane0_termnates_count;
+  output [63:0] lane1_termnates_count;
+  output [63:0] lane2_termnates_count;
+  output [63:0] lane3_termnates_count;
+  output [63:0] align_column_count;
+  output [63:0] sync_column_count;
+  output [63:0] skip_column_count;
+  output [63:0] valid_block_count;
+  output [63:0] data_block_count;
+  output [63:0] control_block_count;
+  output [63:0] idle_block_count;
+  output [63:0] error_block_count;
+  output [63:0] s0_block_count;
+  output [63:0] s4_block_with_idle_count;
+  output [63:0] s4_block_with_os_count;
+  output [63:0] t0_block_count;
+  output [63:0] t1_block_count;
+  output [63:0] t2_block_count;
+  output [63:0] t3_block_count;
+  output [63:0] t4_block_count;
+  output [63:0] t5_block_count;
+  output [63:0] t6_block_count;
+  output [63:0] t7_block_count;
+  output [63:0] longest_ipg;
+  output [63:0] shortest_ipg;
+  output [63:0] invalid_frame_length_count;
+  output [63:0] max_align_interval;
+  output [63:0] min_align_interval;
+  output [63:0] collisions_statistics_count;
+  output [63:0] false_carrier_statistics_count;
+  output [63:0] carrier_extn_statistics_count;
+  output [63:0] back_to_back_frames_statistics_count;
+
+
+  parameter ZI_IDLE_STATE = 1;
+  parameter ZI_PREAMBLE_STATE = 2;
+  parameter ZI_SFD_STATE = 3;
+  parameter ZI_DEST_ADDR_STATE = 4;
+  parameter ZI_SRC_ADDR_STATE = 5;
+  parameter ZI_LEN_TYPE_STATE = 6;
+  parameter ZI_DATA_STATE = 7;
+  parameter ZI_PAD_STATE = 8;
+  parameter ZI_FCS_STATE = 9;
+  parameter ZI_TERMINATE_STATE = 10;
+  parameter ZI_CTRL_OPCODE_STATE = 11;
+  parameter ZI_CTRL_PARAM_STATE = 12;
+  parameter ZI_CTRL_RSVD_STATE = 13;
+  parameter ZI_TAG_CTRL_STATE = 14;
+  parameter ZI_FALSE_CAR_STATE = 15;
+  parameter ZI_CAR_EXTN_STATE = 16;
+  parameter ZI_JUMBO_STATE = 17;
+  parameter ZI_UNKNOWN_STATE = 18;
+
+  parameter ZI_MIN_FRAME_SIZE = 16'd46;
+  parameter ZI_MAX_FRAME_SIZE = 16'd1500;
+
+  // Registers for collecting corner cases. Not that these are updated 
+  // only on the posedge factoring events on both posedge and negedges
+
+  reg first_align_pos;
+  reg r_first_align_pos;
+  reg first_align_neg;
+  reg r_first_align_neg;
+  reg second_align_pos;
+  reg r_second_align_pos;
+  reg second_align_neg;
+  reg r_second_align_neg;
+  reg [4:0] r_last_state;
+  reg [4:0] rr_last_state;
+  reg [4:0] rrr_last_state;
+  reg [4:0] rrrr_last_state;
+
+  reg [63:0] total_frames_count;
+  reg [63:0] data_frames_count;
+  reg [63:0] ctrl_frames_count;
+  reg [63:0] jumbo_frames_count;
+  reg [63:0] untagged_data_frames_count;
+  reg [63:0] vlan_tagged_data_frames_count;
+  reg [63:0] priority_tagged_data_frames_count;
+  reg [63:0] untagged_pause_frames_count;
+  reg [63:0] vlan_tagged_pause_frames_count;
+  reg [63:0] priority_tagged_pause_frames_count;
+  reg [63:0] untagged_jumbo_frames_count;
+  reg [63:0] vlan_tagged_jumbo_frames_count;
+  reg [63:0] priority_tagged_jumbo_frames_count;
+  reg [63:0] frames_with_global_address_count;
+  reg [63:0] frames_with_local_address_count;
+  reg [63:0] frames_with_group_address_count;
+  reg [63:0] frames_with_individual_address_count;
+  reg [63:0] min_size_untag_data_pkt_count;
+  reg [63:0] max_size_untag_data_pkt_count;
+  reg [63:0] packets_with_pad_count;
+  reg [63:0] remote_faults_count;
+  reg [63:0] local_faults_count;
+  reg [63:0] lane0_termnates_count;
+  reg [63:0] lane1_termnates_count;
+  reg [63:0] lane2_termnates_count;
+  reg [63:0] lane3_termnates_count;
+  reg [63:0] align_column_count; 
+  reg [63:0] sync_column_count; 
+  reg [63:0] skip_column_count;
+  reg [63:0] valid_block_count;
+  reg [63:0] data_block_count;
+  reg [63:0] control_block_count;
+  reg [63:0] idle_block_count;
+  reg [63:0] error_block_count;
+  reg [63:0] s0_block_count;
+  reg [63:0] s4_block_with_idle_count;
+  reg [63:0] s4_block_with_os_count;
+  reg [63:0] t0_block_count;
+  reg [63:0] t1_block_count;
+  reg [63:0] t2_block_count;
+  reg [63:0] t3_block_count;
+  reg [63:0] t4_block_count;
+  reg [63:0] t5_block_count;
+  reg [63:0] t6_block_count;
+  reg [63:0] t7_block_count;
+  reg [63:0] longest_ipg;
+  reg [63:0] shortest_ipg;
+  reg [63:0] invalid_frame_length_count;
+  reg [63:0] collisions_count;
+  reg [63:0] false_carrier_count;
+  reg [63:0] carrier_extn_count;
+  reg [63:0] back_to_back_frames_count;
+
+  reg [63:0] align_interval_posedge;
+  reg [63:0] align_interval_negedge;
+  reg [63:0] max_align_interval_pos;
+  reg [63:0] max_align_interval_neg;
+  reg [63:0] min_align_interval_pos;
+  reg [63:0] min_align_interval_neg;
+
+  reg [63:0] r_total_frames_count;
+  reg terminate_detected;
+  reg terminate_detected_neg_status;
+
+  // Internal registers used as flags to collect ans save event on negedge
+
+  reg total_frames_count_neg_status;
+  reg data_frames_count_neg_status;
+  reg ctrl_frames_count_neg_status;
+  reg jumbo_frames_count_neg_status;
+  reg untagged_data_frames_count_neg_status;
+  reg vlan_tagged_data_frames_count_neg_status;
+  reg priority_tagged_data_frames_count_neg_status;
+  reg untagged_pause_frames_count_neg_status;
+  reg vlan_tagged_pause_frames_count_neg_status;
+  reg priority_tagged_pause_frames_count_neg_status;
+  reg untagged_jumbo_frames_count_neg_status;
+  reg vlan_tagged_jumbo_frames_count_neg_status;
+  reg priority_tagged_jumbo_frames_count_neg_status;
+  reg frames_with_global_address_count_neg_status;
+  reg frames_with_local_address_count_neg_status;
+  reg frames_with_group_address_count_neg_status;
+  reg frames_with_individual_address_count_neg_status;
+  reg min_size_untag_data_pkt_count_neg_status;
+  reg max_size_untag_data_pkt_count_neg_status;
+  reg packets_with_pad_count_neg_status;
+  reg remote_faults_count_neg_status;
+  reg local_faults_count_neg_status;
+  reg lane0_termnates_count_neg_status;
+  reg lane1_termnates_count_neg_status;
+  reg lane2_termnates_count_neg_status;
+  reg lane3_termnates_count_neg_status;
+  reg align_column_count_neg_status;
+  reg sync_column_count_neg_status;
+  reg skip_column_count_neg_status;
+  reg valid_block_count_neg_status;
+  reg data_block_count_neg_status; 
+  reg control_block_count_neg_status;   
+  reg idle_block_count_neg_status;   
+  reg error_block_count_neg_status;
+  reg s0_block_count_neg_status;   
+  reg s4_block_with_idle_count_neg_status;
+  reg s4_block_with_os_count_neg_status;  
+  reg t0_block_count_neg_status;
+  reg t1_block_count_neg_status;
+  reg t2_block_count_neg_status;
+  reg t3_block_count_neg_status;
+  reg t4_block_count_neg_status;
+  reg t5_block_count_neg_status;
+  reg t6_block_count_neg_status;
+  reg t7_block_count_neg_status;
+
+
+  // Wires used to indicate an event that triggers some statistic
+
+  wire inc_total_frames_count; 
+  wire inc_data_frames_count;
+  wire inc_ctrl_frames_count;
+  wire inc_jumbo_frames_count;
+  wire inc_untagged_data_frames_count;
+  wire inc_vlan_tagged_data_frames_count;
+  wire inc_priority_tagged_data_frames_count;
+  wire inc_untagged_pause_frames_count;
+  wire inc_vlan_tagged_pause_frames_count;
+  wire inc_priority_tagged_pause_frames_count;
+  wire inc_untagged_jumbo_frames_count;
+  wire inc_vlan_tagged_jumbo_frames_count;
+  wire inc_priority_tagged_jumbo_frames_count;
+  wire inc_frames_with_global_address_count;
+  wire inc_frames_with_local_address_count;
+  wire inc_frames_with_group_address_count;
+  wire inc_frames_with_individual_address_count;
+  wire inc_min_size_untag_data_pkt_count;
+  wire inc_max_size_untag_data_pkt_count;
+  wire inc_packets_with_pad_count;
+  wire inc_remote_faults_count;
+  wire inc_local_faults_count;
+  wire inc_lane0_termnates_count;
+  wire inc_lane1_termnates_count;
+  wire inc_lane2_termnates_count;
+  wire inc_lane3_termnates_count;
+  wire inc_align_column_count;
+  wire inc_sync_column_count;
+  wire inc_skip_column_count;
+  wire inc_valid_block_count;
+  wire inc_data_block_count;
+  wire inc_control_block_count;
+  wire inc_idle_block_count;
+  wire inc_error_block_count;
+  wire inc_s0_block_count;
+  wire inc_s4_block_with_idle_count;
+  wire inc_s4_block_with_os_count;
+  wire inc_t0_block_count;
+  wire inc_t1_block_count;
+  wire inc_t2_block_count;
+  wire inc_t3_block_count;
+  wire inc_t4_block_count;
+  wire inc_t5_block_count;
+  wire inc_t6_block_count;
+  wire inc_t7_block_count;
+  wire inc_collisions_count; 
+  wire inc_false_carrier_count; 
+  wire inc_carrier_extn_count; 
+  wire inc_back_to_back_frames_count;
+
+  wire w_terminate_detected;
+  wire first_align;
+  wire r_first_align;
+  wire second_align;
+  wire r_second_align;
+
+  //wire level_select;
+  wire align_bound;
+  wire align_detect;
+  wire [63:0] align_interval;
+  wire [63:0] max_align_interval;
+  wire [63:0] min_align_interval;
+
+  wire [63:0] collisions_statistics_count;
+  wire [63:0] false_carrier_statistics_count;
+  wire [63:0] carrier_extn_statistics_count;
+  wire [63:0] back_to_back_frames_statistics_count;
+
+
+
+  assign collisions_statistics_count = collisions_count;
+  assign false_carrier_statistics_count = false_carrier_count;
+  assign carrier_extn_statistics_count = carrier_extn_count;
+  assign back_to_back_frames_statistics_count = back_to_back_frames_count;
+
+  assign inc_total_frames_count = ((TX_INTERFACE == 1 && 
+                                    next_state === ZI_PREAMBLE_STATE &&
+                                    present_state !== ZI_PREAMBLE_STATE) ||
+                                   (TX_INTERFACE == 0 &&
+                                    next_state === ZI_SFD_STATE &&
+                                    present_state !== ZI_SFD_STATE));
+  
+  assign inc_data_frames_count = (next_state === ZI_DATA_STATE &&
+                                  present_state !== ZI_DATA_STATE);
+
+  assign inc_ctrl_frames_count = (next_state === ZI_CTRL_OPCODE_STATE &&
+                                  present_state !== ZI_CTRL_OPCODE_STATE);
+
+  assign inc_jumbo_frames_count = (next_state === ZI_JUMBO_STATE &&
+                                   present_state !== ZI_JUMBO_STATE);
+
+  assign inc_untagged_data_frames_count = ((GMII==0 && 
+                                   present_state === ZI_SRC_ADDR_STATE &&
+                                   next_state === ZI_DATA_STATE) || (GMII==1
+                                   && present_state === ZI_LEN_TYPE_STATE &&
+                                   next_state === ZI_DATA_STATE && 
+                                   ((MII_MON == 0 && rr_last_state === ZI_SRC_ADDR_STATE) || 
+                                   (MII_MON == 1 && rrr_last_state === ZI_SRC_ADDR_STATE)) &&   
+                                   last_state === ZI_LEN_TYPE_STATE));
+
+  assign inc_vlan_tagged_data_frames_count = ((GMII==0 && 
+                                   present_state === ZI_TAG_CTRL_STATE &&
+                                   next_state === ZI_DATA_STATE && 
+                                   {r_data[19:16],r_data[31:24]} > 12'h0) || 
+                                  (GMII==1 && 
+                                   present_state === ZI_LEN_TYPE_STATE &&
+                                   next_state === ZI_DATA_STATE && 
+                                   ((MII_MON == 0 && rr_last_state === ZI_TAG_CTRL_STATE) || 
+                                   (MII_MON == 1 && rrr_last_state === ZI_TAG_CTRL_STATE)) &&   
+                                   vid > 12'h0));
+
+  assign inc_priority_tagged_data_frames_count = ((GMII==0 &&
+                                   present_state === ZI_TAG_CTRL_STATE &&
+                                   next_state === ZI_DATA_STATE && 
+                                   {r_data[19:16],r_data[31:24]} === 12'h0) || 
+                                  (GMII==1 && 
+                                   present_state === ZI_LEN_TYPE_STATE &&
+                                   next_state === ZI_DATA_STATE &&
+                                   ((MII_MON == 0 && rr_last_state === ZI_TAG_CTRL_STATE) || 
+                                   (MII_MON == 1 && rrr_last_state === ZI_TAG_CTRL_STATE)) &&   
+                                   vid === 12'h0));
+
+  assign inc_untagged_pause_frames_count = ((GMII==0 && 
+                                   present_state === ZI_SRC_ADDR_STATE &&
+                                   next_state === ZI_CTRL_OPCODE_STATE && 
+                                   data[31:16] === 16'h01_00) || (GMII==1 &&
+                                   present_state === ZI_CTRL_OPCODE_STATE &&
+                                   {data[7:0], r_data[7:0]} === 16'h01_00 && //PAUSE_OPCODE 
+                                   next_state === ZI_CTRL_OPCODE_STATE && 
+                                   last_state === ZI_LEN_TYPE_STATE &&
+                                   ((MII_MON == 0 && rr_last_state === ZI_SRC_ADDR_STATE) || 
+                                   (MII_MON == 1 && rrrr_last_state === ZI_SRC_ADDR_STATE))));  
+
+  assign inc_vlan_tagged_pause_frames_count = ((GMII==0 &&
+                                   present_state === ZI_TAG_CTRL_STATE &&
+                                   next_state === ZI_CTRL_OPCODE_STATE && 
+                                   {r_data[19:16],r_data[31:24]} > 12'h0 &&
+                                   data[31:16] === 16'h01_00) || (GMII==1 &&
+                                   present_state === ZI_CTRL_OPCODE_STATE &&
+                                   {data[7:0], r_data[7:0]} === 16'h01_00 && //PAUSE_OPCODE 
+                                   next_state === ZI_CTRL_OPCODE_STATE &&
+                                   last_state === ZI_LEN_TYPE_STATE &&
+                                   ((MII_MON == 0 && rr_last_state === ZI_TAG_CTRL_STATE) || 
+                                   (MII_MON == 1 && rrrr_last_state === ZI_TAG_CTRL_STATE)) &&   
+                                   vid > 12'h0));
+
+  assign inc_priority_tagged_pause_frames_count = ((GMII==0 &&
+                                   present_state === ZI_TAG_CTRL_STATE &&
+                                   next_state === ZI_CTRL_OPCODE_STATE && 
+                                   {r_data[19:16],r_data[31:24]} === 12'h0 &&
+                                   data[31:16] === 16'h01_00) || (GMII==1 && 
+                                   present_state === ZI_CTRL_OPCODE_STATE &&
+                                   {data[7:0], r_data[7:0]} === 16'h01_00 && //PAUSE_OPCODE 
+                                   next_state === ZI_CTRL_OPCODE_STATE &&
+                                   last_state === ZI_LEN_TYPE_STATE &&
+                                   ((MII_MON == 0 && rr_last_state === ZI_TAG_CTRL_STATE) || 
+                                   (MII_MON == 1 && rrrr_last_state === ZI_TAG_CTRL_STATE)) &&   
+                                   vid === 12'h0));
+
+  assign inc_untagged_jumbo_frames_count = ((GMII==0 &&
+                                   present_state === ZI_SRC_ADDR_STATE &&
+                                   next_state === ZI_JUMBO_STATE)
+                                   || (GMII==1 &&
+                                   present_state === ZI_LEN_TYPE_STATE &&
+                                   next_state === ZI_JUMBO_STATE &&
+                                   ((MII_MON == 0 && r_last_state === ZI_SRC_ADDR_STATE) ||
+                                    (MII_MON == 1 && rr_last_state === ZI_SRC_ADDR_STATE))));
+
+  assign inc_vlan_tagged_jumbo_frames_count = ((GMII==0 &&
+                                   present_state === ZI_TAG_CTRL_STATE &&
+                                   next_state === ZI_JUMBO_STATE &&
+                                   {r_data[19:16],r_data[31:24]} > 12'h0)
+                                   || (GMII==1 &&
+                                   present_state === ZI_LEN_TYPE_STATE &&  
+                                   next_state === ZI_JUMBO_STATE &&
+                                   ((MII_MON == 0 && r_last_state === ZI_TAG_CTRL_STATE) ||
+                                    (MII_MON == 1 && rr_last_state === ZI_TAG_CTRL_STATE)) &&
+                                   vid > 12'h0));
+
+  assign inc_priority_tagged_jumbo_frames_count = ((GMII==0 &&
+                                   present_state === ZI_TAG_CTRL_STATE &&
+                                   next_state === ZI_JUMBO_STATE &&
+                                   {r_data[19:16],r_data[31:24]} === 12'h0)
+                                   || (GMII==1 &&
+                                   present_state === ZI_LEN_TYPE_STATE &&  
+                                   next_state === ZI_JUMBO_STATE &&
+                                   ((MII_MON == 0 && r_last_state === ZI_TAG_CTRL_STATE) ||
+                                    (MII_MON == 1 && rr_last_state === ZI_TAG_CTRL_STATE)) &&
+                                   vid === 12'h0));
+
+
+  assign inc_frames_with_global_address_count = 
+                                  (present_state === ZI_SFD_STATE &&
+                                   next_state === ZI_DEST_ADDR_STATE &&
+                                   data[1] === 1'b0);
+
+  assign inc_frames_with_local_address_count = 
+                                  (present_state === ZI_SFD_STATE &&
+                                   next_state === ZI_DEST_ADDR_STATE &&
+                                   data[1] === 1'b1);
+
+  assign inc_frames_with_group_address_count = 
+                                  (present_state === ZI_SFD_STATE &&
+                                   next_state === ZI_DEST_ADDR_STATE &&
+                                   data[0] === 1'b1);
+
+  assign inc_frames_with_individual_address_count = 
+                                  (present_state === ZI_SFD_STATE &&
+                                   next_state === ZI_DEST_ADDR_STATE &&
+                                   data[0] === 1'b0);
+
+  assign inc_min_size_untag_data_pkt_count = 
+                                  (((present_state === ZI_TERMINATE_STATE &&
+                                   next_state === ZI_IDLE_STATE &&
+                                   GMII === 0) || (GMII === 1 &&
+                                   present_state === ZI_FCS_STATE &&
+                                   (next_state === ZI_IDLE_STATE ||  
+                                    next_state === ZI_CAR_EXTN_STATE)))&&
+                                   frame_type <= ZI_MAX_FRAME_SIZE && 
+                                   frame_size_count === 16'd64);
+
+
+  assign inc_max_size_untag_data_pkt_count = 
+                                  (((present_state === ZI_TERMINATE_STATE &&
+                                   next_state === ZI_IDLE_STATE &&
+                                   GMII === 0) || (GMII === 1 &&
+                                   present_state === ZI_FCS_STATE &&
+                                   (next_state === ZI_IDLE_STATE ||  
+                                    next_state === ZI_CAR_EXTN_STATE)))&&
+                                   frame_type <= ZI_MAX_FRAME_SIZE && 
+                                   frame_size_count === 16'd1518);
+
+  assign inc_packets_with_pad_count = (((GMII == 0 && 
+                                      next_state === ZI_TERMINATE_STATE && 
+                                      present_state !== ZI_TERMINATE_STATE) || 
+                                      (GMII == 1 &&
+                                      (next_state === ZI_IDLE_STATE ||
+                                       next_state === ZI_CAR_EXTN_STATE) && 
+                                      present_state === ZI_FCS_STATE)) &&
+                                      frame_type <= ZI_MAX_FRAME_SIZE && 
+                                      frame_size_count === 16'd64 &&
+                                      requested_length < ZI_MIN_FRAME_SIZE);
+
+  assign inc_remote_faults_count = xgmii_statistics[0]; 
+
+  assign inc_local_faults_count = xgmii_statistics[1]; 
+
+  assign inc_lane0_termnates_count = xgmii_statistics[2];
+
+  assign inc_lane1_termnates_count = xgmii_statistics[3];
+
+  assign inc_lane2_termnates_count = xgmii_statistics[4];
+
+  assign inc_lane3_termnates_count = xgmii_statistics[5];
+
+  assign inc_align_column_count = (xaui_statistics[2] && xaui_statistics[3]);
+
+  assign inc_sync_column_count = (xaui_statistics[1] && xaui_statistics[3]);
+
+  assign inc_skip_column_count = (xaui_statistics[0] && xaui_statistics[3]);
+
+  assign inc_valid_block_count = xsbi_statistics[15];
+  
+  assign inc_data_block_count = xsbi_statistics[14];
+
+  assign inc_control_block_count = xsbi_statistics[13];
+
+  assign inc_idle_block_count = xsbi_statistics[12];
+
+  assign inc_error_block_count = xsbi_statistics[11];
+
+  assign inc_s0_block_count = xsbi_statistics[10];
+
+  assign inc_s4_block_with_idle_count = xsbi_statistics[09];
+
+  assign inc_s4_block_with_os_count = xsbi_statistics[08];
+
+  assign inc_t0_block_count = xsbi_statistics[07];
+
+  assign inc_t1_block_count = xsbi_statistics[06];
+
+  assign inc_t2_block_count = xsbi_statistics[05];
+
+  assign inc_t3_block_count = xsbi_statistics[04];
+
+  assign inc_t4_block_count = xsbi_statistics[03];
+
+  assign inc_t5_block_count = xsbi_statistics[02];
+
+  assign inc_t6_block_count = xsbi_statistics[01];
+
+  assign inc_t7_block_count = xsbi_statistics[00];
+
+  assign inc_collisions_count = (gmii_statistics[0] || mii_statistics[0]); 
+
+  assign inc_false_carrier_count = (gmii_statistics[1] || mii_statistics[1]); 
+
+  assign inc_carrier_extn_count = gmii_statistics[2]; 
+
+  assign inc_back_to_back_frames_count = gmii_statistics[3];
+ 
+  assign w_terminate_detected = (next_state === ZI_TERMINATE_STATE);
+
+  assign first_align  = (level_select) ? first_align_pos : first_align_neg;
+
+  assign second_align = (level_select) ? second_align_pos : second_align_neg;
+
+  assign r_first_align = (level_select) ? r_first_align_pos: r_first_align_neg;
+
+  assign r_second_align = (level_select) ? r_second_align_pos :
+    r_second_align_neg;
+
+  assign align_interval = (level_select) ? align_interval_posedge :
+    align_interval_negedge ;
+
+  assign max_align_interval = (level_select) ? max_align_interval_pos :
+    max_align_interval_neg ;
+
+  assign min_align_interval = (level_select) ? min_align_interval_pos :
+    min_align_interval_neg ;
+
+  assign align_detect = xaui_statistics[2];
+
+  assign align_bound = xaui_statistics[3];
+
+  //assign level_select = xaui_statistics[4];
+`protected
+
+    MTI!##'EsWj*1lsX^^@V~!<=ox]^27Omo+[n2FB?mm7"+v_2}:?om^qA'X!z3Y1N9e,7}i=TA}O$
+    5HR[z]$RujT=}=JBk&VzH[}o$!BJz_uR@]A*k!=-$]v[Y\]B[kF143YuWiX;*IP{'wHTA5n'HJll
+    BGDACHn7wA\GCI}I,iwG<lG?z21l@~JNjuUOejeK|xk\WE{pY{Rp#*m\E-XmR\{<ru7'5*BBI-Vp
+    rZ1^eraa]QG!wozDu-{zHOjJx}QEspZ<'YRQ_p@z<&QeZu~}'V$jJzMf1z<'iI]rKo#Qh,Vn7\,l
+    CVp7k?r*U[KD'?^e\V*^KKT>1#RDEV$*^nDrY->-QR-<arh>UZrvDl;JUQ?V'azyJV!OOW-DuoAT
+    5[5{5U1>xPGaR#k53lkxp5!h"];umE+aDa}u+7{ZDU5O7HQ3GU]vE6a+<zxg+{wYr-+]v7X<mURr
+    ?DZ[oLa}I^R_aCAj]!-TZ}0A1_j]77rOwr{=_}>eDZOYek*_rx?ol$TxwHn73=il)I{m=Y>2m{YZ
+    @~pO!W]'KSp'z=-oYk$>RJ),_U#<-vxT$zjpO~wsRDJH\ZI]k<aC}WYS8};w1GC$\?zZVK[?!TY1
+    <ewHD1,$*uDK-Kl3k2o[pDX<VtqU'=,'nKKjX@lQB$*/<R,+'v!QMvGB<}RIU=I'n7~K]qZ]{Q_U
+    RsYj^!Y5*EDEXj\m'E-rr*F#o;p(A>C->,^oB>s-Y}}DkwZ^W<5r_3!JHo-{J]VC\{x;vM<-l=\*
+    E]Qw!YoW}7Kl^kz,a-8;^m+zx!E{oa,5#<},'2WWzJ]QoroC$;+voAIvW=n-x}pDnGIVR\2uO*QV
+    jjzXB5a^<Ek,n^Z1;I2B>AUheRRQY7QU<-X[ajaopIj!wD\i}u1GQ~s[7iJ*n577QY_3uV$m}7_2
+    H+epi=-n#H[r}\v*{ova75D26Kr;+7OjptwH\e;]\2Y1iz-e!}WRjIeVlC?5U^7h2[GXK+Al-]pe
+    Hv7C]AY3r3e]GsrVu^<p*x^WcQH;K3}~pGxw{p,Bp\TB3<Y9G=R{xkl]{x~aY2DKkYEX5@m]yR<_
+    ,Vn!$5}n?UICJIzZK+E~V7o;!v!GZXRo==k'pQ+GjBZ~mpTwG,U;u3r<[vlw<ODRK=]ioG/XeU5_
+    !3BpA}vYoxw5prxa*=Vm=e;$rpK[en$ABE#AejT/#G=R1\sW<7\@5$?{E}K'$}eE#\=jG+AW3lHK
+    )il!pK]Gi,rYp1]{CCo]p<xR-!s?r'Y~llJekW7-C'j+z,kzlOFsCZpTji].r>E<E}u3>{'~1#wT
+    VrQxO>HC%l_ZBH]wZ$==5{^1az+lK#_xJ82[{\_{'OsT+5EX]11=k$;l'@Q'@A^;v3?-uvzix[m8
+    ^D+sGM<H[iQ}Qm3G3[jVTE|[;BAtWo_Yk>a#%Qjwp+7?2MiBm^7*3<IwW}\+{>D[?k/rhXve7z}?
+    Ti[^ElWuB^zze<QBH}=-GK^UvwOVa;t%n'pV'HN~a}!l,#>o=ZTE]G[OIowrU=#G[UVK>oz?_ZZl
+    '!}oCsnaQ?{3>G,?xrY!{A$YAq=-[f"Oi+kV?_nN=W'{AYxwEpr@dW[WB4-$<U@BKjo[1!!Q;'$-
+    (u<~=Cw}[9BZ<z-R=zTr2$roz+?*_'JT=@oRs\PC+T_i(}IE_Trsw>[e$oNJ*!}Iw$Zu,JZ}iA*u
+    [$Y#QWE=wIncv*i?#HuKOvXu^KBZw\1e-Qrxz<Q@FxnHv<B22?7I38-w}*zC<Xea7;@I*},pT+mv
+    UmTeRZ;<<K]>V\-G3*yX*\,svQk!,7\-7UVv}+?T,X^^H3;v,\+CZu=is<p"V?T{aY@vqap}nG7j
+    +,@]luIX[R5;w*]ErA,Zrr+',c@-+=!{~]x?5IkDe<5il~<AIT$E?u#A],C[aRx2V#SCI;EeY*V>
+    ViQ]a}CfsnQR5xn2e_$an_z[4e?E!=aCk3_E$o>2'i$aOz1r2JGD_1eK?E]+3OpR?5$#uzT+OCWC
+    }=a_o7i!U2AAmpwZna1vr=~ZJiCI+Y[[u&BQZ1=YR_==,Wvt]D52o_znHlT3p;@e2}oaJ<wAZ}3B
+    ^TV~W$#Z\sUwL[R*,$=s3_]Zs$eH#,X;XWACjD[Xwj+,*1XB*x+$YGCxK}rzj?BHpr[DQ\^DKFAr
+    !O-Q^j[\OuC_Z_Rx+k%#G_7!Bwl;QoRX'$2^UK1]hTvG?r1B=e5V<A=-l1Vx}8:Xl@O-&$'n^V,s
+    ]z@xmru7![>o,n+Hx~ATvCkz<Go{WIpOZ7;a_e#7BEUzxvi;X{<C!I[Q{YOVUDQ[s7X[K9vs'^x\
+    ~+I;<O]Vis*ev7Qnv-b^v>UCnm*pOwrK_VkpDIsTATV}nD^vkxZe]]}TQVCReZs'j*iCg7Jn\jE?
+    Wlx^Bf,z2[yRrR*GD{zVEkXAoj!~zVpD,KO^KX_EGD!$}D<E7_?^[\V$53rWU_#E#{rkQBpne1J{
+    xBJxzC##QHvEzw_\+_ZvgHE>~mnU>jYz#-XGK~vJBQ>X$vOTZnzBZRm17ojGO\_I~;si+.iG;O{R
+    pwpE7u^vwV]Q$5Op=H\Xs*hCIH78xG=WHR}Vf$I1Vvn3KA=iKz=D@m+Zo][pZwj<z1>)D!aE?';_
+    o?!;RvGH^EH,=QwEAwCu-CDOfuV@\qwYT'3<<pv:Wevlkle~|s2a<YkHR<OIA~vu~p]*}C7Kv'{_
+    -!^XTX<v1!}Vze-X?[K3\}i+lCG#U5?jj2I]x&qJa-[=?X#*Uv,#rkXa*@V5ATRD'{^?TE[B=r!*
+    {n}s,?$*dTj\z^W{G$'a[v~{#aD^o)p;ZBbm7_?{TZJCBx^;DUx#Tl-2C}p$#OzG{l@D7+I;+-xN
+    :xv!n_o}n{G2@{{XvV^T'YT<H-A-[BJjD'KUUnxU3z1p-IpKu11Qu+]a!&<XauwQ*1bRs-+\sO?E
+    ^w@{BH;1DR+_<!wJe7RVw}<riXw>nmU6s_Tm*QEJn5+@$z2]NplZ1p,zZ-IslRH~_e'O2!,jR\aO
+    >52+YypW<I(Qv~m~v;Tes7EKYozQ\wVO^7v55{e*>]spkxaiG;[[m7G72uk?vo]AB7V>Y@$C'o5r
+    H<HuqEpi~+\z2Y\;=uzm,$[e@zT<!a=KAhZl7'Y[{zCmTR"ixjQEk5p3]^_'*AQB%xk~?0VQs2,{
+    j1mUz,}WEzv$rQ.y&.r$w}+BR{j7lvW<-$'#RxyC~*2u\k>*Z{w3Qw5,;^A2v{j>B1<e{W3XlpG3
+    =\}YmzJ:T[GJj!Tx\~j*B2H1Ll#eDpXB=D5=V\~DK~,ZuRKCrGeGvV<mavWKa\5+O=mO\>5VB1*j
+    K1sN#C!;UQww?YW##[n{\KaRO+{Kv{U,WBUYX-*U{n;exz*sU[v{'l?esRz\x\@CYYvQ!,,;<-Zn
+    $xevQ7++1T~OGTz=jGw>>{T+?E[OJo3JD]A\>nvZp-K5jpe7v>{vyVTrlj@vi,WUAs$5}7U!Yf,T
+    j]_\olG5TD8~V!ExmZjsUZjtyu'+YBaE5cVlGVI55,r>+5DHZXj}*!M~wEkC\27HDz+MCn\BODzz
+    G@_OIU31]WVD#B1s(#p.9Da~sl[-WG1Xe*\WT~>]sRR]poD5Y5C?p=21IvWEmUX$UCD+pa$u@-lJ
+    I5=a;PKCQwEu}v([~mZ{5]JoT]BH]nR#oICETj^za+v#XK^#<CT#]7X;X]peE'n~=D@jK2Bu'<xD
+    T+uImK=H==\2R?U}$nQzpZa5I'K_{ulueXO}aT,#X_[L_+1sx3Y!oHnHJeo-<R]7vKDuWR1*B^^l
+    2]ET~_Q;p7C,!n7\O5OT#AZGj_GG-zpK*--IEJ@*j#rwk}V\J1'kXS>^Vk,l=*RmE~Awn1@vH?y~
+    VJuBV'??_Q\$Bb2p]cVGi+N\H'Y#sY3-Y3j%:=p-rMO+E2K_3\\1p-AOW'z!w-:DomuVrEISRA<2
+    R2AelQC\'VxHMw*}l+G?nsT5Eu'\p)<{pspu-r?e\#^BmlnnzXR3^}cAz^'*?$KJ$o$AY\H$H>H|
+    WGw+XzZ3lJ*u,A>rwresH5I#*{^^-aOHyVzx}$ae]v_!v5YjX3AT\\^wxu]w?~^msl[znR$YaTQ#
+    Wt$bu}X\HIY;#r-~O-A]t8m5$Rza<s<]Ej>wja^\EWD'kAYH,sn}>@3''^0$InU@5+TwR_"p>1~z
+    ;smH_5z?\amQl>T|5*1V7[Ro,'u^V$CC,lQ+O-*_ol@@T[_aonuDe1e<3ppEEo~vVk5_wEl?vDa1
+    ;n_kljOR~EGI+n;\~EXl3>~[je}iO3jH1naAyKCl_ulC]B{aKU5O'[Xz$T>,;Iv}A>5J@Qwa5;n<
+    TfzFH5Y2*Ga'5ux-Dw{EsHQ[VA*[$~j*,JjC-+Y*Mr?jw{}=~v'A*vZXBg@CZlnR7jeAaQn5z@lC
+    ZV<EJ\Q*!Edl=R{;U}]alToPMj>oTp?H-x;~=KDuvO@IIZlzY6Caa_%V_~Ixo!jyJE}QzoWkAzHZ
+    lw-V>DksB7?wYi=5[>$CN#C#Qw^un?-r2zlAZDF)8U<opP%C-!jUa1l?>j!$''r*TxmLzok]lHYU
+    1>ax^R-zymD#uUG<]7K}\D[+T*Y>Km<;X{'_X^?-aC{oVOADr4x_@]{Cr-]pv^,OQI^lu<;5lB,i
+    2zOA>E[+]wgW]<sZSCuG-$X~*3nA\HT!RJj_A.n<Z{N-R5jmX@WG_CsK^Q'^+VJ]*~^j<~'Q+>~D
+    !>neQn?hl,R5?r-IYY1X+T{>!\_<RjAIEwQZH7XAgones@_\@CRp*IV\p:BCJsn7+X=;X'IBTEOA
+    ^z,e5Z_l>z@}*w*>\[QRa5YI+5:<T7uWH_XJY+3wp^<x[<@)EG!T\\3_[C<Cul!'XUnHxkOI=2lA
+    @T^X+<r
+`endprotected
+
+`include "qvl_gigabit_ethernet_statistics_cover.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_statistics.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_statistics.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_statistics
+`include "zi_cw_gigabit_ethernet_statistics.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // zi_cw_gigabit_ethernet_statistics

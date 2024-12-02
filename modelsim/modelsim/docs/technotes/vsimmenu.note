@@ -1,0 +1,184 @@
+ModelSim menu functions.  These functions simplify the process of
+adding items to existing menus or adding new menus.
+
+get_menu_path wname mname
+
+        Helper function. Given a window name ("" for the main window)
+        and the name of a menu, this function will return the Tk menu
+        pathname. For a simple toplevel menu, the mname can simply be
+        the label string. For nested menus mname must be the partial
+        path constructed by appending the label names together with
+        dots (.), downcase the first character, and replace spaces
+        with underscores (_). For example: "File" > "Add to Project"
+        becomes file.add_to_Project. The syntax applies to all menu
+        functions that have "wname mname" arguments.
+
+add_menu wname name {acc -1} {side left} {noTearoff 1}
+
+        Create a toplevel menu. name is the label used for the
+        menu. acc is the numeric offset for the accelorator character
+        which defaults to -1, meaning no accelorator. side is either
+        left, the default, or right. noTearoff is a boolean which will
+        disable the tearoff feature of the menu, the default is 1. The
+        return value is the widget pathname of the menu.
+
+add_submenu wname mname name {acc -1} {noTearoff 1}
+
+        Create a sub menu (cascade). This command creates a cascade
+        entry in "wname mname" with label "name" and attaches a new
+        menu to it. The return value is the mname partial path that
+        may be used in subsequent menu calls as the mname
+        argument. See add_menu for a description of acc and noTearoff.
+
+add_menuitem wname mname label cmd {acc -1} {acctext "none"}
+
+        Creates a command entry in "wname mname".  acctext is an
+        optional short-string that will be placed in the menu entry.
+        Example might be "Ctrl-C".
+
+change_menu_cmd wname mname label cmd
+
+        Modifies and existing menu command entry. "wname mname label"
+        identify the entry. cmd will replace the previous command for
+        the entry.
+
+add_menucb wname mname label args
+
+        Creates a checkbutton menu entry. args are any valid option
+        for the Tk menu "add checkbutton" command or Tk checkbutton
+        commands.
+
+add_menurb wname mname label args
+
+        Creates a radiobutton menu entry. args are any valid option
+        for the Tk menu "add radiobutton" or the Tk radiobutton
+        commands.
+
+add_separator wname mname
+
+        Creates a separator in the menu.
+
+get_menu_accelerators menu
+
+        This diagnostic tool will return a list of characters that
+        indicate all the available accelorators for a given menu. This
+        must be a unique set, otherwise the 2nd and subsequent menu
+        entries are not accessable via the accelorator.
+
+get_accel_list menu num_additions
+
+        Returns a list, num_additions long, of available accelorators
+        based on what accelorators are already in use.
+
+add_window_menu wname
+
+        This will create the Windows menu, common to all toplevel
+        windows in ModelSim.
+
+add_system_menu wname
+
+        This will create the System menu, common to all toplevel
+        windows in ModelSim. (Note: not all windowing systems support
+        a System menu.)
+
+disable_menu wname mname
+
+        Disable a menu. (chagnes menu state to disabled)
+
+enable_menu wname mname
+
+        Enable a menu. (changes menu stae to normal)
+
+disable_menuitem wname mname label
+
+        Disable the menu item. (changes entry state to disabled).
+
+enable_menuitem wname mname label
+
+        Enable the menu item. (changes entry state to normal).
+
+configure_menuitem wname mname label args
+
+        Configure a menu item.
+
+find_menuitem wname mname label
+
+        Find the entry for "wname mname label". Returns the index of
+        the entry.
+
+find_menuname wname mname label
+
+        Returns the simple name of the menu.
+
+find_menuitemdirect m label
+
+        Finds the menu item given a menu pathname.
+
+set_menu_postcmd wname mname cmd
+
+        Sets the menus postcommand to cmd.  This command gets called
+        whenever the menu is posted. (Note: on Windows, all
+        postcommands for all menus are called whenever any menu is
+        posted.)
+
+setstate_menuitem wname mname label state
+setstate_menuitemdirect m label state
+
+        These commands will modify the state (disabled|normal) of the
+        specified menu item.
+
+
+================================================
+
+Some utility routines:
+
+MakeImageFromIcon {file} 
+
+        Windows only! This function returns a Tk image of the Windows
+        registered (small) icon for the give file type. The file
+        argument is used as a representive file to determine the type.
+
+WinfoTopFrame {w} 
+
+        Given a child window, w, will search up the widget hierarchy
+        and return the functional "root" of the window.
+
+WinfoFindClass {classlist w} 
+
+        Given a child window, w, will search up the widget hierarchy
+        for a widget of any of the classes in classlist.
+
+
+Here's an example using the menu functions:
+
+# View menu
+add_menu     ""  view 0
+set dw [\
+add_submenu  ""  view "Debug Windows" 0]                                                 ;# D
+set_menu_postcmd "" view.$dw {set_dw_menu_availability view.$dw}
+add_menuitem ""  view.$dw "All Windows" {transcribeImm view *}                         0 ;# D.A
+add_separator "" view.$dw ;#--------------------------------------------------
+add_menucb   ""  view.$dw "Active Process" -variable vsimPriv(process_pane_visible_menu) \
+        -command {ToggleProcessPaneForce} -underline                                   1 ;# D.C
+add_menucb   ""  view.$dw "Assertions" -variable vsimPriv(assertions_pane_visible_menu) \
+        -command {Transcript::view_pane assertions} -underline                         5 ;# D.T
+add_menuitem ""  view.$dw "Dataflow"       {transcribeImm view dataflow}               0 ;# D.D
+add_menucb   ""  view.$dw "Functional Coverage" -variable vsimPriv(fcovers_pane_visible_menu) \
+        -command {Transcript::view_pane fcovers} -underline                            0 ;# D.F
+add_menuitem ""  view.$dw "List"           {transcribeImm view list}                   0 ;# D.L
+add_menucb   ""  view.$dw "Locals" -variable vsimPriv(variables_pane_visible_menu) \
+        -command {Transcript::view_pane variables} -underline                          5 ;# D.S
+add_menucb   ""  view.$dw "Memory" -variable vsimPriv(memory_tab_visible_menu) \
+        -command Memview::ToggleTab -underline                                         0 ;# D.M
+add_menucb   ""  view.$dw "Objects" -variable vsimPriv(signals_pane_visible_menu) \
+        -command {Transcript::view_pane signals} -underline                            1 ;# D.I
+add_menucb   ""  view.$dw "Watch" -variable vsimPriv(watch_pane_visible_menu) \
+        -command {Transcript::view_pane watch} -underline                              4 ;# D.H
+add_menuitem ""  view.$dw "Wave"           {transcribeImm view wave}                   0 ;# D.W
+add_separator "" view ;#------------------------------------------------------
+add_submenu   "" view Sort                                                             2 ;# R
+add_menuitem  "" view.sort "Ascending"             "$vsimPriv(Vcop) Action sort a"     0 ;# R.A
+add_menuitem  "" view.sort "Descending"            "$vsimPriv(Vcop) Action sort d"     0 ;# R.D
+add_menuitem  "" view.sort "Ascending, Full path"  "$vsimPriv(Vcop) Action sort fa"    1 ;# R.S
+add_menuitem  "" view.sort "Descending, Full path" "$vsimPriv(Vcop) Action sort fd"    1 ;# R.E
+add_menuitem  "" view.sort "Declaration Order"     "$vsimPriv(Vcop) Action sort decl" 12 ;# R.O

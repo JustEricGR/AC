@@ -1,0 +1,488 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_assert_follower_assertions (
+                                           clock,
+                                           areset,
+                                           reset,
+                                           active,
+                                           leader,
+                                           follower,
+                                           min,
+                                           max,
+                                           max_leader,
+                                           assert_follower_check,
+                                           max_leader_check,
+                                           known_follower_check,
+                                           assert_follower_fire,
+                                           max_leader_fire,
+                                           known_follower_fire,
+                                           max_leaders_outstanding,
+                                           max_response_time,
+                                           min_response_time,
+                                           windows_checked,
+                                           outstanding_leaders,
+                                           min_response_time_equals_min,
+                                           max_response_time_equals_max,
+                                           support,
+                                           fire_count
+                                           );
+
+
+
+
+  // Parameter declarations
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  parameter MAX_LEADER_DEFAULT = 16;
+
+  parameter MAX_WIDTH = 1; 
+  parameter MIN_WIDTH = 1; 
+
+  parameter MAX_SPECIFIED = 0; 
+  parameter MIN_SPECIFIED = 0; 
+
+  parameter MAX_LEADER_SPECIFIED = 0; 
+  parameter MAX_LEADER_WIDTH_PARAM = 1; 
+  parameter MAX_LEADER_WIDTH_PORT = 1; 
+
+  parameter MAX_LEADER_IS_CONST = 0; 
+  parameter MAX_LEADER_CONST_VAL = 0; 
+   
+  // This is a dummy parameter to remove cwc warning
+
+  parameter MAX_LEADER_ITEM_COUNT = 1; 
+
+  parameter MAX_LEADER_WIDTH = (MAX_LEADER_SPECIFIED) ? 
+                             MAX_LEADER_WIDTH_PORT : MAX_LEADER_WIDTH_PARAM;
+
+  // A fifo is used to store the time as and when leader is asserted.
+  // Fifo depth is 2^MAX_LEADER_WIDTH. A maximum of MAX_LEADER instances
+  // can be stored
+
+  parameter INSTANCE_FIFO_DEPTH = (MAX_LEADER_IS_CONST && MAX_LEADER_SPECIFIED) ? 
+                                                           MAX_LEADER_CONST_VAL : 2 << (MAX_LEADER_WIDTH - 1);
+
+  // This parameter is used for precondition   
+
+  parameter MAX_LEADER_MAX = INSTANCE_FIFO_DEPTH;
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  parameter CW_FOR_FPGA = 0;
+  parameter STATS1_W = CW_FOR_FPGA ? MAX_LEADER_WIDTH : 64;
+  parameter STATS2_W = CW_FOR_FPGA ? 32 : 64;
+  parameter STATS3_W = CW_FOR_FPGA ? MAX_LEADER_WIDTH : 63;
+  parameter MIN_IS_CONST = 0; 
+  parameter MAX_IS_CONST = 0; 
+
+  // Input port declarations
+
+  input clock; 
+  input reset; 
+  input areset; 
+  input active; 
+
+  // Input variables
+
+  input leader; 
+  input follower; 
+
+  // For input max_leader, list pragma is specified so that the
+  // inferred width is just enough to hold the max leader value.
+  // If this is not specified then when an integer is specified in
+  // the argument, width inferred will be 32 bits.
+
+  input [MAX_LEADER_WIDTH - 1:0] max_leader; 
+  input [MAX_WIDTH - 1:0] max; 
+  input [MIN_WIDTH - 1:0] min; 
+
+  // Check port declarations
+
+  input assert_follower_check; 
+
+  input max_leader_check; 
+
+  input known_follower_check; 
+
+  parameter AF_CHECK_ON = 0; 
+  parameter ML_CHECK_ON = 0; 
+  parameter KF_CHECK_ON = 0; 
+
+  // Output signal declarations
+
+  // Fire signals
+
+  output assert_follower_fire;
+  output max_leader_fire;
+  output known_follower_fire;
+
+  // Statistics and corner cases 
+
+  output [STATS1_W-1:0] max_leaders_outstanding;
+  output [STATS2_W-1:0] max_response_time;
+  output [STATS2_W-1:0] min_response_time;
+  output [STAT_CNT_WIDTH-1:0] windows_checked;
+  output [STATS3_W:0] outstanding_leaders;
+  output [STAT_CNT_WIDTH-1:0] min_response_time_equals_min;
+  output [STAT_CNT_WIDTH-1:0] max_response_time_equals_max;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [2:0] fire_count_tmp;
+
+  // Register declarations
+
+  // Fire signals
+
+  reg assert_follower_fire;
+  reg max_leader_fire;
+  reg known_follower_fire;
+
+  // Combinatorial fire signals
+  reg [STAT_CNT_WIDTH-1:0] windows_checked;
+  wire [STATS3_W:0] outstanding_leaders;
+
+  // Statistics and corner cases
+  reg [STATS1_W-1:0] max_leaders_outstanding;
+  reg [STATS2_W-1:0] max_response_time;
+  reg [STATS2_W-1:0] min_response_time;
+  reg [STAT_CNT_WIDTH-1:0] min_response_time_equals_min;
+  reg [STAT_CNT_WIDTH-1:0] max_response_time_equals_max;
+  reg minimum_response_time_set; // flag
+  reg [STAT_CNT_WIDTH-1:0] min_within_range_count; // pre condition counts
+  reg [STAT_CNT_WIDTH-1:0] max_within_range_count; // pre condition counts
+  reg [STAT_CNT_WIDTH-1:0] max_leader_within_range_count; // pre condition counts
+  integer max_within_range;
+  integer min_within_range;
+  integer max_leader_within_range;
+
+  // Internal register declarations
+
+  reg [31:0] clk_count; // A free running clock
+  reg [MAX_LEADER_WIDTH :0] leader_outstanding; // count of leader instances
+
+  // memory declaration for using it as a fifo
+
+  reg [31:0] instance_fifo [0 : (INSTANCE_FIFO_DEPTH-1)];
+  reg [MAX_LEADER_WIDTH - 1 : 0] instance_fifo_rdptr;
+  reg [MAX_LEADER_WIDTH - 1 : 0] instance_fifo_wrptr;
+
+  // Wire declarations
+
+  wire [MAX_LEADER_WIDTH :0] max_leader_real;
+
+  reg [31:0] time_count; // to hold the cycles elapsed 
+  reg instance_fifo_empty; // Asserted under fifo empty condition
+  reg follower_not_asserted_within_max; // max violation
+  reg follower_asserted_before_min; // min violation
+  reg follower_asserted_without_leader; // known follower violation
+  reg asserted_before_min;
+  reg minimum_response_zero_time;
+
+  
+  // Integer declarations
+
+  integer i;
+
+
+`ifdef ZI_FOR_SEARCH
+  wire xz_detected;
+  wire xz_detected_min;
+  wire xz_detected_max;
+  wire xz_detected_max_leader;
+`endif
+
+
+
+  reg outst_ld;
+
+
+`ifdef ZI_FOR_SEARCH
+  assign xz_detected = (^{leader,follower} === 1'bx);
+  assign xz_detected_min = (^min === 1'bx);
+  assign xz_detected_max = (^max === 1'bx);
+  assign xz_detected_max_leader = (^max_leader === 1'bx);
+`endif
+
+
+`ifdef QVL_COVER_ON
+  assign outstanding_leaders = leader_outstanding;
+`endif
+
+`protected
+
+    MTI!#sOj$!sYJbHw*#rATH.n,D=*H2#iS&v/fLBF"/<xB[k<e^ln~DjNC[[V<z_eX=xaAjri^@]}
+    EX7*>5@'!D~pHj]k>[i;NF}7#uRlE]Pr?\]]+'VeavzBl<E=@x2}_~;?o;]P<RoYU[;_1C3J/.Ym
+    U{<V}~E-CVLwq?wXbG>-_w}7C~$?pC'Bi3O@Qev?\n_p$Ep_2szpaNsZHkajO3z_}vw}p#o?*K2E
+    [aAe32=]~Q=~]_'rDC7-amw-YZREI-<UAmqBwIO_i>*[C=r^o1m1$e@r+!@QF[2nIk<!}EbF,CZX
+    si5\Oub1deIz<5m<eI_<_l\e=7#o7]&*^*<p=z>ya[*G7xr\DB[[P'Q>s[JT7EaQV!}Y*W[DCA],
+    3VBoAM'1xlpBAz#51Bv*3?mrR<I5i>S$OU7xl^o#_xBFKRaY--GUe2$C=,1k]jvnQHra,eVpxn8^
+    x}DpAvZGO#m*x+sx#[UH+BHOno3^>lU}pZlaYT55Rpu>[u#rjZsHjT_/a'RBC?-OxRa7^A1-Y*+U
+    T$XUQs,2O!>seU$1xTnU\YE^=m_BUIlx#=2=Rxpd1Dp$#eRll^ED&9HXA'"Ql1Oi5778$lU\JQZ^
+    ?[37HXRl~53<AlzWzm<O@lsxl2AY|{CU;J_wk^H2VsBjX_s}Ri*F."+(sli[KXYv">a^!Qd=O>pY
+    llY|1p}C:A+J7o!ZQBOv=Tj~}:p+j2{7GnEB">RDk-7;zk+^Yu+aXp]<rj_Ta[[l~ARB$7*A[p~,
+    [J,ww([aRz|J{2}tn$u[Bu]X=+ev=^W7*!>T*$V3~E@mAlOifI><[3aa@anas9;1{QTr{,6V,H}Y
+    pWB$=;*NKD!',GzY*X3_*;\uKzei[M@'wpm.Za=75!B;1~@1zxXIQK{RZY_mjaOR$D},?IrrO{<Z
+    5Ve'vRokoI]!U,+Y{{3KmqF*YrXZ,Yn@la'^Xe2'>HxAO{~0B,GlV1A+P13=>-$-e_<5,'@H>5ij
+    n*QHDlGxa>e*=N+[u?mjHo"|)H_^x={;WtIXZpx/}7pE7/,Up\<Y&X<wI52r-gxi7BTVAprj]u*\
+    {s[Y,BFlrioEa7wij?'z}uQ}HOAs^pEZVuw@IaTpGGKa>]rqswYx|!5m[3rXvJR$<5>+ah*=1Op!
+    zn]D~2E!pXiAI7inx*{(l.?[;nEmv~K[vCv_$vq'\V?DGm~r};nUUO3UI-U27>~CxA#u>mTh{+'s
+    0[#{=<H*rDsk}Gz^u?1*xbI?=;[-,[^o?'"^g+V5<IV_@k_=keo$#([ZX!+n5p\?{Ya]\HCY2^7r
+    1ii<aso)Z5aZF=<<Hlas~lB3xv{,}&sxKok1Ba[>[XJTT>YRR>x5rZB#*U1{Eu>>eZ\!O<]]D+!w
+    ;5cIsD3n*=@RRvB?xlx^u37h5"rW3*pajW'7
+`endprotected
+   //----------------------------------------------------------------------
+   // Statistics block
+   //----------------------------------------------------------------------
+
+  // Signal assignments
+
+  assign max_leader_real = (MAX_LEADER_SPECIFIED)?max_leader:MAX_LEADER_DEFAULT;
+`protected
+
+    MTI!#zvj{DZDk9W$G+)v<GZm1wUEYD?[Qkey[cYe][q1RPCieK*,pjAe}1m<+mPnYB^"$VAYM-<>
+    mGm!_ew*+U}$IHa@TCjiU9l--no;VYl$?urZ^["mUv;=,]I>D]sx_#,k=m$r~;rrv[sj$Xuqio,m
+    lzAoOnsm73=X\hO+C#e^B,-oZrxm!o1?*@:*m;ntB?Ju@1lIV|$.6!aAsu{KD*T'ol?2W=y7#5IE
+    IO+7@-*sT']D;OpCJ1E!sjm,E#Io7][7+'uf'#\Dsm*AzyZwY<AsHv,'iU*eE[S>-w[c~V$xF]C;
+    Y']}rl~o+rDV2UT^OeuAV'VX7,@xp[{pz<s$7R'i]+]?rw$R?,I2X~{^U7sAl;]!BTn-sl}so3'-
+    H=x*#e!*Two~#j7zmJsu$AoD2w7piL"<R[,+o3ZbQ]?JxrAk}j1{C2l#Wl'D]RxpkG-Qx@Y#KUaO
+    IT<z7{2}mXjCzvY\\2u$Y1Gzr,T,}K*V_3@v$~o;M3z<]w]il>DZECrnT=r@Jw,zWIFEG'{E#e7-
+    s>{uUU_Vz?eEGRQxOTjDo]YZGvBw}UC";j}rIGGG<}TaTx-!Fz@[o$#[?j3;O,I[w|=G#'xRQ}uX
+    xtyBJV[2wr[^#zi$?BivCj'+'1r*+J#slzB${!,BhQD7E~BsYyaDvsGdE[l5jpm[GIu,IuK'l#xO
+    IlDyH1lYa+{#Oq7w<^IXIzOI\o!l<vK{Tkc~\jTuw;k>Q1@Kw!e3U>@hOXOiJ_}H{w^\vQER=k17
+    C?oo~EEoWYXW'Yu@u$-r{\}JmY<#V9]D\uAD{31wW=px2$K<TGhQTO7x+27^QpWpz\rJEDeyU*2]
+    $ww[[OQ^pB^KB^Q3R$k+J^7zwE}sVz#=C1_CD+G[1?D7Y+!Z}zC?sCQ*D#O2YIo@zvQiZEj<z7Kn
+    ijalBHrYh>=kWp!XQJI~D_2Wx'(*REu3jEGQ1>?)G1Xn%TQ!pB]}!SAw;w?=Q{O'#;DR^@]_uEo+
+    RjIeURuxj!$-YW#BxQ"CsuRHv+'Se|])dI#\5AR~l}27ns,-noOGVu}{w$G,=$nYCuCzwH^eOI1j
+    UZ=E}CaXEe8<$r]m=Z<''YHAvYBmwoT_>5p%Oj_vmCZ<<Q'oCA$Y|Y/wpEifp>>5>'?jY'<eUA[o
+    ~BAHf>('3ouU=~pE2B,BD{V[uFW'Y<U[U[WC[v?}+*I#rKGp$1Q?J^h{*lT#<Q=1]VD|>>nCaIA2
+    }ku1R]{Ev!z+RG'Z-U*VzAYeA{ZOzxzB^EBB}xXR!C7piwwI]EOp%v@A>jE\vsjo}R,AoIV_+YRD
+    o$*Ta]l[@Vep[xl$1D~IA$U^[y*I'r<R?l]u>#z<GCKT3E~j*kh1YQG'iWJpiUT:s\+#=^veOjon
+    9Y}<u!|CvIX5rEU,Oa}y-IEe2HT;fQm5=-j\rrX5r%Z{m{Q?R\")^O{ro$#VG3pOBx[XlO?KUwT-
+    }VE?<*IRV'A<6x*XTQ2Z!5u2Z\?-{sHE5[-~}o@{EmGW=QH',Q>w[j@7~l^QRX$C2I*A{~YI3=UU
+    HGvk'<^7~.H*r5^Z'spZ+mTrpGW=DX0neW{k_?GBBaTO$evuR#WHCECQz#pkV?u*RK!xz}VEX!<B
+    v~r=xrp-Nou3{VKJHGxo--<Xaq)/p?YrDYepX}oHcv6ee*wv[O!$x_o^l@#~j\$Y~K$eG+u@aZ@v
+    G]KJ-\?{s*QYsj-Zz#sYBC>=a1\q}G>k(i^j'H*An3-ps[,;}Tri\vokpAo1l_vu,?\rBGT]~=DY
+    [OI*]!1<awo3\W};WmO[O@a-$rOw1!AC#eB7Cmns*~{A3V?_2W};,knH;YxsCC2'pz#UjlNeYs*[
+    ]*\a*VIQkK-v[e^e[;@n}RY?A3m\lHZUU-D\'{YBVvVO47XUD=+377?w]U\EGe<YV5X7n1-@+e!e
+    D^]<#s#n\gF}=]Ve'?Zn}a5?D!7pU\lOC<]i7P^Q{;o=<CVa-\zB?=G#$ja^$G?DV}vje[j7la5'
+    skX'jpKve~6}1F5Q[J>x?ZGD\a{jw{_XR2Ha{U[U@TA$On~\}#{-a1_Tl{]AX<Na*~uB@=v7!*a=
+    [{\XTC?v~Is5>{O2snu}v![i_~sIoXx4[Z+zR;J}YO^$T7TZVJ7{E-vvk{zY+,1\L1Ouo7?{2gKU
+    j=k}G3pA-p$-CI&'@^Z*X-,5wX7pp1!#_D[3GY{tInQ=+Rl]&[|\BU^_iHZl*_*yGnnj[~!Di[Ze
+    'EW^#x<?J$J~iwp<Dm[A]zKvT6%s!a^S@=xGDmHxi*A[dU5KVI5o~v3ao*!B}<lBiwG?DreXz@>7
+    Rx$E'>$}~a{aQ,~r~Ys+Un'Hu-nuD9W*^?y|kH+mUeTX\2!Q^*X$Y-*~j5WOIjY$_<AW7TmDm=YB
+    1'_?3o'*@O<+;ns1@z!>)Ws,GH}15rE_I2Gk'R=?j5@Qxi7wnn'XH3}eYQ-E1QljE9LZv+Bf\n>T
+    W=B>E_'<Er>;UD<3YYKu|EvCYJoT7'Dl'Q5Uw<eJ'uv@2<IjI${V>eV^Dq@B#Kk{Vv0aRp$1>2?I
+    MpJEupJnk2r-W>B5]t(=ZRxl$rGavY<^j=j?GTOCkRUoR<ax+7o!5^Q->DT^?{,mwms|UO$*5vk3
+    Tr!O,GJsWD}Rk}5D,1^Z,2<_EJli==UkG\_=ekowEaroTBUR{AX],~*Q(D^k+sUm>NuzWOV;HR_;
+    235#Xo3Q+!O<@GYa=rUG1@k--YijCBn*oC;XxzhDrn2]?-UOeu1fG~O2*I@!j7G^_*;B@'^\{7=r
+    ?[OKAsi]'Wp2m[olsDAs5OC5JolKIe;}I~_,lZ^~En7-YXoaQkpUvisoZQ#{r[Z!@5-?^Hak'KEG
+    m=Hem7#,65ProU7p=IZ,JplnX~X-[vw)D1p=&kY!75lUxH^\7T5#2|oziCtQn>eDWjB~1p-V3YU2
+    HAvHCYlH-YTACv^^ZeoZnVe1=BRu>=m[srr=xUkJU}#]*ujL}7'VQs-YR{A!A7_+kXRkB?1Gtr!I
+    Iwx')@^zR3Vw1v=>~7gXD,[mI''a1V1+EnRQIi{s\E^En}IBA+;E8ARAv^YGD,iEW'aw>vkCR,oi
+    HWpo\fkxmGRZU~I!_'*!+jII_;~8@Y]iR3slsZj}eRa$E<uOKQTKG#'-+]}'n=w!nE7eN'n'~Bo$
+    Q]OR[K$A=i+@x_CV7EC}kNNE!WOL['YniGvouH_D'EE3juwT/Wvu*v[kTQ}xXU^=CZr'IJ$iOpHJ
+    Kh;-TZHVJ$rR#<I!vBa^Ykz*$Z~rU>>E5\X_pGvxanR2O$*>QUoYEY@5r'[Q=agss\ZjC{zEe^-8
+    }nJWW$~G,lW'lwos*[x$R+o~'O@I<X{*5v~B*DW=BeK>-Cl?rH{kp}Jao-7}edm1IDZ-~w-x<{#_
+    -_YB[@yijov*,A,axl?!sAOTIOXpKCBn^i*\7p7mTmY;XKG!o!$=w-@D\\r1kG]m7a=A^<U++}2<
+    wpUw-OZSr}*_CoKJH=pn#EBUH-so+\mQWT>[p[nja1Bw^v>EHATD.aNwCH2uOwIC;+BYDeTwz5Ck
+    5?Du1RoR^>517U*=O5rI\r}'XIIGz^V~1Au<_owc,z>[$EKRJY]mEFG?uacln>+Rarv4A]K<2o'J
+    ?>v_@}1u,7?mJ$2uTprUyVn3K8+>K@E_ra,,wUL;p;]l\~'Hvsa<^~#?HmWIvv;pj}<5X2?o\Rsm
+    U0Yzes7EI'I]^>bGmK$n7wI:m,K7l$,3~{JmG^+eNw$W?Rj+BGbZ5}IVujr#'v7G7}G{p-waD!XS
+    UD?R?YCj@}+r\n>z_1p#X+wjuG5!Wa*7h%AY7#}Wds{=Gkl<{RxkD#,WD9#+z+lR#Cm*~jzB+e^<
+    }TQ_;JXoG#Y>~X$^vSs!V1ml>{<<QIO}xCl}5*7}n#%Bl-EJ11IGiZ}me?oEwDll[\GB[R=e!EOs
+    'V\2,^UrZ+YvJv>IQwEbCB+5Jp\22,Qp[vjU<Rl5Q_\_us>>OM]2W-5oV=^C,YDU-*c+a2R\^GnY
+    pR{WGKR-r?o;-v?Z-vVE[Q]s?az*U2D31V+w+5n,{TIo;uunX]x++;TnAA1kDC@'[,zBWva:kTX<
+    Gav#7rJ?LHx21-pDsuYG[Si7XAA{T^^EvDI>p~l1Gi:~s]RQO3}7{AeuG*,nTDZ'iY=s25aJY^@>
+    DARv'+uWV3Qo*\pHO>kO-jpX,iD'm$2m'{~CT<Rl~vG=OT'oJ}o~{+IG7Ywa}{>vwpO\XEl=j5sR
+    uR\vBwHlpH<C,Q+;werE5Bms}}IsQJ+}Zo@U1*3oUn+A<@=sEW,QRHwhsmuT;$uwMCE[R\Q*\eau
+    w15vKee,5Q2jYvaXWD-Z~i{1j_ZBaa]?Gz,,3oHoG]@G=#.,#~W=QY$L}MA\m3TDiGK]->av=2RC
+    YKQ?vBo/ejQ-Yrs}{_WsB-Q\!HWGgo<uVm}KC^O7CDkBI'DjQ^aZG>Q@e!G;\qU5RmVo+upa@?#<
+    }7>Ip?5WjQ__[}5<,eas>'Njk1wGX\\Vi
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  wire qvl_fire_enable_rd;
+  wire assert_follower_combo1;
+  wire assert_follower_combo2;
+  wire assert_follower_combo3;
+  wire max_leader_combo;
+  wire known_follower_combo;
+
+  assign qvl_fire_enable_rd = ((~areset && ~reset && active && 
+                             ((leader^leader) === 1'b0) && 
+                             ((follower^follower) === 1'b0)) === 1'b1);
+  assign assert_follower_combo1 = ((assert_follower_check && AF_CHECK_ON) 
+             && qvl_fire_enable_rd) ? 
+             (((MIN_IS_CONST && MAX_IS_CONST && min == 1 && max == 1 && 
+             max_leader == 1) ? (outst_ld && !follower) : 
+             (((leader_outstanding == {(MAX_LEADER_WIDTH+1){1'b0}}) == 1'b0 
+             && follower == 1'b0 && (clk_count - 
+             instance_fifo[instance_fifo_rdptr]) >= max ) || 
+             (min == 0 && max == 0 && leader == 1'b1 && follower == 1'b0 && 
+             (leader_outstanding == {(MAX_LEADER_WIDTH+1){1'b0}}) == 1'b1))) 
+             && (MAX_SPECIFIED || ~(MIN_SPECIFIED))) : 1'b0;
+ assign assert_follower_combo3 = ((assert_follower_check && AF_CHECK_ON)
+           && qvl_fire_enable_rd) ?
+           (((MIN_IS_CONST && MAX_IS_CONST && min == 1 && max == 1 && 
+            max_leader == 1) == 1'b1) ? 1'b0 : (follower == 1'b1 &&
+           (leader_outstanding == {(MAX_LEADER_WIDTH+1){1'b0}}) == 1'b0 
+           && ((clk_count - instance_fifo[instance_fifo_rdptr]) < min))) : 1'b0;
+  assign assert_follower_combo2 =  assert_follower_combo1 ? 1'b0 : 
+                                 assert_follower_combo3;
+  assign max_leader_combo = ((max_leader_check && ML_CHECK_ON &&
+             qvl_fire_enable_rd &&
+            (max_leader^max_leader) === {MAX_LEADER_WIDTH{1'b0}}) 
+            && ((leader_outstanding >= max_leader_real) && leader 
+            && !follower));
+  assign known_follower_combo = (known_follower_check && KF_CHECK_ON && 
+             qvl_fire_enable_rd && (instance_fifo_empty == 1'b1 && 
+            ((leader == 1'b0 && follower == 1'b1) || (leader == 1'b1 
+            && follower == 1'b1 && min != 0))));
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+	 if(AF_CHECK_ON == 1)
+           begin:assert_follower_within_max_check
+              A_qvl_assert_follower_within_max_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (assert_follower_combo1)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_assert_follower_within_max_check"),
+                          .msg            ({msg,"Follower did not assert within the maximum cycles after leader."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (AF_CHECK_ON == 1)
+	if(AF_CHECK_ON == 1)
+         begin:assert_follower_before_min_check
+            A_qvl_assert_follower_before_min_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (assert_follower_combo2)))
+            else qvl_error_t(
+                          .err_msg        ("A_qvl_assert_follower_before_min_check"),
+                          .msg            ({msg,"Follower asserted before the minimum cycles after leader."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 end // if (AF_CHECK_ON == 1)
+	if(ML_CHECK_ON == 1)
+         begin:assert_follower_max_leader_check  
+            A_qvl_assert_follower_max_leader_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (max_leader_combo)))
+            else qvl_error_t(
+                          .err_msg        ("A_qvl_assert_follower_max_leader_check"),
+                          .msg            ({msg,"Leader asserted when the maximum number of leaders was outstanding, but its follower did not assert in the same cycle."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 end // if (ML_CHECK_ON == 1)
+	 if(KF_CHECK_ON == 1)
+           begin:assert_follower_known_follower_check
+              A_qvl_assert_follower_known_follower_check: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (known_follower_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_assert_follower_known_follower_check"),
+                          .msg            ({msg,"Follower asserted when no leaders were outstanding, but its leader did not assert in the same cycle."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+	 if(AF_CHECK_ON == 1)
+           begin:assume_follower_within_max_check
+              M_qvl_assert_follower_within_max_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (assert_follower_combo1)));
+	   end
+	 if(AF_CHECK_ON == 1)
+           begin:assume_follower_before_min_check
+              M_qvl_assert_follower_before_min_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (assert_follower_combo2)));
+	   end
+	 if(ML_CHECK_ON == 1)
+           begin:assume__follower_max_leader_check
+              M_qvl_assert_follower_max_leader_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (max_leader_combo)));
+	   end
+	 if(KF_CHECK_ON == 1)
+           begin:assume_follower_known_follower_check
+              M_qvl_assert_follower_known_follower_check: 
+		assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (known_follower_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_assert_follower_cover.svh"
+
+`qvlendmodule

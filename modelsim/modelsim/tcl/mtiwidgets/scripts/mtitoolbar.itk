@@ -1,0 +1,2621 @@
+#
+# Toolbar 
+# ----------------------------------------------------------------------
+#
+# The Toolbar command creates a new window (given by the pathName 
+# argument) and makes it into a Tool Bar widget. Additional options, 
+# described above may be specified on the command line or in the 
+# option database to configure aspects of the Toolbar such as its 
+# colors, font, and orientation. The Toolbar command returns its 
+# pathName argument. At the time this command is invoked, there 
+# must not exist a window named pathName, but pathName's parent 
+# must exist.
+# 
+# A Toolbar is a widget that displays a collection of widgets arranged 
+# either in a row or a column (depending on the value of the -orient 
+# option). This collection of widgets is usually for user convenience 
+# to give access to a set of commands or settings. Any widget may be 
+# placed on a Toolbar. However, command or value-oriented widgets (such 
+# as button, radiobutton, etc.) are usually the most useful kind of 
+# widgets to appear on a Toolbar.
+#
+# WISH LIST: 
+#   This section lists possible future enhancements.  
+#
+#	Toggle between text and image/bitmap so that the toolbar could
+#     display either all text or all image/bitmaps.
+#   Implementation of the -toolbarfile option that allows toolbar
+#     add commands to be read in from a file.
+# ----------------------------------------------------------------------
+#  AUTHOR: Bill W. Scott                 EMAIL: bscott@spd.dsccc.com
+#
+#  @(#) $Id: //dvt/mti/rel/6.5b/src/tkgui/mtitoolbar.itk#1 $
+# ----------------------------------------------------------------------
+#            Copyright (c) 1995 DSC Technologies Corporation
+# ======================================================================
+# Permission to use, copy, modify, distribute and license this software 
+# and its documentation for any purpose, and without fee or written 
+# agreement with DSC, is hereby granted, provided that the above copyright 
+# notice appears in all copies and that both the copyright notice and 
+# warranty disclaimer below appear in supporting documentation, and that 
+# the names of DSC Technologies Corporation or DSC Communications 
+# Corporation not be used in advertising or publicity pertaining to the 
+# software without specific, written prior permission.
+# 
+# DSC DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING 
+# ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, AND NON-
+# INFRINGEMENT. THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, AND THE
+# AUTHORS AND DISTRIBUTORS HAVE NO OBLIGATION TO PROVIDE MAINTENANCE, 
+# SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS. IN NO EVENT SHALL 
+# DSC BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR 
+# ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, 
+# WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTUOUS ACTION,
+# ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS 
+# SOFTWARE.
+# ======================================================================
+#
+# Enhancements:
+#
+# Toolbar wraps -- if width of toolbar cannot fit all widgets, the
+#                  toolbar will wrap the widgets onto a subsequent
+#                  line.  This behavior is similar to the way the
+#                  menubar wraps.
+#
+# Two item configure options added to the Add method:
+#
+#   -justify left|right    -- controls placement of the widgets
+#
+#   -showvariable varname  -- the named variable is a boolean which
+#                             controls the visibility of the widget
+#                             In other words, the widget will appear
+#                             or disappear based on the state of this
+#                             variable.
+#
+# Author: b.s.griffin       e-mail: bgriffin@model.com
+#
+# ----------------------------------------------------------------------
+#            Copyright 2000-2009 Mentor Graphics Corporation
+# ======================================================================
+# See the file "license.terms" for information on usage and
+# redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+#
+# Default resources.
+#
+option add *Toolbar*padX 1 widgetDefault
+option add *Toolbar*padY 0 widgetDefault
+option add *Toolbar*orient horizontal widgetDefault
+option add *Toolbar*highlightThickness 0 widgetDefault
+option add *Toolbar*indicatorOn false widgetDefault
+option add *Toolbar*selectColor [. cget -bg] widgetDefault
+
+#
+# Usual options.
+#
+itk::usual Toolbar {
+    keep -activebackground -activeforeground -background -balloonbackground \
+	-balloondelay1 -balloondelay2 -balloonfont -balloonforeground \
+	-borderwidth -cursor -disabledforeground -font -foreground \
+	-highlightbackground -highlightcolor -highlightthickness \
+	-insertbackground -insertforeground -selectbackground \
+	-selectborderwidth -selectcolor -selectforeground -troughcolor \
+	-relief -takefocus
+}
+
+# ------------------------------------------------------------------
+#                            TOOLBAR
+# ------------------------------------------------------------------
+itcl::class mtiwidgets::Toolbar {
+    inherit itk::Widget
+    
+    constructor {args} {}
+    destructor {}
+    
+    itk_option define -balloonbackground \
+	    balloonBackground BalloonBackground yellow 
+    itk_option define -balloonforeground \
+	    balloonForeground BalloonForeground black 
+    itk_option define -balloonfont balloonFont BalloonFont Helvetica
+    itk_option define -balloondelay1 \
+	    balloonDelay1 BalloonDelay1 1000
+    itk_option define -balloondelay2 \
+	    balloonDelay2 BalloonDelay2 200
+    itk_option define -helpvariable helpVariable HelpVariable {} 
+    itk_option define -orient orient Orient "horizontal" 
+    itk_option define -wrap wrap Wrap true
+    
+    #
+    # The following options implement propogated configurations to
+    # any widget that might be added to us. The problem is this is
+    # not deterministic as someone might add a new kind of widget with
+    # and option like -armbackground, so we would not be aware of
+    # this kind of option. Anyway we support as many of the obvious
+    # ones that we can. They can always configure them with itemconfigures.
+    #
+    itk_option define -activebackground activeBackground Foreground #c3c3c3
+    itk_option define -activeforeground activeForeground Background Black
+    itk_option define -background background Background #d9d9d9 
+    itk_option define -borderwidth borderWidth BorderWidth 2 
+    itk_option define -cursor cursor Cursor {}
+    itk_option define -disabledforeground \
+	    disabledForeground DisabledForeground #a3a3a3 
+    itk_option define -font font Font {Helvetica 9}
+    itk_option define -foreground foreground Foreground #000000000000 
+    itk_option define -highlightbackground \
+	    highlightBackground HighlightBackground #d9d9d9 
+    itk_option define -highlightcolor highlightColor HighlightColor Black 
+    itk_option define -highlightthickness \
+	    highlightThickness HighlightThickness 0 
+    itk_option define -insertforeground insertForeground Background #c3c3c3 
+    itk_option define -insertbackground insertBackground Foreground Black 
+    itk_option define -selectbackground selectBackground Foreground #c3c3c3 
+    itk_option define -selectborderwidth selectBorderWidth BorderWidth {} 
+    itk_option define -selectcolor selectColor Background White
+    itk_option define -selectforeground selectForeground Background Black 
+    itk_option define -state state State normal 
+    itk_option define -takefocus takeFocus TakeFocus 0
+    itk_option define -troughcolor troughColor Background #c3c3c3 
+    itk_option define -minheight minheight MinHeight 0
+    
+    public method add {widgetCommand name args} 
+    public method bind {args}
+    public method delete {args} 
+    public method index {index} 
+    public method insert {beforeIndex widgetCommand name args} 
+    public method itemcget {index args} 
+    public method itemconfigure {index args} 
+    public method itemclass {index}
+    public method itemname {index}
+    public method move {srcIndex destIndex}
+    public method redoPack {args}
+
+    public method _resetBalloonTimer {}
+    public method _startBalloonDelay {window}
+    public method _stopBalloonDelay {window balloonClick}
+
+    private method _deleteWidgets {index1 index2} 
+    private method _addWidget {widgetCommand name args}
+    private method _index {toolList index} 
+    private method _getAttachedOption {widget option retValueVar} 
+    private method _setAttachedOption {widget option args} 
+    private method _packToolbar {} 
+    public method _configurePack {}
+    private method _setShowVariable {newvar oldvar}
+    public method _toolEnter {tool toolFrame}
+    public method _toolLeave {tool toolFrame}
+    private method _cleanupWidgets {window}
+
+    public method hideHelp {} 
+    public method showHelp {window} 
+    public method showBalloon {window} 
+    public method hideBalloon {} 
+    
+    private variable _balloonTimer 0
+    private variable _balloonAfterID 0
+    private variable _balloonClick false
+    
+    private variable _interior {}
+    private variable _initialMapping 1   ;# Is this the first mapping?
+    private variable _toolList {}        ;# List of all widgets on toolbar
+    private variable _opts               ;# New options for child widgets
+    private variable _currHelpWidget {}  ;# Widget currently displaying help for
+    private variable _hintWindow {}      ;# Balloon help bubble.
+    private variable _width 0            ;# Last packed widget width
+    private variable _cpId ""            ;# Configure changes background packing
+
+    private common _itemConfigs [list -helpstr -balloonstr -balloonvariable -showvariable -enablefunction -justify]
+    private common _itemConfigsOps [list \
+		[list -helpstr helpStr HelpStr] \
+		[list -balloonstr balloonStr BalloonStr] \
+		[list -balloonvariable balloonVariable BalloonVariable] \
+		[list -showvariable showVariable ShowVariable] \
+		[list -enablefunction enableFunction EnableFunction] \
+		[list -justify justify Justify] \
+		]
+    private common _showVars			;# Array of show variables and objects
+
+    # list of options we want to propogate to widgets added to toolbar.
+    private common _optionList {
+	-activebackground \
+	    -activeforeground \
+	    -background \
+	    -borderwidth \
+	    -cursor \
+	    -disabledforeground \
+	    -font \
+	    -foreground \
+	    -highlightbackground \
+	    -highlightcolor \
+	    -highlightthickness \
+	    -insertbackground \
+	    -insertforeground \
+	    -selectbackground \
+	    -selectborderwidth \
+	    -selectcolor \
+	    -selectforeground \
+	    -state \
+	    -takefocus \
+	    -troughcolor \
+	}
+}
+
+# ------------------------------------------------------------------
+#                            CONSTRUCTOR 
+# ------------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::constructor {args} {
+    component hull configure -borderwidth 0
+
+	set _interior [frame $itk_interior.tb -relief groove -bd 2  \
+					   -highlightthickness 0 -cursor {} -width 0 -height 1 ]
+	bindtags $_interior $_interior
+	pack $_interior -side top -fill both -expand 1 -anchor w
+
+	::bind $_interior <Configure> [code $this _configurePack]
+
+    #
+    # Handle configs
+    #
+    eval itk_initialize $args
+
+    # ... Attach help handler to this widget
+    ::bind toolbar-help-$itk_component(hull) \
+	    <Enter> "+[code $this showHelp %W]"
+    ::bind toolbar-help-$itk_component(hull) \
+	    <Leave> "+[code $this hideHelp]"
+    
+    # ... Set up Microsoft style balloon help display.
+    set _balloonTimer $itk_option(-balloondelay1)
+    ::bind $_interior \
+	    <Leave> "+[code $this _resetBalloonTimer]"
+    ::bind toolbar-balloon-$itk_component(hull) \
+	    <Enter> "+[code $this _startBalloonDelay %W]"
+    ::bind toolbar-balloon-$itk_component(hull) \
+	    <Leave> "+[code $this _stopBalloonDelay %W false]"
+    ::bind toolbar-balloon-$itk_component(hull) \
+	    <Button-1> "+[code $this _stopBalloonDelay %W true]"
+
+    ::bind toolbar-destroy-$itk_component(hull) \
+	<Destroy> [code $this _cleanupWidgets %W]
+}
+
+#
+# Provide a lowercase access method for the Toolbar class
+#
+proc ::mtiwidgets::toolbar {pathName args} {
+    uplevel ::mtiwidgets::Toolbar $pathName $args
+}
+
+# ------------------------------------------------------------------
+#                           DESTURCTOR
+# ------------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::destructor {} {
+    if {$_cpId != 0} {after cancel $_cpId}
+    if {$_balloonAfterID != 0} {after cancel $_balloonAfterID}
+    foreach v [array names _showVars] {
+	while {[set n [lsearch -exact $_showVars($v) $this]] >= 0} {
+	    set _showVars($v) [lreplace $_showVars($v) $n $n]
+	}
+	if {[llength $_showVars($v)] == 0} {
+	    ## Remove trace
+	    upvar #0 $v svar
+	    trace vdelete svar w [code $this redoPack]
+	    unset _showVars($v)
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+#                            OPTIONS
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# OPTION -background
+# ------------------------------------------------------------------
+itcl::configbody mtiwidgets::Toolbar::background {
+	$_interior configure -background $itk_option(-background)
+}
+
+# ------------------------------------------------------------------
+# OPTION -balloonbackground
+# ------------------------------------------------------------------
+itcl::configbody mtiwidgets::Toolbar::balloonbackground {
+    if { $_hintWindow != {} } {
+		if { $itk_option(-balloonbackground) != {} } {
+			$_hintWindow.label configure \
+				-background $itk_option(-balloonbackground)
+		}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION -balloonforeground
+# ------------------------------------------------------------------
+itcl::configbody mtiwidgets::Toolbar::balloonforeground {
+    if { $_hintWindow != {} } {
+	if { $itk_option(-balloonforeground) != {} } {
+	    $_hintWindow.label configure \
+		-foreground $itk_option(-balloonforeground)
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION -balloonfont
+# ------------------------------------------------------------------
+itcl::configbody mtiwidgets::Toolbar::balloonfont {
+    if { $_hintWindow != {} } {
+	if { $itk_option(-balloonfont) != {} } {
+	    $_hintWindow.label configure \
+		-font $itk_option(-balloonfont) 
+	}
+    }
+}
+
+# ------------------------------------------------------------------
+# OPTION: -orient
+#
+# Position buttons either horizontally or vertically.
+# ------------------------------------------------------------------
+itcl::configbody mtiwidgets::Toolbar::orient {
+    switch $itk_option(-orient) {
+	"horizontal" - "vertical" {
+	    _packToolbar
+	}
+	default {error "Invalid orientation. Must be either \
+		horizontal or vertical"
+        }
+    }
+}
+
+# ------------------------------------------------------------------
+#                            METHODS
+# ------------------------------------------------------------------
+    
+# -------------------------------------------------------------
+# METHOD: add widgetCommand name ?option value?
+#
+# Adds a widget with the command widgetCommand whose name is 
+# name to the Toolbar.   If widgetCommand is radiobutton 
+# or checkbutton, its packing is slightly padded to match the 
+# geometry of button widgets.
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::add { widgetCommand name args } {
+
+   eval [linsert $args 0 _addWidget $widgetCommand $name]
+    
+   lappend _toolList $itk_component($name)
+    
+   if { $widgetCommand == "radiobutton" || \
+          $widgetCommand == "checkbutton" } {
+      set iPad 1
+   } else {
+      set iPad 0
+   }
+   # Prevent label widgets from getting the "raise when over" treatment
+   #
+   if { $widgetCommand == "label" } {
+      set lbl $itk_component($name)
+      $lbl configure -state disabled -disabledforeground [$lbl cget -foreground]
+   }
+
+   # repack the tool bar
+   _packToolbar
+
+   return $itk_component($name)
+}
+
+# -------------------------------------------------------------
+#
+# METHOD: bind ?args?
+#
+# This command creates event bindings on the hull
+# args follows the same syntax as the bind command
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::bind {args} {
+	eval ::bind $_interior $args
+}
+
+# -------------------------------------------------------------
+#
+# METHOD: delete index ?index2?
+#
+# This command deletes all components between index and 
+# index2 inclusive. If index2 is omitted then it defaults 
+# to index. Returns an empty string
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::delete { args } {
+    # empty toolbar
+    if { $_toolList == {} } {
+	error "can't delete widget, no widgets in the Toolbar \
+		\"$itk_component(hull)\""
+    }
+    
+    set len [llength $args]
+    switch -- $len {
+	1 {
+	    set fromWidget [_index $_toolList [lindex $args 0]]
+	    
+	    if { $fromWidget < 0 || $fromWidget >= [llength $_toolList] } {
+		error "bad Toolbar widget index in delete method: \
+			should be between 0 and [expr {[llength $_toolList] - 1}]"
+	    }
+	    
+	    set toWidget $fromWidget
+	    _deleteWidgets $fromWidget $toWidget
+	}
+	
+	2 {
+	    set fromWidget [_index $_toolList [lindex $args 0]]
+	    
+	    if { $fromWidget < 0 || $fromWidget >= [llength $_toolList] } {
+		error "bad Toolbar widget index1 in delete method: \
+			should be between 0 and [expr {[llength $_toolList] - 1}]"
+	    }
+	    
+	    set toWidget [_index $_toolList [lindex $args 1]]
+	    
+	    if { $toWidget < 0 || $toWidget >= [llength $_toolList] } {
+		error "bad Toolbar widget index2 in delete method: \
+			should be between 0 and [expr {[llength $_toolList] - 1}]"
+	    }
+	    
+	    if { $fromWidget > $toWidget } {
+		error "bad Toolbar widget index1 in delete method: \
+			index1 is greater than index2"
+	    }
+	    
+	    _deleteWidgets $fromWidget $toWidget
+	}
+	
+	default {
+	    # ... too few/many parameters passed
+	    error "wrong # args: should be \
+		    \"$itk_component(hull) delete index1 ?index2?\""
+	}
+    }
+
+    redoPack
+
+    return {}
+}
+
+
+# -------------------------------------------------------------
+#
+# METHOD: index index 
+#
+# Returns the widget's numerical index for the entry corresponding 
+# to index. If index is not found, -1 is returned
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::index { index } {
+    
+    return [_index $_toolList $index]
+    
+}
+
+# -------------------------------------------------------------
+#
+# METHOD: insert beforeIndex widgetCommand name ?option value?
+#
+# Insert a new component named name with the command 
+# widgetCommand before the com ponent specified by beforeIndex. 
+# If widgetCommand is radiobutton or checkbutton, its packing 
+# is slightly padded to match the geometry of button widgets.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::insert {  beforeIndex widgetCommand name args } {
+    
+    set beforeIndex [_index $_toolList $beforeIndex]
+    
+    if {$beforeIndex < 0 || $beforeIndex > [llength $_toolList] } {
+	error "bad toolbar entry index $beforeIndex"
+    }
+    
+    eval "_addWidget $widgetCommand $name $args"
+    
+    # linsert into list
+    set _toolList [linsert $_toolList $beforeIndex $itk_component($name)]
+    
+    # repack the tool bar
+    _packToolbar
+    
+    return $itk_component($name)
+    
+}
+
+# ----------------------------------------------------------------------
+# METHOD: itemcget index ?option? 
+#
+# Returns the value for the option setting of the widget at index $index.
+# index can be numeric or widget name
+#
+# ----------------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::itemcget { index args} {
+    
+    return [lindex [eval itemconfigure $index $args] 4]
+}
+
+# -------------------------------------------------------------
+#
+# METHOD: itemconfigure index ?option? ?value? ?option value...?
+#
+# Query or modify the configuration options of the widget of 
+# the Toolbar specified by index. If no option is specified, 
+# returns a list describing all of the available options for 
+# index (see Tk_ConfigureInfo for information on the format 
+# of this list). If option is specified with no value, then 
+# the command returns a list describing the one named option 
+# (this list will be identical to the corresponding sublist 
+# of the value returned if no option is specified). If one 
+# or more option-value pairs are specified, then the command 
+# modifies the given widget option(s) to have the given 
+# value(s); in this case the command returns an empty string. 
+# The component type of index determines the valid available options.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::itemconfigure { index args } {
+    
+    # Get a numeric index.
+    set index [_index $_toolList $index]
+    
+    # Get the tool path
+    set toolPath [lindex $_toolList $index]
+    
+    set len [llength $args]
+    
+    switch $len {
+	0 {
+	    # show all options
+	    # ''''''''''''''''
+	    
+	    # support display of -helpstr and -balloonstr configs
+	    set optList [$toolPath configure]
+	    
+	    ## @@@ might want to use _getAttachedOption instead...
+		foreach c $_itemConfigs cstr $_itemConfigsOps {
+			if { [info exists _opts($toolPath,$c)] } {
+				set value $_opts($toolPath,$c)
+			} else {
+				set value {}
+			}
+			set olist $cstr
+			lappend olist {} $value
+			lappend optList $olist
+		}
+	    return $optList
+	}
+	1 {
+	    # show only option specified
+	    # ''''''''''''''''''''''''''
+	    # did we satisfy the option get request?
+
+		foreach c $_itemConfigs cstr $_itemConfigsOps {
+			if { [regexp -- $c $args] } {
+				if { [info exists _opts($toolPath,$c)] } {
+					set value $_opts($toolPath,$c)
+				} else {
+					set value {}
+				}
+				set olist $cstr
+				lappend olist {} $value
+				return $olist
+			}
+		}
+		return [eval $toolPath configure $args]
+	}
+	default {
+	    # ... do a normal configure
+	    
+	    # first screen for all our child options we are adding
+		foreach c $_itemConfigs {
+			_setAttachedOption $toolPath $c $args 
+		}
+		
+	    # with a clean args list do a configure
+	    
+	    # if the stripping process brought us down to no options
+	    # to set, then forget the configure of widget.
+	    if { [llength $args] != 0 } {
+			return [eval $toolPath configure $args]
+	    } else {
+			return ""
+	    }
+	}
+    }
+    
+}
+
+# ----------------------------------------------------------------------
+# METHOD: itemclass index
+#
+# Returns the class for the item at index
+# index can be numeric or widget name
+#
+# ----------------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::itemclass { index} {
+	set idx [_index $_toolList $index]
+	set name [lindex $_toolList $idx]
+    return [winfo class $name]
+}
+
+# ----------------------------------------------------------------------
+# METHOD: itemname index
+#
+# Returns the widget name for the item at index
+# index can be numeric or widget name
+#
+# ----------------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::itemname { index} {
+	set idx [_index $_toolList $index]
+	set name [lindex $_toolList $idx]
+    return [winfo name $name]
+}
+
+# ----------------------------------------------------------------------
+# METHOD: itemname index
+#
+# Returns the widget name for the item at index
+# index can be numeric or widget name
+#
+# ----------------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::move {srcIndex destIndex} {
+	set si [_index $_toolList $srcIndex]
+	set di [_index $_toolList $destIndex]
+	set sw [lindex $_toolList $si]
+
+	set _toolList [lreplace $_toolList $si $si]
+	set _toolList [linsert $_toolList $di $sw]
+
+	_packToolbar
+}
+
+# -------------------------------------------------------------
+#
+# METHOD: _resetBalloonDelay1 
+#
+# Sets the delay that will occur before a balloon could be popped
+# up to balloonDelay1
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_resetBalloonTimer {} {
+    set _balloonTimer $itk_option(-balloondelay1)
+    
+    # reset the <1> longer delay
+    set _balloonClick false
+}
+
+# -------------------------------------------------------------
+#
+# METHOD: _startBalloonDelay 
+#
+# Starts waiting to pop up a balloon id
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_startBalloonDelay {window} {
+    set _balloonAfterID [after $_balloonTimer catch \{[code $this showBalloon $window]\}]
+}
+
+# -------------------------------------------------------------
+#
+# METHOD: _stopBalloonDelay  
+#
+# This method will stop the timer for a balloon popup if one is
+# in progress. If however there is already a balloon window up
+# it will hide the balloon window and set timing to delay 2 stage.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_stopBalloonDelay { window balloonClick } {
+    
+    # If <1> then got a click cancel
+    if { $balloonClick } {
+	set _balloonClick true
+    }
+    if { $_balloonAfterID != 0 } {
+	after cancel $_balloonAfterID
+	set _balloonAfterID 0
+    } else {
+	hideBalloon
+	
+	# If this was cancelled with a <1> use longer delay.
+	if { $_balloonClick } {
+	    set _balloonTimer $itk_option(-balloondelay1)
+	} else {
+	    set _balloonTimer $itk_option(-balloondelay2)
+	}
+    }
+}
+
+# -------------------------------------------------------------
+# PRIVATE METHOD: _addWidget
+#
+# widgetCommand : command to invoke to create the added widget
+# name          : name of the new widget to add
+# args          : options for the widget create command
+#
+# Looks for -helpstr, -balloonstr and grabs them, strips from
+# args list. Then tries to add a component and keeps based
+# on known type. If it fails, it tries to clean up. Then it
+# binds handlers for helpstatus and balloon help.
+#
+# Returns the path of the widget added.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_addWidget { widgetCommand name args } {
+    # ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+    # Add the widget to the tool bar
+    # '''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+    # ... Strip out and save the -helpstr, -balloonstr options from args
+    #     and save it in _opts
+
+    foreach c $_itemConfigs {
+	_setAttachedOption $_interior.$name $c $args 
+    }
+
+    # ... Add the new widget as a component (catch an error if occurs)
+    if {[catch {eval $widgetCommand $_interior.$name $args} errMsg]} {
+	# ... Clean up if the create failed, and exit.
+	#     The _opts list if it has -helpstr, -balloonstr just entered for
+	#     this, it must be cleaned up.
+	foreach c $_itemConfigs {
+	    if {[info exists _opts($_interior.$name,$c)]} {
+		set lastIndex [expr {[llength $_opts($_interior.$name,$c)]-1}]
+		lreplace $_opts($_interior.$name,$c) $lastIndex $lastIndex ""
+	    }
+	}
+	error $errMsg
+    }
+    
+    # Now make the component
+    itk_component add $name {
+	set widget $_interior.$name
+    } {
+    }
+
+    # ... Add in dynamic options that apply from the _optionList
+    foreach optionSet [$itk_component($name) configure] {
+	set option [lindex $optionSet 0]
+	if { [lsearch $_optionList $option] != -1 } {
+	    itk_option add $name.$option
+	}
+    }
+
+    set bt [bindtags $itk_component($name)]
+
+    lappend bt toolbar-help-$itk_component(hull) \
+	toolbar-balloon-$itk_component(hull) \
+	toolbar-destroy-$itk_component(hull)
+    bindtags $itk_component($name) $bt
+    
+    return $itk_component($name)
+}
+
+# -------------------------------------------------------------
+#
+# PRIVATE METHOD: _cleanupWidgets
+#
+# deletes widget range by numerical index numbers.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_cleanupWidgets {window} {
+    set ix [lsearch -exact $_toolList $window]
+    if {$ix >= 0 && [winfo exists $_interior]} {
+	delete $ix
+    }
+}
+
+# -------------------------------------------------------------
+#
+# PRIVATE METHOD: _deleteWidgets
+#
+# deletes widget range by numerical index numbers.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_deleteWidgets { index1 index2 } {
+    
+    for { set index $index1 } { $index <= $index2 } { incr index } {
+	
+	# kill the widget
+	set component [lindex $_toolList $index]
+	# First remove destroy binding
+	set bt [bindtags $component]
+	if {[set ix [lsearch $bt toolbar-destroy-$itk_component(hull)]] >= 0} {
+	    set bt [lreplace $bt $ix $ix]
+	    bindtags $component $bt
+	}
+	# Now we can safely destroy the 
+	destroy $component
+	if {[winfo exists $_interior.f_$index]} {
+		destroy $_interior.f_$index
+	}
+    }
+    
+    # physically remove the page
+    set _toolList [lreplace $_toolList $index1 $index2]
+    
+}
+
+# -------------------------------------------------------------
+# PRIVATE METHOD: _index
+#
+# toolList : list of widget names to search thru if index 
+#            is non-numeric
+# index    : either number, 'end', 'last', or pattern
+#
+# _index takes takes the value $index converts it to
+# a numeric identifier. If the value is not already
+# an integer it looks it up in the $toolList array.
+# If it fails it returns -1
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_index { toolList index } {
+    
+    switch -- $index {
+	end - last {
+	    set number [expr {[llength $toolList] -1}]
+	}
+	default {
+	    # is it a number already? Then just use the number
+	    if { [regexp {^[0-9]+$} $index] } {
+		set number $index
+		# check bounds
+		if { $number < 0 || $number >= [llength $toolList] } {
+		    set number -1
+		}
+		# otherwise it is a widget name
+	    } else {
+		if { [catch { set itk_component($index) } ] } {
+		    set number -1
+		} else {
+		    set number [lsearch -exact $toolList \
+			    $itk_component($index)]
+		}
+	    }
+	}
+    }
+    
+    return $number
+}
+    
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# STATUS HELP for linking to helpVariable
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# -------------------------------------------------------------
+# 
+# PUBLIC METHOD: hideHelp
+#
+# Bound to the <Leave> event on a toolbar widget. This clears the
+# status widget help area and resets the help entry.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::hideHelp {} {
+    if { $itk_option(-helpvariable) != {} } {
+        upvar #0 $itk_option(-helpvariable) helpvar
+	set helpvar {}
+    }
+    set _currHelpWidget {}
+}
+
+# -------------------------------------------------------------
+# 
+# PUBLIC METHOD: showHelp
+#
+# Bound to the <Motion> event on a tool bar widget. This puts the
+# help string associated with the tool bar widget into the 
+# status widget help area. If no help exists for the current
+# entry, the status widget is cleared.
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::showHelp { window } {
+    
+    set widgetPath $window
+    # already on this item?
+    if { $window == $_currHelpWidget } {
+	return
+    }
+    
+    set _currHelpWidget $window
+    
+    # Do we have a helpvariable set on the toolbar?
+    if { $itk_option(-helpvariable) != {} } {
+        upvar #0 $itk_option(-helpvariable) helpvar
+	
+	# is the -helpstr set for this widget?
+	if {[_getAttachedOption $window {-helpstr} value]} {
+	    set helpvar $value.
+	} else {
+	    set helpvar {}
+	}
+    }
+}
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# BALLOON HELP for show/hide of hint window
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# -------------------------------------------------------------
+# 
+# PUBLIC METHOD: showBalloon
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::showBalloon {window} {
+    set _balloonClick false
+    set _balloonAfterID 0
+
+    if {![winfo exists $window]} {
+	# This happens when application exits
+	return
+    }
+
+    # Are we still inside the window?
+    set xp [winfo pointerx .]
+    set yp [winfo pointery .]
+    set mouseWindow [winfo containing $xp $yp]
+
+    if { [string match $window* $mouseWindow] } {
+	if {$_hintWindow == {} || ![winfo exists $_hintWindow]} {
+	    # build balloon help window
+	    if {$_hintWindow != {}} {
+		mti_error_message "Where did $_hintWindow go!\n"
+	    }
+	    set _hintWindow [toplevel $itk_component(hull).balloonHintWindow -padx 0 -pady 0]
+	    wm withdraw $_hintWindow
+	    label $_hintWindow.label \
+		-foreground $itk_option(-balloonforeground) \
+		-background $itk_option(-balloonbackground) \
+		-font $itk_option(-balloonfont) \
+		-relief solid \
+		-borderwidth 1 -justify left
+	    pack $_hintWindow.label
+	}
+
+	# set up the balloonString
+	if {[_getAttachedOption $window {-balloonstr} hintStr]} {
+	}
+	if {[_getAttachedOption $window {-balloonvariable} hintStr2] && 
+	    $hintStr2 ne ""} {
+	    upvar "#0" $hintStr2 value
+	    if {[info exists value] && $value ne ""} {
+		set hintStr $value
+	    }
+	}
+	
+	if {[info exists hintStr] && $hintStr ne ""} {
+	    # configure the balloon help
+	    $_hintWindow.label configure -text $hintStr		
+
+	    set font [$_hintWindow.label cget -font]
+	    set bd   [$_hintWindow.label cget -borderwidth]
+	    set width [expr {[font measure $font $hintStr] + (2 * $bd) + 10}]
+	    set right [lindex [wm maxsize .] 0]
+
+	    incr xp 8 
+	    incr yp 16 
+	    if {[expr {$xp + $width}] > $right} {
+		set xp [expr {$right - $width}]
+	    }
+
+	    # put up balloon window
+	    wm withdraw $_hintWindow
+	    wm overrideredirect $_hintWindow 0
+	    wm geometry $_hintWindow "+$xp+$yp"
+	    wm overrideredirect $_hintWindow 1
+	    wm deiconify $_hintWindow
+	    raise $_hintWindow
+	} else {
+	    #NO BALLOON HELP AVAILABLE
+	}
+    } else {
+	#NOT IN BUTTON
+    }
+}
+
+# -------------------------------------------------------------
+# 
+# PUBLIC METHOD: hideBalloon
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::hideBalloon {} {
+    if {[winfo exists $_hintWindow]} {
+	wm withdraw $_hintWindow
+    }
+}
+
+# ------------------------------------------------------------------
+# PRIVATE METHOD: _setShowVariable
+#
+# Creates traces for the show variables--only one trace per variable.
+# The trace triggers a repacking of the toolbar which only need to
+# do once per variable change regardless of the number of times the
+# variable has been used.
+#
+# variable if 1 (TRUE) will be packed into toolbar.
+# If 0 (FALSE) will be unpacked from toolbar.
+# ------------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_setShowVariable {newvar oldvar} {
+    if {![info exists _showVars($newvar)]} {
+	set _showVars($newvar) [list]
+    }
+    lappend _showVars($newvar) $this
+    if {[llength $_showVars($newvar)] == 1} {
+	## Create trace on new variable
+	upvar #0 $newvar svar
+	trace variable svar w [code $this redoPack]
+    }
+
+    if {[info exists _showVars($oldvar)] && 
+	([llength $_showVars($oldvar)] > 0) } {
+	set n [lsearch -exact $_showVars($oldvar) $this]
+	if {$n >= 0} {
+	    set _showVars($oldvar) [lreplace $_showVars($oldvar) $n $n]
+	}
+	if {[llength $_showVars($oldvar)] == 0} {
+	    ## Remove trace on old variable
+	    trace vdelete svar w [code $this redoPack]
+	    unset _showVars($oldvar)
+	}
+    }
+}
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# OPTION MANAGEMENT for -helpstr, -balloonstr
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# -------------------------------------------------------------
+# PRIVATE METHOD: _getAttachedOption
+#
+# widget     : the widget that the option is associated with
+# option     : the option whose value we are looking for on 
+#              this widget.
+#
+# expects to be called only if the $option is length 1
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_getAttachedOption {widget option retValueVar} {
+    upvar $retValueVar retValueRef
+    set success false
+    if { [info exists _opts($widget,$option)] } {
+		set retValueRef $_opts($widget,$option)
+		set success true
+    }
+    return $success
+}
+
+# -------------------------------------------------------------
+# PRIVATE METHOD: _setAttachedOption
+#
+# This method allows us to attach new options to a widget. It
+# catches the 'option' to be attached, strips it out of 'args'
+# attaches it to the 'widget' by stuffing the value into
+# 'optionList(widget,option)'
+#
+# widget: is the widget we want to associate the attached option
+# option: is the attached option (unknown to this widget)
+# args:   the arg list to search and remove the option from (if found)
+#
+# Modifies the args parameter.
+# Returns boolean indicating the success of the method
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_setAttachedOption {widget option args} {
+    
+    upvar args argsRef
+    
+    set success false
+    
+    # check for 'option' in the 'args' list for the 'widget'
+    set optPos [eval lsearch -glob $args $option]
+    
+    # ... found it
+    if { $optPos != -1 } {
+	# grab a copy of the option from arg list
+	set newOptValue [eval lindex $args [expr {$optPos + 1}]]
+	if {[info exists _opts($widget,$option)]} {
+	    set oldOptValue $_opts($widget,$option)
+	} else {
+	    set oldOptValue {}
+	}
+	
+	# Special handling for showvariables. 
+	if {$option=="-showvariable" && ($newOptValue != $oldOptValue)} {
+	    _setShowVariable $newOptValue $oldOptValue
+	}
+	
+	set _opts($widget,$option) $newOptValue
+	
+	# remove the option argument and value from the arg list
+	set argsRef [eval lreplace $args $optPos [expr {$optPos + 1}]]
+	set success true
+    }
+    # ... if not found, will leave args alone
+    
+    return $success
+}
+
+itcl::body mtiwidgets::Toolbar::_toolEnter {tool toolFrame} {
+	if {[winfo exists $tool] && [winfo exists $toolFrame]} {
+		if {![catch {set state [$tool cget -state]}]} {
+			if { $state != "disabled" } {
+				$toolFrame configure -relief raised
+			}
+		}
+	}
+}
+
+itcl::body mtiwidgets::Toolbar::_toolLeave {tool toolFrame} {
+	if {[winfo exists $tool] && [winfo exists $toolFrame]} {
+		$toolFrame configure -relief flat 
+	}
+}
+
+# -------------------------------------------------------------
+# 
+# PUBLIC METHOD: redoPack
+#
+#   redo the toolbar packing
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::redoPack {args} {
+	_packToolbar
+}
+
+# -------------------------------------------------------------
+# 
+# PUBLIC METHOD: _configurePack
+#
+#   redo the toolbar packing
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_configurePack {} {
+	after cancel $_cpId
+	set _cpId [after idle [code $this _packToolbar]]
+	set _width [winfo width $_interior]
+}
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# GEOMETRY MANAGEMENT for tool widgets
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# -------------------------------------------------------------
+# 
+# PRIVATE METHOD: _packToolbar
+#
+#
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Toolbar::_packToolbar {} {
+
+	if {![winfo ismapped $_interior]} {
+		return
+	}
+	if {$itk_option(-orient) == "vertical"} {
+		set colInc 0
+		set rowInc 1
+	} else {
+		set colInc 1
+		set rowInc 0
+	}
+
+	# pack in order of _toolList.
+	set idx 0
+	set row 0
+	set col 0
+	set width [expr {[winfo width $_interior] - (2 * [$_interior cget -bd])}]
+	set leftExt 0
+	set maxwidth 0
+	set htotal 0
+	set maxHt 0
+	set repeat 0
+	set rightExt $width
+	#
+	# Place all the tools in the toolbar
+	foreach tool $_toolList {
+
+		# First determine if this tool should be packed at all.
+		if { [_getAttachedOption $tool {-showvariable} showVar] } {
+			upvar #0 $showVar svar
+			if {[info exists svar] && ($svar == 0)} {
+				continue
+			} elseif {![winfo ismapped $tool]} {
+				# This tool is not mapped, so need
+				# to repeat packing since required size
+				# information will not be correct
+				set repeat 1
+			}
+		}
+
+		# adjust for radios and checks to match buttons
+		if { [winfo class $tool] == "Radiobutton" || 
+			 [winfo class $tool] == "Checkbutton" } {
+			set iPad 1
+		} else {
+			set iPad 0
+		}
+		
+		# Determine tool justification
+		set justifyRight 0
+		if { [_getAttachedOption $tool {-justify} justVar] } {
+			if {$justVar == "right" || $justVar == "bottom"} {
+				set justifyRight 1
+			}
+		}
+
+		if {[winfo exists $_interior.f_$idx]} {
+		    set f $_interior.f_$idx
+		} else {
+		    set f [frame $_interior.f_$idx \
+			    -borderwidth 1 \
+			    -highlightthickness 0 \
+			    -background $itk_option(-background)]
+		}
+		# pack by horizontal or vertical orientation
+		pack $tool -in $f -side top -expand 0 -fill both -padx $iPad -pady $iPad
+		if {$itk_option(-wrap) && $colInc && !$rowInc} {
+		    # Wrap if horizontal and extends beyond edge of widget
+			if { $justifyRight } {
+				if {$leftExt > [expr {$rightExt - [winfo reqwidth $f]}]} {
+					set col 0
+					incr row
+					set leftExt 0
+					set rightExt $width
+				}
+			} else {
+				if {[expr {[winfo reqwidth $f] + $leftExt}] > $width} {
+					set col 0
+					incr row
+					set leftExt 0
+					set rightExt $width
+				}
+			}
+		}
+		if {[winfo reqheight $f] > $maxHt} {
+			set maxHt [winfo reqheight $f]
+		}
+		if {[winfo reqwidth $f] > $maxwidth} {
+			set maxwidth [winfo reqwidth $f]
+		}
+		if {$colInc && $justifyRight} {
+			set x [expr {$rightExt - [winfo reqwidth $f] - 1}]
+			set rightExt $x
+		} else {
+			set x [expr {$leftExt + 2}]
+		}
+		set y [expr {($row * $maxHt) + (($maxHt - [winfo reqheight $f]) / 2) + 1}]
+		place $f -y $y -x $x
+
+		raise $tool $f
+		::bind $tool <Enter> [code $this _toolEnter $tool $f]
+		::bind $tool <Leave> [code $this _toolLeave $tool $f]
+		incr idx
+		incr row $rowInc
+		incr col $colInc
+	    if {$colInc && !$justifyRight} {
+			incr leftExt [winfo reqwidth $f]
+	    }
+	    if {$rowInc} {
+			incr htotal [winfo reqheight $f]
+	    }
+	}
+	if {$itk_option(-wrap)} {
+	    set hgt [expr {(($row + 1) * $maxHt) + 6}]
+	    if {$hgt < $itk_option(-minheight)} {
+			set hgt $itk_option(-minheight)
+	    }
+		if {$colInc} {
+			$_interior configure -height $hgt -width 0
+		} else {
+			$_interior configure -height 0 \
+				-width [expr {$maxwidth + (2 * [$_interior cget -borderwidth]) + 6}]
+		}
+	} else {
+	    set hgt [expr {(($row + 1) * $maxHt) + 6}]
+	    if {$hgt < $itk_option(-minheight)} {
+			set hgt $itk_option(-minheight)
+	    }
+	    set wtotal [expr {$leftExt + ($width - $rightExt)}]
+	    $_interior configure \
+			-width [expr {$wtotal + (2 * $itk_option(-borderwidth))+ 6}] \
+			-height $hgt
+	}
+
+	if {$repeat} {
+		after idle [code $this _packToolbar]
+	}
+}
+
+
+#
+# Dockable Toolbar
+# ----------------------------------------------------------------------
+# This widget creates a toolbar frame which supports a collection of 
+# configurable toolbars that can be docked, moved, etc.
+# ----------------------------------------------------------------------
+#  AUTHOR: Brian Griffin                 EMAIL: bgriffin@model.com
+#
+# ----------------------------------------------------------------------
+#            Copyright 2000-2009 Mentor Graphics Corporation
+# ======================================================================
+# See the file "license.terms" for information on usage and
+# redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+# 
+# ======================================================================
+
+# ------------------------------------------------------------------
+#                            DOCKBAR
+# ------------------------------------------------------------------
+
+#
+# Usual options.
+#
+itk::usual mtiwidgets::Dockbar {
+    keep -activebackground -activeforeground -background -balloonbackground \
+		-balloondelay1 -balloondelay2 -balloonfont -balloonforeground \
+		-borderwidth -cursor -disabledforeground -font -foreground \
+		-highlightbackground -highlightcolor -highlightthickness \
+		-insertbackground -insertforeground -selectbackground \
+		-selectborderwidth -selectcolor -selectforeground -troughcolor \
+		-relief
+}
+
+itcl::class mtiwidgets::Dockbar {
+    inherit itk::Archetype
+    
+    constructor {args} {}
+    destructor {}
+
+    itk_option define -height height Height 0
+    itk_option define -borderwidth borderWidth BorderWidth 1
+    itk_option define -relief relief Relief sunken
+    itk_option define -propertycommand propertyCommand PropertyCommand {} 
+    itk_option define -propertyprefix propertyPrefix PropertyPrefix {} 
+    itk_option define -updatecommand updateCommand UpdateCommand {} 
+	itk_option define -leftbutton leftbutton LeftButton 0
+    itk_option define -rightbutton rightbutton RightButton 0
+
+    public method add {name args} 
+    public method buttonconfigure {which args} {eval [linsert $args 0 $itk_component(${which}button) configure]}
+    public method hide {index}
+    public method index {index} 
+    public method itemcget {index args} 
+    public method itemconfigure {index args} 
+    public method itemname {index}
+    public method move {index x y}
+    public method redoPack {args}
+    public method remove {index} 
+    public method reset {}
+    public method show {index}
+    public method passiveshow {index}
+    public method passivehide {index}
+    public method post_configure_menu {{menu ""}}
+
+    # Public method for showing/hiding toolbars
+    # Used by regression tests - matches the popup menu behavior
+    public method ShowToolbar {tb} 
+    public method HideToolbar {tb}
+
+    # Dumps information used by the regression tests
+    public method Dump { {show_hidden 0} }
+
+    protected method UpdateCommand {} 
+    protected method _geom_dragframe_delayed {X Y}
+    protected method _geom_dragframe {X Y}
+    protected method _getMaxH {}
+    protected method _doPopup {src_bar w X Y}
+    protected method _grab_b1 {w X Y}
+    protected method _grab_motion {w X Y}
+    protected method _grab_release {w X Y}
+    protected method _join {tb}
+    protected method _fix_tb_locations {}
+    protected method _move {tbf x y {fix_locations 0}}
+    protected method _rip {tb X Y}
+    protected method _tbConfigChange {tb}
+    protected method _toggleHide {tb}
+    protected method _inside {X Y w}
+    protected method setProperty {prop var}
+    protected method getProperty {prop var def}
+    protected method save { tb } 
+
+
+    private method _getAttachedOption {widget option retValueVar} 
+    private method _getShowVarValue {tb}
+    private method _getEnableMenuValue {tb}
+    private method _setAttachedOption {widget option args} 
+    private method _setShowVariable {newvar oldvar}
+    private method _delayedRedoPack {args}
+    private method _delayedEval {args}
+    private method _toTitle {s}
+
+    private variable _opts               ;# New options for child widgets
+    private variable _tbCnt 0
+    private variable _moveX 0
+    private variable _moveY 0
+    private variable _startX
+    private variable _startY
+    private variable _startH
+    private variable _startW
+    private variable _startdx
+    private variable _startdy
+    private variable _ordery
+    private variable _inGrab 0
+    private variable hidden
+    private variable ripped
+    private variable _initId
+    private variable forced_visibility
+    private variable itk_hull
+    private variable names
+    private variable tbList [list]
+    private variable tbX
+    private variable tbY
+    private variable save_tbX
+    private variable save_tbY
+    private variable maxh 1
+    private variable _inRedoPack 0
+    private variable _delayedIds
+    private common _enableDragout
+    private common _itemConfigs [list -showvariable -enablefunction]
+    private common _itemConfigsOps [list \
+					[list -showvariable showVariable ShowVariable {}] \
+					[list -enablefunction enableFunction EnableFunction {}] \
+		]
+    private common _showVars			;# Array of show variables and objects
+
+    if {[catch {wm toplevel .} ]} {
+	set _enableDragout 0
+    } else {
+	set _enableDragout 1
+    }
+}
+
+# ------------------------------------------------------------------
+#                            CONSTRUCTOR 
+# ------------------------------------------------------------------
+itcl::body mtiwidgets::Dockbar::constructor {args} {
+    #
+    #  Create a window with the same name as this object
+    #
+    set itk_hull [namespace tail $this]
+    set itk_interior $itk_hull
+
+    itk_component add -private hull {
+	frame $itk_hull -class [namespace tail [info class]] \
+	    -borderwidth 0 -relief flat
+    } {
+	keep -background -cursor -width -height -relief -borderwidth
+    }
+    bind itk-delete-$itk_hull <Destroy> "itcl::delete object $this"
+
+    set tags [bindtags $itk_hull]
+    bindtags $itk_hull [linsert $tags 0 itk-delete-$itk_hull]
+
+    #
+    # Popup Configure Menu
+    #
+    itk_component add -private popup {
+	menu $itk_component(hull).popup -tearoff 0 
+    } {
+    }
+    $itk_component(popup) configure -postcommand [code $this post_configure_menu]
+
+
+    # To ensure RMB popup access is available from all(most) areas of the dockbar
+    # and its contained toolbar(s), we define a binding on "all" since it is going to be
+    # present(by default) in all of the child widgets of the dockbar. The _doPopup code
+    # handles filtering the requests so only widgets within the dockbar will post the popup.
+    #
+    set cmd [code $this _doPopup $itk_hull %W %X %Y]
+    bind all <ButtonPress-3> "+if {\[$cmd\]} {break}"
+
+    #
+    # Handle configs
+    #
+    eval itk_initialize $args
+
+    bind $itk_component(hull) <Visibility> "[code $this _delayedRedoPack redoPack {Visibility Event}]"
+    bind $itk_component(hull) <Configure> "[code $this _delayedRedoPack redoPack [list Configure Event]]"
+}
+
+itcl::body mtiwidgets::Dockbar::destructor {} {
+
+    # Save toolbar layout
+    foreach tb $tbList {
+		save $tb
+	}
+    # Cancel idle activity
+    if {[info exists _delayedIds]} {
+	foreach aid $_delayedIds {
+	    after cancel $aid
+	}
+    }
+    if {[info exists _initId]} {
+	after cancel $_initId
+    }
+    # Remove variable triggers
+    foreach v [array names _showVars] {
+	while {[set n [lsearch -exact $_showVars($v) $this]] >= 0} {
+	    set _showVars($v) [lreplace $_showVars($v) $n $n]
+	}
+	if {[llength $_showVars($v)] == 0} {
+	    ## Remove trace
+	    upvar #0 $v svar
+	    trace vdelete svar w [code $this redoPack]
+	    unset _showVars($v)
+	}
+    }
+    # Cleanup bindings
+    if {[winfo exists $itk_hull]} {
+	set tags [bindtags $itk_hull]
+	set i [lsearch $tags itk-delete-$itk_hull]
+	if {$i >= 0} {
+	    bindtags $itk_hull [lreplace $tags $i $i]
+	}
+	destroy $itk_hull
+    }
+    # This next call handles removing the binding that was added for this
+    # hull to support the popup menu (see above in the constructor code).
+    #
+    DockbarInternal_postDeleteCleanup $itk_hull
+}
+
+proc DockbarInternal_postDeleteCleanup {hull} {
+
+   # We retrieve the current RMB bindings, then clear them
+   #
+   set curr [split [bind all <ButtonPress-3>] \n]
+   bind all <ButtonPress-3> ""
+
+   # Now we reapply bindings for all hulls execpt for the one
+   # being destroyed
+   #
+   foreach b $curr {
+      if { ! [string match "* _doPopup $hull *" $b] } {
+         bind all <ButtonPress-3> "+$b"
+      }
+   }
+}
+
+# ------------------------------------------------------------------
+# Configure option: -leftbutton
+#
+# If set will place a button on the left side of the dockbar
+# This button is intended for operations like new, dock, or close
+# ------------------------------------------------------------------
+itcl::configbody mtiwidgets::Dockbar::leftbutton {
+    if {$itk_option(-leftbutton)} {
+	if {![info exists itk_component(leftbutton)]} {
+	    itk_component add -protected leftbutton {
+		button $itk_component(hull).leftbutton -borderwidth 2 -relief groove
+	    } {
+		ignore -borderwidth -relief
+		keep -background -foreground
+		keep -image -command
+	    }
+	}
+    } else {
+	if {[info exists itk_component(leftbutton)]} {
+	    itk_component delete leftbutton
+	}
+    }
+    redoPack
+}
+
+# ------------------------------------------------------------------
+# Configure option: -rightbutton
+#
+# If set will place a button on the right side of the dockbar
+# This button is intended for operations like new, dock, or close
+# ------------------------------------------------------------------
+itcl::configbody mtiwidgets::Dockbar::rightbutton {
+    if {$itk_option(-rightbutton)} {
+	if {![info exists itk_component(rightbutton)]} {
+	    itk_component add -protected rightbutton {
+		button $itk_component(hull).rightbutton -borderwidth 2 -relief groove
+	    } {
+		ignore -borderwidth -relief
+		keep -background -foreground
+		keep -image -command
+	    }
+	}
+    } else {
+	if {[info exists itk_component(rightbutton)]} {
+	    itk_component delete rightbutton
+	}
+    }
+    redoPack
+}
+
+# ------------------------------------------------------------------
+# PRIVATE METHOD: _setShowVariable
+#
+# Creates traces for the show variables--only one trace per variable.
+# The trace triggers a repacking of the toolbar which only need to
+# do once per variable change regardless of the number of times the
+# variable has been used.
+#
+# variable if 1 (TRUE) will be packed into toolbar.
+# If 0 (FALSE) will be unpacked from toolbar.
+# ------------------------------------------------------------------
+itcl::body mtiwidgets::Dockbar::_setShowVariable {newvar oldvar} {
+    if {![info exists _showVars($newvar)]} {
+	set _showVars($newvar) [list]
+    }
+    lappend _showVars($newvar) $this
+    if {[llength $_showVars($newvar)] == 1} {
+	## Create trace on new variable
+	upvar #0 $newvar svar
+	trace variable svar w [code $this redoPack]
+    }
+
+    if {[info exists _showVars($oldvar)] && 
+	([llength $_showVars($oldvar)] > 0) } {
+	set n [lsearch -exact $_showVars($oldvar) $this]
+	if {$n >= 0} {
+	    set _showVars($oldvar) [lreplace $_showVars($oldvar) $n $n]
+	}
+	if {[llength $_showVars($oldvar)] == 0} {
+	    ## Remove trace on old variable
+	    trace vdelete svar w [code $this redoPack]
+	    unset _showVars($oldvar)
+	}
+    }
+}
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# OPTION MANAGEMENT for -showvar
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# -------------------------------------------------------------
+# PRIVATE METHOD: _getAttachedOption
+#
+# widget     : the widget that the option is associated with
+# option     : the option whose value we are looking for on 
+#              this widget.
+#
+# expects to be called only if the $option is length 1
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Dockbar::_getAttachedOption {widget option retValueVar} {
+    upvar $retValueVar retValueRef
+    set success false
+    if { [info exists _opts($widget,$option)] } {
+		set retValueRef $_opts($widget,$option)
+		set success true
+    }
+    return $success
+}
+
+# -------------------------------------------------------------
+# PRIVATE METHOD: _setAttachedOption
+#
+# This method allows us to attach new options to a widget. It
+# catches the 'option' to be attached, strips it out of 'args'
+# attaches it to the 'widget' by stuffing the value into
+# 'optionList(widget,option)'
+#
+# widget: is the widget we want to associate the attached option
+# option: is the attached option (unknown to this widget)
+# args:   the arg list to search and remove the option from (if found)
+#
+# Modifies the args parameter.
+# Returns boolean indicating the success of the method
+#
+# -------------------------------------------------------------
+itcl::body mtiwidgets::Dockbar::_setAttachedOption {widget option args} {
+    upvar args argsRef
+    
+    set success false
+    
+    # check for 'option' in the 'args' list for the 'widget'
+    set optPos [eval lsearch -glob $args $option]
+    
+    # ... found it
+    if { $optPos != -1 } {
+	# grab a copy of the option from arg list
+	set newOptValue [eval lindex $args [expr {$optPos + 1}]]
+	if {[info exists _opts($widget,$option)]} {
+	    set oldOptValue $_opts($widget,$option)
+	} else {
+	    set oldOptValue {}
+	}
+
+	# Special handling for showvariables. 
+	if {$option=="-showvariable" && ($newOptValue != $oldOptValue)} {
+	    _setShowVariable $newOptValue $oldOptValue
+	}
+
+	set _opts($widget,$option) $newOptValue
+
+	# remove the option argument and value from the arg list
+	set argsRef [eval lreplace $args $optPos [expr {$optPos + 1}]]
+	set success true
+    }
+    # ... if not found, will leave args alone
+    
+    return $success
+}
+
+#
+# Property access commands, use -propertycommand to
+# save and restore property values
+#
+itcl::body mtiwidgets::Dockbar::setProperty {prop var} {
+    if {$itk_option(-propertycommand) != ""} {
+	upvar $var data
+	if {$itk_option(-propertyprefix) != ""} {
+	    set prop [format "%s%s" $itk_option(-propertyprefix) $prop]
+	}
+	return [eval $itk_option(-propertycommand) set $prop data]
+    }
+    return ""
+}
+
+itcl::body mtiwidgets::Dockbar::getProperty {prop var def} {
+    upvar $var data
+    if {$itk_option(-propertycommand) != ""} {
+	if {$itk_option(-propertyprefix) != ""} {
+	    set prop [format "%s%s" $itk_option(-propertyprefix) $prop]
+	}
+	if {[catch {eval $itk_option(-propertycommand) get $prop data $def} rv]} {
+	    puts stderr "Property error: $rv"
+	    set rv [set data $def]
+	}
+	return $rv
+    }
+    set data $def
+}
+
+# call back for updating toolbars.  This is called when a toolbar is made visible
+itcl::body mtiwidgets::Dockbar::UpdateCommand {} {
+    if {$itk_option(-updatecommand) != ""} {
+	   eval $itk_option(-updatecommand) 
+	}
+}
+
+#
+# Provide a lowercase access method for the Toolbar class
+#
+proc ::mtiwidgets::dockbar {pathName args} {
+    uplevel ::mtiwidgets::Dockbar $pathName $args
+}
+
+
+itcl::body mtiwidgets::Dockbar::add {name args} {
+    #
+    # Add a toolbar to the dockbar
+    #
+
+    set tbf [format "tbf%d" $_tbCnt]
+    incr _tbCnt
+    itk_component add -private $tbf {
+	frame $itk_component(hull).$tbf -relief raised -bd 1
+    } {
+    }
+
+    # Strip out and save the -showvariable options
+    foreach c $_itemConfigs {
+	_setAttachedOption $itk_component($tbf).$name $c $args
+    }
+
+    set maxh [_getMaxH]
+    set maxy [lindex [lsort -integer -decreasing [array names _ordery]] 0]
+    if {0 && $maxy != ""} {
+	set newy [expr {$maxy + $maxh}]
+    } else {
+	getProperty "${name}_y" newy 0
+    }
+    # prevent over-large values from .modelsim from causing problems; bugz 9582
+    if { $newy > 32767 }  {
+        set newy 32767
+    }
+    getProperty "${name}_x" newx [llength $tbList]
+    getProperty "${name}_hidden" hidden($tbf) 0
+    getProperty "${name}_expelled" ripped($tbf) 0
+    # -1 none 0 off 1 on
+    getProperty "${name}_forced" forced_visibility($tbf) -1
+    lappend tbList $tbf
+    set names($tbf) $name
+
+
+    #
+    # create grabber
+    #
+    set gf [frame $itk_component($tbf).gf -bd 0 -relief flat -cursor fleur]
+    set g1 [frame $itk_component($tbf).gf.g1 -width 3 -bd 1 -relief raised -cursor fleur]
+    pack $g1 -side left -expand 0 -fill y -padx 1 -pady 1 -anchor nw
+    pack $gf -side left -expand 0 -fill y -anchor nw
+
+    itk_component add $name {
+		set cmd [linsert $args 0 mtiwidgets::Toolbar $itk_component($tbf).$name]
+		lappend cmd -borderwidth 1
+		eval $cmd
+    } {
+    }
+
+    # Override hard-coded relief of interior
+    $itk_component($name).tb configure -relief flat
+
+    pack $itk_component($name) -side left -fill both -expand 1 -anchor nw
+
+    if {$ripped($tbf)} {
+	set _initId [after idle [code $this _rip $tbf $newx $newy]]
+    } else {
+	_move $tbf $newx [expr {$newy * $maxh}]
+    }
+
+    bind $g1 <Button-1> [code $this _grab_b1 $tbf %X %Y]
+    bind $g1 <B1-Motion> [code $this _grab_motion $tbf %X %Y]
+    bind $g1 <ButtonRelease-1> [code $this _grab_release $tbf %X %Y]
+    bind $gf <Button-1> [code $this _grab_b1 $tbf %X %Y]
+    bind $gf <B1-Motion> [code $this _grab_motion $tbf %X %Y]
+    bind $gf <ButtonRelease-1> [code $this _grab_release $tbf %X %Y]
+    $itk_component($name) bind <Button-1> [code $this _grab_b1 $tbf %X %Y]
+    $itk_component($name) bind <B1-Motion> [code $this _grab_motion $tbf %X %Y]
+    $itk_component($name) bind <ButtonRelease-1> [code $this _grab_release $tbf %X %Y]
+
+#    bind $itk_component($tbf) <Visibility> "[code $this _delayedRedoPack redoPack [list Visibility Event on $tbf]]"
+    bind $itk_component($tbf) <Configure> "[code $this _delayedRedoPack redoPack [list Configure Event on $tbf]]"
+
+    return $itk_component($name)
+}
+
+itcl::body mtiwidgets::Dockbar::remove {index} {
+	set idx [index $index]
+	set tb [lindex $tbList $idx]
+	set tbList [lreplace $tbList $idx $idx]
+	if {[info exists tbX($tb)]} {
+		unset tbX($tb)
+	}
+	if {[info exists tbY($tb)]} {
+		unset tbY($tb)
+	}
+	if {[winfo exists $itk_component($tb)]} {
+		destroy $itk_component($tb)
+	}
+	if {[info exists names($tb)]} {
+		unset names($tb)
+	}
+	redoPack
+}
+
+itcl::body mtiwidgets::Dockbar::_doPopup {src_bar w X Y} {
+
+    if {!$_inGrab} {
+       # Confirm that the widget we got is part of the dockbar. Also
+       # check if the widget(or its class) already has a binding for RMB,
+       # and if it does just ignore the popup request.
+       #
+       if { [bind $w <ButtonPress-3>] != "" } { return 0 }
+       if { [bind [winfo class $w] <ButtonPress-3>] != "" } { return 0 }
+
+       if { ($w == $src_bar) || [string match "${src_bar}.*" $w] } {
+          tk_popup $itk_component(popup) $X $Y
+          return 1
+       }
+    }
+    return 0
+}
+
+itcl::body mtiwidgets::Dockbar::_grab_b1 {c X Y} {
+	set _inGrab 1
+    set wid $itk_component($c)
+    set _moveX [expr {$X - [winfo rootx $wid]}]
+    set _moveY [expr {$Y - [winfo rooty $wid]}]
+    set top [winfo toplevel $wid]
+    set geom [winfo geom $wid]
+    mtiwidgets::_parseGeometry $geom _startW _startH _startX _startY xdir ydir
+    if {$xdir == "-"} {
+	set _startX [expr {[winfo screenwidth $top] - ($_startW + $_startX)}]
+    }
+    if {$ydir == "-"} {
+	set _startY [expr {[winfo screenwidth $top] - ($_startH + $_startY)}]
+    }
+    set topgeom [wm geom $top]
+    mtiwidgets::_parseGeometry $topgeom tW tH tX tY txdir tydir
+    if {$txdir == "-"} {
+	set tX [expr {[winfo screenwidth $top] - ($tW + $tX)}]
+    }
+    if {$tydir == "-"} {
+	set tY [expr {[winfo screenwidth $top] - ($tH + $tY)}]
+    }
+    if {$ripped($c)} {
+	set _startdx [expr {$X - $tX}]
+	set _startdy [expr {$Y - $tY}]
+    } else {
+	set _startdx [expr {$X - $tX - $_startX}]
+	set _startdy [expr {$Y - $tY - $_startY}]		
+    }
+    set options [list -class Wireframe -background grey50 -borderwidth 0 -relief flat -highlightthickness 0]
+	eval toplevel $itk_component(hull)._l -width 1 -height $_startH $options
+	eval toplevel $itk_component(hull)._r -width 1 -height $_startH $options
+	eval toplevel $itk_component(hull)._t -width $_startW -height 1 $options
+	eval toplevel $itk_component(hull)._b -width $_startW -height 1 $options
+	wm transient $itk_component(hull)._l [winfo toplevel $itk_component(hull)]
+	wm overrideredirect $itk_component(hull)._l 1
+	wm transient $itk_component(hull)._r [winfo toplevel $itk_component(hull)]
+	wm overrideredirect $itk_component(hull)._r 1
+	wm transient $itk_component(hull)._t [winfo toplevel $itk_component(hull)]
+	wm overrideredirect $itk_component(hull)._t 1
+	wm transient $itk_component(hull)._b [winfo toplevel $itk_component(hull)]
+	wm overrideredirect $itk_component(hull)._b 1
+	_geom_dragframe [expr {$X - $_moveX}] [expr {$Y - $_moveY}]
+}
+
+itcl::body mtiwidgets::Dockbar::_geom_dragframe_delayed {X Y} {
+    if {[winfo exists $itk_component(hull)._l]} {
+	wm geom $itk_component(hull)._l +$X+$Y }
+    if {[winfo exists $itk_component(hull)._t]} {
+	wm geom $itk_component(hull)._t +$X+$Y }
+    if {[winfo exists $itk_component(hull)._r]} {
+	wm geom $itk_component(hull)._r +[expr {$X + $_startW}]+$Y }
+    if {[winfo exists $itk_component(hull)._b]} {
+	wm geom $itk_component(hull)._b +$X+[expr {$Y + $_startH}] }
+}
+
+itcl::body mtiwidgets::Dockbar::_geom_dragframe {X Y} {
+    raise $itk_component(hull)._l
+    raise $itk_component(hull)._t
+    raise $itk_component(hull)._r
+    raise $itk_component(hull)._b
+    after idle [itcl::code $this _geom_dragframe_delayed $X $Y]
+}
+
+itcl::body mtiwidgets::Dockbar::_grab_motion {c X Y} {
+    if {$_inGrab} {
+	set wid $itk_component($c)
+	if {[_inside  $X $Y $itk_component(hull)]} {
+	    $itk_component(hull)._l configure -width 1
+	    $itk_component(hull)._r configure -width 1
+	    $itk_component(hull)._t configure -height 1
+	    $itk_component(hull)._b configure -height 1 -width [expr {$_startW + 1}]
+	} else {
+	    $itk_component(hull)._l configure -width 3
+	    $itk_component(hull)._r configure -width 3
+	    $itk_component(hull)._t configure -height 3
+	    $itk_component(hull)._b configure -height 3 -width [expr {$_startW + 3}]
+	}		
+	_geom_dragframe [expr {$X - $_moveX}] [expr {$Y - $_moveY}]
+    }
+}
+
+proc mtiwidgets::_parseGeometry {geom vw vh vx vy vxdir vydir} {
+    upvar 1 $vw w
+    upvar 1 $vh h
+    upvar 1 $vx x
+    upvar 1 $vy y
+    upvar 1 $vxdir xdir
+    upvar 1 $vydir ydir
+
+    # Part One:  split into size and location parts
+    # WxH | +X+Y 
+    regexp -- {([0-9]+x[0-9]+)?([\+\-]+[0-9]+[\+\-]+[0-9]+)?} $geom foo size loc
+
+    # Part II: process the two parts individually
+    if {$size != ""} {
+	regexp {([0-9]+)x([0-9]+)} $size foo w h
+    }
+    if {$loc != ""} {
+	regexp {([\+\-])(-?[0-9]+)([\+\-])(-?[0-9]+)} $loc foo xdir x ydir y
+    }
+}
+
+itcl::body mtiwidgets::Dockbar::_inside {X Y w} {
+    if {$_enableDragout} {
+	set fudge 12
+	set TX [winfo rootx $w]
+	set TY [winfo rooty $w]
+	mtiwidgets::_parseGeometry [winfo geom $w] w h x y xdir ydir
+	set lx [expr {$TX - $fudge}]
+	set rx [expr {$TX + $w + $fudge}]
+	set ty [expr {$TY - $fudge}]
+	set by [expr {$TY + (2 * $h) + $fudge}]
+	if {$X > $lx && $X < $rx && $Y > $ty && $Y < $by} {
+	    return 1
+	}
+    } else {
+	return 1
+    }
+    return 0
+}
+
+itcl::body mtiwidgets::Dockbar::_grab_release {c X Y} {
+    set _inGrab 0
+    destroy $itk_component(hull)._l
+    destroy $itk_component(hull)._r
+    destroy $itk_component(hull)._t
+    destroy $itk_component(hull)._b
+
+    if {![_inside $X $Y $itk_component(hull)]} {
+	# Outside
+	if {$ripped($c)} {
+	    # Geom the tb
+	    wm geom $itk_component($c) [format "+%d+%d" [expr {$X - $_startdx}] [expr {$Y - $_startdy}]]
+	    set tbY($c) [expr {$Y - $_startdy}]
+	    set tbX($c) [expr {$X - $_startdx}]
+	} else {
+	    _rip $c [expr {$X - $_startdx}] [expr {$Y - $_startdy}]
+	}
+	return
+    } else {
+	# Inside
+	if {$ripped($c)} {
+	    _join $c
+	}
+    }
+    set y [expr {$Y - $_moveY - [winfo rooty $itk_component(hull)]}]
+    if {$y < 0} {
+	set y 0
+    }
+    set x [expr {$X - $_moveX - [winfo rootx $itk_component(hull)] - 1}]
+    if {$x < 0} {set dx 0}
+    _move $c $x $y true
+    return
+}
+
+itcl::body mtiwidgets::Dockbar::_rip {tb X Y} {
+    if {[info exists _initId]} {
+	unset _initId
+    }
+    set wid $itk_component($tb)
+    set ripped($tb) 1
+    redoPack
+    wm toplevel $wid 1
+    set idx [lsearch -exact $tbList $tb]
+    wm protocol $wid WM_DELETE_WINDOW [code $this hide $idx]
+    wm resizable $wid 0 0
+    # Make sure undocked toolbar always appears above it's parent dockbar
+    # This is done by making the toolbar transient
+    wm transient $wid [winfo toplevel $itk_component(hull)]
+    wm title $wid [string totitle $names($tb)]
+    set geom [format "+%d+%d" $X $Y]
+    wm geom $wid $geom
+    if {[info exists tbY($tb)]} {
+	set save_tbY($tb) $tbY($tb)
+    } else {
+	set save_tbY($tb) 0
+    }
+    if {[info exists tbX($tb)]} {
+	set save_tbX($tb) $tbX($tb)
+    } else {
+	set save_tbX($tb) 0
+    }
+    set tbY($tb) $Y
+    set tbX($tb) $X
+}
+
+itcl::body mtiwidgets::Dockbar::_join {tb} {
+    set wid $itk_component($tb)
+    wm toplevel $wid 0
+    set ripped($tb) 0
+}
+
+itcl::body mtiwidgets::Dockbar::move {index x y} {
+    set idx [index $index]
+    set name [lindex $tbList $idx]
+    _move $name $x $y ;#[expr {($maxh > 0) ? ($y / $maxh) : 0}]
+}
+
+#
+# Fix each toolbars location according to it's current location
+#
+itcl::body mtiwidgets::Dockbar::_fix_tb_locations {} {
+    if {[winfo ismapped $itk_component(hull)]} {
+	set max [expr {[winfo width $itk_component(hull)] - 16}]
+    }
+    set maxh [_getMaxH]
+    if {$maxh >= 0} {
+	foreach gridy [lsort -integer [array names _ordery]] {
+	    array unset xlist
+	    foreach tb $_ordery($gridy) {
+		set xlist($tbX($tb)) $tb
+	    }
+	    foreach tx [lsort -integer [array names xlist]] {
+		set tb $xlist($tx)
+		set x [expr {[winfo x $itk_component($tb)] - [$itk_component($tb) cget -borderwidth]}]
+		set y [winfo y $itk_component($tb)]
+		set y [expr {$y / $maxh}]
+		set tbX($tb) $x
+		set tbY($tb) $y
+	    }
+	}
+    }
+}
+
+itcl::body mtiwidgets::Dockbar::_move {tbf x y {fix_locations 0}} {
+    if {[winfo ismapped $itk_component(hull)]} {
+	set max [expr {[winfo width $itk_component(hull)] - 16}]
+	if {$x > $max} {
+	    set x $max
+	}
+	if {$x < 0} {
+	    set x 0
+	}
+    } else {
+	set tbX($tbf) $x
+	set tbY($tbf) [expr {$maxh ? ($y+($maxh/2))/$maxh : 0}]
+	return
+    }
+    if {$fix_locations} {
+	_fix_tb_locations
+    }
+    set tbX($tbf) $x
+    set tbY($tbf) [expr {$maxh ? ($y+($maxh/2))/$maxh : 0}]
+    redoPack
+}
+
+itcl::body mtiwidgets::Dockbar::_getShowVarValue {tb} {
+    if {[info exists names($tb)] } {
+    	set widget $itk_component($names($tb))
+    	if {[_getAttachedOption $widget {-showvariable} showVar]} {
+		upvar #0 $showVar svar
+		if {[info exists svar] && !$svar} {
+		    return 0
+		}
+    	}
+}
+    return 1
+}
+
+
+itcl::body mtiwidgets::Dockbar::_getEnableMenuValue {tb} {
+    set widget $itk_component($names($tb))
+    if {[_getAttachedOption $widget {-enablefunction} enable_function] &&
+	$enable_function ne {}} {
+	if {[catch $enable_function res]} {
+	    error "Error in -enablefunction for $tb: $res"
+	}
+	return $res
+    }
+    return 1
+}
+
+itcl::body mtiwidgets::Dockbar::_getMaxH {} {
+    set maxh 0
+    array unset _ordery
+    foreach tb $tbList {
+	if {([info exists hidden($tb)] && $hidden($tb)) || ![_getShowVarValue $tb]} {
+	    place forget $itk_component($tb)
+	    continue
+	} elseif {$ripped($tb)} {
+	    continue
+	}
+	set h [winfo height $itk_component($tb)]
+	if {![info exists tbY($tb)] || $tbY($tb) < 0} {
+	    set tbY($tb) 0
+	}
+	set gridy $tbY($tb) ;#[expr {($tbY($tb)/$h) * $h}]
+	lappend _ordery($gridy) $tb
+	if {$h > $maxh} {
+	    set maxh $h
+	}
+    }
+    return $maxh
+}
+
+itcl::body mtiwidgets::Dockbar::redoPack {args} {
+    if {$_inRedoPack} {
+	incr _inRedoPack
+	return
+    }
+    if {![winfo ismapped $itk_component(hull)]} {
+	return
+    }
+    set _inRedoPack 1
+
+    # map ripped toolbars
+    foreach tb $tbList {
+	if {[info exists hidden($tb)] && !$hidden($tb) && 
+	    [_getShowVarValue $tb] &&
+	    $ripped($tb) &&
+	    [winfo exists $itk_component($tb)] &&
+	    ![winfo ismapped $itk_component($tb)]} {
+
+	    if {[wm toplevel $itk_component($tb)]} {
+		wm deiconify $itk_component($tb)
+	    }
+	}
+    }
+
+    # Re pack the rest
+    set maxh [_getMaxH]
+    set buttonsz [expr {$maxh - 6}]
+    set lasty 0
+    set realy 0
+    set dbWidthOrig [winfo width $itk_component(hull)]
+    foreach y [lsort -integer [array names _ordery]] {
+	array unset orderx
+	foreach tb $_ordery($y) {
+	    lappend orderx($tbX($tb)) $tb
+	}
+	if {$realy == 0 && $itk_option(-leftbutton)} {
+	    set lastx $maxh ;# width of leftbutton
+	    place $itk_component(leftbutton) -x 3 -y 3 -width $buttonsz -height $buttonsz
+	} else {
+	    set lastx 0
+	}
+	if {$realy == 0 && $itk_option(-rightbutton)} {
+	    set dbWidth [expr {$dbWidthOrig - $maxh}]
+	    place $itk_component(rightbutton) -x [expr {$dbWidth + 3}] -y 3 -width $buttonsz -height $buttonsz
+	    incr dbWidth -1
+	} else {
+	    set dbWidth $dbWidthOrig
+	}
+
+	foreach x [lsort -integer [array names orderx]] {
+	    foreach tb $orderx($x) {
+		if {$x < $lastx} {
+		    set x [expr {$lastx + 1}]
+		}
+		if {$x + [winfo width $itk_component($tb)] > $dbWidth} {
+		    set lastx 0
+		    incr realy $maxh
+		    set x 0
+		    set dbWidth $dbWidthOrig
+		}
+		place $itk_component($tb) -x $x -y $realy
+		update idletasks
+		set lastx [expr {$x + [winfo reqwidth $itk_component($tb)]}]
+		if {[winfo reqheight $itk_component($tb)] < $maxh} {
+		    set nh [expr {$maxh - (2 * [$itk_component($tb) cget -borderwidth])}]
+		    $itk_component($tb).$names($tb) configure -minheight $nh
+		    $itk_component($tb).$names($tb) _configurePack
+		}
+	    }
+	}
+	incr realy $maxh
+    }
+    configure -height [expr {$realy + ($itk_option(-borderwidth)*2)}]
+    if {$_inRedoPack > 1} {
+	_delayedRedoPack redoPack again
+    }
+    set _inRedoPack 0
+	return
+}
+
+
+
+itcl::body mtiwidgets::Dockbar::index {index} {
+    if {[string is integer $index] && [llength $tbList] > $index} {
+	return $index
+    } elseif {[info exists itk_component($index)]} {
+	set idx [lsearch -exact $tbList [winfo name [winfo parent $itk_component($index)]]]
+	return $idx
+    } elseif {$index == "end"} {
+	return [expr {[llength $tbList] - 1}]
+    } else {
+	return -1
+    }
+}
+
+itcl::body mtiwidgets::Dockbar::ShowToolbar {index} {
+	set tb [lindex $tbList $index]
+    if {$hidden($tb)} {
+		show $index
+		#tkwait visibility $tb
+    }
+	update idletasks
+	UpdateCommand
+}
+		
+itcl::body mtiwidgets::Dockbar::HideToolbar {index} {
+ 	set tb [lindex $tbList $index]
+	if {!$hidden($tb)} {
+		hide $index
+    }
+	update idletasks
+	UpdateCommand
+}
+
+itcl::body mtiwidgets::Dockbar::Dump { {show_hidden 0} } {
+	foreach tb $tbList {
+      if { (! $hidden($tb)) || $show_hidden } {
+         set name $names($tb)
+         set tbar $itk_component($name).tb ;# actual toolbar widget
+         echo "TOOLBAR DUMP: $name"
+         foreach w [winfo children $tbar] {
+            switch [winfo class $w] {
+               Button -
+               Checkbutton -
+               Radiobutton {
+                  set name  [$w cget -text]
+                  set state [$w cget -state]
+                  set cmd   [$w cget -command]
+                  echo [format "--- STATE=%8s, NAME=%-30s, CMD=%s" $state $name $cmd]
+               }
+               Menubutton {
+                  set name  [$w cget -text]
+                  set state [$w cget -state]
+                  set img   [$w cget -image]
+                  echo [format "--- STATE=%8s, NAME=%-30s, IMG=%s" $state $name $img]
+               }
+            }
+         }
+      }
+   }
+}
+
+itcl::body mtiwidgets::Dockbar::_toggleHide {tb} {
+    # This is called from checkbutton code where the
+    # state variable has already been changed.
+    # Call the appropriate routine to do the work.
+    # (this means this code my look backwards, but it's not)
+	set idx [lsearch -exact $tbList $tb]
+    if {$hidden($tb)} {
+		hide $idx
+	} else {
+		show $idx
+    }
+	UpdateCommand
+}
+
+itcl::body mtiwidgets::Dockbar::hide {index} {
+     if {[set idx [index $index]] >= 0} {
+		set tb [lindex $tbList $index]
+	    set forced_visibility($tb) 0
+		passivehide $index
+    }
+}
+
+
+itcl::body mtiwidgets::Dockbar::show {index} {
+     if {[set idx [index $index]] >= 0} {
+ 		set tb [lindex $tbList $idx]
+	    set forced_visibility($tb) 1
+		passiveshow $index
+    }
+}
+
+
+# a passive show will show the toolbar if the user hasn't forced the state 
+itcl::body mtiwidgets::Dockbar::passiveshow {index} {
+    if {[set idx [index $index]] >= 0} {
+		set tb [lindex $tbList $idx]
+		if { $forced_visibility($tb) == 0 } {
+			# the user forcibly turned this toolbar off
+			return
+		}
+		set tb [lindex $tbList $idx]
+		set hidden($tb) 0
+		# Redo the packing to get the toolbar mapped so that the toolbar pack
+		# will properly size itself.  This is necessary because it may never
+		# have completed the sizing before it was hidden (unmapped)
+		# In otherwords: two redPack's are needed!
+		redoPack
+		$itk_component($names($tb)) redoPack
+		save $tb
+    }
+	# Pack again so that everything is properly sized
+    redoPack
+}
+
+# a passive hide will hide the toolbar but doesn't assume the user force it hidden
+itcl::body mtiwidgets::Dockbar::passivehide {index} {
+    if {[set idx [index $index]] >= 0} {
+		set tb [lindex $tbList $idx]
+		if { $forced_visibility($tb) == 1 } {
+			return
+		}
+		if {$ripped($tb)} {
+
+		    if {[info exists _initId]} {
+			# rip hasn't happened yet,
+			# defer this operation
+			after idle [code $this passivehide $index]
+			return
+		    }
+			# restore X Y from before rip
+			if {[info exists save_tbY($tb)]} {
+				set tbY($tb) $save_tbY($tb)
+			}
+			if {[info exists save_tbX($tb)]} {
+				set tbX($tb) $save_tbX($tb)
+			}
+			_join $tb
+		}
+		set hidden($tb) 1
+		save $tb
+	}
+    redoPack
+}
+
+itcl::body mtiwidgets::Dockbar::itemname {index} {
+    if {[set idx [index $index]] >= 0} {
+	return $names([lindex $tbList $idx])
+    }
+}
+
+itcl::body mtiwidgets::Dockbar::itemcget {index args} {
+    return [lindex [eval itemconfigure $index $args] 4]
+}
+
+itcl::body mtiwidgets::Dockbar::itemconfigure {index args} {
+    if {[set name [itemname $index]] != ""} {
+	set len [llength $args]
+	set widget $itk_component($name)
+	switch $len {
+	    0 {
+		# Show all options
+
+		# support display of -showvariable configs
+		set optList [$widget configure]
+
+		foreach c $_itemConfigs cstr $_itemConfigsOps {
+		    if {![_getAttachedOption $widget $c value]} {
+			set value {}
+		    }
+		    set olist $cstr
+		    lappend olist $value
+		    lappend optList $olist
+		}
+		return $optList
+	    }
+	    1 {
+		# Show only option specified
+
+		foreach c $_itemConfigs cstr $_itemConfigsOps {
+		    if {[regexp -- $c $args]} {
+			if {![_getAttachedOption $widget $c value]} {
+			    set value {}
+			}
+			set olist $cstr
+			lappend olist $value
+			return $olist
+		    }
+		}
+		return [eval $widget configure $args]
+	    }
+	    default {
+		# ... do a normal configure
+
+		# First screen for all our child options we are adding
+		foreach c $_itemConfigs {
+		    _setAttachedOption $widget $c $args
+		}
+
+		# with a clean args list do a configure
+
+		# if the stripping process brought us down to no options,
+		# then forget the configure of widget.
+		if {[llength $args] != 0} {
+		    return [uplevel $widget configure $args]
+		} else {
+		    return ""
+		}
+	    }
+	}
+    }
+}
+
+itcl::body mtiwidgets::Dockbar::itemcget {index args} {
+	if {[set name [itemname $index]] != ""} {
+		uplevel $itk_component($name) cget $args
+	}
+}
+
+itcl::body mtiwidgets::Dockbar::post_configure_menu {{ menu "" }} {
+   set from_bar 0
+   if { $menu eq "" } {
+      set menu $itk_component(popup)
+      set from_bar 1
+   }
+   if { ! [winfo exists $menu] } return
+
+   # Identify which toolbar is posting the menu. Since we don't get
+   # any X/Y or widget information as input, we have to manually
+   # figure this out.
+   set curr ""
+   if { $from_bar } {
+      set x [winfo pointerx $menu]
+      set y [winfo pointery $menu]
+      set w [winfo containing $x $y]
+
+      set hull $itk_component(hull)
+      if { ($w != "") && ($w != $hull) } {
+         # The widget path format is <DOCKBAR>.<TOOLBAR>. ...
+         #
+         set len [string length $hull]
+         set tmp [string range $w $len end] ;# strip off leading dockbar path
+         set tbar [lindex [split $tmp "."] 1]
+         set curr $names($tbar)
+      }
+   }
+
+   $menu delete 0 end
+
+   # Get the list sorted. We'll make sure we keep the "standard"
+   # toolbar listed at the top for convenient access by the user.
+   #
+   set tmp [list]
+   set std [list]
+   foreach tb $tbList {
+      if { [string match -nocase "standard" $names($tb)] } {
+         set std [list $names($tb) $tb]
+      } else {
+         lappend tmp [list $names($tb) $tb]
+      }
+   }
+   set sorted_list [lsort $tmp]
+   if {$std != {}} {
+      set sorted_list [linsert $sorted_list 0 $std]
+   }
+      
+   foreach info $sorted_list {
+      set name [lindex $info 0]
+      set tb   [lindex $info 1]
+      if {[_getShowVarValue $tb]} {
+         if {[_getEnableMenuValue $tb]} {
+            set state normal
+         } else {
+            set state disabled
+         }
+      } else {
+         set state disabled
+      }
+
+      $menu add checkbutton -label [_toTitle $name] \
+          -variable [scope hidden($tb)] \
+          -command [code $this _toggleHide $tb] \
+          -onvalue 0 -offvalue 1 -state $state
+
+      if { $name == $curr } {
+         # This entry is for the toolbar we're over
+         #
+         $menu entryconfigure end -font menuFontBold
+      }
+   }
+   $menu add separator
+   $menu add command -label "Reset" -command [code $this reset]
+}
+
+itcl::body mtiwidgets::Dockbar::_toTitle {s} {
+
+   set final ""
+   foreach _s [split $s "_"] {
+      if { $final != "" } {
+         append final " "
+      }
+      append final [string totitle $_s]
+   }
+   if { [string length $final] < 4 } {
+      return [string toupper $final] ;# assume in this case it's an acronym
+   }
+   return $final
+}
+
+#
+# We must keep track of idle events that we've scheduled so they
+# can be deleted before they mature when this object is deleted.
+#
+itcl::body mtiwidgets::Dockbar::_delayedRedoPack {args} {
+    set cmd [concat code $this _delayedEval $args]
+    set cmd [eval $cmd]
+    set id [eval after idle $cmd]
+    lappend _delayedIds $id
+}
+
+itcl::body mtiwidgets::Dockbar::_delayedEval {args} {
+    set _delayedIds [lrange $_delayedIds 1 end]
+    eval $args
+}
+
+itcl::body mtiwidgets::Dockbar::reset {} {
+    set x 0
+    foreach tb $tbList {
+		set name $names($tb)
+		set ripped($tb) 0
+		set tbY($tb) 0
+		set tbX($tb) $x
+		set forced_visibility($tb) -1
+		save $tb
+		incr x
+    }
+
+    _delayedRedoPack redoPack reset
+	UpdateCommand
+}
+
+
+itcl::body mtiwidgets::Dockbar::save { tb } {
+	set name $names($tb)
+	if {[info exists ripped($tb)]}            {setProperty "${name}_expelled" ripped($tb)}
+	if {[info exists hidden($tb)]}            {setProperty "${name}_hidden" hidden($tb)}
+	if {[info exists tbY($tb)]}               {setProperty "${name}_y" tbY($tb)}
+	if {[info exists tbX($tb)]}               {setProperty "${name}_x" tbX($tb)}
+	if {[info exists forced_visibility($tb)]} {setProperty "${name}_forced" forced_visibility($tb)}
+}

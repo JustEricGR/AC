@@ -1,0 +1,223 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//       U.S. Patent Numbers 6,175,946, 6,292,765, 6,609,229, 6,848,088     
+//                               and 6,885,983                              
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the XSBI Block Synchronization module.
+ *
+ * DESCRIPTION   This module takes in the 16-bit XSBI interface data and
+ *               packs them to 66-bit blocks after synchronization is 
+ *               achieved and provides status information.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *               802.3ae Amendment: Media Access Control (MAC) Parameters,
+ *               Physical Layers, and Management Parameters for 10 Gb/s
+ *               Operation, 2002.
+ *
+ * INPUTS        areset           - asynchronous reset (active high)
+ *               reset            - synchronous reset (active high)
+ *               clk              - interface clock
+ *               sb_data          - data (16-bit)
+ * OUTPUTS       link_status      - block sync status
+ *               block_data       - synchronized 66-bit block
+ *               block_data_valid - block data enable
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`qvlmodule qvl_gigabit_ethernet_xsbi_block_sync (areset,
+                                               reset,
+                                               clk,
+                                               sb_data,
+                                               link_status,
+                                               block_data,
+					       block_data_valid
+					      );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis. 
+ 
+  parameter Constraints_Mode = 0; 
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate that the monitor is instantiated
+  // on the XGMII interface either at the RS or on the second XGXS (if the
+  // XAUI is implemented) after converting from XAUI to XGMII. A value of
+  // 0 on this parameter will indicate that the monitor is instantiated on
+  // an XGMII interface on that side of the link that is closer to the PHY.
+  // This parameter is used in constraining the correct side in case of the
+  // formal analysis.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  //Parameter BYPASS_BLOCK_SYNC = 1 implies that the block synchronization 
+  // process is bypassed and the incoming data and assumes data to be aligned. 
+  parameter BYPASS_BLOCK_SYNC = 1;
+  wire [31:0] pw_BYPASS_BLOCK_SYNC = BYPASS_BLOCK_SYNC;
+
+  // This configures the current instance of the monitor to be on Tx/Rx side.
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+
+  input areset;
+  input reset;
+  input clk;
+  input [15:0] sb_data;
+
+  output link_status;
+  output [65:0] block_data;
+  output block_data_valid;
+
+  // Internal registers - general
+  
+  reg [63:0] accumulated_data;
+  reg [63:0] r_accumulated_data;
+  reg r_first_sh_det;
+  reg r_block_lock;
+  reg first_block_detected;
+
+  // Internal registers - counters
+
+  reg [6:0] num_sync_header_count;
+  reg [6:0] num_valid_sh_count;
+  reg [6:0] num_invalid_sh_count;
+  reg [6:0] accumulated_bit_count;
+  reg [6:0] r_accumulated_bit_count;
+  reg [4:0] seg_cnt;
+
+  // Internal wires
+
+  wire first_sh_det;
+  wire block_sync_failed;
+  wire [1:0] cur_sh;
+  wire cur_sh_valid;
+  wire cur_sh_invalid;
+  wire block_lock;
+  wire [15:0] sb_data_rev;
+  
+  reg [65:0] data_block_combo;
+
+  // The physical interface of XSBI reverses the order of indexes. Hence sb_data_rev[0]
+  // and sb_data_rev[1] now contains the sync header
+  assign sb_data_rev[0] = sb_data[15]; 
+  assign sb_data_rev[1] = sb_data[14]; 
+  assign sb_data_rev[2] = sb_data[13]; 
+  assign sb_data_rev[3] = sb_data[12]; 
+  assign sb_data_rev[4] = sb_data[11]; 
+  assign sb_data_rev[5] = sb_data[10]; 
+  assign sb_data_rev[6] = sb_data[9]; 
+  assign sb_data_rev[7] = sb_data[8]; 
+  assign sb_data_rev[8] = sb_data[7]; 
+  assign sb_data_rev[9] = sb_data[6]; 
+  assign sb_data_rev[10] = sb_data[5]; 
+  assign sb_data_rev[11] = sb_data[4]; 
+  assign sb_data_rev[12] = sb_data[3]; 
+  assign sb_data_rev[13] = sb_data[2]; 
+  assign sb_data_rev[14] = sb_data[1]; 
+  assign sb_data_rev[15] = sb_data[0]; 
+
+  // This signal indicates the detection of the first valid sync header. 
+  // The block synchronization looks for the first 16-bit data in which 
+  // the first two bits are unequal, (this means that it is a valid header)
+  // and then tracks the following 64 blocks. This signal detects the first
+  // data with a valid header.
+  assign first_sh_det = (sb_data_rev[1] !== sb_data_rev[0]) ? 1'b1 : r_first_sh_det;
+
+  // This is the 66-bit block formed out of multiple 16-bit data. The scheme
+  // is to accumulate as many 16-bit data that can give out a 66-bit block. In
+  // this case, 5 such 16-bit data are accumulated for the first time and the
+  // subsequent 66-blocks need only 4 more 16-bit data to be accumulated since
+  // there is a carry over of remaining data from already accumulated bits.
+  
+  // since the carry over becomes zero. Whenever the accumulated data register
+  // has greater than 66 bits, a block is poppod out. Block lock is a signal
+  // that indicates block synchronization done/not done.
+  
+  assign block_data = (block_lock === 1'b1 && r_accumulated_bit_count >= 7'd50) ?
+    data_block_combo : 66'd0;
+  assign block_data_valid = (block_lock === 1'b1) ?
+    (r_accumulated_bit_count >= 7'd50) : 1'b0;
+
+  // Current sync header
+  assign cur_sh = (r_accumulated_bit_count >= 7'd50) ? 
+    r_accumulated_data[1:0] : 2'b00;
+
+  // Sync headers can be either 10 (control) of 01 (data). 00 & 11 are invalid
+  assign cur_sh_valid = (r_accumulated_bit_count >= 7'd50 && 
+    r_accumulated_data[1] !== r_accumulated_data[0]) ? 1'b1 : 1'b0;
+
+  // Sync headers of 00 and 11 are invalid.
+  assign cur_sh_invalid = (r_accumulated_bit_count >= 7'd50 && 
+    r_accumulated_data[1] === r_accumulated_data[0]) ? 1'b1 : 1'b0;
+
+  // The block synchronization process tracks the first 64if blocks (headers)
+  // and achieves successful synchronization if the number invalid headers are
+  // lesser than 16 of the 64 sync headers. 
+  assign block_lock = (BYPASS_BLOCK_SYNC == 0) ?
+    (num_sync_header_count === 7'd64 && num_invalid_sh_count < 7'd16) ? 
+    1'b1 : r_block_lock : 1'b1;
+
+  // If the number of invalid sync headers exceed 16 int he first 64 sync 
+  // headers, it indicates faulure of block sync and repeats the entire process
+  assign block_sync_failed = (!block_lock && num_sync_header_count === 7'd64) ? 
+    (num_invalid_sh_count > 7'd16) ? 1'b1 : 1'b0 : 1'b0;
+
+  assign link_status = block_lock;
+
+  always @(posedge clk) 
+    data_block_combo = (accumulated_bit_count >= 7'd50) ? 
+    ({16'b0,accumulated_data} | 
+    ({48'b0,sb_data_rev} << accumulated_bit_count)) : 66'b0;
+
+`protected
+
+    MTI!#s@rYG@=keoSLXQ-YCa,@lDYrHXX2G+4SKzY[crCJ!'>^[iwW76?X<2Qm=j%=Z}ABX_^\pQ~
+    SOxX?I2@>1-$O-r;BzRUrKAV~-tsv*BBZ'*F2wZJyIle~zx<n2=5-GVk^K\[n_'A?+^R'_pC[r7T
+    *qC[jz~saHR^'}f^VnWI+RV,{O\^A@ajjX}2zT*Es,;HR7HV5TkDUsGRF/Jam5E!YIKl1uDTV*OI
+    no,>HHmj?^6Bz!u7!T$[g'xvD,GD^;71#rr2_MTEu7"<^K?eUp5FI5Qp],axI_1Ir}==awo}jA5D
+    3$DUM'x#5!$B'>BPIC<l^+B!KUruiDOoPBzIB[!Ew]I]m^sE]+<{r{5~$F1?O'7mvWYOja+B-?%/
+    KpXHx$C;lljH}f2^i^wl!!In!DU5CTHolB5H@I*>u,Z*TaHz<V,pV{JV*UE,AIL=tYjKul3nwos3
+    z{=Y]AzR3G@C+_W<xsV-}@Yo+UBV!?ax\jEU]zH3I<GTsQOHjZ\7jEEOVImWWTIG{m1uvBn$[-zY
+    o*Y~vY*]ilZ]Ouj]#,Hu#N^p{=UGTnAvH@ze^_eQaGTGjIx@>V$JHvRC}#'1CeK7$="iYf)6RQmX
+    x'J#<+^$?5j@['~{5T{zBI[x0|om]C_j*,>1{W{A3uDx2rOjeazBQ!YQ1pX-+o?R<n]{aa*p[CU-
+    x}=]joZC37__eYj#$~kV5v~xD55<jT)DH]u5;*,AX)NuHJA~}lxwxXzD2p~hH+lek<Ya1}OBi<BG
+    }s'j8Ck^37?rvs!=$ExU3*EK+#>CT\]n=Q~Q@R-smZ$>YmvKGE*ne1Z}X'O,=%j7aG17{<pHGI\T
+    -5%I>x>qVl@Zc]HW\P$pvCVwV\zuxxP8Bx]*{_{AnpsKU+u~lmp,1si>irkj^;;ayOkuzV;7>4TA
+    Ern_]''l1\r7_Qp[W5*2A+%_D-Bh=<vYV3QDuwCn-|3UZue+,^+|]mAR1]^m:aSsGm2^hI_eDR}?
+    ~E=I@YY=~i],vVV~p3]#>uCDEXrAEzy!<pe:#nYaZoI-U']=|ei{ep+EWTwE;x#ZIK>vs*+O^k]o
+    CU{Q^xQZ,?,>Tx]<j7KE<T*+rL?5],=^p1,+R~:AH]5Gj'BV${Bjiv+aA2IX7k'{6Sp@rw+na@\K
+    YoeVQ<h[T]IB5*~XV!#9Dusn3avpI2<1ZU!,Ux#UEj1}F;nQ*8wCT?ei-_6nDd?sQ*GAe#zYH*}+
+    o?ETop}_kHgMQB,$VzrJNV}*2)!_aa/9mDXG^Uu~e7i{[]AEmIxXCXv~KYOTr'{JD\A+z*[=V?oK
+    e;C5e5k]YC#JppvVLEAv*Y}$TOvr#{olj#7u]C+j-[s$a\Y@r7^=oa,K~Y+px][^A@a*{B^7KaRw
+    ^_n\Vc#6K1oW[o*x{eusueB'-UxBW=o[DUsQhTrsiur{YGSz!EW3Aprm<
+`endprotected
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_xsbi_block_sync.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_xsbi_block_sync.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_xsbi_block_sync
+`include "zi_cw_gigabit_ethernet_xsbi_block_sync.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // zi_cw_gigabit_ethernet_xsbi_block_sync

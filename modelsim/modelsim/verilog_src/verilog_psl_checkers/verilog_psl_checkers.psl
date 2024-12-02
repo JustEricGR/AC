@@ -1,0 +1,3513 @@
+//*- mode: fundamental; tab-width: 4; indent-tabs-mode: nil -*-
+// ------------------------------------------------------------------------
+// ModelSim Standard Checker Library Version 1.0
+// $Revision: #1 $
+//                                                                      
+// Copyright 2005-2009 Mentor Graphics Corporation
+//
+// This source file may be used and distributed without restriction 
+// provided that this copyright statement is not removed from the file 
+// and that any derivative work contains this copyright notice.  
+//
+// The source file is provided "AS IS" and Mentor Graphics makes 
+// NO WARRANTY, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION 
+// ANY IMPLIED WARRANTY OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR 
+// PURPOSE, with respect to the source file or the use thereof.
+//								
+//	Purpose: 						
+//      Implements numerous predefined automated design checkers using assertion
+//      based verification and functional coverage techniques.
+// ------------------------------------------------------------------------
+// // PSL vunits for ModelSim Standard Checker Library in PSL/verilog.
+// See verilog_psl_checkers.v for interface documentation.
+// 
+// Each vunit is attached to an architecture in "verilog_psl_checkers.v".  The vunit
+// defines the properties and assertions, and for some of the checkers, models
+// additional state that is necessary to implement the check.
+//
+// ModelSim 5.8 Release Note: verilog logic in the vunits is disabled only at
+// compile time with the "-nopsl" option to vcom.  Currently, it cannot be
+// disabled at elaboration time with the "-nopsl" option to vsim, though that
+// is considered for a future release.
+//
+
+// DEFINES:
+`include "verilog_psl_checkers.inc"
+
+//----------------------------------------------------------------------------  
+// arbiter
+// 
+// IMPLEMENTATION NOTES FOR ARBITER:
+// * single grant only
+// * fifo/fairness schemes assume bit-ordered priority when ambiguous
+// * temporal checks will be required but need replicated properties
+// * queue/fifo signals could be shared between fifo_proc and fairness_proc
+//   except that modelsim warns about possible multiple drivers (which
+//   couldn't be true in this case)
+// * this really needs psl integrated with generate, to reduce the number of
+//   signals and properties for a given configuration.
+// 
+//----------------------------------------------------------------------------  
+vunit mc_arbiter(mc_arbiter) {
+
+    integer FA_arbiter_omissions = -1;
+    integer FA_arbiter_bound_hi = -1;
+    reg [0:(width-1)] zero = 0;
+    // To detect changes on req and grant -- and non-zero grant status -- these
+    // signals are used in assertions:
+    //
+    reg [0:(width-1)] prev_req = 'dx;
+    reg [0:(width-1)] prev_grant = 'dx;
+
+    function integer pending_requests (
+        input [0:(width-1)] reqs,
+        input [0:(width-1)] grants,
+        input integer requested_grant_required);
+        integer outstanding_requests;  
+        integer index;
+        integer requested_grant_occured;
+        begin
+            outstanding_requests = 0;
+            requested_grant_occured = `MC_FALSE;
+            for (index=0; index<width; index=index+1) begin
+                // Count how many total requests have not been answered yet
+                if (reqs[index] === 1'b1) begin 
+                    if (grants[index] === 1'b0) 
+                        begin 
+                            // Request that is not yet granted
+                            outstanding_requests = outstanding_requests + 1;
+                        end 
+                    else begin
+                        // Only grants that were requested are valid
+                        requested_grant_occured = `MC_TRUE;
+                    end // if
+                end // if
+            end // for
+            if ((requested_grant_required !== `MC_FALSE) && (requested_grant_occured === `MC_FALSE)) begin
+                // valid grant was required but it did NOT occur
+                outstanding_requests = 0;
+            end // if
+            pending_requests = outstanding_requests;
+        end
+    endfunction // pending_requests
+
+    // This utility function returns whether the given vector has min-max bits
+    // asserted
+    function integer mc_bits_inrange (
+        input [0:(width-1)] V,
+        input integer min,
+        input integer max);
+        integer count;
+        integer index;
+        begin
+            count = 0;
+            mc_bits_inrange = `MC_FALSE;
+            for (index=0; index<width; index=index+1) begin
+                if (V[index] === 1'b1) count = count+1;
+            end
+            if ((count>=min) && (count<=max)) mc_bits_inrange = `MC_TRUE;
+        end
+    endfunction // mc_bits_inrange
+
+    //
+    // Changes for each req and grant are tracked, properties are with respect
+    // to changes on the grant and request buses.
+    //
+    always @(posedge clk)
+    begin
+        prev_req <= req;
+        prev_grant <= grant;
+    end
+
+    // 
+    // Conditionally generated process to remember the 
+    // historical maximum number of outstanding requests.
+    // 
+    generate
+        if (coverage_level >= 1)
+        begin:capture_max_requests
+           always @(posedge clk)
+           begin
+               if (reset === 1'b0) begin
+                    // Remember the current number of outstanding requests.
+                    FA_arbiter_omissions = pending_requests(req, grant, `MC_FALSE);
+                    if (FA_arbiter_bound_hi < FA_arbiter_omissions) begin
+                        // Remember the historical maximum number of outstanding requests.
+                        FA_arbiter_bound_hi = FA_arbiter_omissions;
+                    end // if
+                end // if
+            end
+        end // if
+    endgenerate
+
+    // 
+    // Conditionally generated for checking prioritized requests for the
+    // priority arbitration scheme.
+    // 
+    generate
+        if (scheme === `MC_ARBITER_PRIORITY_SCHEME) 
+        begin:priority_scheme
+            // This function implements the priority check.  When evaluated as part of
+            // a property, grant is guaranteed to be non-zero.  By traversing in
+            // priority order (0 being highest priority), we will encounter highest
+            // priority grant and req first.
+            //
+            // Returns "true" when the priority condition is met, "false" when not.
+            //
+            function integer mc_check_priority(
+                input [0:(width-1)] req,
+                input [0:(width-1)]grant);
+                integer index;
+                begin
+                    mc_check_priority = `MC_FALSE;
+                    for (index=0; index<width; index=index+1) begin
+                        if (req[index] === 1'b1) 
+                            begin
+                                // 
+                                // Found highest priority request, must be matched by a
+                                // grant or else we are in error.
+                                // 
+                                mc_check_priority = (grant[index] === 1'b1);
+                                index = width;
+                            end
+                        else
+                            if (grant[index] === 1'b1) 
+                                begin
+                                    // 
+                                    // Found grant without corresponding request, also an
+                                    // error.
+                                    // 
+                                    // mc_check_priority = `MC_FALSE; // Default
+                                    index = width;
+                                end
+                    end
+                end
+            endfunction // mc_check_priority
+
+            // The priority check is that a new grant must be consistent with the
+            // requests made on the previous cycle.
+            // 
+            property mc_arbiter_priority =
+                (never ( (reset === 1'b0) && (scheme === `MC_ARBITER_PRIORITY_SCHEME)
+                        && (grant !== prev_grant) && (grant !== zero)
+                        && (!mc_check_priority(prev_req,grant))))
+                @ (posedge clk);
+
+            assert mc_arbiter_priority;
+        end // if
+
+     endgenerate
+
+    // 
+    // Conditionally generated process for maintaining FIFO of requests for the
+    // FIFO arbitration scheme.
+    // 
+    generate
+        if (scheme === `MC_ARBITER_FIFO_SCHEME) 
+        begin:fifo_scheme
+            integer wr;
+            integer rd;
+            integer empty;
+            integer index;
+            // FIFO of requests used with "fifo" check:
+            //
+            //    TYPE fifo_type IS ARRAY[0:(width-1)] OF integer;
+            integer fifo [0:(width-1)];
+            integer fifo_wr = 0;
+            integer fifo_rd  = 0;
+            reg fifo_empty = 1'b1;
+
+            // This function implements the fifo check.  It assumes a single grant, so
+            // merely checks the first non-zero bit in the grant vector.  The fifo is
+            // assumed to be non-empty when this is evaluated for PSL.
+            //
+            // Returns "true" when the fifo condition is met, "false" when not.
+            //
+            function integer mc_check_fifo(
+                input [0:(width-1)] grant,
+                input integer condition);
+                integer index;
+                begin
+                    mc_check_fifo = `MC_FALSE;
+                    // This looks at the bits and returns the index value as soon as a 1 is found:
+                    for (index=0; index<width; index=index+1) begin
+                        if (grant[index] === 1'b1) 
+                        begin
+                            mc_check_fifo = (condition === index);
+                            index=width; // break the loop
+                        end
+                    end
+                end
+            endfunction // mc_check_fifo
+
+            always @(posedge clk)
+            begin
+                if (reset === 1'b1)
+                    begin
+                        fifo_empty <= `MC_TRUE;
+                        fifo_wr <= 0;
+                        fifo_rd <= 0;
+                        // might as well clear the FIFO contents, too ...
+                        for (index=0; index<width; index=index+1) begin
+                            fifo[index] <= 0;
+                        end // for
+                    end
+                else
+                    begin
+                        wr = fifo_wr; 
+                        rd = fifo_rd; 
+                        empty = fifo_empty;
+                        for (index=0; index<width; index=index+1) begin
+                            if ((req[index] === 1'b1) && (prev_req[index] === 1'b0))
+                                //
+                                // rising edge on request: add to FIFO.
+                                //
+                                if ((wr !== rd) || empty)
+                                    begin
+                                        fifo[wr] <= index; wr = (wr + 1) % width;
+                                        empty = `MC_FALSE;
+                                    end
+                                // end if
+                            // end if
+                            if ((grant[index] === 1'b1) && (prev_grant[index] === 1'b0))
+                                //
+                                // rising edge on grant: remove from FIFO.  There is
+                                // no checking here; checking is in the PSL.
+                                //
+                                if (!empty)
+                                    begin
+                                        rd = (rd + 1) % width;
+                                        if (rd === wr)
+                                            empty = `MC_TRUE;
+                                        // end if
+                                    end
+                                // end if
+                            // end if
+                        end // for
+                        fifo_wr <= wr; fifo_rd <= rd; fifo_empty <= empty;
+                    end
+                // end if
+            end
+
+            // The FIFO check is that a new grant must be at the front of the fifo
+            // being maintained.
+            // 
+            property mc_arbiter_fifo =
+                (never ( (reset === 1'b0) && (scheme === `MC_ARBITER_FIFO_SCHEME)
+                        && (grant !== prev_grant) && (grant !== zero)
+                        && (fifo_empty ||
+                             (!mc_check_fifo(grant,fifo[fifo_rd])))))
+                @ (posedge clk);
+
+            assert mc_arbiter_fifo;
+        end // if
+
+    endgenerate
+
+    // 
+    // Conditionally generated process that re-uses the FIFO signals and
+    // storage to maintain a queue of grants in chronological order.
+    // 
+    generate
+        if (scheme === `MC_ARBITER_FAIRNESS_SCHEME) 
+        begin:fairness_scheme
+            integer wr;
+            integer rd;
+            integer s;
+            integer dist2rd = 0;
+            integer dist2wr = 0;
+            integer found; // boolean
+            integer index;
+            // Queue of grants used with fairness check:
+            // It is easier to code this one as 1
+            // element larger than needed so queue_rd === queue_wr only when empty, and
+            // the queue never overflows.  (Because the fifo [above] is never checked
+            // for overflow, it need not have this option.)
+            //
+            //    TYPE queue_type IS ARRAY(0 to width) OF integer;
+            integer queue [0:width];
+            integer queue_wr = 0;
+            integer queue_rd = 0;
+
+            // This function implements the fairness check.  The check is that the
+            // granted bit must be the earliest in the queue of the several requests
+            // made.  The function returns TRUE if the condition is met; FALSE if not.
+            //
+            function integer mc_check_fairness(
+                input [0:(width-1)] req,
+                input [0:(width-1)] grant,
+                input integer queue_rd,
+                input integer queue_wr);
+                integer q;
+                integer q_val;
+                begin
+                    //
+                    // Grant and request must be non-zero; queue must be non-empty when
+                    // this is evaluated for PSL.
+                    // 
+                    mc_check_fairness = `MC_TRUE;
+                    q = queue_rd;
+                    while (q !== queue_wr)
+                    begin
+                        q_val = queue[q]; // Get from mc_arbiter scope
+                        //
+                        // This is similar logic to the priority check (function
+                        // mc_check_priority, above) except that the rear of the
+                        // granted queue represents priority.
+                        //
+                        if (req[q_val] === 1'b1)
+                            begin
+                                if (grant[q_val] !== 1'b1)
+                                    mc_check_fairness = `MC_FALSE; // req with no grant: violation of scheme
+                                q = queue_wr-1; // break the loop
+                            end
+                        else 
+                            if (grant[q_val] === 1'b1)
+                                begin
+                                    mc_check_fairness = `MC_FALSE; // grant with no request: violation
+                                    q = queue_wr-1; // break the loop
+                                end
+                        q = (q + 1) % (width+1);
+                    end // while
+                end
+            endfunction // mc_check_fairness
+
+            always @(posedge clk)
+            begin
+                if (reset === 1'b1)
+                  begin
+                    // The queue must be set up with bits in priority order, so
+                    // that in the absence of a grant, bits must be asserted in
+                    // priority order.
+ 
+                    // might as well clear the queue contents, too ...
+                    for (index=0; index<width; index=index+1) begin
+                        queue[index] <= index;
+                    end // for
+                    queue_rd = 0;
+                    queue_wr = width;
+                    queue[width] <= 0; // doesn't matter, but clear anyway
+                  end  
+                else
+                  begin
+                      // 
+                      // In this code, we are dealing with a queue, not really a
+                      // QUEUE.  It keeps elements in LRU (least recently used)
+                      // order, which means that a value enqueued (at queue(wr))
+                      // must be eliminated from the queue if it is present.  To
+                      // eliminate the value, values are moved forward or
+                      // backward, changing either rd or wr, whichever is closer
+                      // to the match point.
+                      // 
+                      wr = queue_wr; 
+                      rd = queue_rd;
+                      for (index=0; index<width; index=index+1) begin
+                        // 
+                        // This code should work for multiple grants asserted at a
+                        // time, even if the checker is limited to 1 grant.
+                        // 
+                        if ((grant[index] === 1'b1) && (prev_grant[index] === 1'b0))
+                          begin
+                            // 
+                            // Bit was granted; search for bit # g in the queue
+                            // and remove if found.
+                            // 
+                            if (rd !== wr) // if not empty ...
+                              begin
+                                s = rd;
+                                found = `MC_FALSE;
+                                while ((s !== wr) && (!found))
+                                begin
+                                  // 
+                                  // We are looking for a single entry for g
+                                  // in the currently occupied queue.  If we
+                                  // find it, we will either move wr forward
+                                  // or rd backward, copying elements as
+                                  // needed.
+                                  // 
+                                  if (queue[s] === index)
+                                    begin
+                                      found = `MC_TRUE;
+                                      // 
+                                      // Found!  Now calculate which is
+                                      // "closer" to s, rd or wr, so we can
+                                      // determine which way to copy values.
+                                      // 
+                                      if (s < wr)
+                                        dist2wr = wr - s;
+                                      else
+                                        dist2wr = (width+1) - s + wr;
+                                      // end if
+                                      if (rd <= s)
+                                        dist2rd = s - rd;
+                                      else
+                                        dist2rd = (width+1) - rd + s;
+                                      // end if
+                                      // 
+                                      // Based on distances calculated, move
+                                      // elements one way or the other
+                                      // 
+                                      if (dist2rd > dist2wr)
+                                        begin
+                                          // 
+                                          // Move elements from wr side of
+                                          // queue, decrement wr.
+                                          // 
+                                          while (s !== wr)
+                                          begin
+                                            queue[s] <= queue[(s+1) % (width+1)];
+                                            s = (s + 1) % (width+1);
+                                          end // while
+                                          wr = (wr + width) % (width+1); // This is (wr-1) mod (width+1) in positive range
+                                        end
+                                      else
+                                        begin
+                                          // 
+                                          // Move elements from rd side of
+                                          // queue, increment rd;
+                                          // 
+                                          while (s !== rd)
+                                          begin
+                                            queue[s] <= queue[(s+width) % (width+1)];
+                                            s = (s + width) % (width+1); // This is (s-1) mod (width+1) in positive range
+                                          end // while
+                                          rd = (rd + 1) % (width+1);
+                                        end
+                                      // end if
+                                      // 
+                                      // NOTE: At this point, s is corrupted,
+                                      // but it doesn't matter because there
+                                      // was only 1 match expected // so we
+                                      // are about to quit the loop anyway
+                                      // because found === true.
+                                      // 
+                                    end
+                                  // end if -- end if queue[s] === index (match found)
+                                  s = (s + 1) % (width+1);
+                                end // while
+                              end
+                            // end if // end if queue not empty
+                            // 
+                            // Add index at front of queue.
+                            // 
+                            queue[wr] <= index;
+                            wr = (wr + 1) % (width+1);
+                          end
+                        // end if // end if grant bit asserted (rising edge)
+                      end // for
+                      queue_wr = wr; queue_rd = rd;
+                  end
+                // end if // end if not reset
+            end
+
+            property mc_arbiter_fairness =
+                (never ( (reset === 1'b0) && (scheme === `MC_ARBITER_FAIRNESS_SCHEME)
+                        && (grant !== prev_grant) && (grant !== zero)
+                        && (!mc_check_fairness(req,grant,queue_rd,queue_wr))))
+                @ (posedge clk);
+
+            assert mc_arbiter_fairness;
+        end // if
+    endgenerate
+
+    property mc_arbiter_single_grant =
+        (never ((reset === 1'b0) && (!mc_bits_inrange(grant,0,1))))
+        @ (posedge clk);
+
+    assert mc_arbiter_single_grant;
+
+    //
+    // Functional Coverage Vector:
+    //     Has each requestor issued a request?
+    //
+    generate
+        genvar index_a;
+        for (index_a=0; index_a<width; index_a=index_a+1) begin:FC_arb_request
+            FC_arbiter_request:
+                cover { (req[index_a] === 1'b1) && (grant[index_a] === 1'b0) && (reset === 1'b0) }
+                @ (posedge clk);
+        end // for
+    endgenerate
+
+    //
+    // Functional Coverage Vector:
+    //     Has each requestor recieved a grant?
+    //
+    generate
+        genvar index_b;
+        for (index_b=0; index_b<width; index_b=index_b+1) begin:FC_arb_grant
+            FC_arbiter_grant:
+                cover { (req[index_b] === 1'b1) && (grant[index_b] === 1'b1) && (reset === 1'b0) }
+                @ (posedge clk);
+        end // for
+    endgenerate
+
+    //
+    // Functional Coverage:
+    //     At the time of a grant, was there an ungranted request as well?
+    //
+    FC_arbiter_request_grant:
+        cover { ((pending_requests(req, grant, `MC_TRUE) !== 0)) && (reset === 1'b0) }
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Have there been multiple outstanding requests?
+    //     This is a necessary for the arbiter to perform
+    //     any non-trivial arbitration.
+    //
+    FC_arbiter_multi_request:
+        cover { (pending_requests(req, grant, `MC_FALSE) > 1) && (reset === 1'b0) }
+        @ (posedge clk);
+
+}
+
+
+//----------------------------------------------------------------------------  
+// assert_period
+//----------------------------------------------------------------------------  
+vunit mc_assert_period(mc_assert_period) {
+
+    integer FA_assert_period_bound_lo = -1;
+    integer FA_assert_period_bound_hi = -1;
+
+    // Define mc_set_extremes
+    `include "verilog_psl_checkers_uf.inc"
+
+    sequence engaged = { rose(sig) && (enable === 1'b1) && (reset === 1'b0) };
+    sequence completed = { {engaged}:
+                           {{ ((reset === 1'b0) && (sig === 1'b1))[* min : max];
+                              ((reset === 1'b0) && (sig === 1'b0)) } |
+                            { ((reset === 1'b0) && (sig === 1'b1))[*((max<min)?min:max)];
+                              ((reset === 1'b0) && (sig === 1'b1) && (!must_deassert)) }}};
+
+    property mc_assert_period =
+        always ( ( { engaged } 
+                   |-> { sig[*min : max] ;
+                         ((!must_deassert) || (sig === 1'b0)) } )
+                 abort reset)
+        @ (posedge clk);
+    assert mc_assert_period;
+
+    //
+    // Functional Coverage:
+    //     Was there an assertion period which completed successfully?
+    //
+    FC_assert_period: 
+        cover { completed }         @ (posedge clk);
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate    
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = {engaged}@rose(clk);
+            endpoint endpoint_completed = {completed}@rose(clk);
+                                    
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed,
+                                `dont_allow_zero_length_seq,
+                                FA_assert_period_bound_lo, 
+                                FA_assert_period_bound_hi);
+            end
+
+        end // if
+    endgenerate
+    
+}
+
+//----------------------------------------------------------------------------  
+// asserted
+//----------------------------------------------------------------------------  
+vunit mc_asserted(mc_asserted) {
+
+    property mc_asserted =
+        (never ((sig === 1'b0) && (enable === 1'b1) && (reset === 1'b0)))
+        @ (posedge clk);
+        
+    assert mc_asserted;
+
+    //
+    // Functional Coverage:
+    //     Was there an assertion?
+    //
+    FC_asserted: 
+        cover { (sig === 1'b1) && (enable === 1'b1) && (reset === 1'b0) } 
+        @ (posedge clk);
+
+}
+
+
+//----------------------------------------------------------------------------
+// bits_on
+//----------------------------------------------------------------------------
+vunit mc_bits_on(mc_bits_on) {
+
+    integer FA_bits_on_bound_lo = -1;
+    integer FA_bits_on_bound_hi = -1;
+
+    // This utility function returns whether the given vector has min-max bits
+    // asserted
+    function integer mc_bits_inrange (
+        input [(width-1):0] V,
+        input integer min,
+        input integer max);
+        integer count;
+        integer index;
+        begin
+            count = 0;
+            mc_bits_inrange = `MC_FALSE;
+            for (index=(width-1); index>=0; index=index-1) begin
+                if (V[index] === 1'b1) count = count+1;
+            end
+            if ((count>=min) && (count<=max)) mc_bits_inrange = `MC_TRUE;
+        end
+    endfunction // mc_bits_inrange;
+
+    property mc_bits_on =
+        (always ((((max === 0) && mc_bits_inrange(sigreg,min,min))
+                  || mc_bits_inrange(sigreg,min,max))
+                abort reset))
+        @ (posedge clk);
+
+    assert mc_bits_on;
+
+    // 
+    // Conditionally generated process to remember the 
+    // historical maximum and minimum number of bits set.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+            integer bits_set; 
+            integer index;
+
+            always @(sigreg) 
+            begin
+                if (reset === 1'b0) begin
+                    bits_set = 0;
+                    for (index=0; index<width; index=index+1) begin
+                        // Count how many bits are asserted
+                        if (sigreg[index] === 1'b1) begin 
+                            bits_set = bits_set + 1 ;
+                        end // if
+                    end // for
+                    if (FA_bits_on_bound_hi < bits_set) begin 
+                        // Remember the maximum number of bits set.
+                        FA_bits_on_bound_hi = bits_set;
+                    end // if
+                    if ((FA_bits_on_bound_lo > bits_set) || (FA_bits_on_bound_lo < 0)) begin 
+                        // Remember the minimum number of bits set.
+                        FA_bits_on_bound_lo = bits_set;
+                    end // if
+                end // if
+            end
+        end // if
+    endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------  
+// change_window
+//----------------------------------------------------------------------------  
+vunit mc_change_window(mc_change_window) {
+    //
+    // For each in/out vector, we keep track of:
+    // * original vector *prior* to window opening or closing
+    // * number of bits that have changed
+    // 
+    reg [(in_width-1):0] orig_in_vec = 'dx;
+    reg [(in_width-1):0] in_changed = 'dx;
+    reg [(out_width-1):0] orig_out_vec = 'dx;
+    reg [(out_width-1):0] out_changed = 'dx;
+
+    reg prev_start = 'dx; 
+    reg prev_stop = 'dx;
+
+    //
+    // There is also a state variable for which window is currently open:
+    //
+    //    TYPE window_state_type IS ( window_none, window_open, window_closed );
+    integer window_state = `MC_WINDOW_NONE;
+
+    //
+    // This function returns whether all bits in the vector are equal to the
+    // given bit value.
+    //
+    function integer mc_all_in (
+        input [(in_width-1):0] vec,
+        input integer val);
+        integer index;
+        begin
+            mc_all_in = `MC_TRUE;
+            // This looks at the bits and returns false as soon as a mismatch is found:
+            for (index=(in_width-1); index>=0; index=index-1) begin
+                if (vec[index] !== val) 
+                begin
+                    mc_all_in = `MC_FALSE;
+                    index=-1; // break the loop
+                end
+            end
+        end
+    endfunction // mc_all_in
+
+    //
+    // This function returns whether all bits in the vector are equal to the
+    // given bit value.
+    //
+    function integer mc_all_out (
+        input [(out_width-1):0] vec,
+        input integer val);
+        integer index;
+        begin
+            mc_all_out = `MC_TRUE;
+            // This looks at the bits and returns false as soon as a mismatch is found:
+            for (index=(out_width-1); index>=0; index=index-1) begin
+                if (vec[index] !== val) 
+                begin
+                    mc_all_out = `MC_FALSE;
+                    index=-1; // break the loop
+                end
+            end
+        end
+    endfunction // mc_all_out
+
+    //
+    // These tasks assign a new changes array from the previous array,
+    // original value of the vector, and current value of the vector.  The idea
+    // is to track all bits that change from the original vector.  Once a bit
+    // appears in the "changes_prev" vector, in other words, it sticks.
+    //
+    task mc_track_changes_in(
+        output [(in_width-1):0] changes_new,
+        input [(in_width-1):0] changes_prev,
+        input [(in_width-1):0] vector,
+        input [(in_width-1):0] orig_vector);
+        integer index;
+        for (index=0; index<in_width; index=index+1) begin
+            changes_new[index] = 
+                changes_prev[index] || (vector[index] ^ orig_vector[index]);
+        end
+    endtask
+
+    task mc_track_changes_out(
+        output [(out_width-1):0] changes_new,
+        input [(out_width-1):0] changes_prev,
+        input [(out_width-1):0] vector,
+        input [(out_width-1):0] orig_vector);
+        integer index;
+        for (index=0; index<out_width; index=index+1) begin
+            changes_new[index] = 
+                changes_prev[index] || (vector[index] ^ orig_vector[index]);
+        end
+    endtask
+
+
+    // 
+    // This process tracks previous values of start and stop so as to detect
+    // edges:
+    // 
+    always @(posedge clk)
+    begin
+        prev_start <= start;
+        prev_stop <= stop;
+    end
+
+    // 
+    // This process initializes the change-related vectors
+    // 
+    reg [(in_width-1):0] new_in_changed = 'dx;
+    reg [(out_width-1):0] new_out_changed = 'dx;
+
+    always @(posedge clk)
+    begin
+        if (reset === 1'b1)
+            begin
+                // 
+                // Initialize all values; no telling whether opened or
+                // closed window will follow
+                // 
+                window_state <= `MC_WINDOW_NONE;
+                orig_in_vec <= in_vec;
+                in_changed <= 0;
+                orig_out_vec <= out_vec;
+                out_changed <= 0;
+            end
+        //
+        // Out of reset .... window just opened
+        // 
+        else if ((start === 1'b1) && (start !== prev_start))
+            begin
+                // 
+                // Track changes on "in" vector
+                // Keep "out" vector values in initialized state
+                // 
+                window_state <= `MC_WINDOW_OPEN;
+                mc_track_changes_in(new_in_changed,in_changed,
+                                    in_vec,orig_in_vec);
+                in_changed <= new_in_changed;
+                orig_out_vec <= out_vec;
+                out_changed <= 0;
+            end
+        //
+        // Out of reset .... window just closed
+        // 
+        else if ((stop === 1'b1) && (stop !== prev_stop))
+            begin
+                // 
+                // Track changes on "out" vector
+                // Keep "in" vector values in initialized state
+                // 
+                window_state <= `MC_WINDOW_CLOSED;
+                mc_track_changes_out(new_out_changed,out_changed,
+                                     out_vec,orig_out_vec);
+                out_changed <= new_out_changed;
+                orig_in_vec <= in_vec;
+                in_changed <= 0;
+            end
+        //
+        // No start/stop but window still open .... track changes.
+        //
+        else if (window_state === `MC_WINDOW_OPEN)
+            begin
+                mc_track_changes_in(new_in_changed,in_changed,
+                                    in_vec,orig_in_vec);
+                in_changed <= new_in_changed;
+            end
+        //
+        // No start/stop but window still closed .... track changes.
+        //
+        else if (window_state === `MC_WINDOW_CLOSED)
+            begin
+                mc_track_changes_out(new_out_changed,out_changed,
+                                     out_vec,orig_out_vec);
+                out_changed <= new_out_changed;
+            end
+        // end if
+    end
+
+    property mc_change_window_in =
+        (always ( ( { rose(start) } |->
+                   { { { !in_change }
+                     & { ((!rose(stop)) && mc_all_in(in_changed,1'b0))[*]; 
+                         rose(stop) && mc_all_in(in_changed,1'b0) } }
+                   | { { in_change }
+                     & { (!rose(stop))[*]; 
+                         rose(stop) && mc_all_in(in_changed,1'b1) }}} )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there an window open which then closed successfully?
+    //
+    FC_change_window_open: 
+        cover {(window_state === `MC_WINDOW_OPEN) && (reset === 1'b0) && rose(stop) && (!rose(start)) } 
+        @ (posedge clk);
+
+    property mc_change_window_out =
+        (always ( ( { rose(stop) } |->
+                   { { { !out_change } 
+                     & { ((!rose(start)) && mc_all_out(out_changed,1'b0))[*]; 
+                         rose(start) && mc_all_out(out_changed,1'b0) } }
+                   | { { out_change }
+                     & { (!rose(start))[*]; 
+                         rose(start) && mc_all_out(out_changed,1'b1) }}} )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there an window close which then opened successfully?
+    //
+    FC_change_window_close: 
+        cover {(window_state === `MC_WINDOW_CLOSED) && (reset === 1'b0) && rose(start) && (!rose(stop)) } 
+        @ (posedge clk);
+
+    property mc_change_window_bad =
+        (never (rose(stop) && rose(start))
+              || (rose(start) && (window_state === `MC_WINDOW_OPEN))
+              || (rose(stop) && (window_state === `MC_WINDOW_CLOSED)))
+        @ (posedge clk);
+
+    assert mc_change_window_in;
+    assert mc_change_window_out;
+    assert mc_change_window_bad;
+}
+
+
+//----------------------------------------------------------------------------  
+// change_window1
+//----------------------------------------------------------------------------  
+vunit mc_change_window1(mc_change_window1) {
+    //
+    // See implementation comments for mc_change_window
+    //
+    reg orig_input = 'dx;
+    reg input_changed = 'dx; // : boolean;
+    reg orig_output = 'dx;
+    reg output_changed = 'dx; // : boolean;
+
+    reg prev_start = 'dx; 
+    reg prev_stop = 'dx;
+
+    //    TYPE window_state_type IS ( window_none, window_open, window_closed );
+    integer window_state = `MC_WINDOW_NONE;
+
+    always @(posedge clk)
+    begin
+        prev_start <= start;
+        prev_stop <= stop;
+    end
+
+    always @(posedge clk)
+    begin
+        if (reset === 1'b1)
+            begin
+                window_state <= `MC_WINDOW_NONE;
+                orig_input <= siginput;
+                input_changed <= `MC_FALSE;
+                orig_output <= sigoutput;
+                output_changed <= `MC_FALSE;
+            end
+        else if ((start === 1'b1) && (start !== prev_start))
+            begin
+                window_state <= `MC_WINDOW_OPEN;
+                if ((siginput ^ orig_input) === 1'b1)
+                    input_changed <= `MC_TRUE;
+                // end if
+                orig_output <= sigoutput;
+                output_changed <= `MC_FALSE;
+            end
+        else if ((stop === 1'b1) && (stop !== prev_stop))
+            begin
+                window_state <= `MC_WINDOW_CLOSED;
+                if ((sigoutput ^ orig_output) === 1'b1)
+                    output_changed <= `MC_TRUE;
+                // end if
+                orig_input <= siginput;
+                input_changed <= `MC_FALSE;
+            end
+        else if (window_state === `MC_WINDOW_OPEN)
+            begin
+                if ((siginput ^ orig_input) === 1'b1)
+                    input_changed <= `MC_TRUE;
+                // end if
+            end
+        else if (window_state === `MC_WINDOW_CLOSED)
+            begin
+                if ((sigoutput ^ orig_output) === 1'b1)
+                    output_changed <= `MC_TRUE;
+                // end if
+            end
+        // end if
+    end
+
+    property mc_change_window1_in =
+        (always ( ( { rose(start) } |->
+                   { { { !in_change }
+                     & { ((!rose(stop)) && (input_changed === `MC_FALSE))[*]; 
+                         rose(stop) && (input_changed === `MC_FALSE) } }
+                   | { { in_change }
+                     & { (!rose(stop))[*]; 
+                         rose(stop) && (input_changed === `MC_TRUE) }}} )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there an window open which then closed successfully?
+    //
+    FC_change_window1_open: 
+        cover {(window_state === `MC_WINDOW_OPEN) && (reset === 1'b0) && rose(stop) && (!rose(start)) } 
+        @ (posedge clk);
+
+    property mc_change_window1_out =
+        (always ( ( { rose(stop) } |->
+                   { { { !out_change } 
+                     & { ((!rose(start)) && (output_changed === `MC_FALSE))[*]; 
+                         rose(start) && (output_changed === `MC_FALSE) } }
+                   | { { out_change }
+                     & { (!rose(start))[*]; 
+                         rose(start) && (output_changed === `MC_TRUE) }}} )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there an window close which then opened successfully?
+    //
+    FC_change_window1_close: 
+        cover {(window_state === `MC_WINDOW_CLOSED) && (reset === 1'b0) && rose(start) && (!rose(stop)) } 
+        @ (posedge clk);
+
+    property mc_change_window1_bad =
+        (never (rose(stop) && rose(start))
+              || (rose(start) && (window_state === `MC_WINDOW_OPEN))
+              || (rose(stop) && (window_state === `MC_WINDOW_CLOSED)))
+        @ (posedge clk);
+
+    assert mc_change_window1_in;
+    assert mc_change_window1_out;
+    assert mc_change_window1_bad;
+
+}
+
+
+//----------------------------------------------------------------------------
+// decrement
+//----------------------------------------------------------------------------
+vunit mc_decrement(mc_decrement) {
+
+    integer FA_decrement_bound_hi = -1;
+    integer FA_decrement_bound_lo = -1;
+
+    reg [(width-1):0] prev_reg = 'dx;
+    reg [(width-1):0] min_decrement = min_decr; // Keep the math to width bits
+    reg [(width-1):0] max_decrement = max_decr; // Keep the math to width bits
+
+    always @(posedge clk)
+    begin
+        prev_reg <= sigreg;
+    end
+
+    sequence engaged = { (enable === 1'b1) && (prev_reg !== sigreg) && (reset === 1'b0) };
+
+    sequence completed = { engaged; 
+                              ((reset === 1'b0) && (prev_reg === sigreg))[* (min_time-1) : (max_time-1)];
+                              ((reset === 1'b0) && (prev_reg !== sigreg)) };
+
+    property mc_decrement_time =
+        (always ( ( { engaged } |=>
+                   { (prev_reg === sigreg)[*(min_time-1):(max_time-1)];
+                     (prev_reg !== sigreg) } )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there a register change within the prescribed time?
+    //
+    FC_decrement: 
+        cover { completed }
+        @ (posedge clk);
+
+
+    property mc_decrement_value =
+        (never ( (reset === 1'b0) && (enable === 1'b1) && (prev_reg !== sigreg)
+                && ((sigreg > (prev_reg - min_decrement))
+                     || (sigreg < (prev_reg - max_decrement)))))
+        @ (posedge clk);
+
+    assert mc_decrement_time;
+    assert mc_decrement_value;
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = {engaged}@rose(clk);
+            endpoint endpoint_completed = {completed}@rose(clk);
+
+            // Define mc_set_extremes
+            `include "verilog_psl_checkers_uf.inc"
+
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed, 
+                                `dont_allow_zero_length_seq,
+                                FA_decrement_bound_lo, 
+                                FA_decrement_bound_hi);
+            end
+        end // if
+	endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------
+// delta
+//----------------------------------------------------------------------------
+vunit mc_delta(mc_delta) {
+
+    integer FA_delta_bound_hi = -1;
+    integer FA_delta_bound_lo = -1;
+    reg [(width-1):0] prev_reg = 'dx;
+    reg [(width-1):0] min_delt = min_delta; // Keep the math to width bits
+    reg [(width-1):0] max_delt = max_delta; // Keep the math to width bits
+
+    always @(posedge clk)
+    begin
+        prev_reg <= sigreg;
+    end
+
+    sequence engaged = { (enable === 1'b1) && (prev_reg !== sigreg) && (reset === 1'b0) };
+
+    sequence completed = { engaged; 
+                              ((reset === 1'b0) && (prev_reg === sigreg))[* (min_time-1) : (max_time-1)];
+                              ((reset === 1'b0) && (prev_reg !== sigreg)) };
+
+    property mc_delta_time =
+        (always ( ( { engaged } |=>
+                   { (prev_reg === sigreg)[*(min_time-1):(max_time-1)];
+                     (prev_reg !== sigreg) } )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there a register change within the prescribed time?
+    //
+    FC_delta: 
+        cover { completed }
+        @ (posedge clk);
+
+    property mc_delta_value =
+        (never ( (reset === 1'b0) && (enable === 1'b1) && (prev_reg !== sigreg)
+                && (  // increment:
+                     ((sigreg > prev_reg) && 
+                         (((sigreg-prev_reg)>max_delt)
+                       || ((sigreg-prev_reg)<min_delt)))
+                     // decrement:
+                  || ((prev_reg > sigreg) && 
+                         (((prev_reg-sigreg)>max_delt)
+                       || ((prev_reg-sigreg)<min_delt)))
+                )))
+        @ (posedge clk);
+
+    assert mc_delta_time;
+    assert mc_delta_value;
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = {engaged}@rose(clk);
+            endpoint endpoint_completed = {completed}@rose(clk);
+
+            // Define mc_set_extremes
+            `include "verilog_psl_checkers_uf.inc"
+
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed, 
+                                `dont_allow_zero_length_seq,
+                                FA_delta_bound_lo, 
+                                FA_delta_bound_hi);
+            end
+        end // if
+	endgenerate
+    
+}
+
+
+//----------------------------------------------------------------------------
+// fifo
+//----------------------------------------------------------------------------
+vunit mc_fifo(mc_fifo) {
+
+    integer FA_fifo_bound_hi = -1;
+    integer num_elements = 0;
+
+    //
+    // This process adjusts num_elements to reflect the current number of
+    // elements in the queue according to control signals.  If check_values is
+    // false, this is the only part of the checker that operates.
+    // 
+    always @(posedge clk)
+    begin
+        if (reset === 1'b1)
+            num_elements = 0;
+        else if ((enqueue === 1'b1) &&
+                 (dequeue === 1'b0) &&
+                 (num_elements < depth))
+            begin
+                num_elements = num_elements + 1;
+                if (FA_fifo_bound_hi < num_elements) begin
+                    FA_fifo_bound_hi = num_elements;
+                end // if
+            end
+        else if  ((dequeue === 1'b1) && 
+                  (enqueue === 1'b0) &&
+                  (num_elements !== 0))
+            num_elements = num_elements - 1;
+        // end if
+    end
+
+
+    // 
+    // ******************************************************************
+    // *** NOTE eventually this model could be replaced by replicated ***
+    // *** properties.                                                ***
+    // ******************************************************************
+    //
+    // This model is conditionally generated in the case where we need to check
+    // output values of the FIFO, in which case the bus (fifo_out) driven by
+    // the model must match the output bus (dequeue_data) given as input to the
+    // checker, at the appropriate moment.
+    // 
+    // Note on efficiency of model:
+    // * Small width memory is OK modeled as unsigned (as below).
+    // * Width close to integer size is better modeled as integer.
+    // * Wider width is best modeled as banks of integer.
+    // 
+    // A possibility for future enhancement is to conditionally generate each
+    // architecture based on width.  Could create an entity/architecture for
+    // the FIFO model instead of the process as below.
+    //
+    // 
+    generate
+        if (check_values === `MC_TRUE) 
+        begin:fifo_model
+            reg [(width-1):0] fifo [0:(depth-1)];
+            integer rd_ptr = 0;
+            integer wr_ptr = 0;
+            //
+            // This is driven by the FIFO model if "check_values === true":
+            //
+            reg [(width-1):0] fifo_out = 'dx;
+
+            always @(posedge clk)
+            begin
+                if (reset === 1'b1)
+                    begin
+                        rd_ptr = 0;
+                        wr_ptr = 0;
+                    end
+                else if (enqueue === 1'b1 && dequeue === 1'b0)
+                    begin
+                        fifo[wr_ptr] = $unsigned(enqueue_data);
+                        wr_ptr = (wr_ptr + 1) % depth;
+                    end
+                else if (dequeue === 1'b1 && enqueue === 1'b0)
+                    begin
+                        fifo_out <= fifo[rd_ptr];
+                        rd_ptr = (rd_ptr + 1) % depth;                    
+                    end
+                else if (enqueue === 1'b1 && dequeue === 1'b1)
+                    begin
+                        case (rw_type)
+                        `MC_RW_ERROR:
+                            ;
+                        `MC_RW_WRITEFIRST:
+                            begin
+                                fifo[wr_ptr] = $unsigned(enqueue_data);
+                                wr_ptr = (wr_ptr + 1) % depth;
+                                fifo_out <= fifo[rd_ptr];
+                                rd_ptr = (rd_ptr + 1) % depth;
+                            end
+                        `MC_RW_READFIRST:
+                            begin
+                                fifo_out <= fifo[rd_ptr];
+                                rd_ptr = (rd_ptr + 1) % depth;
+                                fifo[wr_ptr] = $unsigned(enqueue_data);
+                                wr_ptr = (wr_ptr + 1) % depth;
+                            end
+                        default:
+                            ;
+                        endcase
+                    end
+                // end if
+            end
+
+            // Here's the value integrity check, only when check_values === true.  Note
+            // that the fifo output === driven onto the internal fifo_out bus on the
+            // cycle AFTER dequeue is asserted, so the check is performed one cycle
+            // after the control signal.
+            // 
+            property mc_fifo_value =
+                (always ( ( { dequeue === 1'b1 } |=>
+                            { (dequeue_data === fifo_out) } )
+                         abort reset))
+                @ (posedge clk);
+
+            assert mc_fifo_value;
+
+       end
+    endgenerate
+
+    // Overflow is while FIFO is full: write or simultaneous read/write if
+    // write goes first.
+    // 
+    property mc_fifo_overflow =
+        (never ( (reset === 1'b0) &&
+                ((num_elements === depth) && (enqueue === 1'b1) &&
+                 ((dequeue === 1'b0)
+                  || ((rw_type === `MC_RW_WRITEFIRST) 
+                      && (dequeue === 1'b1))))))
+        @ (posedge clk);
+
+    // Underflow is while FIFO is empty: read or simultaneous read/write if
+    // read goes first.
+    // 
+    property mc_fifo_underflow =
+        (never ( (reset === 1'b0) &&
+                ((num_elements === 0) && (dequeue === 1'b1) &&
+                 ((enqueue === 1'b0)
+                  || ((rw_type === `MC_RW_READFIRST) 
+                      && (enqueue === 1'b1))))))
+        @ (posedge clk);
+
+    // 
+    // Conditionally generated.
+    // 
+    generate
+        if (rw_type === `MC_RW_ERROR) 
+        begin:fifo_control
+
+            // The only control error is for simultaneous read/write if not allowed:
+            //
+            property mc_fifo_control =
+                (never ( (reset === 1'b0)
+                        && (enqueue === 1'b1) && (dequeue === 1'b1)))
+                @ (posedge clk);
+
+            assert mc_fifo_control;
+
+        end // if
+    endgenerate
+    // 
+    // Conditionally generated.
+    // 
+    generate
+        if (rw_type !== `MC_RW_ERROR) 
+        begin:fifo_simultaneous_rw
+
+            //
+            // Functional Coverage:
+            //     Was there a simultaneous enqueue and dequeue request?
+            //
+            FC_fifo_simultaneous_rw:
+                cover { (reset === 1'b0) && (enqueue === 1'b1) && (dequeue === 1'b1) } 
+                @ (posedge clk);
+
+        end // if
+    endgenerate
+
+    assert mc_fifo_underflow;
+    assert mc_fifo_overflow;
+
+    //
+    // Functional Coverage:
+    //     Was there an dequeue request?
+    //
+    FC_fifo_pop: 
+        cover { (reset === 1'b0) && (dequeue === 1'b1) } 
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was the queue ever emptied?
+    //
+    FC_fifo_empty: 
+        cover { (reset === 1'b0) && (dequeue === 1'b1); 
+                (reset === 1'b0) && (num_elements === 0) } 
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there an enqueue request?
+    //
+    FC_fifo_push: 
+        cover { (reset === 1'b0) && (enqueue === 1'b1) } 
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was the queue ever filled?
+    //
+    FC_fifo_full:
+        cover { (reset === 1'b0) && (enqueue === 1'b1); 
+                (reset === 1'b0) && (num_elements === depth) } 
+        @ (posedge clk);
+
+}
+
+
+//--------------------------------------------------------------------------
+// follows
+//--------------------------------------------------------------------------
+vunit mc_follows(mc_follows) {
+
+    integer FA_follows_bound_hi = -1;
+    integer FA_follows_bound_lo = -1;
+
+    sequence engaged = { (rose(leader)) && (reset === 1'b0) };
+    sequence completed = { {engaged}: 
+                           { ((reset === 1'b0) && ((!rose(follower)) && ((!hold_leader) || (leader === 1'b1))))[* min : max];
+                             ((reset === 1'b0) && (  rose(follower)  && ((!hold_leader) || (leader === 1'b1)))) } };
+
+    property mc_follows =
+        (always ( ( { engaged } |->
+                    { // 
+                      // no rising edge on follower, min to max cycles
+                      // concurrent with rise on leader;
+                      // hold_leader => leader must stay 1'b1
+                      //  
+                      (!rose(follower) &&
+                       ((!hold_leader) || (leader === 1'b1)))[* min:max];
+                      // 
+                      // followed by rise on follower
+                      // hold_leader => leader must stay 1'b1
+                      // 
+                      (rose(follower) &&
+                       ((!hold_leader) || (leader === 1'b1))) } )
+                 abort reset))
+        @ (posedge clk);
+
+    assert mc_follows;
+
+    //
+    // Functional Coverage:
+    //     Was there a leader assertion which completed?
+    //
+    FC_follows: 
+        cover { completed } 
+        @ (posedge clk);
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = {engaged}@rose(clk);
+            endpoint endpoint_completed = {completed}@rose(clk);
+
+            // Define mc_set_extremes
+            `include "verilog_psl_checkers_uf.inc"
+
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed, 
+                                `do_allow_zero_length_seq,
+                                FA_follows_bound_lo, 
+                                FA_follows_bound_hi);
+            end
+        end // if
+	endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------
+// gray_code
+//----------------------------------------------------------------------------
+vunit mc_gray_code(mc_gray_code) {
+    reg [(width-1):0] prev_reg = 'dx;
+
+    // This utility function returns whether the given vector has min-max bits
+    // asserted
+    function integer mc_bits_inrange (
+        input [(width-1):0] V,
+        input integer min,
+        input integer max);
+        integer count;
+        integer index;
+        begin
+            count = 0;
+            mc_bits_inrange = `MC_FALSE;
+            for (index=(width-1); index>=0; index=index-1) begin
+                if (V[index] === 1'b1) count = count+1;
+            end
+            if ((count>=min) && (count<=max)) mc_bits_inrange = `MC_TRUE;
+        end
+    endfunction // mc_bits_inrange;
+
+    always @(posedge clk)
+    begin
+        prev_reg <= sigreg;
+    end
+
+    property mc_gray_code =
+        (always (((prev_reg === sigreg)
+                 || mc_bits_inrange(prev_reg ^ sigreg,1,1))
+                abort reset))
+        @ (posedge clk);
+
+    assert mc_gray_code;
+
+    //
+    // Functional Coverage:
+    //     Was there a non-aborted register change?
+    //
+    FC_gray_code: 
+        cover { (prev_reg !== sigreg) && (reset === 1'b0) } 
+        @ (posedge clk);
+
+}
+
+
+//----------------------------------------------------------------------------
+// hamming_distance
+//----------------------------------------------------------------------------
+vunit mc_hamming_dist(mc_hamming_dist) {
+    reg [(width-1):0] prev_reg = 'dx;
+
+    // This utility function returns whether the given vector has min-max bits
+    // asserted
+    function integer mc_bits_inrange (
+        input [(width-1):0] V,
+        input integer min,
+        input integer max);
+        integer count;
+        integer index;
+        begin
+            count = 0;
+            mc_bits_inrange = `MC_FALSE;
+            for (index=(width-1); index>=0; index=index-1) begin
+                if (V[index] === 1'b1) count = count+1;
+            end
+            if ((count>=min) && (count<=max)) mc_bits_inrange = `MC_TRUE;
+        end
+    endfunction // mc_bits_inrange;
+
+    always @(posedge clk)
+    begin
+        prev_reg <= sigreg;
+    end
+
+    property mc_hamming_dist =
+        (always (((prev_reg === sigreg) 
+                 || mc_bits_inrange(prev_reg ^ sigreg,distance,distance))
+                 abort reset))
+        @ (posedge clk);
+    assert mc_hamming_dist;
+
+    //
+    // Functional Coverage:
+    //     Was there a non-aborted register change?
+    //
+    FC_hamming_distance: 
+        cover { (prev_reg !== sigreg) && (reset === 1'b0) } 
+        @ (posedge clk);
+        
+}
+
+
+//----------------------------------------------------------------------------
+// hold_period
+//----------------------------------------------------------------------------
+vunit mc_hold_period(mc_hold_period) {
+
+    integer FA_hold_period_bound_lo = -1;
+    integer FA_hold_period_bound_hi = -1;
+
+    sequence engaged = { (enable === 1'b1) && (rose(sig)) && (reset === 1'b0) };
+    sequence completed = { {engaged}:
+                           {{ ((reset === 1'b0) && (sig === 1'b1))[* min : max];
+                              ((reset === 1'b0) && (sig === 1'b0)) } |
+                            { ((reset === 1'b0) && (sig === 1'b1))[*((max<min)?min:max)];
+                              ((reset === 1'b0) && (sig === 1'b1) && (!change)) }}};
+    //
+    // Functional Coverage:
+    //     Was there an assertion period which completed successfully?
+    //
+    FC_hold_period: 
+        cover { completed }
+        @ (posedge clk);
+
+
+    property mc_hold_period =
+        (always ( ( { engaged } |->
+                    { sig[* min:max];
+                      ((!change) || (sig === 1'b0)) } )
+                  abort reset))
+        @ (posedge clk);
+
+    assert mc_hold_period;
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = {engaged}@rose(clk);
+            endpoint endpoint_completed = {completed}@rose(clk);
+
+            // Define mc_set_extremes
+            `include "verilog_psl_checkers_uf.inc"
+
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed,
+                                `dont_allow_zero_length_seq,
+                                FA_hold_period_bound_lo, 
+                                FA_hold_period_bound_hi);
+            end
+        end // if
+	endgenerate
+
+} 
+
+//----------------------------------------------------------------------------
+// increment
+//----------------------------------------------------------------------------
+vunit mc_increment(mc_increment) {
+
+    integer FA_increment_bound_hi = -1;
+    integer FA_increment_bound_lo = -1;
+    reg [(width-1):0] prev_reg = 'dx;
+    reg [(width-1):0] min_increment = min_incr; // Keep the math to width bits
+    reg [(width-1):0] max_increment = max_incr; // Keep the math to width bits
+
+    always @(posedge clk)
+    begin
+        prev_reg <= sigreg;
+    end
+
+    sequence engaged = { (enable === 1'b1) && (prev_reg !== sigreg) && (reset === 1'b0) };
+
+    sequence completed = { engaged; 
+                              ((reset === 1'b0) && (prev_reg === sigreg))[* (min_time-1) : (max_time-1)];
+                              ((reset === 1'b0) && (prev_reg !== sigreg)) };
+
+    property mc_increment_time =
+        (always ( ( { engaged } |=>
+                   { (prev_reg === sigreg)[* (min_time-1):(max_time-1)];
+                     (prev_reg !== sigreg) } )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there a register change within the prescribed time?
+    //
+    FC_increment: 
+        cover { completed }
+        @ (posedge clk);
+
+    property mc_increment_value =
+        (never ( (reset === 1'b0) && (enable === 1'b1) && (prev_reg !== sigreg)
+                && ((sigreg > (prev_reg + max_increment))
+                     || (sigreg < (prev_reg + min_increment)))))
+        @ (posedge clk);
+
+    assert mc_increment_time;
+    assert mc_increment_value;
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = {engaged}@rose(clk);
+            endpoint endpoint_completed = {completed}@rose(clk);
+
+            // Define mc_set_extremes
+            `include "verilog_psl_checkers_uf.inc"
+
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed,
+                                `dont_allow_zero_length_seq,
+                                FA_increment_bound_lo, 
+                                FA_increment_bound_hi);
+            end
+        end // if
+	endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------
+// memory
+//----------------------------------------------------------------------------
+vunit mc_memory(mc_memory) {
+
+    //    TYPE memory_booleans IS ARRAY (start_addr TO (start_addr+memory_size-1)) OF boolean;
+
+    // Used for the "uinitialized" check, this is set FALSE on reset, TRUE on
+    // the first write after reset:
+    //
+    reg [start_addr:(start_addr+memory_size-1)] initialized; // : memory_booleans;
+
+    integer FA_memory_bound_lo = -1;
+    integer FA_memory_bound_hi = 0;
+    integer FA_memory_bound_write = 0;
+    integer FA_memory_bound_read = 0;
+    integer FA_memory_omissions = 0;
+
+    integer index_a;
+    integer index_b;
+    integer index_c;
+
+    function integer mc_addr_valid (input integer addr);
+        begin
+            if (($unsigned(addr) >= $unsigned(start_addr)) && ($unsigned(addr) < ($unsigned(start_addr) + $unsigned(memory_size))))
+                mc_addr_valid = `MC_TRUE;
+            else
+                mc_addr_valid = `MC_FALSE;
+        end
+    endfunction // mc_addr_valid
+
+    // 
+    // Conditionally generated process to 
+    // maintains the "initialized" array. 
+    // (Normal version)
+    // 
+    generate
+        if ((coverage_level < 2)) begin:maintain_initialized
+            //
+            // This process maintains the "initialized" array:
+            // 
+
+            always @(posedge clk)
+            begin
+                if (reset === 1'b1)
+                    for (index_a=start_addr; index_a<(start_addr+memory_size); index_a=index_a+1) begin
+                        initialized[index_a] <= `MC_FALSE;
+                    end // for
+                else if ((enable === 1'b1) && 
+                         (RW === 1'b1) && 
+                         (mc_addr_valid(addr)) &&
+                         (!initialized[addr]))
+                    initialized[addr] <= `MC_TRUE;
+                // end if
+            end
+        end // if
+	endgenerate
+    // 
+    // Conditionally generated process to 
+    // maintains the "initialized" array
+    // and calculate expensive read/write
+    // coverage data.
+    // (Expensive version)
+    // 
+    generate
+        if ((coverage_level >= 2)) begin:maintain_memory_rw
+            //
+            // This process maintains the "initialized" array
+            // and calculates expensive read/write
+            // coverage data.
+            // 
+            reg [start_addr:(start_addr+memory_size-1)] read_mem; // : memory_booleans;
+
+            always @(posedge clk)
+            begin
+                if (reset === 1'b1) begin
+                    for (index_b=start_addr; index_b<(start_addr+memory_size); index_b=index_b+1) begin
+                        initialized[index_b] <= `MC_FALSE;
+                        read_mem[index_b] = `MC_FALSE;
+                    end // for
+                    FA_memory_bound_write = 0;
+                    FA_memory_bound_read = 0;
+                    FA_memory_omissions = 0;
+                    FA_memory_bound_lo = -1;
+                    FA_memory_bound_hi = 0;
+                end
+                else if ((enable === 1'b1) && mc_addr_valid(addr)) begin
+                    if (RW === 1'b1) begin
+                        // Write
+                        if (initialized[addr] === `MC_FALSE) begin
+                            initialized[addr] <= `MC_TRUE; // It is now written for the first time
+                            FA_memory_bound_write = FA_memory_bound_write+1; // New address being written
+                            FA_memory_omissions = FA_memory_omissions+1; // One more unread address
+                        end // if
+                    end
+                    else begin
+                        // Read
+                        if ((read_mem[addr] === `MC_FALSE) && (initialized[addr] === `MC_TRUE)) begin
+                            read_mem[addr] = `MC_TRUE; // It was written first and now read
+                            FA_memory_bound_read = FA_memory_bound_read+1; // New address being read
+                            FA_memory_omissions = FA_memory_omissions-1; // One less unread address
+                        end // if
+                    end // if
+                end // if
+            end
+        end // if
+	endgenerate
+
+    //
+    // This conditionally generated process maintains the "written" array (true
+    // when written, false when read) used in the precious data and volatile
+    // data arrays.
+    //
+    generate
+        if ((precious_data === `MC_TRUE) || (volatile_data === `MC_TRUE)) 
+        begin:written_block
+            // Used for the "precious_data" and "volatile_data" checks, this is set
+            // FALSE on reset, TRUE on any write, FALSE on any read .... thus allowing a
+            // check for twice-writing and twice-reading.
+            // 
+            reg [start_addr:(start_addr+memory_size-1)] written; // : memory_booleans;
+
+            always @(posedge clk)
+            begin
+                if (reset === 1'b1)
+                    for (index_c=start_addr; index_c<=(start_addr+memory_size-1); index_c=index_c+1) begin
+                        written[index_c] <= `MC_FALSE;
+                    end // for
+                else if (enable === 1'b1 && mc_addr_valid(addr))
+                    if (RW === 1'b1)
+                        written[addr] <= `MC_TRUE;
+                    else
+                        written[addr] <= `MC_FALSE;
+                    // end if
+                // end if
+            end
+
+            // 
+            // Conditionally generated.
+            // 
+            // generate    NOTE: Implicit nesting of (if generate)
+                if (precious_data === `MC_TRUE) 
+                begin:precious_data_check
+
+                    // precious data check: a write while written[addr] is already true
+                    // indicates that precious data has been overwritten.
+                    // 
+                    property mc_memory_precious_data =
+                        (never ((reset === 1'b0) && (enable === 1'b1)
+                               && (RW === 1'b1) && mc_addr_valid(addr) && written[addr]))
+                        @ (posedge clk);
+
+                    assert mc_memory_precious_data;
+
+                end // if
+            // endgenerate
+
+            // 
+            // Conditionally generated.
+            // 
+            // generate    NOTE: Implicit nesting of (if generate)
+                if (volatile_data === `MC_TRUE) 
+                begin:volatile_data_check
+
+                    // volatile data check: a read while written[addr] is false and
+                    // initialized[addr] is true 
+                    // indicating volatile data has been read more
+                    // than once.
+                    // 
+                    property mc_memory_volatile_data =
+                        (never ((reset === 1'b0) && (enable === 1'b1)
+                               && (RW === 1'b0) && mc_addr_valid(addr) 
+                               && initialized[addr] && (!written[addr])))
+                        @ (posedge clk);
+                            
+                    assert mc_memory_volatile_data;
+
+                end // if
+            // endgenerate
+
+        end // if
+    endgenerate
+
+    // 
+    // ******************************************************************
+    // *** NOTE eventually this model could be replaced by replicated ***
+    // *** properties.                                                ***
+    // ******************************************************************
+    //
+    // This model is conditionally generated in the case where we need to check
+    // output values of the memory, in which case the bus (memory_out) driven by
+    // the model must match the output bus (data_out) given as input to the
+    // checker, at the appropriate moment.
+    // 
+    // Note on efficiency of model:
+    // * Small width memory is OK modeled as unsigned (as below).
+    // * Width close to integer size is better modeled as integer.
+    // * Wider width is best modeled as banks of integer.
+    // 
+    // A possibility for future enhancement is to conditionally generate each
+    // architecture based on width.  Could create an entity/architecture for
+    // the memory model instead of the process as below.
+    //
+    // 
+    generate
+        if (check_values === `MC_TRUE) 
+        begin:memory_model
+            reg [(width-1):0] memory [start_addr:(start_addr+memory_size-1)];
+            //
+            // This is driven by the memory model if "check_values === true":
+            //
+            reg [(width-1):0] memory_out = 'dx;
+
+            always @(posedge clk)
+            begin
+                if (mc_addr_valid(addr) && enable === 1'b1)
+                    if (RW === 1'b1)
+                        memory[addr] = data_in;
+                    else
+                        memory_out <= memory[addr];
+                    // end if
+                // end if
+            end
+
+            // Here's the value integrity check, only when check_values === true.  Note
+            // that the memory output is driven onto the internal memory_out bus on the
+            // cycle AFTER write is asserted, so the check is performed one cycle
+            // after the control signals.
+            // 
+            property mc_memory_value =
+                (always ( ( { check_values && (enable === 1'b1)
+                              && (RW === 1'b0) && mc_addr_valid(addr) } |=>
+                            { (data_out === memory_out) } )
+                          abort reset))
+                @ (posedge clk);
+
+            assert mc_memory_value;
+        end
+    endgenerate
+
+    property mc_memory_uninitialized =
+        (never ((reset === 1'b0) && (enable === 1'b1) && (RW === 1'b0)
+               && mc_addr_valid(addr) && (!initialized[addr])))
+        @ (posedge clk);
+
+    assert mc_memory_uninitialized;
+
+    property mc_memory_address =
+        (never ((reset === 1'b0) && (enable === 1'b1) &&
+               (!mc_addr_valid(addr))))
+        @ (posedge clk);
+
+    assert mc_memory_address;
+
+    // 
+    // Conditionally generated process to remember the 
+    // historical maximum and minimum address.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+            always @(posedge clk) 
+            begin
+                if ((reset === 1'b0) && (enable === 1'b1)) begin 
+                    if ($unsigned(FA_memory_bound_hi) < $unsigned(addr)) begin 
+                        // Remember the maximum address.
+                        FA_memory_bound_hi = $unsigned(addr);
+                    end // if
+                    if ($unsigned(FA_memory_bound_lo) > $unsigned(addr)) begin 
+                        // Remember the minimum address.
+                        FA_memory_bound_lo = $unsigned(addr);
+                    end // if
+                end // if
+            end
+        end // if
+	endgenerate
+
+    //
+    // Functional Coverage:
+    //     Was there a read request (not aborted)?
+    //
+    FC_memory_read: 
+        cover { (reset === 1'b0) && (enable === 1'b1) && (RW === 1'b0) }
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there a write request (not aborted)?
+    //
+    FC_memory_write: 
+        cover { (reset === 1'b0) && (enable === 1'b1) && (RW === 1'b1) }
+        @ (posedge clk);
+
+}
+
+
+//----------------------------------------------------------------------------
+// one_cold
+//----------------------------------------------------------------------------
+vunit mc_one_cold(mc_one_cold) {
+
+    //
+    // This function makes the check, based on strictness, for hot/cold.  It
+    // counts the bits equal to val, always returning false when encountering the
+    // second bit; returns false for 0 bits when strict is true.
+    // This function calculates one_hot (val = '1') or one_cold (val = '0').
+    //
+    function integer mc_cold (
+        input [(width-1):0] vec,
+        input integer strict);
+        integer count;
+        integer index;
+        begin
+            count = 0;
+            mc_cold = `MC_TRUE;
+            // This counts the bits and returns false as soon as 2 are found:
+            for (index=(width-1); index>=0; index=index-1) begin
+                if (vec[index] === 1'b0) 
+                begin
+                    if (count === 0) 
+                        count = 1;
+                    else begin
+                        mc_cold = `MC_FALSE;
+                        index=-1; // break the loop
+                    end
+                end
+            end
+            // Also return false if the hotness/coldness is strict and no bits were counted
+            if ((count===0) && (strict === `MC_TRUE)) mc_cold = `MC_FALSE;
+        end
+    endfunction // mc_cold
+
+    property mc_one_cold =
+        (never ((reset === 1'b0) && (!mc_cold(sigreg,strict))))
+        @ (posedge clk);
+    assert mc_one_cold;
+
+    // 
+    // Conditionally generated based on "strict".
+    // 
+    generate
+        if (strict === `MC_FALSE) begin:no_colds
+
+            //
+            // This function returns whether all bits in the vector are equal to the
+            // given bit value.
+            //
+            function integer mc_all (
+                input [(width-1):0] vectr,
+                input integer val);
+                integer index;
+                begin
+                    mc_all = `MC_TRUE;
+                    // This looks at the bits and returns false as soon as a mismatch is found:
+                    for (index=(width-1); index>=0; index=index-1) begin
+                        if (vectr[index] !== val) 
+                        begin
+                            mc_all = `MC_FALSE;
+                            index=-1; // break the loop
+                        end
+                    end
+                end
+            endfunction // mc_all
+
+            //
+            // Functional Coverage:
+            //     Cases where all bits where asserted.
+            //
+            FC_one_cold_corner:
+                cover { mc_all(sigreg,1'b1) && (reset === 1'b0) }
+                @ (posedge clk);
+
+        end // if
+	endgenerate
+
+    //
+    // Functional Coverage Vector:
+    //     Has each bit been deasserted?
+    //
+    generate
+        genvar index;
+        for (index=0; index<width; index=index+1) 
+        begin:FC_cld
+            FC_one_cold:
+                cover { (sigreg[index] === 1'b0) && (reset === 1'b0) }
+                @ (posedge clk);
+        end // for
+	endgenerate
+}
+
+//----------------------------------------------------------------------------
+// one_hot
+//----------------------------------------------------------------------------
+vunit mc_one_hot(mc_one_hot) {
+
+    //
+    // This function makes the check, based on strictness, for hot/cold.  It
+    // counts the bits equal to val, always returning false when encountering the
+    // second bit; returns false for 0 bits when strict is true.
+    // This function calculates one_hot (val = '1') or one_cold (val = '0').
+    //
+    function integer mc_hot (
+        input [(width-1):0] vec,
+        input integer strict);
+        integer count;
+        integer index;
+        begin
+            count = 0;
+            mc_hot = `MC_TRUE;
+            // This counts the bits and returns false as soon as 2 are found:
+            for (index=(width-1); index>=0; index=index-1) begin
+                if (vec[index] === 1'b1) 
+                begin
+                    if (count === 0) 
+                        count = 1;
+                    else begin
+                        mc_hot = `MC_FALSE;
+                        index=-1; // break the loop
+                    end
+                end
+            end
+            // Also return false if the hotness/coldness is strict and no bits were counted
+            if ((count===0) && (strict === `MC_TRUE)) mc_hot = `MC_FALSE;
+        end
+    endfunction // mc_hot
+
+    property mc_one_hot =
+        (never ((reset === 1'b0) && (!mc_hot(sigreg,strict))))
+        @ (posedge clk);
+    assert mc_one_hot;
+
+    // 
+    // Conditionally generated based on "strict".
+    // 
+    generate
+        if (strict === `MC_FALSE) begin:no_hots
+
+            //
+            // This function returns whether all bits in the vector are equal to the
+            // given bit value.
+            //
+            function integer mc_all (
+                input [(width-1):0] vectr,
+                input integer val);
+                integer index;
+                begin
+                    mc_all = `MC_TRUE;
+                    // This looks at the bits and returns false as soon as a mismatch is found:
+                    for (index=(width-1); index>=0; index=index-1) begin
+                        if (vectr[index] !== val) 
+                        begin
+                            mc_all = `MC_FALSE;
+                            index=-1; // break the loop
+                        end
+                    end
+                end
+            endfunction // mc_all
+
+
+            //
+            // Functional Coverage:
+            //     Cases where all bits were deasserted.
+            //
+            FC_one_hot_corner:
+                cover { mc_all(sigreg,1'b0) && (reset === 1'b0) }
+                @ (posedge clk);
+
+        end // if
+	endgenerate
+
+    //
+    // Functional Coverage Vector:
+    //     Has each bit been asserted?
+    //
+    generate
+        genvar index;
+        for (index=0; index<width; index=index+1) 
+        begin:FC_hot
+            FC_one_hot:
+                cover { (sigreg[index] === 1'b1) && (reset === 1'b0) }
+                @ (posedge clk);
+        end // for
+	endgenerate
+}
+
+//----------------------------------------------------------------------------
+// parity
+//----------------------------------------------------------------------------
+vunit mc_parity(mc_parity) {
+
+    //
+    // Note "bad_parity_value" is inverted in sense from what one might expect;
+    // The property is a "never", so we check for a violation of the parity,
+    // namely that the XOR of all bits is !the parity value.
+    // 
+
+    // This utility function computes the cumulative XOR of all bits in a vector
+    function integer mc_xor_bits (
+        input [(width-1):0] V);
+        integer reduce;
+        integer index;
+        begin
+            reduce = 0;
+            for (index=(width-1); index>=0; index=index-1) begin
+                reduce = reduce ^ V[index];
+            end
+            mc_xor_bits = reduce;
+        end
+    endfunction // mc_xor_bits;
+
+    reg bad_parity_value = 1'b0;  // derived from GENERIC "even"
+    initial begin
+        bad_parity_value <= (even === 1'b1);
+    end
+
+    property mc_parity =
+        (never ((reset === 1'b0) && (mc_xor_bits(sigreg) === bad_parity_value)))
+        @ (posedge clk);
+    assert mc_parity;
+}
+
+
+//----------------------------------------------------------------------------
+// precious_data
+//----------------------------------------------------------------------------
+vunit mc_precious_data(mc_precious_data) {
+
+    integer FA_precious_data_bound_hi = -1;
+    integer FA_precious_data_bound_lo = -1;
+    reg [(width-1):0] prev_src = 'dx;
+
+    // Define mc_set_extremes
+    `include "verilog_psl_checkers_uf.inc"
+
+    sequence engaged = { ( ((src_change === `MC_EDGE_GATED) && rose(src_loaded)) || 
+                          ((src_change === `MC_EDGE_ANY) && (src !== prev_src))   ) &&
+                        (reset === 1'b0) };
+
+    //
+    // Functional Coverage:
+    //     Did the precious window open which was not aborted?
+    //
+    FC_precious_data: 
+        cover { engaged }
+        @ (posedge clk);
+
+    // Maintain previous value of "reg"
+    //
+    always @(posedge clk)
+    begin
+        prev_src <= src;
+    end
+
+    // 
+    // Conditionally generated based on "mc_window_count".
+    // 
+    generate
+	    if (stop_type === `MC_WINDOW_COUNT) begin:precious_data
+
+            // This property is for a precious data window defined with a "stop count",
+            // not a "stop signal".
+            // 
+            property mc_precious_data =
+                (always ( // 
+                          // predicate: source change
+                          // followed by start_count cycles
+                          // 
+                          ( { engaged } |->
+                           //
+                           // Must be followed by a match within "stop_count" cycles
+                           // 
+                           { (dest !== src)[* start_count : start_count+stop_count]; 
+                             (dest === src) } )
+                         abort reset))
+                @ (posedge clk);        
+
+            assert mc_precious_data;
+
+            // 
+            // Conditionally generated based on checker level.
+            // 
+            // generate    NOTE: Implicit nesting of (if generate)
+                if (coverage_level >= 1) begin:capture_extremes
+
+                    sequence completed = { {engaged}: 
+                                            { ((reset === 1'b0) && (dest !== src))[* start_count : start_count+stop_count];
+                                              ((reset === 1'b0) && (dest === src)) } };
+
+                    endpoint endpoint_engaged = {engaged}@rose(clk);
+                    endpoint endpoint_completed = {completed}@rose(clk);
+                                    
+                    always @(posedge clk)
+                    begin
+                        mc_set_extremes(clk, 
+                                        endpoint_engaged, 
+                                        endpoint_completed, 
+                                        `dont_allow_zero_length_seq,
+                                        FA_precious_data_bound_lo, 
+                                        FA_precious_data_bound_hi);
+                    end
+
+                end // if
+            // endgenerate
+
+        end // if
+	endgenerate
+
+    // 
+    // Conditionally generated based on "mc_window_gated".
+    // 
+    generate
+	    if (stop_type === `MC_WINDOW_GATED) begin:precious_stopval
+
+            // This property is for stop signal too close to source loaded.  (As
+            // defined, the stop signal can never be too far, but it can be too close!)
+            //
+            property mc_precious_stoptime =
+                (always ( ( { engaged } |->
+                           // 
+                           // And this SERE requires stop_signal to follow:
+                           // 
+                           { (!rose(stop_signal))[*start_count : inf]; rose(stop_signal) } )
+                         abort reset))
+                @ (posedge clk);
+
+            // This property is for a bad value with stop signal:
+            //
+            property mc_precious_stopval =
+                (never (rose(stop_signal) 
+                       && (dest !== src) && (reset === 1'b0)))
+                @ (posedge clk); 
+
+            assert mc_precious_stoptime;
+            assert mc_precious_stopval;
+
+            // 
+            // Conditionally generated based on checker level.
+            // 
+            // generate    NOTE: Implicit nesting of (if generate)
+                if (coverage_level >= 1) begin:capture_extremes
+
+                    sequence completed = { {engaged}: 
+                                            { ((reset === 1'b0) && (!rose(stop_signal)))[*start_count : inf];
+                                              ((reset === 1'b0) && (rose(stop_signal))) } };
+
+                    endpoint endpoint_engaged = {engaged}@rose(clk);
+                    endpoint endpoint_completed = {completed}@rose(clk);
+                                           
+                    always @(posedge clk)
+                    begin
+                        mc_set_extremes(clk, 
+                                        endpoint_engaged, 
+                                        endpoint_completed, 
+                                        `dont_allow_zero_length_seq,
+                                        FA_precious_data_bound_lo, 
+                                        FA_precious_data_bound_hi);
+                    end
+
+                end // if
+            // endgenerate
+
+        end // if
+	endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------
+// range
+//----------------------------------------------------------------------------
+vunit mc_range(mc_range) {
+
+    integer FA_range_bound_hi = 0;
+    integer FA_range_bound_lo = -1;
+
+    property mc_range =
+        (never ( (reset === 1'b0) &&
+                (((max_valid === 1'b1) && ($unsigned(sigreg) > $unsigned(max)))
+                 || ((min_valid === 1'b1) && ($unsigned(sigreg) < $unsigned(min))))))
+        @ (posedge clk);
+
+    assert mc_range;
+
+    //
+    // Functional Coverage:
+    //     Was there a non-aborted register change?
+    //
+    FC_range: 
+        cover { (sigreg !== prev(sigreg)) && (reset === 1'b0) } 
+        @ (posedge clk);
+
+    // 
+    // Conditionally generated process to remember the 
+    // historical maximum and minimum value of reg.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+            always @(sigreg) 
+            begin
+                if (reset === 1'b0) begin
+                    if ($unsigned(FA_range_bound_hi) <  $unsigned(sigreg)) begin 
+                        // Remember the maximum value.
+                        FA_range_bound_hi = $unsigned(sigreg);
+                    end // if
+                    if ($unsigned(FA_range_bound_lo) >  $unsigned(sigreg)) begin 
+                        // Remember the minimum value.
+                        FA_range_bound_lo = $unsigned(sigreg);
+                    end // if
+                end // if
+            end
+        end // if
+	endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------
+// reg_loaded
+//----------------------------------------------------------------------------
+vunit mc_reg_loaded(mc_reg_loaded) {
+
+    integer FA_reg_loaded_bound_hi = -1;
+    integer FA_reg_loaded_bound_lo = -1;
+    reg [(width-1):0] prev_reg = 'dx;
+
+    // Define mc_set_extremes
+    `include "verilog_psl_checkers_uf.inc"
+
+    sequence engaged = { (rose(start) && (reset === 1'b0)) };
+
+    //
+    // Functional Coverage:
+    //     Was there a window open?
+    //
+    FC_reg_loaded: 
+        cover { engaged } 
+        @ (posedge clk);
+
+    // Maintain previous value of "reg"
+    //
+    always @(posedge clk)
+    begin
+        prev_reg <= sigreg;
+    end
+
+    // 
+    // Conditionally generated.
+    // 
+    generate
+        if (stop_type === `MC_WINDOW_COUNT) 
+        begin:reg_loaded_window_count
+            property mc_reg_loaded =
+                (always ( ( { engaged } |->
+                             // 
+                             // This is the case for counted window.  In case of
+                             // stop_count = 0, the reg must change on the same edge as
+                             // it opens.
+                             // 
+                            { [*start_count];
+                              (sigreg === prev_reg)[*0 : stop_count];
+                              (sigreg !== prev_reg) } )
+                         abort reset))
+                @ (posedge clk);
+
+            assert mc_reg_loaded;
+
+            // 
+            // Conditionally generated based on checker level.
+            // 
+            // generate    NOTE: Implicit nesting of (if generate)
+                if (coverage_level >= 1) begin:capture_extremes
+
+                    sequence completed = { {engaged}: 
+                                            { (reset === 1'b0)[*start_count];
+                                              ((reset === 1'b0) && (sigreg === prev_reg))[*0 : stop_count];
+                                              ((reset === 1'b0) && (sigreg !== prev_reg)) } };
+                    endpoint endpoint_engaged = {engaged}@rose(clk);
+                    endpoint endpoint_completed = {completed}@rose(clk);
+                                           
+                    always @(posedge clk)
+                    begin
+                        mc_set_extremes(clk, 
+                                        endpoint_engaged, 
+                                        endpoint_completed, 
+                                        `do_allow_zero_length_seq,
+                                        FA_reg_loaded_bound_lo, 
+                                        FA_reg_loaded_bound_hi);
+                    end
+
+                end // if
+            // endgenerate
+
+        end // if
+    endgenerate
+
+    // 
+    // Conditionally generated.
+    // 
+    generate
+        if (stop_type === `MC_WINDOW_GATED) 
+        begin:reg_loaded_window_gated
+            property mc_reg_loaded =
+                (always ( ( { engaged } |->
+                             //
+                             // This is the case for window closing with "stop"; the
+                             // register must close prior to the rising edge of "stop"
+                             // 
+                            { [*start_count];
+                              ((sigreg === prev_reg) && (!rose(stop)))[*]; 
+                              ((sigreg !== prev_reg) && (!rose(stop)));
+                              (!rose(stop))[*];
+                              rose(stop) } )
+                         abort reset))
+                @ (posedge clk);
+
+            assert mc_reg_loaded;
+
+            // 
+            // Conditionally generated based on checker level.
+            // 
+            // generate    NOTE: Implicit nesting of (if generate)
+                if (coverage_level >= 1) begin:capture_extremes
+
+                    sequence completed = { {engaged}: 
+                                            { (reset === 1'b0)[*start_count];
+                                              ((reset === 1'b0) && (sigreg === prev_reg) && (!rose(stop)))[*]; 
+                                              ((reset === 1'b0) && (sigreg !== prev_reg) && (!rose(stop))) } };
+                    endpoint endpoint_engaged = {engaged}@rose(clk);
+                    endpoint endpoint_completed = {completed}@rose(clk);
+                                           
+                    always @(posedge clk)
+                    begin
+                        mc_set_extremes(clk, 
+                                        endpoint_engaged, 
+                                        endpoint_completed,
+                                        `do_allow_zero_length_seq,
+                                        FA_reg_loaded_bound_lo, 
+                                        FA_reg_loaded_bound_hi);
+                    end
+
+                end // if
+            // endgenerate
+
+        end // if
+    endgenerate
+    
+}
+
+
+//--------------------------------------------------------------------------
+// rx_backup
+//--------------------------------------------------------------------------
+vunit mc_rx_backup(mc_rx_backup) {
+
+    integer FA_rx_backup_bound_hi = -1;
+    integer FA_rx_backup_bound_lo = -1;
+
+    sequence engaged = { (rose(rx_full)) && (reset === 1'b0) };
+    sequence completed = { {engaged}: 
+                            { ((reset === 1'b0) && (xmit_ready !== 1'b0))[*min : max]; 
+                              ((reset === 1'b0) && (xmit_ready === 1'b0)) } };
+    //
+    // Functional Coverage:
+    //     Was there a leader assertion which completed successfully?
+    //
+    FC_rx_backup: 
+        cover { completed } 
+        @ (posedge clk);
+
+    property mc_rx_backup = (always ( ( { engaged } |-> 
+                                       { (xmit_ready !== 1'b0)[*min:max]; xmit_ready === 1'b0 } )
+                                     abort reset))
+        @ (posedge clk);
+    assert mc_rx_backup; 
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = {engaged}@rose(clk);
+            endpoint endpoint_completed = {completed}@rose(clk);
+
+            // Define mc_set_extremes
+            `include "verilog_psl_checkers_uf.inc"
+
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed, 
+                                `do_allow_zero_length_seq,
+                                FA_rx_backup_bound_lo, 
+                                FA_rx_backup_bound_hi);
+            end
+        end // if
+	endgenerate
+
+}
+
+
+//--------------------------------------------------------------------------
+// scoreboard
+//--------------------------------------------------------------------------
+vunit mc_scoreboard(mc_scoreboard) {
+
+    //    TYPE bool_array IS ARRAY (min_id TO max_id) OF boolean;
+    reg [min_id:max_id] is_issued = 'dx; // : bool_array;
+    integer FA_scoreboard_bound_hi = -1;
+    integer num_issued = 0;
+
+    function integer id_valid (input integer id);
+        begin
+            if ((id < min_id) || (id > max_id))
+                id_valid = `MC_FALSE;
+            else
+                id_valid = `MC_TRUE;
+        end
+    endfunction // id_valid
+
+    //
+    // This process maintains the "is_issued" array of state for each id (true
+    // for issued, set false when received) and the count of number of issued
+    // ids.
+    // 
+    integer index;
+
+    always @(posedge clk)
+    begin
+        if (reset === 1'b1)
+            begin
+                for (index=min_id; index<=max_id; index=index+1) begin
+                    is_issued[index] <= `MC_FALSE;
+                end // for
+                num_issued = 0;
+            end
+        // Test for valid issue or receive:
+        // 
+        else if (((issue_en === 1'b1) && (id_valid(issue_id))) ||
+                 ((rx_en === 1'b1) && (id_valid(rx_id))))
+            begin
+                // Adjust num_issued according to current state and whether
+                // there was a net change in number issued.
+                // 
+                if ((issue_en === 1'b1) && 
+                    (rx_en === 1'b0) &&
+                    (!is_issued[issue_id])) 
+                    num_issued = num_issued + 1;
+                    if (FA_scoreboard_bound_hi < num_issued) begin 
+                        // Remember the historical maximum number of outstanding issues.
+                        FA_scoreboard_bound_hi = num_issued;
+                    end // if
+                else if ((rx_en === 1'b1) && 
+                         (issue_en === 1'b0) &&
+                         is_issued[rx_id])
+                    num_issued = num_issued - 1;
+
+                // end if
+
+                // Adjust is_issued boolean independently .... except that
+                // simultaneous issue/receive on same id is a no op.
+                // 
+                if ((issue_en !== rx_en) || (issue_id !== rx_id))
+                    begin
+                        if (issue_en === 1'b1 && id_valid(issue_id))
+                            is_issued[issue_id] <= `MC_TRUE;
+                        // end if
+                        if (rx_en === 1'b1 && id_valid(rx_id))
+                            is_issued[rx_id] <= `MC_FALSE;
+                        // end if
+                    end
+                // end if
+            end
+        // end if
+    end
+
+    property mc_scoreboard_max_out =
+        (never ((reset === 1'b0) && (num_issued > max_outstanding)))
+        @ (posedge clk);
+
+    property mc_scoreboard_mismatch =
+        (never ( (reset === 1'b0) &&
+                 // 
+                 // issuing twice in a row:
+                 // 
+                (((issue_en === 1'b1) && id_valid(issue_id)
+                  && is_issued[issue_id])
+                 // 
+                 // receiving something that has not been issued:
+                 // 
+                 || ((rx_en === 1'b1) && id_valid(rx_id)
+                     && (!is_issued[rx_id]))
+                 // 
+                 // receiving/issuing on same cycle:
+                 // 
+                 || ((rx_en === 1'b1) && (issue_en === 1'b1)
+                     && id_valid(rx_id) && (rx_id === issue_id)))))
+        @ (posedge clk);
+
+    property mc_scoreboard_badid =
+        (never ( (reset === 1'b0) &&
+                (((issue_en === 1'b1) && (!id_valid(issue_id)))
+                 || ((rx_en === 1'b1) && (!id_valid(rx_id))))))
+        @ (posedge clk);
+
+    assert mc_scoreboard_mismatch;
+    assert mc_scoreboard_max_out;
+    assert mc_scoreboard_badid;
+
+    //
+    // Functional Coverage Vector:
+    //     Has each ID been issued?
+    //     Has each ID been received?
+    //
+    generate
+        genvar gen_index;
+
+        for (gen_index=min_id; gen_index<=max_id; gen_index=gen_index+1)
+        begin:scoreboard
+            FC_scoreboard_issue:
+                cover { (reset === 1'b0) && (issue_en === 1'b1) && (gen_index === issue_id) }
+                @ (posedge clk);
+            FC_scoreboard_receive:
+                cover { (reset === 1'b0) && (rx_en === 1'b1) && (gen_index === rx_id) }
+                @ (posedge clk);
+        end // for
+	endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------
+// sequence
+//----------------------------------------------------------------------------
+vunit mc_sequence(mc_sequence) {
+
+    reg on_off = 1'b0;
+    reg next_on_off = 'dx;
+    reg  endpoint_reached = 1'b0;
+    integer FA_sequence_bound_hi = -1;
+    integer FA_sequence_bound_lo = -1;
+
+    // This function returns whether a signal is undefined.
+    function integer mc_is_undef(
+        input [(width-1):0] V);
+        integer count;
+        integer index;
+        begin
+            mc_is_undef = `MC_FALSE;
+            // This looks at the bits and returns true as soon as a undefined is found:
+            for (index=(width-1); index>=0; index=index-1) begin
+                if (V[index] === 1'bx) 
+                begin
+                    mc_is_undef = `MC_TRUE;
+                    index=-1; // break the loop
+                end
+            end
+        end
+    endfunction //  mc_is_undef;
+
+    // These are used to compare reg against expected values.  "firstvalue" is
+    // always the first in the sequence; "nextvalue" and "curvalue" change
+    // according to comparison state.
+    // 
+    reg [(width-1):0] firstvalue = 'dx;
+    reg [(width-1):0] nextvalue = 'dx;
+    reg [(width-1):0] curvalue = 'dx;
+
+    // This is used to note changes in the reg, for temporal checking
+    //
+    reg [(width-1):0] prev_reg = 'dx;
+
+    //
+    // This task assigns an unsigned from one word of an unsigned_array,
+    // used to set expected values from the expected array
+    //
+    task mc_assign_expected(
+        output [(width-1):0] sigreg,
+        input [0:((length*width)-1)] expected,
+        input integer index);
+        // reg [0:(length-1)][(width-1):0] matrix;
+        integer idx;
+        begin
+            // matrix = expected;
+            for (idx=(width-1); idx>=0; idx=idx-1) begin
+                sigreg[idx] = expected[(index*width)+((width-1)-idx)]; // matrix[index][idx];
+            end
+        end
+    endtask
+
+    // Initialization process -- during reset
+    //
+    reg [(width-1):0] value = 'dx;
+
+    always @(clk)
+    begin
+        if (reset === 1'b1)
+            begin
+                mc_assign_expected(value,expected,0);
+                firstvalue = value;
+            end
+        // end if
+    end
+
+    // 
+    // This is a state machine of sorts.
+    //
+    // "on_off" signifies whether there is a sequence being checked at all.
+    // This is de-asserted after mismatches, after end-of-sequence, with reset,
+    // etc.  It is asserted with a match on the first element of the sequence
+    // with "sequence_start".
+    //
+    // "count" is also a state, sort of, preserving the index of the next
+    // expected match.  It starts as 1 (after "sequence_start") and increments
+    // with each successful match, up to end of sequence.  Along with "count",
+    // values of "curvalue" and "nextvalue" are changed.  These change
+    // asynchronously, but only once per edge.
+    //
+    reg [(width-1):0] nextvalue_var = 'dx;
+    integer count = 0;
+    integer cycles = -1;
+
+    always @(on_off,reset,sequence_start,sigreg)
+    begin
+        if (reset === 1'b1)
+            begin
+                next_on_off <= 1'b0; // reset always turns off everything
+                cycles = -1;
+            end
+        // Cases with reset === 1'b0:
+        else if (sequence_start === 1'b1)
+            begin
+                // 
+                // sequence start only succeeds with a comparison to the
+                // first element of the expected sequence.
+                // 
+                if (sigreg === firstvalue)
+                    begin
+                        // 
+                        // success with first value, set up for subsequent
+                        // 
+                        if (length > 1) // set up to expect subsequent value
+                            begin
+                                curvalue <= firstvalue;
+                                count = 1;
+                                mc_assign_expected(nextvalue_var,expected, count);
+                                nextvalue <= nextvalue_var;
+                                next_on_off <= 1'b1;
+                            end
+                        else begin // no subsequent values: turn off checking
+                                next_on_off <= 1'b0;
+                                endpoint_reached <= 1'b1;
+                                FA_sequence_bound_lo = 0;
+                        end // if
+                    end
+                else // did not find first value with sequence_start, stop
+                    next_on_off <= 1'b0;
+                // end if
+                cycles = -1;
+            end
+        // Cases with reset === 1'b0 and sequence_start === 1'b0:
+        // The only valid state is to have on_off === 1'b1 and check for
+        // current or next value
+        else begin
+            if (on_off === 1'b1) 
+                begin
+                    if (cycles === -1) begin
+                        // Start the counting -- This must have been a fell(sequence_start)
+                        cycles = 1;
+                    end // if
+                    if (sigreg === nextvalue)
+                        begin
+                            // We advanced one element in the sequence.
+                            if (((cycles >= 0) && (cycles < min_change_time)) || 
+                                (cycles > max_change_time)) 
+                                begin
+                                    // Illegal time, stop checking:
+                                    next_on_off <= 1'b0;
+                                    cycles = -1;
+                                end
+                            //
+                            // Next value found, advance to expectation of the
+                            // following or recognize end of sequence
+                            // 
+                            else if (length > (count+1))
+                                begin
+                                    // Advance to expectation of the following
+                                    curvalue <= nextvalue;
+                                    count = count+1;
+                                    mc_assign_expected(nextvalue_var,expected,count);
+                                    nextvalue <= nextvalue_var;
+                                    cycles = 0; // Reset the counter
+                                end
+                            else begin
+                                // End of sequence
+                                next_on_off <= 1'b0;
+                                endpoint_reached <= 1'b1;
+                                cycles = -1;
+                            end // if
+                        end
+                    else if (sigreg === curvalue) 
+                        begin
+                            //
+                            // Value hasn't changed, do nothing
+                            //
+                            next_on_off <= 1'b1;
+                        end
+                    else begin // Illegal value, stop checking:
+                        next_on_off <= 1'b0;
+                        cycles = -1;
+                    end // if
+                end
+            else begin // case where on_off is 1'b0 already, do nothing
+                next_on_off <= 1'b0;
+                cycles = -1;
+            end // if
+        end // if
+    end
+
+    //
+    // Here the synchronizing part of the state machine:
+    //
+    always @(posedge clk)
+    begin
+
+        on_off <= next_on_off;
+        endpoint_reached <= 1'b0;
+        // prev_reg is maintained to allow temporal checking to detect changes sigreg
+        prev_reg <= sigreg;
+
+        if (cycles >= 0) begin
+            cycles = cycles+1;
+        end // if
+    end
+
+    // This checks for time violations after sequence start is de-asserted:
+    // 
+    property mc_sequence_starttime =
+        (always ( ( { fell(sequence_start) } |->
+                   { (prev_reg === sigreg)[*(min_change_time-1) : (max_change_time-1)]; 
+                     (prev_reg !== sigreg) } )
+                abort ((reset === 1'b1) || (on_off === 1'b0) || (sequence_start === 1'b1))))
+        @ (posedge clk);
+
+    // This checks for other time violations besides the one above.
+    // The difficulty was that time violations from register changes coincident
+    // or prior to the assertion of sequence_start are always aborted by
+    // on_off===1'b0 (in this check), so the previous check was necessary.
+    //
+    property mc_sequence_time =
+        (always (
+                ( { (prev_reg !== sigreg) } |=> {
+                    (prev_reg === sigreg)[*(min_change_time-1) : (max_change_time-1)]; 
+                    (prev_reg !== sigreg)
+                  } )
+                abort ((reset === 1'b1) || (on_off === 1'b0))))
+        @ (posedge clk);
+
+    // This checks for all value violations, including while sequence_start is
+    // asserted:
+    // 
+    property mc_sequence_value =
+        (never ( // first clause is for first value:
+               ((sequence_start === 1'b1) && (sigreg !== firstvalue)
+                && (reset === 1'b0))
+               // second clause is for subsequent values; note "on_off" is a
+               // state variable that is set only when checking for
+               // subsequent values in the sequence
+               || ((on_off === 1'b1) && (sigreg !== nextvalue)
+                   && (sigreg !== curvalue) && (reset === 1'b0))))
+        @ (posedge clk);
+
+    // An "internal" property to check that firstvalue is initialized out of
+    // reset:
+    // 
+    property mc_sequence_reset =
+        (never ((reset === 1'b0) && (mc_is_undef(firstvalue))))
+        @ (posedge clk);
+
+    assert mc_sequence_starttime;
+    assert mc_sequence_time;
+    assert mc_sequence_value;
+    assert mc_sequence_reset;
+
+    //
+    // Functional Coverage:
+    //     Was there a sequence which completed successfully?
+    //
+    FC_sequence: 
+        cover { endpoint_reached === 1'b1 }
+        @ (posedge clk);
+
+    // 
+    // Conditionally generated based on checker level.
+    // 
+    generate
+        if (coverage_level >= 1) begin:capture_extremes
+
+            endpoint endpoint_engaged = { rose(sequence_start) }@rose(clk);
+            endpoint endpoint_completed = {endpoint_reached === 1'b1}@rose(clk);
+
+            // Define mc_set_extremes
+            `include "verilog_psl_checkers_uf.inc"
+
+            always @(posedge clk)
+            begin
+                mc_set_extremes(clk, 
+                                endpoint_engaged, 
+                                endpoint_completed,
+                                `dont_allow_zero_length_seq,
+                                FA_sequence_bound_lo, 
+                                FA_sequence_bound_hi);
+            end
+        end // if
+	endgenerate
+}
+
+
+//----------------------------------------------------------------------------
+// stack
+//----------------------------------------------------------------------------
+vunit mc_stack(mc_stack) {
+
+    integer FA_stack_bound_hi = -1;
+    integer num_elements = 0;
+
+    //
+    // This process adjusts num_elements to reflect the current number of
+    // elements in the stack according to control signals.  If check_values is
+    // false, this is the only part of the checker that operates.
+    // 
+    always @(posedge clk)
+    begin
+        if (reset === 1'b1)
+            num_elements = 0;
+        else if ((push === 1'b1) && 
+                 (pop === 1'b0)  &&
+                 (num_elements < depth))
+            begin
+                num_elements = num_elements + 1;
+                // Remember the historical maximum stack size
+                if (FA_stack_bound_hi < num_elements) begin
+                    FA_stack_bound_hi = num_elements;
+                end // if
+            end
+        else if ((pop === 1'b1) && 
+                 (push === 1'b0) &&
+                 (num_elements !== 0))
+            num_elements = num_elements - 1;
+        // end if
+    end
+
+    // 
+    // ******************************************************************
+    // *** NOTE eventually this model might be replaced by replicated ***
+    // *** properties.                                                ***
+    // ******************************************************************
+    //
+    // This model is conditionally generated in the case where we need to check
+    // output values of the stack, in which case the bus (stack_out) driven by
+    // the model must match the output bus (pop_data) given as input to the
+    // checker, at the appropriate moment.
+    // 
+    // Note on efficiency of model:
+    // * Small width memory is OK modeled as unsigned (as below).
+    // * Width close to integer size is better modeled as integer.
+    // * Wider width is best modeled as banks of integer.
+    // 
+    // A possibility for future enhancement is to conditionally generate each
+    // architecture based on width.  Could create an entity/architecture for
+    // the stack model instead of the process as below.
+    //
+    //
+    generate
+        if (check_values === 1'b1) 
+        begin:stack_model
+            reg [(width-1):0] stack [0:(depth-1)];
+            integer stack_ptr = 0;
+            //
+            // This is driven by the stack model if "check_values === true":
+            //
+            reg [(width-1):0] stack_out = 'dx;
+
+            always @(posedge clk)
+            begin
+                if (reset === 1'b1)
+                    stack_ptr = 0;
+                else if ((push === 1'b1) &&
+                         (pop === 1'b0) && 
+                         (stack_ptr < depth))
+                    begin
+                        stack[stack_ptr] <= push_data;
+                        stack_ptr = stack_ptr + 1;
+                    end
+                else if ((pop === 1'b1) && 
+                         (push === 1'b0) && 
+                         (stack_ptr > 0))
+                    begin
+                        stack_ptr = stack_ptr - 1;
+                        stack_out <= stack[stack_ptr];
+                    end
+            end
+
+            // Here's the value integrity check, only when check_values === true.  Note
+            // that the stack output is driven onto the internal stack_out bus on the
+            // cycle AFTER dequeue is asserted, so the check is performed one cycle
+            // after the control signal.
+            // 
+            property mc_stack_value =
+                (always ( ( { (pop === 1'b1) } |=>
+                            { (pop_data === stack_out) } )
+                         abort reset))
+                @ (posedge clk);
+
+            assert mc_stack_value;
+
+        end // if
+    endgenerate
+
+    // Overflow is push while stack is full:
+    // 
+    property mc_stack_overflow =
+        (never ((reset === 1'b0) && (num_elements === depth) && (push === 1'b1)))
+        @ (posedge clk);
+
+    // Underflow is pop while stack is empty:
+    // 
+    property mc_stack_underflow =
+        (never ((reset === 1'b0) && (num_elements === 0) && (pop === 1'b1)))
+        @ (posedge clk);
+
+    // The only control error is for simultaneous read/write if not allowed:
+    //
+    property mc_stack_control =
+        (never ((reset === 1'b0) && (push === 1'b1) && (pop === 1'b1)))
+        @ (posedge clk);
+
+    assert mc_stack_underflow;
+    assert mc_stack_overflow;
+    assert mc_stack_control;
+
+    //
+    // Functional Coverage:
+    //     Was there a pop request?
+    //
+    FC_stack_pop: 
+        cover { (reset === 1'b0) && (pop === 1'b1) } 
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was the stack ever emptied?
+    //
+    FC_stack_empty: 
+        cover { (reset === 1'b0) && (pop === 1'b1); 
+                (reset === 1'b0) && (num_elements === 0) } 
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there a push request?
+    //
+    FC_stack_push: 
+        cover { (reset === 1'b0) && (push === 1'b1) } 
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was the stack ever full?
+    //
+    FC_stack_full: 
+        cover { (reset === 1'b0) && (push === 1'b1); 
+                (reset === 1'b0) && (num_elements === depth) } 
+        @ (posedge clk);
+}
+
+//----------------------------------------------------------------------------
+// transition
+//----------------------------------------------------------------------------
+vunit mc_transition(mc_transition) {
+    //  
+    // This is used to note changes in the reg, for temporal checking
+    //
+    reg [(width-1):0] prev_reg = 'dx;
+
+    //
+    // This function returns true if the reg value matches the value in
+    // the expected state array.
+    //
+    function integer mc_state_match(
+        input [(width-1):0] sigreg,
+        input [0:((length*width)-1)] expected,
+        input integer index);
+        integer bit;
+        begin
+            mc_state_match = `MC_TRUE;
+            for (bit=(width-1); bit>=0; bit=bit-1) begin
+                if (sigreg[bit] !== expected[(index*width)+((width-1)-bit)]) // matrix[index][bit]
+                begin
+                    mc_state_match = `MC_FALSE;
+                    bit=-1; // break loop
+                end // if
+            end // for
+        end
+    endfunction // mc_state_match
+
+    //
+    // This function returns true if the reg value matches one of the values in
+    // the expected array.
+    //
+    function integer mc_reg_in_set(
+        input [(width-1):0] sigreg,
+        input [0:((length*width)-1)] expected);
+        integer matched_bit;
+        integer index;
+        begin
+            mc_reg_in_set = `MC_FALSE;
+            for (index=length-1; index>=0; index=index-1) begin
+                matched_bit = mc_state_match(sigreg,expected,index);
+                if (matched_bit === `MC_TRUE) // means we matched ALL bits ...
+                begin
+                    mc_reg_in_set = `MC_TRUE;
+                    index=-1; // break loop
+                end // if
+            end // for
+        end
+    endfunction // mc_reg_in_set
+
+    // the check is only on changes, so prev_reg is maintained:
+    //
+    always @(posedge clk)
+    begin
+        prev_reg <= sigreg;
+    end
+
+    property mc_transition =
+        (never ( (reset === 1'b0) && (prev_reg !== sigreg)
+                && (mc_reg_in_set(sigreg,expected) === `MC_FALSE)))
+        @ (posedge clk);
+    assert mc_transition;
+
+    //
+    // Functional Coverage Vector:
+    //     Has each transition element been hit?
+    //
+    generate
+        genvar index;
+
+        for (index=0; index<length; index=index+1)
+        begin:trn_element
+            FC_transition:
+                cover { (reset === 1'b0) && (prev_reg !== sigreg) && (mc_state_match(sigreg,expected,index) === `MC_TRUE) }
+                @ (posedge clk);
+        end // for
+	endgenerate
+
+}
+
+
+//----------------------------------------------------------------------------  
+// window
+//----------------------------------------------------------------------------  
+vunit mc_window(mc_window) {
+
+    //
+    // For each in/out vector, we keep track of:
+    // * number of bits that have asserted
+    // 
+    reg [(in_width-1):0] in_asserted = 'dx;
+    reg [(out_width-1):0] out_asserted = 'dx;
+
+    reg prev_start = 'dx; 
+    reg prev_stop = 'dx;
+
+    //
+    // There is also a state variable for which window is currently open:
+    //
+    //    TYPE window_state_type IS ( window_none, window_open, window_closed );
+    integer window_state = `MC_WINDOW_NONE;
+
+    //
+    // This function returns whether all bits in the vector are equal to the
+    // given bit value.
+    //
+    function integer mc_all_in (
+        input [(in_width-1):0] vec,
+        input integer val);
+        integer index;
+        begin
+            mc_all_in = `MC_TRUE;
+            // This looks at the bits and returns false as soon as a mismatch is found:
+            for (index=(in_width-1); index>=0; index=index-1) begin
+                if (vec[index] !== val) 
+                begin
+                    mc_all_in = `MC_FALSE;
+                    index=-1; // break the loop
+                end
+            end
+        end
+    endfunction // mc_all_in
+
+    //
+    // This function returns whether all bits in the vector are equal to the
+    // given bit value.
+    //
+    function integer mc_all_out (
+        input [(out_width-1):0] vec,
+        input integer val);
+        integer index;
+        begin
+            mc_all_out = `MC_TRUE;
+            // This looks at the bits and returns false as soon as a mismatch is found:
+            for (index=(out_width-1); index>=0; index=index-1) begin
+                if (vec[index] !== val) 
+                begin
+                    mc_all_out = `MC_FALSE;
+                    index=-1; // break the loop
+                end
+            end
+        end
+    endfunction // mc_all_out
+    
+    //
+    // These tasks assign a new asserted array from the previous array and
+    // current value of the vector.  The idea is to track all bits that are
+    // asserted over the entire window // once a bit appears in the
+    // "asserted_prev" vector, it sticks.
+    //
+    task mc_track_asserted_in(
+        output [(in_width-1):0] asserted_new,
+        input [(in_width-1):0] asserted_prev,
+        input [(in_width-1):0] vector);
+        integer index;
+        for (index=(in_width-1); index>=0; index=index-1) begin
+            asserted_new[index] = 
+                asserted_prev[index] || vector[index];
+        end
+    endtask
+
+    task mc_track_asserted_out(
+        output [(out_width-1):0] asserted_new,
+        input [(out_width-1):0] asserted_prev,
+        input [(out_width-1):0] vector);
+        integer index;
+        for (index=(out_width-1); index>=0; index=index-1) begin
+            asserted_new[index] = 
+                asserted_prev[index] || vector[index];
+        end
+    endtask
+
+
+    // 
+    // This process tracks previous values of start and stop so as to detect
+    // edges:
+    // 
+    always @(posedge clk)
+    begin
+        prev_start <= start;
+        prev_stop <= stop;
+    end
+
+    // 
+    // This process initializes the change-related vectors
+    // 
+    reg [(in_width-1):0] new_in_asserted = 'dx;
+    reg [(out_width-1):0] new_out_asserted = 'dx;
+
+    always @(posedge clk)
+    begin
+        if (reset === 1'b1)
+            begin
+                // 
+                // Initialize all values; no telling whether opened or
+                // closed window will follow
+                // 
+                window_state <= `MC_WINDOW_NONE;
+                in_asserted <= 0;
+                out_asserted <= 0;
+            end
+        //
+        // Out of reset .... window just opened
+        // 
+        else if ((start === 1'b1) && (start !== prev_start))
+            begin
+                // 
+                // Track asserted bits in "in" vector
+                // Keep "out" vector values in initialized state
+                // 
+                window_state <= `MC_WINDOW_OPEN;
+                mc_track_asserted_in(new_in_asserted,in_asserted, in_vec);
+                in_asserted <= new_in_asserted;
+                out_asserted <= 0;
+            end
+        //
+        // Out of reset .... window just closed
+        // 
+        else if ((stop === 1'b1) && (stop !== prev_stop))
+            begin
+                // 
+                // Track asserted on "out" vector
+                // Keep "in" vector values in initialized state
+                // 
+                window_state <= `MC_WINDOW_CLOSED;
+                mc_track_asserted_out(new_out_asserted,out_asserted, out_vec);
+                out_asserted <= new_out_asserted;
+                in_asserted <= 0;
+            end
+        //
+        // No start/stop but window still open .... track 1'b1s.
+        //
+        else if (window_state === `MC_WINDOW_OPEN)
+            begin
+                 mc_track_asserted_in(new_in_asserted,in_asserted, in_vec);
+                in_asserted <= new_in_asserted;
+            end
+        //
+        // No start/stop but window still closed .... track 1'b1s.
+        //
+        else if (window_state === `MC_WINDOW_CLOSED)
+            begin
+                mc_track_asserted_out(new_out_asserted,out_asserted, out_vec);
+                out_asserted <= new_out_asserted;
+            end
+        // end if
+    end
+
+    property mc_window_in =
+        (always ( ( { rose(start) } |->
+                   { (!rose(stop))[*]; 
+                     rose(stop) && mc_all_in(in_asserted,1'b1) } )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there an window open which then closed successfully?
+    //
+    FC_window_open: 
+        cover {(window_state === `MC_WINDOW_OPEN) && (reset === 1'b0) && rose(stop) && (!rose(start)) } 
+        @ (posedge clk);
+
+    property mc_window_out =
+        (always ( ( { rose(stop) } |->
+                   { (!rose(start))[*]; 
+                     rose(start) && mc_all_out(out_asserted,1'b1) } )
+                 abort reset))
+        @ (posedge clk);
+
+    //
+    // Functional Coverage:
+    //     Was there an window close which then opened successfully?
+    //
+    FC_window_close: 
+        cover {(window_state === `MC_WINDOW_CLOSED) && (reset === 1'b0) && rose(start) && (!rose(stop)) } 
+        @ (posedge clk);
+
+    property mc_window_in_hold =
+        (never (hold_in && (reset === 1'b0) 
+               && (window_state === `MC_WINDOW_OPEN)
+               && (!mc_all_in(in_vec,1'b1))))
+        @ (posedge clk);
+
+    property mc_window_out_hold =
+        (never (hold_out && (reset === 1'b0)
+               && (window_state === `MC_WINDOW_CLOSED)
+               && (!mc_all_out(out_vec,1'b1))))
+        @ (posedge clk);
+
+    property mc_window_bad =
+        (never (rose(stop) && rose(start))
+              || (rose(start) && (window_state === `MC_WINDOW_OPEN))
+              || (rose(stop) && (window_state === `MC_WINDOW_CLOSED)))
+        @ (posedge clk);
+
+    assert mc_window_in;
+    assert mc_window_out;
+    assert mc_window_in_hold;
+    assert mc_window_out_hold;
+    assert mc_window_bad;
+
+}

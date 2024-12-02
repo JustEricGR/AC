@@ -1,0 +1,290 @@
+<! -- -*- tcl -*- doctools manpage
+   -->
+<html><head>
+<title>doctoc_fmt - Documentation tools </title>
+</head>
+<! -- Generated from file './modules/doctools/doctoc_fmt.man' by tcllib/doctools with format 'html'
+   -->
+<! -- Copyright &copy; 2003 Andreas Kupries &lt;andreas_kupries@users.sourceforge.net&gt;
+   -->
+<! -- CVS: $Id$ doctoc_fmt.n
+   -->
+
+<body>
+<h1> doctoc_fmt(n) 1.0 doctools &quot;Documentation tools&quot;</h1>
+<h2><a name="name">NAME</a></h2>
+<p>
+<p> doctoc_fmt - Specification of simple tcl markup for table of contents
+
+
+
+<h2><a name="synopsis">SYNOPSIS</a></h2>
+<p>
+<table border=1 width=100% cellspacing=0 cellpadding=0><tr            bgcolor=lightyellow><td bgcolor=lightyellow><table 0 width=100% cellspacing=0 cellpadding=0><tr valign=top ><td ><a href="#1"><b class='cmd'>vset</b> <i class='arg'>varname</i> <i class='arg'>value</i></a></td></tr>
+<tr valign=top ><td ><a href="#2"><b class='cmd'>vset</b> <i class='arg'>varname</i></a></td></tr>
+<tr valign=top ><td ><a href="#3"><b class='cmd'>include</b> <i class='arg'>filename</i></a></td></tr>
+<tr valign=top ><td ><a href="#4"><b class='cmd'>comment</b> <i class='arg'>text</i></a></td></tr>
+<tr valign=top ><td ><a href="#5"><b class='cmd'>lb</b> </a></td></tr>
+<tr valign=top ><td ><a href="#6"><b class='cmd'>rb</b> </a></td></tr>
+<tr valign=top ><td ><a href="#7"><b class='cmd'>toc_begin</b> <i class='arg'>text</i> <i class='arg'>title</i></a></td></tr>
+<tr valign=top ><td ><a href="#8"><b class='cmd'>toc_end</b> </a></td></tr>
+<tr valign=top ><td ><a href="#9"><b class='cmd'>division_start</b> <i class='arg'>text</i></a></td></tr>
+<tr valign=top ><td ><a href="#10"><b class='cmd'>division_end</b> </a></td></tr>
+<tr valign=top ><td ><a href="#11"><b class='cmd'>item</b> <i class='arg'>file</i> <i class='arg'>label</i> <i class='arg'>desc</i></a></td></tr>
+</table></td></tr></table>
+<h2><a name="description">DESCRIPTION</a></h2>
+<p>
+<p>
+
+This manpage specifies a documentation format for tables of
+contents. It is intended to complement both the <strong>doctools</strong>
+format for writing manpages and the <strong>docidx</strong> format for writing
+indices.  See <strong>doctools_fmt</strong> and <strong>docidx_fmt</strong> for the
+specification of these two formats
+
+<p>
+
+This format is called <strong>doctoc</strong>.
+
+It provides all the necessary commands to write a table of contents
+for a group of manpages. It is simpler than TMML, but convertible into
+it.
+
+Like for the <strong>doctools</strong> and <strong>docidx</strong> formats a package
+is provided implementing a generic framework for the conversion of
+<strong>doctoc</strong> to a number of different output formats, like HTML,
+TMML, nroff, LaTeX, etc.
+
+The package is called <strong>doctools::toc</strong>, its documentation can
+be found in <strong>doctoc</strong>.
+
+
+People wishing to write a formatting engine for the conversion of
+<strong>doctoc</strong> into a new output format have to read
+<strong>doctoc_api</strong>. This manpage will explain the interface between
+the generic package and such engines.
+
+
+<h2><a name="overview">OVERVIEW</a></h2>
+<p>
+
+<strong>doctoc</strong> is similar to LaTex in that it consists primarily of
+text, with markup commands embedded into it. The format used to mark
+something as command is different from LaTeX however. All text between
+matching pairs of [ and ] is a command, possibly with
+arguments. Note that both brackets have to be on the same line for a
+command to be recognized.
+
+
+<p>
+
+In this format plain text is not allowed, except for whitespace, which
+can be used to separate the formatting commands described in the next
+section (<a href="#formattingcommands">FORMATTING COMMANDS</a>).
+
+
+<h2><a name="formattingcommands">FORMATTING COMMANDS</a></h2>
+<p>
+
+First a number of generic commands useable anywhere in a
+<strong>doctoc</strong> file.
+
+<dl>
+
+<dt><a name="1"><b class='cmd'>vset</b> <i class='arg'>varname</i> <i class='arg'>value</i></a><dd>
+
+
+Sets the formatter variable <i class='arg'>varname</i> to the specified
+<i class='arg'>value</i>. Returns the empty string.
+
+<br><br>
+<dt><a name="2"><b class='cmd'>vset</b> <i class='arg'>varname</i></a><dd>
+
+
+Returns the value associated with the formatter variable
+<i class='arg'>varname</i>.
+
+<br><br>
+<dt><a name="3"><b class='cmd'>include</b> <i class='arg'>filename</i></a><dd>
+
+
+Instructs the system to insert the expanded contents of the file named
+<i class='arg'>filename</i> in its own place.
+
+<br><br>
+<dt><a name="4"><b class='cmd'>comment</b> <i class='arg'>text</i></a><dd>
+
+
+Declares that the marked <i class='arg'>text</i> is a comment.
+
+</dl>
+
+
+Commands to insert special plain text. These bracket commands are
+necessary as plain brackets are used to denote the beginnings and
+endings of the formatting commands and thus cannot be used as normal
+characters anymore.
+
+<dl>
+
+<dt><a name="5"><b class='cmd'>lb</b> </a><dd>
+
+
+Introduces a left bracket into the output.
+
+<br><br>
+<dt><a name="6"><b class='cmd'>rb</b> </a><dd>
+
+
+Introduces a right bracket into the output.
+
+</dl>
+
+
+
+And now the relevant markup commands.
+
+<dl>
+
+<dt><a name="7"><b class='cmd'>toc_begin</b> <i class='arg'>text</i> <i class='arg'>title</i></a><dd>
+
+
+This command starts a table of contents. It has to be the very first
+<em>markup</em> command in a <strong>doctoc</strong> file. Plain text is not
+allowed to come before this command. Only the generic commands (see
+above: <b class='cmd'>vset</b>, <b class='cmd'>include</b>, <b class='cmd'>comment</b>) can be used before
+it.
+
+<br><br>
+
+The <i class='arg'>text</i> argument provides a label for the whole group of
+manpages listed in the table of contents. Often this is the name of
+the package (or extension) the manpages belong to.
+
+<br><br>
+
+The <i class='arg'>title</i> argument provides the title for the whole table of
+contents.
+
+<br><br>
+
+The table of contents has to contain at least either one toc element
+(<b class='cmd'>item</b>) or one division.
+
+
+<br><br>
+<dt><a name="8"><b class='cmd'>toc_end</b> </a><dd>
+
+
+This command closes a table of contents. Nothing is allowed to follow
+it.
+
+
+<br><br>
+<dt><a name="9"><b class='cmd'>division_start</b> <i class='arg'>text</i></a><dd>
+
+
+This command and its counterpart <b class='cmd'>division_end</b> can be used to give
+the table of contents additional structure.
+
+<br><br>
+
+Each division starts with <b class='cmd'>division_start</b>, is ended by <b class='cmd'>division_end</b>
+
+and has a title provided through the argument <i class='arg'>title</i>. The
+contents of a division are like for the whole table of contents,
+i.e. a series of either toc elements or divisions. The latter means
+that divisions can be nested.
+
+<br><br>
+
+The division has to contain at least either one toc element
+(<b class='cmd'>item</b>) or one division.
+
+
+<br><br>
+<dt><a name="10"><b class='cmd'>division_end</b> </a><dd>
+
+
+This command closes a toc division. See <b class='cmd'>division_start</b> above for
+the detailed explanation.
+
+
+<br><br>
+<dt><a name="11"><b class='cmd'>item</b> <i class='arg'>file</i> <i class='arg'>label</i> <i class='arg'>desc</i></a><dd>
+
+
+This command describes an individual toc element. The <i class='arg'>file</i>
+argument refers to the file containing the actual manpage, and the
+<i class='arg'>desc</i> provides a short descriptive text of that manpage. The
+argument <i class='arg'>label</i> can be used by engines supporting hyperlinks to
+give the link a nice text (instead of the symbolic filename).
+
+<br><br>
+
+To preserve convertibility of this format to various output formats
+the filename argument is considered a symbolic name. The actual name
+of the file will be inserted by the formatting engine used to convert
+the input, based on a mapping from symbolic to actual names given to
+it.
+
+</dl>
+
+<h2><a name="notes">NOTES</a></h2>
+<p>
+
+<ol>
+<li>
+The commands for the <strong>doctoc</strong> format are closely modeled on the
+TMML tags used for describing collections of manpages.
+
+<br><br>
+<li>
+
+Using an appropriate formatting engine and some glue code it is
+possible to automatically generate a document in <strong>doctoc</strong>
+format from a collection of manpages in <strong>doctools</strong> format.
+
+
+</ol>
+
+<h2><a name="example">EXAMPLE</a></h2>
+<p>
+
+As an example a table of contents for all manpages belonging to this
+module (doctools) of package <strong>tcllib</strong>.
+
+<p>
+
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+[toc_begin tcllib/doctools {Documentation tools}]
+[division_start {Basic format}]
+[item dtformat.man    {doctools format specification}]
+[item dtformatter.man {doctools engine interface}]
+[item doctools.man    {Package to handle doctools input and engines}]
+[division_end]
+[division_start {Table of Contents}]
+[item dtocformat.man    {doctoc format specification}]
+[item dtocformatter.man {doctoc engine interface}]
+[item doctoc.man        {Package to handle doctoc input and engines}]
+[division_end]
+[division_start {Indices}]
+[item dtidxformat.man    {docindex format specification}]
+[item dtidxformatter.man {docindex engine interface}]
+[item docindex.man       {Package to handle docindex input and engines}]
+[division_end]
+[toc_end]
+</pre></td></tr></table></p>
+
+
+
+<h2><a name="seealso">SEE ALSO</a></h2>
+<p>
+docidx_fmt, doctoc, doctoc_api, doctools_fmt
+<h2><a name="keywords">KEYWORDS</a></h2>
+<p>
+HTML, LaTeX, TMML, generic markup, markup, nroff, table of contents, toc
+<h2><a name="copyright">COPYRIGHT</a></h2>
+<p>
+Copyright &copy; 2003 Andreas Kupries &lt;andreas_kupries@users.sourceforge.net&gt;<br>
+</body></html>

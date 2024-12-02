@@ -1,0 +1,309 @@
+
+                   Release Notes For ModelSim Altera 6.2j
+
+
+                                Oct 03 2007
+
+               Copyright 1991-2007 Mentor Graphics Corporation
+                            All rights reserved.
+  This document contains information that is proprietary to Mentor Graphics
+   Corporation. The original recipient of this document may duplicate this
+  document in whole or in part for internal business purposes only, provided
+  that this entire notice appears in all copies. In duplicating any part of
+    this document the recipient agrees to make every reasonable effort to
+      prevent the unauthorized use and distribution of the proprietary
+                                information.
+
+   TRADEMARKS: The trademarks, logos and service marks ("Marks") used herein
+    are the property of Mentor Graphics Corporation or other third parties.
+   No one is permitted to use these Marks without the prior written consent
+    of Mentor Graphics or the respective third-party owner. The use herein
+   of a third-party Mark is not an attempt to indicate Mentor Graphics as a
+     source of a product, but is intended to indicate a product from, or
+  associated with, a particular third party. The following are trademarks of
+   of Mentor Graphics Corporation: Questa, ModelSim, JobSpy, and Signal Spy.
+        A current list of Mentor Graphics trademarks may be viewed at
+               www.mentor.com/terms_conditions/trademarks.cfm.
+
+   End-User License Agreement: You can print a copy of the End-User License
+         Agreement from: www.mentor.com/terms_conditions/enduser.cfm.
+   ______________________________________________________________________
+
+     Product Installation and Licensing Information
+   For  brief  instructions  about  product installation please visit the
+   "install_notes" file in www.model.com. The install_notes file can be viewed
+   at:
+   [1]http://www.model.com/products/release.asp
+   For detailed information about product installation and licensing see the
+   ModelSim Start Here Guide. The manual can be downloaded from:
+   [2]http://www.model.com/support/documentation.asp
+
+
+     Release Notes Archives
+   For release notes of previous versions visit the release notes archive at:
+   [3]http://www.model.com/support/default.asp
+   or  find  them  in  the installed modeltech tree in <path to modeltech
+   installation>/docs/rlsnotes
+
+
+     How to get Support
+
+   ModelSim Altera is supported by Altera Corporation
+     * World-Wide-Web Support
+       [4]http://www.altera.com/mySupport
+
+
+   ______________________________________________________________________
+
+  Index to Release Notes
+
+     [5]Key Information
+
+     [6]User Interface Defects Repaired in 6.2j
+
+     [7]Verilog Defects Repaired in 6.2j
+
+     [8]PLI Defects Repaired in 6.2j
+
+     [9]VHDL Defects Repaired in 6.2j
+
+     [10]FLI Defects Repaired in 6.2j
+
+     [11]VITAL Defects Repaired in 6.2j
+
+     [12]SystemC Defects Repaired in 6.2j
+
+     [13]Assertion Defects Repaired in 6.2j
+
+     [14]Mixed Language Defects Repaired in 6.2j
+
+     [15]Coverage Defects Repaired in 6.2j
+
+     [16]General Defects Repaired in 6.2j
+
+     [17]Mentor Graphics DRs Repaired in 6.2j
+
+     [18]Known Defects in 6.2j
+
+     [19]Product Changes to 6.2j
+
+     [20]New Features Added to 6.2j
+   ______________________________________________________________________
+
+   Key Information
+     * The following lists the supported platforms:
+          + win32aloem - Windows 2000, XP
+          + sunos5aloem - Solaris 8, 9, 10
+          + hp700aloem - HP-UX 11
+          + linuxaloem - RedHat 7.2 and higher.
+     * The following platform will be discontinued as of the 6.3 release:
+          + HPUX Platform - hp700aloem
+   ______________________________________________________________________
+
+   User Interface Defects Repaired in 6.2j
+   ______________________________________________________________________
+
+   Verilog Defects Repaired in 6.2j
+     * In vopt, when analyzing a parent module containing multiple instances of
+       a child containing a large number of similar instantiations, vopt could
+       fail with an internal error.
+     * The usage of ".*" for implicit port connection causes too much memory to
+       be consumed especially in Verilog designs with large netlists.
+     * In cases where named event variables are returned from an automatic task
+       or function vsim would sometimes generate spurious event triggers.
+     * vopt did not correctly handle designs with the same System Verilog
+       package name contained within multiple libraries. This caused an error
+       message indicating that vopt failed to open a data file.
+     * Optimization with vopt could produce incorrect vector results when
+       optimizing through continuous assignments containing concatenations of
+       net part selects where the selected nets were themselves driven by
+       continuous assignments of concatenations.
+     * The  $nochange task reported simultaneous data and clock events as
+       violations. This contradicted the IEEE 1364-2001 specification.
+     * The array 'shuffle' method now uses the -sv_seed value for seeding its
+       random number generator. This means that the results of 'shuffle' are
+       repeatable.
+     * Accessing  a  class  property  that  was directly inherited from a
+       non-parameterized class which had a parameterized class inheritance
+       ancestor  could cause incorrect memory locations to be accessed. A
+       prototypical case would be:
+    class base #(int p = 1);
+    endclass
+    class mid extends base#();
+       int x,y;
+    endclass
+    class derived extends mid;
+    endclass
+
+    derived d = new;  // accessing x or y via d could cause problems.
+     * Ref ports could not be logged if the object the port referenced was
+       already logged. This was also the case for non-ref register ports if the
+       actual and formal were of the same type and length.
+     * Optimized Verilog cell functions incorrectly write input of net type
+       supply1 and supply0.
+     * For static elements of a class, sometimes accessing a built-in function
+       resulted in this internal error:
+       Error: test.sv(25): Internal error: ../../../src/vlog/vallocate.c(1349)
+       self
+     * A process, edge sensitive to a vector, could fail to execute when a
+       different process is sensitive to a single bit of the vector.
+     * System Verilog designs using fork..join_none blocks that reference
+       automatic  variables declared outside the block could cause memory
+       failures and segmentation faults.
+     * Bit-Select expressions used with assignment operators such as +=, -=,
+       |=, etc. sometimes caused errors like:
+       Internal error: ../../../src/vlog/vgenexpr.c(9843) !is_cancelledOf(e)
+     * The simulator crashed in some cases if a non-blocking assignment update
+       triggered a when command, which in turn executed a stop command.
+     * If a SDF file referenced an instance name and a portname (in that order)
+       that are identical, sdfcom crashed.
+     * System Verilog data type string is defined as a built-in typedef. This
+       caused vlog to crash in a DPI related function.
+     * When using a module based bind in a Verilog design with a top-level
+       configuration in effect, incorrect errors of the form "name already
+       declared in the bind target scope." could be reported.
+     * Annotating SDF to System Verilog designs, with -v2k_int_delays switch,
+       caused  a  crash if the modules with variable data type ports were
+       present.
+     * Verilog  conditional  compilation  now  correctly ignores the text
+       "`if/`else/`endif" when such text is embedded within a string literal.
+   ______________________________________________________________________
+
+   PLI Defects Repaired in 6.2j
+   ______________________________________________________________________
+
+   VHDL Defects Repaired in 6.2j
+   ______________________________________________________________________
+
+   FLI Defects Repaired in 6.2j
+   ______________________________________________________________________
+
+   VITAL Defects Repaired in 6.2j
+   ______________________________________________________________________
+
+   SystemC Defects Repaired in 6.2j
+   ______________________________________________________________________
+
+   Assertion Defects Repaired in 6.2j
+   ______________________________________________________________________
+
+   Mixed Language Defects Repaired in 6.2j
+     * Under certain conditions, applying compiled SDF to a design caused
+       signal propagation failures across VHDL-System Verilog hierarchical
+       boundaries.
+     * Instantiation of a Verilog configuration from a VHDL design unit would
+       sometimes  fail  to  process the configuration's cell and instance
+       statements.
+   ______________________________________________________________________
+
+   Coverage Defects Repaired in 6.2j
+     * vcover was hanging while trying to read a UCDB file.
+     * An internal error occurred during expression coverage.
+     * There was a problem with VHDL condition and expression coverage related
+       to the handling of VHDL 'H' and 'L' values. Previously, conditions and
+       expressions automatically converted 'H' and 'L' input values to '1' and
+       '0', respectively. This simplified the UDP tables, but could result in
+       incorrect behavior for circuits that used and tested for 'H' and 'L'.
+       Now, to NOT convert input values as described, set the new modelsim.ini
+       variable   "CoverRespectHandL"  to  1,  or  use  the  option  vcom
+       -coverrespecthandl.
+       Using this option may make the UDP tables more complicated. To simplify
+       them for logic that cannot assume 'H' and 'L' values, change your VHDL
+       expressions  of  the  form  (a  =  '1') to (to_x01(a) = '1') or to
+       std_match(a,'1').  These  functions will be recognized and used to
+       simplify the UDP tables.
+   ______________________________________________________________________
+
+   General Defects Repaired in 6.2j
+     * After disabling many signals, logging could crash with floating point or
+       memory problems.
+     * Failures  could  occur  when generating a compressed checkpoint or
+       elaboration file greater the 4Gbytes in size.
+   ______________________________________________________________________
+
+   Mentor Graphics DRs Repaired in 6.2j
+     * dts0100420251 - After disabling many signals, logging could crash with
+       floating point or memory problems.
+     * dts0100423776 - Fixed a System Verilog covergroup cross support bug
+       where a warning on maximum RHS cross products is incorrectly issued. The
+       bogus warning is similar to "Warning: The number of Cross products for
+       user   bin   'igbin'  of  Cross  'cross_a_b'  exceeded  the  limit
+       'max_rhs_cross_products = 1000'. Modify the 'max_rhs_cross_products'
+       variable in modelsim.ini to change the limit."
+     * dts0100425853 - In vopt, when analyzing a parent module containing
+       multiple instances of a child containing a large number of similar
+       instantiations, vopt could fail with an internal error.
+     * dts0100431486 - An internal error occurred during expression coverage.
+     * dts0100432754 - In cases where a named event variables are returned from
+       an automatic task or function vsim would sometimes generate spurious
+       event triggers.
+     * dts0100434833  - Failures could occur when generating a compressed
+       checkpoint or elaboration file greater the 4Gbytes in size.
+     * dts0100440834 - Under certain conditions, applying compiled SDF to a
+       design caused signal propagation failures across VHDL-SystemVerilog
+       hierarchical boundaries.
+     * dts0100441926 - For static elements of a class, sometimes accessing a
+       built-in function resulted in this internal error: Error: test.sv(25):
+       Internal error: ../../../src/vlog/vallocate.c(1349) self.
+     * dts0100430962 - Optimization with vopt could produce incorrect vector
+       results  when optimizing through continuous assignments containing
+       concatenations  of  net  part selects where the selected nets were
+       themselves driven by continuous assignments of concatenations.
+     * dts0100430911 - Accessing a class property that was directly inherited
+       from  a  non-parameterized  class  which had a parameterized class
+       inheritance  ancestor could cause incorrect memory locations to be
+       accessed.
+     * dts0100431323 - System Verilog designs using fork..join_none blocks that
+       reference automatic variables declared outside the block could cause
+       memory failures and segmentation faults.
+     * dts0100433496 - Optimized Verilog cell functions incorrectly write input
+       of net type supply1 and supply0.
+   ______________________________________________________________________
+
+   Known Defects in 6.2j
+     * The simulator will hang if it tries to create a WLF file while running
+       on a Linux 64-bit operating system from a working directory which does
+       not support large files. One common instance of this is executing an add
+       wave command, when the working directory was created under an older
+       32-bit Linux OS.
+       This  is  a  Linux operating system bug and cannot be fixed by the
+       simulator.
+       A workaround for release 6.3 and above is to execute the simulator with
+       command line option -wlfnolock.
+     * On certain (RedHat) Linux Operating System versions the "-restore"
+       feature  occasionally  fails. This is due to the memory allocation
+       security (anti-hacking) feature of Linux. RedHat Enterprise release v.3
+       update3 was the first version to have this security feature. In these
+       Linux releases two consecutive program invocations do not get the same
+       memory allocation foot-print. For the "-restore" feature the simulator
+       relies  on having the same memory allocation foot-print. Users are
+       advised to re-try this feature a few times as on average 3 out of 5
+       attempts are successful. In recent Linux versions, an override for this
+       anti-hacking feature is provided. Please use it at your own discretion.
+     * Support  of debugging C code during a quit command was disabled on
+       Windows. The corresponding C Debug command cdbg stop_on_quit was also
+       disabled on Windows.
+     * 'const ref' type of arguments are not supported in the function/task
+       calls in assertions. For general function/task calls 'const ref' is
+       treated like a 'ref' after issuing a warning.
+     * In code coverage, there is no way to exclude a condition or expression
+       table row for the case of more than one table on a line and the table in
+       question is not the first table on the line.
+   ______________________________________________________________________
+
+   Product Changes to 6.2j
+     * The vcd limit <size> command has been changed adding support for a file
+       size limit greater than 2 GBytes. The size argument now excepts a unit
+       specifier. The default unit remains as bytes. An optional suffix of
+       either Kb, Mb or Gb specifies the units in which the size should be
+       interpreted. For example:
+       vcd limit 6Gb
+       or
+       vcd limit 400Mb
+     * The Verilog front-end now preserves block comments defined in the macro
+       body through the macro substitution process.
+   ______________________________________________________________________
+
+   New Features Added to 6.2j
+
+

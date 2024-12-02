@@ -1,0 +1,469 @@
+
+                   Release Notes For ModelSim Altera 5.5c
+                                      
+   
+   
+                                Jun 27 2001
+   ______________________________________________________________________
+   
+     Product Installation and Licensing Information
+   For brief instructions about product installation please visit the
+   "install_notes" file on the Model Technology web site. The
+   install_notes file can be viewed at:
+   [1]http://www.model.com/products/release.asp
+   For detailed information about product installation and licensing see
+   the ModelSim Start Here Guide. The manual can be downloaded from:
+   [2]http://www.model.com/support/documentation.asp
+   
+   
+     Release Notes Archives
+   For release notes of previous versions visit the release notes archive
+   at: [3]http://www.model.com/support/default.asp
+   or find them in the installed modeltech tree in <path to modeltech
+   installation>/docs/rlsnotes
+   
+   
+     How to get Support
+   
+   This OEM product is supported by Altera Corporation
+     * Telephone Support
+       Call 800-800-3753 or 408-544-7000
+       
+       
+     * Email Support
+       [4]support@altera.com
+       
+       
+     * World-Wide-Web Support
+       [5]https://websupport.altera.com/
+       
+   
+   ______________________________________________________________________
+   
+  Index to Release Notes
+  
+     [6]Key Information
+   
+     [7]User Interface Defects Repaired in 5.5c
+   
+     [8]Verilog Defects Repaired in 5.5c
+   
+     [9]PLI Defects Repaired in 5.5c
+   
+     [10]VHDL Defects Repaired in 5.5c
+   
+     [11]FLI Defects Repaired in 5.5c
+   
+     [12]VITAL Defects Repaired in 5.5c
+   
+     [13]Mixed Language Defects Repaired in 5.5c
+   
+     [14]General Defects Repaired in 5.5c
+   
+     [15]Mentor Graphics DRs Repaired in 5.5c
+   
+     [16]Known Defects in 5.5c
+   
+     [17]Product Changes to 5.5c
+   
+     [18]New Features Added to 5.5c
+   ______________________________________________________________________
+   
+   Key Information
+     * You must recompile or refresh your models if you are moving
+       forward from 5.5 Betas or earlier release versions. See
+       "Regenerating your Libraries" in the ModelSim Start Here Guide for
+       more information on refreshing your models.
+     * Listed below are platform support changes starting with the next
+       major ModelSim release, version 5.6:
+          + The Windows 95 platform will no longer be supported.
+          + The executables in .../modeltech/hp700 will be based on HPUX
+            11.0. If you need HPUX 10.20 compatible executables, they
+            will be in a new platform directory .../modeltech/hp700_1020.
+     * Acrobat reader version 4.0 or greater must be used to read any
+       .PDF files contained in ModelSim versions 5.5c or greater.
+     * The following lists the supported platforms:
+          + win32aloem - Windows 95, 98, Me, NT, 2000
+          + sunos5aloem - Solaris 2.6, 7, 8
+          + hp700aloem - HP-UX 10.2, 11
+   ______________________________________________________________________
+   
+   User Interface Defects Repaired in 5.5c
+     * Forcing of a virtual signal which is a simple scalar object did
+       not work. It reported that the signal could not be found. Example:
+    vsim counter
+    virtual signal reset rst
+    force rst 0
+     * The GUI code that parses object names did not understand that a
+       leading underscore is a legal identifier in Verilog.
+     * The write list command caused a crash if it was invoked with an
+       empty List Window.
+     * In the Source Window, Control-F did not bring up the Find Text
+       dialog. This was a Windows only issue.
+     * Pressing [F3] in the Source Window caused an error if a find
+       command had not been previously executed in the Source Window.
+     * The add/edit breakpoint dialog would incorrectly put the -inst
+       option within the breakpoint command.
+     * Using the zoom command in the Wave Window while the Wave Window
+       was actively drawing caused strange behavior. Sometimes the Wave
+       Window would pause for a long period of time then later redraw the
+       traces.
+     * Several Windows printing problems resulted in bad printouts or the
+       simulator crashing.
+     * With the addition of drag and drop, vsim now has an indirect
+       dependency on /system/imagehlp.dll.
+       Windows 98 service packs 0 and 1 did not include this file.
+       Immediately after running install, vsim now checks for the OS
+       version and the existence of this file. If it does not exist, vsim
+       adds it (imagehlp.dll is also used by the profiler and is shipped
+       with ModelSim). This is a Window only problem.
+     * When a record was forced, the UI crashed instead of issuing the
+       following message:
+       "Error: can't specify record values".
+     * The "whatBrowser" dialog, which allows the user to specify a path
+       to a web browser, could not be cancelled or ok'ed.
+     * An attempt to use the examine command before any design had been
+       loaded resulted in a crash.
+     * ModelSim attempts to move the cursor to the relevant time point in
+       the waveform viewer after double-clicking a message in the
+       Transcript Window containing time text (e.g. 0.160us). Fractional
+       times did not work correctly. For example: "10.125 us" tooks you
+       to 125 us.
+     * The compare signal icons did not display correctly when a signal
+       had differences removed.
+     * There was a problem with the windows common dialog when called
+       from the Verilog compiler options dialog. Cancel was not being
+       handled correctly; it was returning as if "OK" was selected.
+   ______________________________________________________________________
+   
+   Verilog Defects Repaired in 5.5c
+     * Windows style file paths that include the drive specifier ( e.g.
+       c: ) were not handled correctly when used with the `uselib
+       compiler directive. The result was a vlog compiler error of the
+       form:
+       ERROR: afile.v(2): Error in `uselib directive: Can't understand
+       '...some part of the uselib directive...'
+     * The Verilog compiler did not accept functions declared to return
+       type time.
+     * Environment variables did not work when specifying -y directories
+       on the command line. For example:
+       vlog -f compile_script
+       The file "compile_script" contains the following:
+       -y $TEST_DIR/src/cells +libext+.v src/a.v
+     * Cell optimization where an input port change was not updating the
+       cell state when passed through a $setuphold or $recrem delayed net
+       to a sequential UDP that was not edge-sensitive to the net.
+   ______________________________________________________________________
+   
+   PLI Defects Repaired in 5.5c
+   ______________________________________________________________________
+   
+   VHDL Defects Repaired in 5.5c
+     * The time unit of time generics specified by the -g and -G switches
+       is now case insensitive. In prior releases an error was generated
+       if the time unit contained uppercase characters.
+     * Returning an array from a function sometimes sent back garbage
+       values.
+     * Certain range expressions in VHDL were incorrectly determined to
+       be equivalent. This could cause various negative effects in a VHDL
+       simulation.
+     * The VHDL compiler declared an error for a static-sized aggregate
+       with 2 choices in which one was OTHERS and the other was
+       non-static. Unless the -pedanticerrors switch is used, the
+       compiler should issue a warning.
+     * Recursive VHDL model instantiation caused a crash. It now
+       generates an elaboration error when decending to 75 levels deep.
+     * The compiler crashed when attempting to determine if a
+       for...generate loop, whose index was an enumerated type, could be
+       instantiated multiple times.
+   ______________________________________________________________________
+   
+   FLI Defects Repaired in 5.5c
+   ______________________________________________________________________
+   
+   VITAL Defects Repaired in 5.5c
+     * Added support for a mixture of SDF INTERCONNECT and PORT delay
+       statements to slices of a bussed input port. Previously, since
+       both statements mapped to a single tipd_ generic array, mixed
+       statement types were not supported.
+   ______________________________________________________________________
+   
+   Mixed Language Defects Repaired in 5.5c
+     * There was a defect in mapping Verilog parameters compiled with the
+       vlog -93 option to VHDL generics.
+       The problem was that a lowercase parameter name wasn't being
+       mapped to a lowercase generic name when both a lowercase and an
+       uppercase generic name existed. Instead it could only be mapped to
+       the escaped uppercase generic name. The fix preserves case
+       sesitivity in the mapping.
+   ______________________________________________________________________
+   
+   General Defects Repaired in 5.5c
+     * Comparing Verilog nets and registers could lead to false
+       negatives.
+     * The nolog command worked inconsistently.
+     * Memory failures, like freeing the same memory twice, generated an
+       error message to the transcript and stderr, but did not indicate
+       where the error occurred in a design. An assertion is now
+       reported.
+     * Single stepping sometimes caused the simulator to crash on a
+       Windows or Linux machine. The crash occurred when the statement
+       being single-stepped was an "if" statement without an "else"
+       clause, and the body of the "then" clause had to generate a single
+       machine instruction less than 5 bytes long.
+     * vcd2wlf did not correctly handle case sensitivity of port names in
+       the VCD file.
+     * Logging signals could have resulted in the following error message
+       when using a dataset in -view mode.
+       Fatal WLF Error (25): checkArgs: WlfValueId has no logfile info.
+     * Fixed license queuing when the license reserve switches are used
+       (e.g., lic_vhdl, lic_vlog, lic_plus). Note that when using the
+       license reserve switches, the queuing dialog box "Cancel" button
+       has been replaced by an "Exit ModelSim" button because these
+       special switches attempt license checkout as the session is
+       starting up. To prevent queuing when using the license reserve
+       switches, use the -lic_noqueue switch.
+     * Fixed the following queuing problems in Mentor Graphics Licensing.
+       (Windows Only)
+          + The user was prevented from queuing on multiple features
+            concurrently.
+          + The user was prevented from checking out an available, more
+            expensive feature if a less expensive feature was queued.
+     * The vmake utility now accepts the command-line switch
+       -fullsrcpath, which prefixes source file names with full paths to
+       enable building and running makefiles in directories different
+       from where compiles originally took place.
+     * Upon restart -f, disabled when commands were re-enabled whereas
+       disabled breakpoints stayed disabled. Disabled when commands are
+       no longer re-enabled in this situation.
+   ______________________________________________________________________
+   
+   Mentor Graphics DRs Repaired in 5.5c
+     * 400370 - The imagehlp.dll file did not get copied to the
+       c:\windows\system directory.
+     * 287499 - Modelsim: When using the -lic_vlog option it doesn't seem
+       to queue up for licenses
+     * 301809 - ModelSim GUI sets the compile optimzations for 1164 the
+       opposite of options.
+     * 290717 - restart fails when using "configure list -gateexpr"
+   ______________________________________________________________________
+   
+   Known Defects in 5.5c
+     * A virtual signal containing a Verilog bit is expanded within a
+       Signals Window. Double clicking on this Verilog bit to invoke a
+       view declaration does not bring up the Source Window. If the
+       Source Window is already opened, it does not highlight this
+       signal.
+     * Virtual signals which are a concatenation of a signal from a view
+       dataset and a sim dataset show "-No Data-" in the Signals Window,
+       even after simulation.
+     * Virtual concatenations which contain a virtual constant always
+       display a value, even when non-constant children are "-No Data-".
+       For example: virtual signal {'1' & clk & prdy} foo
+     * No waves are displayed in the Wave Window for virtual constants or
+       virtual functions that are children of virtuals.
+     * The following steps show a waveform compare problem.
+          + In the compare wizard, specify an opened dataset and a sim
+            dataset to be compared (via the compare start functionality).
+          + Log some simulation signals.
+          + The button "Update after simulation run" should NOT be
+            checked.
+          + Click the "Compute Diffs Now" button in the wizard. This
+            message was given: "Null time range for signal compare". The
+            message could be improved to "Cannot compare run because no
+            simulation data currently available"
+          + Do a run 500.
+          + Do a compare info command. The following message is given:
+            "No comparison differences" Does it mean my comparisons were
+            all matches? A better message choice might be "No available
+            compare data, please do a compare run or compare update
+            first.".
+       A compare run or compare update had not been done, so there should
+       be no compare results or data. The Wave Window is correct at this
+       point; the compare signal does not show any compare result.
+     * There is an inconsistency in how the path separator works when
+       parsing commands. Given that the path separator in the example
+       below is "/ ", .top.clk should not work.
+       echo $PathSeparator
+       # /
+       exa /top/clk
+       # 1
+       exa /clk
+       # 1
+       exa clk
+       # 1
+       exa .top.clk
+       # 1
+       exa .clk
+       # evaluating expression ".clk"
+       # No object found matching clk in context /
+       # Item '.clk' not found
+     * A virtual signal foo is defined. The checkpoint command is issued.
+       Then, virtual count gives a count of 0. It should be 1. Nothing is
+       saved during virtual save command. The virtual count and virtual
+       save commands before the checkpoint give the correct expected
+       results. Also virtual show and virtual describe foo after the
+       checkpoint give the correct expected results. virtual count
+       andvirtual save are not working correctly. This bug also exists in
+       5.4e
+     * In the Library page of the main window workspace, if a design unit
+       is selected and accessed with a right button click to Edit or
+       Refresh or Recompile, the following error will occur:
+       Error - cannot read work/_info: No such file or directory
+       This bogus error message occurs only when the Library entry field
+       in the Library page is set to work, and work is logically mapped
+       to another library directory name.
+       The work around is to set the Library entry field to the actual
+       library name instead of work.
+     * Create a List Window with some signals, choose Prop > Display
+       Props, select the Triggers page, click on Trigger Gating:
+       Expression, and press the Use Expression Builder button. Select a
+       signal in the List Window and press the Insert Selected Signal
+       button in the Expression Builder. Nothing happens. The selected
+       signal should be added to the expression.
+     * In some cases, Redhat 6.0 did not have coverage for the entire
+       source file. There is no problem with Redhat 6.1, 6.2 and 7.0.
+     * List Window scrolling problems:
+          + When using the Find dialog box to find signals, when the next
+            signal is outside of what is currently showing in the List
+            Window, the window is not scrolled to show the next item
+            found.
+          + If you do a find to the left and the search goes past the
+            beginning of the list to wrap around to the end of the list
+            and there's a lot of stuff in the list window that is out of
+            view, then the List Window scrolls right only one page even
+            though that does not bring the next selected item into view.
+          + When doing a search forward on an item's values, the next
+            line to match is scrolled to the top line but the scroll bar
+            stays the full length of the scroll bar region. (This is in a
+            List Window where there aren't very many lines of data.)
+          + The documentation for the List Window says that the up and
+            down arrow keys are supposed to move the line selection up or
+            down one line. The current behavior is that the up and down
+            arrow keys behave exactly the same as the TAB and shift-TAB
+            keys (searches for next transition).
+     * List Window Marker problems:
+          + If you add a bunch of signals to the List Window then select
+            Markers > Add Marker with nothing selected in the List
+            Window, then the 2nd list line is highlighted. If you then
+            click on another line then no marker outline is left on the
+            supposedly added marker line.
+          + If you click on some line and do Markers > Add Marker then
+            the line selected is marked with an outline but the second
+            list line is highlighted.
+          + With a marker added on a particular line, if you then click
+            on various lines in the List Window then the marker outline
+            occasionally moves to some other line (usually the previously
+            selected line). Markers don't stay put.
+     * The List Signal Search dialog does not always display the name of
+       the selected signal. Names of the format /top/signame do not
+       display. Names of the format signame do. If I select multiple
+       signals of the first format, all I see are commas in the Signal
+       Name(s) box.
+     * Loading a tcl shared library fails on rs64 with the following
+       message: ERROR: couldn't load file " testload.sl": readExports:
+       bad magic number
+     * When ModelSim is invoked with "vsim -lib vhwork", the library
+       entry in the Design tab of the Load Design dialog box incorrectly
+       shows the default library "work" instead of the specified library
+       "vhwork".
+     * Start a compare, and do some compare runs. If a compare reload
+       command is unsuccessful, ModelSim does an implicit compare end
+       without providing an option to save results and the data is lost.
+     * When single-stepping in a .coverage_source Window, as long as the
+       context stays within the current file the coverage numbers can be
+       seen to increment with each step. If a step causes another source
+       file to be brought up, then the coverage numbers in the first
+       column do not increment correctly. Sometimes clicking on the name
+       of the current source file in the Coverage_Summary Window will
+       correct the problem.
+     * The vmap command executed at the VSIM prompt does not update the
+       Library drop-down list.
+     * First, invoke the Design > Create New Library menu item. Second,
+       attempt to create a new library and mapping resulting in an error.
+       For example create a new library that already exists, and a
+       windows system message dialog appears. Click OK in this dialog.
+       The problem is that the Create New Library dialog widget is frozen
+       and the only way to close it is to click on the "X" in the upper
+       right corner. This is a Windows only issue.
+     * Follow the steps below:
+          + Add some wave signals.
+          + Create a virtual from a couple of these signals.
+          + Expand the virtual signal tree.
+          + Double click on the virtual or any child of the virtual (in
+            the value grid of the Wave Window) to invoke the signal props
+            dialog.
+       The dialog will not come up. Subsequent actions to other signals
+       also fail to bring up the signal properties dialog. To get out of
+       this "stuck situation", double click on any signal (in the name
+       grid) to invoke view declaration.
+     * Selected text in the Source Window or Transcript Window gets
+       unhighlighted when the cursor moves out of the window or to the
+       toolbar or menu bar. This is a Windows only issue.
+     * When multiple variables are selected in the Source Window the
+       variable balloon (via Right Mouse Button) displays the same
+       variable even when the cursor is moved from one variable to the
+       next.
+     * When the Source Window is brought up the first time, the source
+       colorization and highlighting of executable lines will not change
+       dynamically but remain constant.
+       For the case where there is an existing Source Window, and you do
+       a File > Open, and pick a file which has source lines that just
+       fit the Source Window, the same non-changeable colorization and
+       highlighting occurs.
+   ______________________________________________________________________
+   
+   Product Changes to 5.5c
+     * The -v2k_intr_delay switch was changed to -v2k_int_delays to be
+       consistent with the other vsim interconnect delay switches. Both
+       switches will continue to be supported for compatibility purposes.
+   ______________________________________________________________________
+   
+   New Features Added to 5.5c
+     * Added a wave tree interrupt method (e.g. .wave.tree interrupt) and
+       a toolbar icon to invoke it. This will stop any waves currently
+       being drawn in the specified window.
+     * Added the preference variable PrefSource(OpenOnBreak). This will
+       enable the automatic opening of the Source Window when a break or
+       assertion is reached while running a simulation.
+     * The Verilog compiler now supports the +opt option for generating
+       optimized code for designs that have been previously compiled
+       unoptimized (that is without the -fast option). The syntax for
+       +opt is as follows:
+       +opt+[<lib>.]<module>
+       The <module> specification is the name of the top-level design
+       module, and, optionally, <lib> is the library that it resides in.
+       By default, the top-level module is searched for in the work
+       library. If the design has multiple top-level modules, then
+       provide the names in a list separated by +. For example,
+       vlog +opt+testbench+globals
+       The optimizations performed by +opt are identical to those
+       performed by -fast. The only difference is that +opt does not need
+       to compile the source code, but instead loads the design units
+       from the libraries and regenerates optimized code for them. If the
+       design units reside in multiple libraries, then it may be
+       necessary to specify the appropriate library search options to the
+       compiler in addition to the +opt option.
+       Any options that are appropriate with -fast are also appropiate
+       with +opt. Specifically, use the +acc option to enable PLI access,
+       and use the -L and -Lf options to specify the libraries to be
+       searched. The -fast option is also allowed with +opt, but it is
+       only useful if you want to specify the secondary name used for the
+       optimized design units (-fast=).
+       The +opt option also allows you to compile source files and
+       generate optimized code for the design just as is done with -fast.
+       In fact, specifying +opt without any top-level modules is
+       equivalent to specifying -fast. For example, the following
+       compiler invocations have the same effect:
+       vlog -fast design.v
+       vlog +opt design.v
+       If you specify top-level modules to +opt and source files, then
+       code will be generated only for the modules referenced within the
+       hierarchy of the top-level modules. If any of these modules are
+       not defined in the source files, then they are loaded from the
+       pre-compiled libraries. It is an error if a module cannot be
+       found.
+     * Verilog 2001 multisource interconnect support has been
+       implemented.
+
+

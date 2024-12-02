@@ -1,0 +1,257 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//       U.S. Patent Numbers 6,175,946, 6,292,765, 6,609,229, 6,848,088     
+//                               and 6,885,983                              
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Gigabit Ethernet Descrambler module.
+ *
+ * DESCRIPTION   This module descrambles the scrambled 66B block input 
+ *               using the Gigabit Ethernt 10GBase-R PHY polynomial
+ *               as per descrambling rules and provides the descrambled
+ *               66-bit blocks.
+ *
+ * REFERENCE     802.3ae IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *
+ * INPUTS        areset            - asynchronous reset (active high)
+ *               reset             - synchronous reset (active high)
+ *               clk               - interface clock
+ *               scrambled_block   - scrambled 66-bit block
+ *               data_enable       - scrambled 66-bit block data valid
+ *               bypass_descramble - signal to bypass descrambling logic
+ * OUTPUT        descrambled_block - descrambled 66-bit block
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+
+`qvlmodule qvl_gigabit_ethernet_descramble (areset,
+					  reset,
+					  clk,
+                                          scrambled_block,
+                                          data_enable,
+                                          bypass_descramble,
+                                          descrambled_block
+                                         );
+
+
+  input areset;
+  input reset;
+  input clk;
+  input [65:0] scrambled_block;
+  input data_enable;
+  input bypass_descramble;
+  output [65:0] descrambled_block;
+
+  // The descrambling polynomial used here is 1 + x^39 + x^58
+  // This maps to having taps for XOR gates at input to the lfsr, 
+  // bit positions 38 and 57.
+
+  // Internal variables
+  reg [57:0] descram_lfsr;
+  reg bypass_descramble_status;
+  reg bypass_descramble_status_set;
+ 
+  // Internal wires. There are required to separate the header and data, 
+  // then descramble data alone, attach the header back to it and output.
+  wire [01:0] sync_header;
+  wire [63:0] scrambled_data;
+  wire [63:0] descram_wire;
+  wire [65:0] descrambled_block_tmp;
+
+
+  // In case BYPASS_DECRAMBLE is ON, the input data is fed back to the output
+  assign descrambled_block_tmp = (bypass_descramble_status == 1) ? 
+    {scrambled_data[63:0],sync_header} : {descram_wire[63:0],sync_header[1:0]};
+
+  assign descrambled_block = (data_enable == 1'b1) ? 
+    descrambled_block_tmp : 66'b0;
+
+  assign scrambled_data[63:0] = scrambled_block[65:2];
+  assign sync_header = scrambled_block[1:0];
+
+  assign descram_wire[0] = 
+    scrambled_data[0]^descram_lfsr[38]^descram_lfsr[57];
+  assign descram_wire[1] = 
+    scrambled_data[1]^descram_lfsr[37]^descram_lfsr[56];
+  assign descram_wire[2] = 
+    scrambled_data[2]^descram_lfsr[36]^descram_lfsr[55];
+  assign descram_wire[3] = 
+    scrambled_data[3]^descram_lfsr[35]^descram_lfsr[54];
+  assign descram_wire[4] = 
+    scrambled_data[4]^descram_lfsr[34]^descram_lfsr[53];
+  assign descram_wire[5] = 
+    scrambled_data[5]^descram_lfsr[33]^descram_lfsr[52];
+  assign descram_wire[6] = 
+    scrambled_data[6]^descram_lfsr[32]^descram_lfsr[51];
+  assign descram_wire[7] = 
+    scrambled_data[7]^descram_lfsr[31]^descram_lfsr[50];
+ 
+  assign descram_wire[8] = 
+    scrambled_data[8]^descram_lfsr[30]^descram_lfsr[49];
+  assign descram_wire[9] = 
+    scrambled_data[9]^descram_lfsr[29]^descram_lfsr[48];
+  assign descram_wire[10] = 
+    scrambled_data[10]^descram_lfsr[28]^descram_lfsr[47];
+  assign descram_wire[11] = 
+    scrambled_data[11]^descram_lfsr[27]^descram_lfsr[46];
+  assign descram_wire[12] = 
+    scrambled_data[12]^descram_lfsr[26]^descram_lfsr[45];
+  assign descram_wire[13] = 
+    scrambled_data[13]^descram_lfsr[25]^descram_lfsr[44];
+  assign descram_wire[14] = 
+    scrambled_data[14]^descram_lfsr[24]^descram_lfsr[43];
+  assign descram_wire[15] = 
+    scrambled_data[15]^descram_lfsr[23]^descram_lfsr[42];
+ 
+  assign descram_wire[16] = 
+    scrambled_data[16]^descram_lfsr[22]^descram_lfsr[41];
+  assign descram_wire[17] = 
+    scrambled_data[17]^descram_lfsr[21]^descram_lfsr[40];
+  assign descram_wire[18] = 
+    scrambled_data[18]^descram_lfsr[20]^descram_lfsr[39];
+  assign descram_wire[19] = 
+    scrambled_data[19]^descram_lfsr[19]^descram_lfsr[38];
+  assign descram_wire[20] = 
+    scrambled_data[20]^descram_lfsr[18]^descram_lfsr[37];
+  assign descram_wire[21] = 
+    scrambled_data[21]^descram_lfsr[17]^descram_lfsr[36];
+  assign descram_wire[22] = 
+    scrambled_data[22]^descram_lfsr[16]^descram_lfsr[35];
+  assign descram_wire[23] = 
+    scrambled_data[23]^descram_lfsr[15]^descram_lfsr[34];
+  
+  assign descram_wire[24] = 
+    scrambled_data[24]^descram_lfsr[14]^descram_lfsr[33];
+  assign descram_wire[25] = 
+    scrambled_data[25]^descram_lfsr[13]^descram_lfsr[32];
+  assign descram_wire[26] = 
+    scrambled_data[26]^descram_lfsr[12]^descram_lfsr[31];
+  assign descram_wire[27] = 
+    scrambled_data[27]^descram_lfsr[11]^descram_lfsr[30];
+  assign descram_wire[28] = 
+    scrambled_data[28]^descram_lfsr[10]^descram_lfsr[29];
+  assign descram_wire[29] = 
+    scrambled_data[29]^descram_lfsr[9]^descram_lfsr[28];
+  assign descram_wire[30] = 
+    scrambled_data[30]^descram_lfsr[8]^descram_lfsr[27];
+  assign descram_wire[31] = 
+    scrambled_data[31]^descram_lfsr[7]^descram_lfsr[26];
+  
+  assign descram_wire[32] = 
+    scrambled_data[32]^descram_lfsr[6]^descram_lfsr[25];
+  assign descram_wire[33] = 
+    scrambled_data[33]^descram_lfsr[5]^descram_lfsr[24];
+  assign descram_wire[34] = 
+    scrambled_data[34]^descram_lfsr[4]^descram_lfsr[23];
+  assign descram_wire[35] = 
+    scrambled_data[35]^descram_lfsr[3]^descram_lfsr[22];
+  assign descram_wire[36] = 
+    scrambled_data[36]^descram_lfsr[2]^descram_lfsr[21];
+  assign descram_wire[37] = 
+    scrambled_data[37]^descram_lfsr[1]^descram_lfsr[20];
+  assign descram_wire[38] = 
+    scrambled_data[38]^descram_lfsr[0]^descram_lfsr[19];
+ 
+  assign descram_wire[39] = 
+    scrambled_data[39]^scrambled_data[0]^descram_lfsr[18];
+  assign descram_wire[40] = 
+    scrambled_data[40]^scrambled_data[1]^descram_lfsr[17];
+  assign descram_wire[41] = 
+    scrambled_data[41]^scrambled_data[2]^descram_lfsr[16];
+  assign descram_wire[42] = 
+    scrambled_data[42]^scrambled_data[3]^descram_lfsr[15];
+  assign descram_wire[43] = 
+    scrambled_data[43]^scrambled_data[4]^descram_lfsr[14];
+  assign descram_wire[44] = 
+    scrambled_data[44]^scrambled_data[5]^descram_lfsr[13];
+  assign descram_wire[45] = 
+    scrambled_data[45]^scrambled_data[6]^descram_lfsr[12];
+  assign descram_wire[46] = 
+    scrambled_data[46]^scrambled_data[7]^descram_lfsr[11];
+  assign descram_wire[47] = 
+    scrambled_data[47]^scrambled_data[8]^descram_lfsr[10];
+ 
+  assign descram_wire[48] = 
+    scrambled_data[48]^ scrambled_data[9]^descram_lfsr[9];
+  assign descram_wire[49] = 
+    scrambled_data[49]^scrambled_data[10]^descram_lfsr[8];
+  assign descram_wire[50] = 
+    scrambled_data[50]^scrambled_data[11]^descram_lfsr[7];
+  assign descram_wire[51] = 
+    scrambled_data[51]^scrambled_data[12]^descram_lfsr[6];
+  assign descram_wire[52] = 
+    scrambled_data[52]^scrambled_data[13]^descram_lfsr[5];
+  assign descram_wire[53] = 
+    scrambled_data[53]^scrambled_data[14]^descram_lfsr[4];
+  assign descram_wire[54] = 
+    scrambled_data[54]^scrambled_data[15]^descram_lfsr[3];
+  
+  assign descram_wire[55] = 
+   scrambled_data[55]^scrambled_data[16]^descram_lfsr[2];
+  assign descram_wire[56] = 
+    scrambled_data[56]^scrambled_data[17]^descram_lfsr[1];
+  assign descram_wire[57] = 
+    scrambled_data[57]^scrambled_data[18]^descram_lfsr[0];
+  assign descram_wire[58] = 
+    scrambled_data[58]^scrambled_data[19]^scrambled_data[0];
+  assign descram_wire[59] = 
+    scrambled_data[59]^scrambled_data[20]^scrambled_data[1];
+  assign descram_wire[60] = 
+    scrambled_data[60]^scrambled_data[21]^scrambled_data[2];
+  assign descram_wire[61] = 
+    scrambled_data[61]^scrambled_data[22]^scrambled_data[3];
+  assign descram_wire[62] = 
+    scrambled_data[62]^scrambled_data[23]^scrambled_data[4];
+  assign descram_wire[63] = 
+    scrambled_data[63]^scrambled_data[24]^scrambled_data[5];
+  
+`protected
+
+    MTI!#m1-aBIH]joa~*]$5e_!Cn[1$2x?<5rQUFL%<&"p#vk|g[CVss{1k9QHpT7Z!;-,?lxCrsop
+    kmh*ZHw51o'rrixd>G~n11xr7~Ir]p7o[-X'vm$Y>Gw,X--',33ZJT7Y<E<aIaz~7=J}e^]A,?^o
+    LKYs,'=<+DrX{]pEs\mzk=wA>Gux2Ja@~vv<O7m^*KYT}QxAO!}U'Q@A?DEk7\lR;D*z2bQ?<=!n
+    Q2s=mx1;j-p-~=[AQR[o/tz=x;lvv]BV\?iRiw;s?+In~@lpY?]\\*pE\l^Gzi@wpI/H13n[ZXV.
+    "-axGY>-7pRiv-Y}[[),'2?;BawGf?j#$p;8?[2G='3{lomxG*=i*nuDD{j?O~Z$r\nl,Z=o,<xZ
+    'v}r<<5@YG2uIQ'Ix[Y,W{m!s4-wnTaIGp}^,rW{vo~'*Z<,B=xA~7qHYuz-DD{*j]EAT>RV*^{e
+    J'Uaz{JQ$R3.^-XE+>s+]<D,j=IC{'WrIWGO>l<7mCD@pzBOo>v;B@vA~CxvQ?XB&T]XCBz\J'>Y
+    nr0-n$RZU-rVao!IoWUip}rV5eepV-R}zA-NBX]Yw=C{XVwvs@!Y7jW$XE\jU5;UD?@HwUe\%F='
+    5]Gp+Ca-HZ1QCn[i5a'o[!h#LZQ?3rA!nSGB<Cov>TTaYn'VHD\[]-(^i=+15pA1H}Vq^*OvCmuu
+    XB{rJxW?O3a]B?<^f~[kepY<3?^QG>zJ2enVxf3]}}G\{YnCXX;1H1v~C$^H>[D'$$6r'Vl(ewQC
+    Sos[T'WOuT*VoWB~n}*G^(G}a{]Y$lC@Q$pl!vWT<@cQ%CmG{!B>VXA!$r'Rk@\U_5Z{>DJwC-^v
+    Xn>B+2O!j-_kQBKTlUEaXZz2T7ZsoR+m~C1J>OC{@mrrX+n{2xu@=ou1H,Ezx'Klu>B*2]JGR<w7
+    [[Q@2qJem*KnYC'5<ZvcE_A5~R]-B7TWj~KlLgX{O;-B~v:k+5,xQvounB3UC#Ts{o}:)Ew<H,Bm
+    rH7YU1aosQZW\X[ArY~_XzGjs'#n!z'5#KS,;C{tTUVs[$e?u=#lCp;{FuUC]DEJr*Z3Xn7rW=>*
+    -@'*KkEk-wrZo*}\a$$^!QnsWx'Ao_#OY\3\neG3\A>^Ax7{p<}UJIa[E(i'!]CE@;PL!,$p\naz
+    Ywa<zf''uKmrn}{>KvIO!r:}7QA+C,aYY!knC*jn}WK1UQ{rBkwrsp!<C[lxtKR>W^@!]VB2W'A=
+    v@I+\Zp;\noAO},wRp@DTmXJ~G{\~7^X$*ei~e3!Rp{m[aDJrYTKUa]1^Kron-Q?!{jYT5SGJn]G
+    B|hjo-v]>*V
+`endprotected
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_descramble.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_descramble.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_descramble
+`include "zi_cw_gigabit_ethernet_descramble.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // zi_cw_gigabit_ethernet_descramble

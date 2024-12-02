@@ -1,0 +1,615 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+ * PURPOSE      This file is part of the 0-In CheckerWare.
+ *
+ * DESCRIPTION  This monitor checks the AMBA AXI interface for 
+ *              compliance with AMBA AXI protocol specification. 
+ *
+ * REFERENCE    AMBA AXI protocol specification, ARM IHI 0022B, 
+ *              v1.0, 19 March 2004
+ *
+ * INPUTS
+ *   aclk     - Global clock signal
+ *   areset_n - Global asynchronous reset signal (active low)
+ *   reset_n  - Synchronous reset (active low)
+ *
+ *   awid     - Write address ID (tag of the write transaction)
+ *   awaddr   - Write address bus (indicates starting address of bursts)
+ *   awlen    - Write burst length (number of transfers)
+ *   awsize   - Write burst size (data width of each transfer)
+ *   awburst  - Write burst type (incrementing / wrapping / fixed).
+ *   awlock   - Write lock type (normal / exclusive / locked)
+ *   awcache  - Write cache type (bufferable / cacheable)
+ *   awprot   - Write protection level (normal / privileged / secure)
+ *   awvalid  - Write address valid (indicates that addr / cntrl is valid)
+ *   awready  - Write address ready (slave ready to accept an address)
+ *
+ *   wid      - Write ID (tag of the write data transaction)
+ *   wdata    - Write data (write data bus - 8, 16, 32,.... 1024)
+ *   wstrb    - Write strobe (1 bit for each 8 bits of write data)
+ *   wlast    - Write last (last data transfer of the burst)
+ *   wvalid   - Write valid (indicates that write data is valid)
+ *   wready   - Write ready (slave ready to accept write data)
+ *
+ *   bid      - Response ID (tag of the write response)
+ *   bresp    - Write response (OKAY / EXOKAY / SLVERR / DECERR)
+ *   bvalid   - Write response valid (write response is valid)
+ *   bready   - Response ready (master ready to accept write resp)
+ *
+ *   arid     - Read address ID (tag of the read transaction)
+ *   araddr   - Read address bus (indicates starting address of bursts)
+ *   arlen    - Read burst length (number of transfers)
+ *   arsize   - Read burst size (data width of each transfer)
+ *   arburst  - Read burst type (incrementing / wrapping / fixed).
+ *   arlock   - Read lock type (normal / exclusive / locked)
+ *   arcache  - Read cache type (bufferable / cacheable)
+ *   arprot   - Read protection level (normal / privileged / secure)
+ *   arvalid  - Read address valid (indicates that addr / cntrl is valid)
+ *   arready  - Read address ready (slave ready to accept an address)
+ *
+ *   rid      - Read ID (tag of the read data transaction)
+ *   rdata    - Read data (read data bus - 8, 16, 32,.... 1024)
+ *   rresp    - Read response (OKAY / EXOKAY / SLVERR / DECERR)
+ *   rlast    - Read last (last data transfer of the read burst)
+ *   rvalid   - Read valid (indicates that read data is valid)
+ *   rready   - Read ready (master ready to accept read data)
+ *
+ *   csysreq  - Low-power request (clock controller to peripheral)
+ *   csysack  - Low-power acknowledge (peripheral to controller)
+ *   cactive  - Clock active (peripheral device requires clock)
+ *
+ *
+ * INSTANTIATION
+ *               The CheckerWare AMBA AXI monitor can be placed 
+ *               on the master or slave side to provide interface 
+ *               checks for 0-In Check.
+ *              
+ *                           +---------+
+ *                           |   AXI   |
+ *                           |   I/C   |  AXI   +---------------+
+ *                           |         |  I/F   | +---+         |
+ *                           |         |------->| | M |         |
+ *  +---------------+  AXI   |         |<-------| | W |     AXI |
+ *  |         +---+ |  I/F   | +---+   |        | +---+   SLAVE |
+ *  |         | M | |------->| | M |   |        +---------------+
+ *  | AXI     | W | |<-------| | W |   | 
+ *  | MASTER  +---+ |        | +---+   | 
+ *  +---------------+        |         |  AXI   +---------------+
+ *                           |   +---+ |  I/F   |               |
+ *                           |   | M | |------->|               |
+ *                           |   | W | |<-------|           AXI |
+ *                           |   +---+ |        |         SLAVE |
+ *                           |         |        +---------------+
+ *                           |         |
+ *                           |         |
+ *                           +---------+
+ *
+ *
+ * LAST MODIFIED 10th July 2006
+ *
+***********************************************************************/
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_amba_axi_monitor (aclk,
+                               areset_n,
+                               reset_n,
+                               awid,
+                               awaddr,
+                               awlen,
+                               awsize,
+                               awburst,
+                               awlock,
+                               awcache,
+                               awprot,
+                               awvalid,
+                               awready,
+                               wid,
+                               wdata,
+                               wstrb,
+                               wlast,
+                               wvalid,
+                               wready,
+                               bid,
+                               bresp,
+                               bvalid,
+                               bready,
+                               arid,
+                               araddr,
+                               arlen,
+                               arsize,
+                               arburst,
+                               arlock,
+                               arcache,
+                               arprot,
+                               arvalid,
+                               arready,
+                               rid,
+                               rdata,
+                               rresp,
+                               rlast,
+                               rvalid,
+                               rready,
+                               csysreq,
+                               csysack,
+                               cactive
+                              );
+
+  // This parameter configures the checks in the monitor as constraints
+  // during formal analysis
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Interface type (Location of monitor instance)
+  // 0 => Master interface
+  // 1 => Slave interface
+  // 2 => Master interface of an interconnect
+  // 3 => Slave interface of an interconnect
+
+  parameter INTERFACE_TYPE = 0; 
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // This parameter defines the width of the write data bus of the
+  // write channel of the AXI interface. This is specified in bits.
+
+  parameter WRITE_DATA_BUS_WIDTH = 32; 
+  wire [31:0] pw_WRITE_DATA_BUS_WIDTH = WRITE_DATA_BUS_WIDTH;
+
+  // This parameter defines the width of the read data bus of the 
+  // read channel of the AXI interface. This is specified in bits.
+
+  parameter READ_DATA_BUS_WIDTH = 32;
+  wire [31:0] pw_READ_DATA_BUS_WIDTH = READ_DATA_BUS_WIDTH;
+
+  // This parameter defines the width of the various IDs (AID, RID,
+  // WID and BID). A single parameter is used since all the transaction
+  // IDs are required to be of the same width.
+
+  parameter TRAN_ID_WIDTH = 4;
+  wire [31:0] pw_TRAN_ID_WIDTH = TRAN_ID_WIDTH;
+
+  // This defines the Read reorder depth declared by the slave device.
+
+  parameter READ_REORDER_DEPTH = 8;
+  wire [31:0] pw_READ_REORDER_DEPTH = READ_REORDER_DEPTH;
+ 
+  // This indicates the read interleaving depth of the device
+
+  parameter READ_INTERLEAVING_DEPTH = 8;
+  wire [31:0] pw_READ_INTERLEAVING_DEPTH = READ_INTERLEAVING_DEPTH;
+
+  // This indicates the write interleaving depth of the device.
+
+  parameter WRITE_INTERLEAVING_DEPTH = 8;
+  wire [31:0] pw_WRITE_INTERLEAVING_DEPTH = WRITE_INTERLEAVING_DEPTH;
+
+  // This parameter can be used to turn ON/OFF exclusive access support
+  // by the slave device.
+
+  parameter EXCLUSIVE_ACCESS_ENABLE = 1;
+  wire [31:0] pw_EXCLUSIVE_ACCESS_ENABLE = EXCLUSIVE_ACCESS_ENABLE;
+ 
+  // This parameter can be used to turn ON/OFF the LPI support in the 
+  // monitor. Set this to 1 to enable LPI related checks.
+
+  parameter LPI_ENABLE = 0;
+  wire [31:0] pw_LPI_ENABLE = LPI_ENABLE; 
+
+  // This parameter defines the maximum number of outstanding requests
+  // supported by the device. This defines the depths of the various 
+  // address queues within the monitor.
+
+  parameter MAX_OUTSTANDING_READ_ADDR = 16;
+  wire [31:0] pw_MAX_OUTSTANDING_READ_ADDR = MAX_OUTSTANDING_READ_ADDR;
+ 
+  parameter MAX_OUTSTANDING_WRITE_ADDR = 16;
+  wire [31:0] pw_MAX_OUTSTANDING_WRITE_ADDR = MAX_OUTSTANDING_WRITE_ADDR;
+
+  // This parameter turns ON/OFF the check on write data coming before write
+  // address. Although this is not a violation, in most simple systems data
+  // will follow address. Set the following to 0 to disable this check.
+
+  parameter CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE = 0;
+  wire [31:0] pw_CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE = 
+                                  CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE;
+
+  // This parameter can be used to turn ON/OFF checking against reserved values
+
+  parameter ENABLE_RESERVED_VALUE_CHECKING = 1;
+  wire [31:0] pw_ENABLE_RESERVED_VALUE_CHECKING = 
+                                  ENABLE_RESERVED_VALUE_CHECKING;
+
+  // This parameter can be used to turn ON/OFF checking of some recommendations
+
+  parameter ENABLE_RECOMMENDATION_CHECKING = 0; 
+  wire [31:0] pw_ENABLE_RECOMMENDATION_CHECKING = 
+                                 ENABLE_RECOMMENDATION_CHECKING;
+
+  parameter LENGTH_WIDTH = 4;
+  wire [31:0] pw_LENGTH_WIDTH = LENGTH_WIDTH;
+  
+  parameter ADDR_WIDTH = 32;
+  wire [31:0] pw_ADDR_WIDTH = ADDR_WIDTH;
+
+  parameter MAX_UNIQUE_EXCLUSIVE_ACCESSES = MAX_OUTSTANDING_READ_ADDR;
+  wire [31:0] pw_MAX_UNIQUE_EXCLUSIVE_ACCESSES = MAX_UNIQUE_EXCLUSIVE_ACCESSES;
+
+  parameter EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE = 1;
+  wire [31:0] pw_EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE =
+                 EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE;
+
+  parameter ZI_DATA_BUS_IN_BYTES = WRITE_DATA_BUS_WIDTH >> 3;
+  wire [31:0] pw_ZI_DATA_BUS_IN_BYTES = ZI_DATA_BUS_IN_BYTES;
+
+  // Global clock and reset signals
+  input aclk;
+  input areset_n;
+  input reset_n;
+
+  // Write address channel signals
+  input awvalid;
+  input [ADDR_WIDTH-1:0] awaddr;
+  input [LENGTH_WIDTH-1:0] awlen;
+  input [2:0] awsize;
+  input [1:0] awburst;
+  input [1:0] awlock;
+  input [3:0] awcache;
+  input [2:0] awprot;
+  input [TRAN_ID_WIDTH-1:0] awid;
+  input awready;
+
+  // Read address channel signals
+  input arvalid;
+  input [ADDR_WIDTH-1:0] araddr;
+  input [LENGTH_WIDTH-1:0] arlen;
+  input [2:0] arsize;
+  input [1:0] arburst;
+  input [1:0] arlock;
+  input [3:0] arcache;
+  input [2:0] arprot;
+  input [TRAN_ID_WIDTH-1:0] arid;
+  input arready;
+
+  // Write channel signals
+  input wvalid;
+  input wlast;
+  input [WRITE_DATA_BUS_WIDTH-1:0] wdata;
+  input [ZI_DATA_BUS_IN_BYTES-1:0] wstrb;
+  input [TRAN_ID_WIDTH-1:0] wid;
+  input wready;
+
+  // Read channel signals
+  input rvalid;
+  input rlast;
+  input [READ_DATA_BUS_WIDTH-1:0] rdata;
+  input [1:0] rresp;
+  input [TRAN_ID_WIDTH-1:0] rid;
+  input rready;
+
+  // Write response channel signals
+  input bvalid;
+  input [1:0] bresp;
+  input [TRAN_ID_WIDTH-1:0] bid;
+  input bready;
+
+  // Low power interface signals
+  input cactive;
+  input csysreq;
+  input csysack;
+
+
+  wire areset_n_sampled;
+  wire reset_n_sampled;
+
+  wire awvalid_sampled;
+  wire [ADDR_WIDTH-1:0] awaddr_sampled;
+  wire [LENGTH_WIDTH-1:0] awlen_sampled;
+  wire [2:0] awsize_sampled;
+  wire [1:0] awburst_sampled;
+  wire [1:0] awlock_sampled;
+  wire [3:0] awcache_sampled;
+  wire [2:0] awprot_sampled;
+  wire [TRAN_ID_WIDTH-1:0] awid_sampled;
+  wire awready_sampled;
+
+  wire arvalid_sampled;
+  wire [ADDR_WIDTH-1:0] araddr_sampled;
+  wire [LENGTH_WIDTH-1:0] arlen_sampled;
+  wire [2:0] arsize_sampled;
+  wire [1:0] arburst_sampled;
+  wire [1:0] arlock_sampled;
+  wire [3:0] arcache_sampled;
+  wire [2:0] arprot_sampled;
+  wire [TRAN_ID_WIDTH-1:0] arid_sampled;
+  wire arready_sampled;
+
+  wire wvalid_sampled;
+  wire wlast_sampled;
+  wire [WRITE_DATA_BUS_WIDTH-1:0] wdata_sampled;
+  wire [ZI_DATA_BUS_IN_BYTES-1:0] wstrb_sampled;
+  wire [TRAN_ID_WIDTH-1:0] wid_sampled;
+  wire wready_sampled;
+
+  wire rvalid_sampled;
+  wire rlast_sampled;
+  wire [READ_DATA_BUS_WIDTH-1:0] rdata_sampled;
+  wire [1:0] rresp_sampled;
+  wire [TRAN_ID_WIDTH-1:0] rid_sampled;
+  wire rready_sampled;
+
+  wire bvalid_sampled;
+  wire [1:0] bresp_sampled;
+  wire [TRAN_ID_WIDTH-1:0] bid_sampled;
+  wire bready_sampled;
+
+  wire cactive_sampled;
+  wire csysreq_sampled;
+  wire csysack_sampled;
+  
+  assign `QVL_DUT2CHX_DELAY areset_n_sampled = areset_n;                
+  assign `QVL_DUT2CHX_DELAY reset_n_sampled  = reset_n;
+                                                               
+  assign `QVL_DUT2CHX_DELAY awvalid_sampled  = awvalid;
+  assign `QVL_DUT2CHX_DELAY awaddr_sampled   = awaddr;
+  assign `QVL_DUT2CHX_DELAY awlen_sampled    = awlen;
+  assign `QVL_DUT2CHX_DELAY awsize_sampled   = awsize;
+  assign `QVL_DUT2CHX_DELAY awburst_sampled  = awburst;
+  assign `QVL_DUT2CHX_DELAY awlock_sampled   = awlock;
+  assign `QVL_DUT2CHX_DELAY awcache_sampled  = awcache;
+  assign `QVL_DUT2CHX_DELAY awprot_sampled   = awprot;
+  assign `QVL_DUT2CHX_DELAY awid_sampled     = awid;
+  assign `QVL_DUT2CHX_DELAY awready_sampled  = awready;
+                                                               
+  assign `QVL_DUT2CHX_DELAY arvalid_sampled  = arvalid;
+  assign `QVL_DUT2CHX_DELAY araddr_sampled   = araddr;
+  assign `QVL_DUT2CHX_DELAY arlen_sampled    = arlen;
+  assign `QVL_DUT2CHX_DELAY arsize_sampled   = arsize;
+  assign `QVL_DUT2CHX_DELAY arburst_sampled  = arburst;
+  assign `QVL_DUT2CHX_DELAY arlock_sampled   = arlock;
+  assign `QVL_DUT2CHX_DELAY arcache_sampled  = arcache;
+  assign `QVL_DUT2CHX_DELAY arprot_sampled   = arprot;
+  assign `QVL_DUT2CHX_DELAY arid_sampled     = arid;
+  assign `QVL_DUT2CHX_DELAY arready_sampled  = arready;
+                                                               
+  assign `QVL_DUT2CHX_DELAY wvalid_sampled   = wvalid;
+  assign `QVL_DUT2CHX_DELAY wlast_sampled    = wlast;
+  assign `QVL_DUT2CHX_DELAY wdata_sampled    = wdata;
+  assign `QVL_DUT2CHX_DELAY wstrb_sampled    = wstrb;
+  assign `QVL_DUT2CHX_DELAY wid_sampled      = wid;
+  assign `QVL_DUT2CHX_DELAY wready_sampled   = wready;
+                                                               
+  assign `QVL_DUT2CHX_DELAY rvalid_sampled   = rvalid;
+  assign `QVL_DUT2CHX_DELAY rlast_sampled    = rlast;
+  assign `QVL_DUT2CHX_DELAY rdata_sampled    = rdata;
+  assign `QVL_DUT2CHX_DELAY rresp_sampled    = rresp;
+  assign `QVL_DUT2CHX_DELAY rid_sampled      = rid;
+  assign `QVL_DUT2CHX_DELAY rready_sampled   = rready;
+                                                               
+  assign `QVL_DUT2CHX_DELAY bvalid_sampled   = bvalid;
+  assign `QVL_DUT2CHX_DELAY bresp_sampled    = bresp;
+  assign `QVL_DUT2CHX_DELAY bid_sampled      = bid;
+  assign `QVL_DUT2CHX_DELAY bready_sampled   = bready;
+                                                               
+  assign `QVL_DUT2CHX_DELAY cactive_sampled  = cactive;
+  assign `QVL_DUT2CHX_DELAY csysreq_sampled  = csysreq;
+  assign `QVL_DUT2CHX_DELAY csysack_sampled  = csysack;
+
+  // Internal parameters 
+
+  parameter ZI_BITS_ADDRESSING_BUS_BYTES = (ZI_DATA_BUS_IN_BYTES == 1)   ? 1 :
+                                         (ZI_DATA_BUS_IN_BYTES == 2)   ? 1 :
+                                         (ZI_DATA_BUS_IN_BYTES == 4)   ? 2 :
+                                         (ZI_DATA_BUS_IN_BYTES == 8)   ? 3 :
+                                         (ZI_DATA_BUS_IN_BYTES == 16)  ? 4 :
+                                         (ZI_DATA_BUS_IN_BYTES == 32)  ? 5 :
+                                         (ZI_DATA_BUS_IN_BYTES == 64)  ? 6 :
+                                         (ZI_DATA_BUS_IN_BYTES == 128) ? 7 : 1;
+  wire [31:0] pw_ZI_BITS_ADDRESSING_BUS_BYTES = ZI_BITS_ADDRESSING_BUS_BYTES;
+
+  parameter ZI_CACHE_ADDR_WIDTH = (MAX_UNIQUE_EXCLUSIVE_ACCESSES < 9) ? 3 :
+                              (8 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 17) ? 4 :
+                             (16 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 33) ? 5 :
+                             (32 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 65) ? 6 :
+                             (64 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 129) ? 7 :
+                            (128 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 257) ? 8 :
+                            (256 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 513) ? 9 :
+                            (512 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 1025) ? 10 :
+                           (1024 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 2049) ? 11 :
+                           (2048 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                MAX_UNIQUE_EXCLUSIVE_ACCESSES < 4097) ? 12 : 4;
+  wire [31:0] pw_ZI_CACHE_ADDR_WIDTH = ZI_CACHE_ADDR_WIDTH;
+
+  parameter ZI_READ_ADDR_QUEUE_PTR_WIDTH = (MAX_OUTSTANDING_READ_ADDR<9) ? 3 :
+                              (8 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 17) ? 4 :
+                             (16 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 33) ? 5 :
+                             (32 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 65) ? 6 :
+                             (64 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 129) ? 7 :
+                            (128 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 257) ? 8 :
+                            (256 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 513) ? 9 :
+                            (512 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 1025) ? 10 :
+                           (1024 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 2049) ? 11 :
+                           (2048 < MAX_OUTSTANDING_READ_ADDR &&
+                                MAX_OUTSTANDING_READ_ADDR < 4097) ? 12 : 4;
+  wire [31:0] pw_ZI_READ_ADDR_QUEUE_PTR_WIDTH = ZI_READ_ADDR_QUEUE_PTR_WIDTH;
+
+  parameter ZI_WRITE_ADDR_QUEUE_PTR_WIDTH = (MAX_OUTSTANDING_WRITE_ADDR<9)? 3 :
+                              (8 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 17) ? 4 :
+                             (16 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 33) ? 5 :
+                             (32 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 65) ? 6 :
+                             (64 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 129) ? 7 :
+                            (128 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 257) ? 8 :
+                            (256 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 513) ? 9 :
+                            (512 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 1025) ? 10 :
+                           (1024 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 2049) ? 11 :
+                           (2048 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                MAX_OUTSTANDING_WRITE_ADDR < 4097) ? 12 : 4;
+  wire [31:0] pw_ZI_WRITE_ADDR_QUEUE_PTR_WIDTH = ZI_WRITE_ADDR_QUEUE_PTR_WIDTH;
+
+  parameter ZI_NUM_IDS = 1 << TRAN_ID_WIDTH;
+  wire [31:0] pw_ZI_NUM_IDS = ZI_NUM_IDS;
+
+`protected
+
+    MTI!#|+Yi!\Y?-[Ru#e$Dr@Dw{[!GCjxs,C$eis3w'N9m>Y[Z[!]eQ'Yy9Y@Dv=#BBz;!7EaI^B~
+    ]>7~}zg]*l@$_ApFKYX!=KupH]pu}@EDL9~w*{nU{E1<TkW<pX7-A72jJsnYk;5D~YDrKD^AOZM}
+    ,V^i<D=8I'?=]rEBjKvR|iVR@-_wHb^z]RZaIQnRAQb@,Q7+l-aIC{5\d7G\?b*C$^i<Z!7UXDR*
+    r1^T!T2]+vT|?v*]>xwTOlm}y7wC*[xv<yQKbDnA_x}3VYG?;zOmK]Vp'$<w+w9}WjH;'^~]sT\_
+    k[KEp<?eO7Q!G#rBpRiC-A!=!o>(wemQO[
+`endprotected
+
+  // These parameters are used to configure the appropriate set of checks 
+  // as constraints on either master or target side.
+
+  parameter ZI_CONSTRAINT_MASTER_SIDE = (Constraints_Mode == 1 &&
+                     (INTERFACE_TYPE == 0 || INTERFACE_TYPE == 2));
+  wire [31:0] pw_ZI_CONSTRAINT_MASTER_SIDE = ZI_CONSTRAINT_MASTER_SIDE;
+
+  parameter ZI_CONSTRAINT_SLAVE_SIDE = (Constraints_Mode == 1 &&
+                     (INTERFACE_TYPE == 1 || INTERFACE_TYPE == 3));
+  wire [31:0] pw_ZI_CONSTRAINT_SLAVE_SIDE = ZI_CONSTRAINT_SLAVE_SIDE;
+
+
+  // Parameters used for state names
+
+  parameter ZI_ADDR_IDLE = 0;
+  parameter ZI_ADDR_TRANSFER = 1;
+  parameter ZI_ADDR_VALID = 2;
+
+  parameter ZI_READ_IDLE = 0;
+  parameter ZI_READ_DATA = 1;
+  parameter ZI_READ_VALID = 2;
+  parameter ZI_READ_LAST_DATA = 3;
+
+  parameter ZI_WRITE_IDLE = 0;
+  parameter ZI_WRITE_DATA = 1;
+  parameter ZI_WRITE_VALID = 2;
+  parameter ZI_WRITE_LAST_DATA = 3;
+
+  parameter ZI_WRITE_RESPONSE_IDLE = 0;
+  parameter ZI_WRITE_RESPONSE_VALID = 1;
+  parameter ZI_WRITE_RESPONSE_TRANSFER = 2;
+
+  qvl_amba_axi_logic          
+    #(.Constraints_Mode                           (Constraints_Mode),
+      .INTERFACE_TYPE                             (INTERFACE_TYPE),
+      .WRITE_DATA_BUS_WIDTH                       (WRITE_DATA_BUS_WIDTH), 
+      .READ_DATA_BUS_WIDTH                        (READ_DATA_BUS_WIDTH), 
+      .TRAN_ID_WIDTH                              (TRAN_ID_WIDTH),
+      .READ_REORDER_DEPTH                         (READ_REORDER_DEPTH),
+      .READ_INTERLEAVING_DEPTH                    (READ_INTERLEAVING_DEPTH),
+      .WRITE_INTERLEAVING_DEPTH                   (WRITE_INTERLEAVING_DEPTH),
+      .EXCLUSIVE_ACCESS_ENABLE                    (EXCLUSIVE_ACCESS_ENABLE), 
+      .LPI_ENABLE                                 (LPI_ENABLE),
+      .MAX_OUTSTANDING_READ_ADDR                  (MAX_OUTSTANDING_READ_ADDR),
+      .MAX_OUTSTANDING_WRITE_ADDR                 (MAX_OUTSTANDING_WRITE_ADDR),
+      .CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE       (CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE),
+      .ENABLE_RESERVED_VALUE_CHECKING             (ENABLE_RESERVED_VALUE_CHECKING),
+      .ENABLE_RECOMMENDATION_CHECKING             (ENABLE_RECOMMENDATION_CHECKING),
+      .LENGTH_WIDTH                               (LENGTH_WIDTH),
+      .ADDR_WIDTH                                 (ADDR_WIDTH),
+      .MAX_UNIQUE_EXCLUSIVE_ACCESSES              (MAX_UNIQUE_EXCLUSIVE_ACCESSES),
+      .EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE    (EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE),
+      .ZI_DATA_BUS_IN_BYTES                       (ZI_DATA_BUS_IN_BYTES),
+      .ZI_BITS_ADDRESSING_BUS_BYTES               (ZI_BITS_ADDRESSING_BUS_BYTES),
+      .ZI_CACHE_ADDR_WIDTH                        (ZI_CACHE_ADDR_WIDTH),
+      .ZI_READ_ADDR_QUEUE_PTR_WIDTH               (ZI_READ_ADDR_QUEUE_PTR_WIDTH),
+      .ZI_WRITE_ADDR_QUEUE_PTR_WIDTH              (ZI_WRITE_ADDR_QUEUE_PTR_WIDTH),
+      .ZI_NUM_IDS                                 (ZI_NUM_IDS),
+      .ZI_WRITE_REORDERING_DEPTH                  (ZI_WRITE_REORDERING_DEPTH),
+      .ZI_CONSTRAINT_MASTER_SIDE                  (ZI_CONSTRAINT_MASTER_SIDE),
+      .ZI_CONSTRAINT_SLAVE_SIDE                   (ZI_CONSTRAINT_SLAVE_SIDE),
+      .ZI_ADDR_IDLE                               (ZI_ADDR_IDLE),
+      .ZI_ADDR_TRANSFER                           (ZI_ADDR_TRANSFER),
+      .ZI_ADDR_VALID                              (ZI_ADDR_VALID),                  
+      .ZI_READ_IDLE                               (ZI_READ_IDLE ),
+      .ZI_READ_DATA                               (ZI_READ_DATA ),
+      .ZI_READ_VALID                              (ZI_READ_VALID),
+      .ZI_READ_LAST_DATA                          (ZI_READ_LAST_DATA),
+      .ZI_WRITE_IDLE                              (ZI_WRITE_IDLE ),
+      .ZI_WRITE_DATA                              (ZI_WRITE_DATA ),
+      .ZI_WRITE_VALID                             (ZI_WRITE_VALID),
+      .ZI_WRITE_LAST_DATA                         (ZI_WRITE_LAST_DATA),
+      .ZI_WRITE_RESPONSE_IDLE                     (ZI_WRITE_RESPONSE_IDLE),
+      .ZI_WRITE_RESPONSE_VALID                    (ZI_WRITE_RESPONSE_VALID),
+      .ZI_WRITE_RESPONSE_TRANSFER                 (ZI_WRITE_RESPONSE_TRANSFER)
+    )
+	  qvl_amba_axi (.aclk      (aclk),
+                        .areset_n (areset_n_sampled),
+                        .reset_n  (reset_n_sampled),
+                        .awid     (awid_sampled),   
+                        .awaddr   (awaddr_sampled), 
+                        .awlen    (awlen_sampled),  
+                        .awsize   (awsize_sampled), 
+                        .awburst  (awburst_sampled),
+                        .awlock   (awlock_sampled), 
+                        .awcache  (awcache_sampled),
+                        .awprot   (awprot_sampled), 
+                        .awvalid  (awvalid_sampled),
+                        .awready  (awready_sampled),
+                        .wid      (wid_sampled),    
+                        .wdata    (wdata_sampled),  
+                        .wstrb	 (wstrb_sampled),  
+                        .wlast	 (wlast_sampled),  
+                        .wvalid	 (wvalid_sampled), 
+                        .wready	 (wready_sampled), 
+                        .bid	 (bid_sampled),    
+                        .bresp	 (bresp_sampled),  
+                        .bvalid	 (bvalid_sampled), 
+                        .bready	 (bready_sampled), 
+                        .arid	 (arid_sampled),   
+                        .araddr	 (araddr_sampled), 
+                        .arlen	 (arlen_sampled),  
+                        .arsize	 (arsize_sampled), 
+                        .arburst (arburst_sampled),
+                        .arlock	 (arlock_sampled), 
+                        .arcache (arcache_sampled),
+                        .arprot	 (arprot_sampled), 
+                        .arvalid (arvalid_sampled),
+                        .arready (arready_sampled),      
+                        .rid	 (rid_sampled),    
+                        .rdata	 (rdata_sampled),  
+                        .rresp	 (rresp_sampled),  
+                        .rlast	 (rlast_sampled),  
+                        .rvalid	 (rvalid_sampled), 
+                        .rready	 (rready_sampled), 
+                        .csysreq (csysreq_sampled),
+                        .csysack (csysack_sampled),
+                        .cactive (cactive_sampled)
+                       );
+
+`qvlendmodule

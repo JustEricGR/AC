@@ -1,0 +1,467 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+ * PURPOSE      This file is part of 0-In CheckerWare
+ *              It describes the bus monitor for the PCI bus standard.
+ *
+ * DESCRIPTION  This monitor checks the Target Controller of
+ *              the PCI Local Bus Protocol
+ * 
+ * REFERENCE    PCI Local Bus Specification Rev. 2.2, Dec. 18, 1998
+ * 
+ * USAGE        This monitor is a submodule of zi_cw_pci_monitor
+ *
+ * Last Modified : 2nd Feb 2004
+ ***********************************************************************/
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_target_monitor (clock, reset_n, devsel_n, frame_n, gnt_n, 
+				 idsel, irdy_n, req_n, stop_n, trdy_n, c_be, 
+				 ad, req64_n, ack64_n, par, par64, perr_n, 
+				 serr_n, active, delay_dut_as_mas,
+				 bus_devsel_signal_n);
+   
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+  parameter Bit64Mode = 0;
+  wire [31:0] pw_Bit64Mode = Bit64Mode;
+  parameter ParityErrorResponse = 1;
+  wire [31:0] pw_ParityErrorResponse = ParityErrorResponse;
+  parameter SystemErrorResponse = 1;
+  wire [31:0] pw_SystemErrorResponse = SystemErrorResponse;
+  parameter ADB = Bit64Mode ? 64:32;
+  wire [31:0] pw_ADB = ADB;
+  parameter CBE = Bit64Mode ? 8:4;
+  wire [31:0] pw_CBE = CBE;
+
+  input	clock;
+  input	reset_n;
+  input	devsel_n;
+  input	frame_n;
+  input	gnt_n;
+  input	idsel;
+  input	irdy_n;
+  input	req_n;
+  input	stop_n;
+  input	trdy_n;
+  input [CBE-1:0] c_be;
+  input [ADB-1:0] ad;
+  input	req64_n;
+  input	ack64_n;
+  input	par;
+  input	par64;
+  input	perr_n;
+  input	serr_n;
+  input	active;
+  input delay_dut_as_mas;
+  input bus_devsel_signal_n;
+
+  wire z_bus_idle;
+  wire z_addressing;
+  wire z_wait_transfer;
+  wire z_data_transfer;
+  wire z_disconnectab;
+  wire z_disconnectc;
+  wire z_retry;
+  wire z_target_abort;
+  wire z_memory_transaction_cbe;
+ 
+  reg [4*8:1] state_name;   // String to save state name for debugging
+  reg [4*8:1] nstate_name;   // String to save state name for debugging
+  reg [4*8:1] cmd_name;   // String to save command name for debugging
+
+  parameter ZI_INTERRUPT_ACKNOWLEDGE_CYCLE  = 0;
+  parameter ZI_SPECIAL_CYCLE      = 1;
+  parameter ZI_READ_IO_CYCLE      = 2;
+  parameter ZI_WRITE_IO_CYCLE     = 3;
+  parameter ZI_RESERVED4          = 4;
+  parameter ZI_RESERVED5          = 5;
+  parameter ZI_READ_ACCESS_CYCLE  = 6;
+  parameter ZI_WRITE_ACCESS_CYCLE = 7;
+  parameter ZI_RESERVED8          = 8;
+  parameter ZI_RESERVED9          = 9;
+  parameter ZI_READ_CONFIG_CYCLE  = 10;
+  parameter ZI_WRITE_CONFIG_CYCLE = 11;
+  parameter ZI_MEM_RDMULT_CYCLE   = 12;
+  parameter ZI_DUAL_ADDR_CYCLE    = 13;
+  parameter ZI_MEM_RDLINE_CYCLE   = 14;
+  parameter ZI_MEM_WINV_CYCLE     = 15;
+
+  parameter ZI_READ     = 2;
+  parameter ZI_WRITE    = 3;
+  parameter ZI_RESERVED = 4;
+
+  parameter ZI_PCI_TIMEOUT     = 20;
+  parameter ZI_DEVSEL_TIMEOUT  = 6;
+
+  parameter ZI_IDLE_STATE          = 0;
+  parameter ZI_ADDR_STATE          = 1;
+  parameter ZI_ADDR_MEDIUM_STATE   = 2;
+  parameter ZI_ADDR_SLOW_STATE     = 3;
+  parameter ZI_ADDR_BRIDGE_STATE   = 4;
+  parameter ZI_WAIT_STATE          = 5;
+  parameter ZI_DATA_STATE          = 6;
+  parameter ZI_EXIT_STATE          = 7;
+  parameter ZI_RETRY_STATE         = 8;
+  parameter ZI_DISCONNECT_AB_STATE = 9;
+  parameter ZI_DISCONNECT_C_STATE  = 10;
+  parameter ZI_TARGET_ABORT_STATE  = 11;
+  parameter ZI_MASTER_ABORT_STATE  = 12;
+  parameter ZI_DUAL_ADDR_STATE     = 13;
+  parameter ZI_UNKNOWN_STATE       = 14;
+
+  reg prev_frame_n;
+
+
+  assign  z_bus_idle = (frame_n === 1'b1 && irdy_n === 1'b1);
+
+  assign z_addressing = (prev_frame_n === 1'b1 && frame_n === 1'b0 && 
+			 irdy_n === 1'b1);
+
+  assign z_wait_transfer = ((irdy_n === 1'b1 && trdy_n === 1'b0 && 
+			   devsel_n === 1'b0) || (irdy_n === 1'b0 && 
+			   trdy_n === 1'b1 && devsel_n === 1'b0) ||
+                           (irdy_n === 1'b1 && trdy_n === 1'b1 && 
+			   devsel_n === 1'b0));
+
+  assign z_data_transfer = (irdy_n === 1'b0 && trdy_n === 1'b0 && 
+			  devsel_n === 1'b0);
+
+
+
+  wire z_pre_master_abort = (trdy_n === 1'b1 && devsel_n === 1'b1);
+
+  wire z_target_ready = (irdy_n === 1'b1 && trdy_n === 1'b0);
+	
+  // Disconnect C & RETRY are the same except that Disconnect C happens after 
+  // some data transfer
+
+
+  assign z_disconnectab = (trdy_n === 1'b0 && stop_n === 1'b0 && 
+			   devsel_n === 1'b0);
+
+  assign z_disconnectc = (trdy_n === 1'b1 && stop_n === 1'b0 && 
+			  devsel_n === 1'b0);
+
+  assign z_retry = (trdy_n === 1'b1 && stop_n === 1'b0 && devsel_n === 1'b0);
+
+  assign z_target_abort = (trdy_n === 1'b1 && stop_n === 1'b0 && 
+			   devsel_n === 1'b1);
+
+
+
+  wire z_last_data_phase = (frame_n === 1'b1 && irdy_n === 1'b0);
+
+
+  assign z_memory_transaction_cbe = (c_be[3:0] === ZI_READ_ACCESS_CYCLE ||
+                                   c_be[3:0] === ZI_WRITE_ACCESS_CYCLE ||
+                                   c_be[3:0] === ZI_MEM_RDMULT_CYCLE ||
+                                   c_be[3:0] === ZI_MEM_RDLINE_CYCLE ||
+                                   c_be[3:0] === ZI_MEM_WINV_CYCLE ||
+  		         	   c_be[3:0] === ZI_DUAL_ADDR_CYCLE);
+
+
+ 
+  // Dual Address Command
+
+  wire z_dual_addr_cmd = (c_be[3:0] === ZI_DUAL_ADDR_CYCLE);
+
+  
+  /*******************************************************************
+  * Bus State Monitor
+  *******************************************************************/
+
+  reg z_last_data;
+  reg granted;
+  reg in_tran;
+  reg memory_transaction;
+  reg z_dual_addr_cmd_reg;
+  reg [3:0] next_state;
+  reg [3:0] prev_state;
+  reg [3:0] bus_state;
+  reg [3:0] bus_cmd;
+  reg [3:0] bus_cbe;
+  reg [31:0] bus_adr;
+  reg [5:0] data_cnt;
+  reg [5:0] data_lat;
+  reg initial_data_phase_done;
+  reg prev_gnt_n;
+  reg prev_irdy_n;
+  reg prev_trdy_n;
+  reg prev_stop_n;
+  reg prev_devsel_n;
+  reg prev_prev_devsel_n;
+  reg prev_data_transfer;
+  reg prev1_data_transfer;
+  reg prev_retry;
+  reg prev_bus_idle;
+  reg prev_last_data;
+  reg prev_req64_n;
+  reg prev_ack64_n;
+  reg prev_target_abort;
+  reg [2:0] frame_2_devsel_lat;
+  reg r_active;
+  reg r_z_last_data_phase;
+  reg write_cmd;
+  reg read_cmd;
+  reg prev_perr_n;
+  reg prev1_irdy_n;
+
+`protected
+
+    MTI!#9U}ini+}Ydo}m^!HUlUvJkKa=5Zr2^A5iUa10PA{{aU$#rNK'p[{$QB_k*]Yek<,EX_p^ZY
+    xnx_7#'+V={H/*^xT~^G$zIiz7ilW#Hj$!7TYYH_m~QE!2x-[oVJD<X;^AGr]1pYs=3RGZ<mk$ea
+    OgXCG$}A<[/aR=j^e#1\Q75ih1O_iMmlGzlxpo\V?Ic-'m1n==I$1Zz~l=r^b<1A>oBOnNa<Ju-+
+    RVg7_AE]s+jJIz@Q}ia=L>H-A[x?,7i>ON1r#1^suK>7_Y]T8vnrk&'e?zK\21*<w#{{Z5<jE$z]
+    ;o_\D2Zp>\vE,z5rA1)7<X=A<]H=[lpR~QnBKJvZGklP.R<+ZyXR1uJ*O*IX2DW<o=KOAn<jTAj2
+    u^r#o<xW{vQ!{@rZ'TO*=pX[>[uUJAZXlzIs~*{{UTZUw#A$3UpGu$2a{lJVv~'\BJ]s{awTHvrj
+    {=l>m3]eDKkCA#Jz<#j2!zBT}E2U@D-{Z$AQ!v=*za_d$!}-1IUlUpRu7i$KK7ar?,mZ[e]];1RK
+    rKH@8KG!Bte~\2IG$_Mu]+-rHJp=ksYB\r+iX[p'}K{)*EXK?_mrKT>u\1lV;E+X'lBaBjBB('xu
+    OrV*e;>@CV$!I**Z-N@DC2RsAmc"tE1uEQXX*'BvWA}2KI#{k]TTGhe};]Wz~Qws<5V~1G2a^C'*
+    a+JoT^k_Z}^@]G*_vAkl+w,ZJ$vsuV*ADOvkXzz?UOsQ}\,-EWlRoz7kl]I5R\E~$R&l#5\rivJu
+    RGu<'aC:njGDEU[Jl_CzwTV^l~!V:k>$^=_2AxUD^z=j@<^CR5R?H,RUZZ}Br_er-l\wIo[]eqT$
+    #o<C-{XU+[wjH~#x~$1x{+?5[W=QG[wR++l^}_k{OD$>2Ge1,H@U\GE1<7ZO5Qx-{OVtF0(rj_#U
+    -D!CzTIoC,vr#{G5l@]}AZm[Tr+?nm~^@J@_5W7^@DK0[#m;NQg*~7~+,@>RR->k'O12rzA><C$C
+    !ZIAzm_ijrlAoKJu'HaVkza1~EK_W$ex,ae]+->~.V+,uW=I#[C-DaesYE3zaBGnQI3rr~Ou+YV!
+    v:;'z5GA~Q7A!DW>pRmamG=FIYT~sB}=W-x;_+R>RolGI,m1O@uC+j~_sr'T>sJX7enkGTJ$+YH?
+    v_^HxBs,!+Q7-a2X>QRK52$vIZn*3$Y!AO{@Ks#,2z_}Y\uspmU@e\JE\rU{m+=[PlDA*B3V[W-T
+    rA-}^F[?{OzQe<J5!RX]m>^_]7EUsjl%#=V#3]>rI]XK$3zlnR}$tlAolk77z"=W^krZ7pTX2;Hr
+    eVSN>{pGv=r?:K7Y!RklG[f0U>1-;e{RmR@}Tz#-}<D[uBQ?_*nJWEV$1UWxKD<@B=[j]^vwlQx@
+    ?^5x~poG^>-n<B_183B-3q5i-!>Ywp[^_{{zZG'p1@+5IsU1i^\Bu@*#X#<o\i'u5B<'Wv>H;x$1
+    pr?5osoKn]O]-[H*,u*2Q7<\eK9wajQ<^,<Ei+<Q7+B-1X5NIw$@a7EmPh*HYjuI'Ew7*vSh=!=}
+    v?_lgr'=j=Rl*Opax[Gsas~72!a;'v5iVkXJV$^pW@rjI2eK>d_A3szK$vHR>+Dr72we,vUDZQ~D
+    3R^}wTl\JCGu=<YnoG5EH_[fJEkQ1;aV4,k*rxxCwA7]UElpH>-7psGpaIDD3};XHpBJQ'*5sAw@
+    p:}xmla+CHM\Iv@|;,[E]@IvIwV$~_R!oXw$W_Yn{j<aev;<;{=sAoH*m1#Gw_rne><?E_=A&GBr
+    rWHnUc]IlQ*s]oKOv7!e{HQ!aAZhzp@RkA*Br;I[la\;j+x!63E=Kva_~UIXl\B0(DQ{1XI~*-s}
+    HOa1Zo\JZ3^JBC_Zaj$*G8W{]r4k-~3Uv[^|/]<*\Y~[[=TDEua=?7W\77kQ~Y^2m{{Ymr(pZY_/
+    -Ha5}4)I'TU_i[[qwRIpFG~BONmRB{<XA,bAR<r9d$wJ}M?=V?%CrC<oAakKw[+@h'@7Ae;QC$>{
+    <jxY;z^\,T17U<HDUR~~e.W7$mfR7#QwX_saX7Qg"(>aGp}k3w*QB+[oo[:ji-l-Cr[[<x'BT1Ww
+    N=p+{Gz$jEk=ei>'iT5vT}_&;^rT#YZjCUl$:Nn>KZCJ_5[-+o>>@a.,DuUt~j7iF=U!{lHx}}uA
+    we*vB^n$i35n#xTjHN:[Q*ACHY3Q++kK+W@ABn}{,V3=A$,c*1I5Yx#{$VI[-z?Yi[Grs={YBs1G
+    ja1RE[jYKw@G2e>;5<C}w,wa4opuz2NoDTJ\[kp[5#=@zjuOW*Wa'Q*B>A[lwnUIUoJKXz2vwn3'
+    [z'G3{1Tne}5r{1u{Y#5K@w#I3@T1"vkIRIoI?N%}UOshs~o[,3Ee'TTm{YR;K\k?Ee>lov~DaD?
+    k,a^V|RQxE$37eQI7?C-=HZra^kE!Eia>=r%#eV#mrkETpmIjWCR$eBY7Xm~'h%>[R{E#_j6}$nw
+    %5;+ZvurG4[D11{{p[O?o+CJY>LsnrsQk;nAO<_^pvHm*7RgYV_*pDp^aUY{xpO}Fv{O\P^R\TxZ
+    m@$*Ysh/Xom3l<AOCKHH3ljReeCZ*\\;Mv3$VT<jlHADWzalH)SU\a=>CG?,gJ{RZET$o{Dua,5!
+    '$\nneYT;^;K'|1a2w%7'YQv}p-VAYTR3,uC-3's*VaJ7}e>5j}BQzVEk!D\mmDaUV2[UrAa1iwV
+    ca<m;K1^C2+<BIH;kos+Q\3ABns=u2T55T-p?tH5+!7zV@#DVC7vewnI,\3=nCD^Bv7m'~[n1,2-
+    v@w>Oz5*?kkrR,xR-B}!<z3'ZA$s;o5K~zu]o<nIGwXv^@)~_5ZT{+p~T>oO<@[R]x+n{AoaG'*Y
+    _J@xzYXS)e7nvo]wRUzRDZozT7WmZ]E-2([-*kKs^o&o/{\z5:)xe?'?pe=Ur-#F|zZ~Wos[zXle
+    $+>oXRkW+(pi~#pnl$4EWTQz]-w]$U5#Bs<0clkD3>]];w,'xsoo7^G!v*iwoT{smK]5xO$#R\Qr
+    Em1w2Rk\]UOluVi5u>z1p[!]k_s#YJI2,QV}#?7Xnp1-nC>5Ob!$ppA=\BTCRlejkZB1Anv<B{~l
+    v$p~TeCWWXLVvX}@ro])vII<\pw\*j$OEh*1,7vCD}E,{1-=;Wlpj@>U>T3+O,,V{!_~aTr5rOzm
+    \{f__Zux$H-yrx1W6E<7Er#oWv%~{rp<x!?GvRu5k*av?H}!DC#,wNU^3[kYRoXlz>7[ZoU7jrCI
+    VRj@TOYw;jaOVe2pBnDelW*iJTeBeE{<lr_Emx13KjRpx#E{luX][<X_'WCxX==;]BYyD7$E0(^v
+    A*O@T]Yv${]W,vGnB<1E<~v2OUX$GEQRYo*n75+[K#BC#k$6E~pKeXD@ECO2*uGs=3*G;=2O>$k[
+    xs_v:mwnaXHwGi({'n{1H3zl;KzVGe+Tl<<@8R-Y2N=N~YmBQagOIu$27EJLrx]UJV2QE<RC'@uu
+    [uzp_J*_CIWBr\?}ep$OjlO?Q]T@k7C^Kw<5BrQB}x_w6*TAH7YAs_vusBvEBYX[UXA'@9zK<7cZ
+    >H@6wR=!+sXXBlT?sRuDDW2^B!O+uAAJJsRU$GY+IT~n1!ATQH@'znI#x>Q'-5<DDnW+AwQ7kr<Z
+    QHXWiQr37'u[;_Ko<BCsllxjeKXI=Z1{a'Rm-*_5CRx}aaQxn[RC,!;$#soBQ-oAC#X1YRan_vjO
+    R@s<*:s~ETn*${*Z<#1X+,HDKA27@^n>TJEusBhVjD5i<e*K6w-<W__!?DG_eK]1+V*{mWa~uis]
+    1Io1{e]CAY=QBBziH,5'}%1^R3}#}rAzWC1X*Hn5[ifmz*k.#}CkvjXpVB+vAY53W,??Yow3BGz^
+    ^O^=l77}Lt7XB|I;,Bm\5$KoA?ds$'>-EYkn9\{1Czr!o=1_kJ]I?XEDJasGsAnA'+zQ_LE+WRvn
+    Y~Qu~>fU$UZdNXRw>Z*;2LZrDDm=#Ue}m@b^TwCp7V?vQ*[<11Uaww-pmn[dQ52\'^1QSepCul@v
+    \<DB^1\Wkm-OZz{zB>+K3WHsT>-z$YEu!{1iU_OzYUvQ@!Uzej55vmxGiCu7BX'$o<ea[t=QQC7$
+    >YXE*D:*Ek3zau5-5''5^~HkRHW[Q~OYVYDQTDJ~T'u7^muB#2[-B!vk=_JJ*\$Jsve>alCn-+mY
+    ^*G?evY+<KUzWrHK^C+0%'#UO1U7?=O-O?[{[RmQZ';}mDBV5wG]}IwuJJNmE}z12[Dv~wYY<e*]
+    '\;7$_Romp$C}p$lTr[2^Tl#}['-94>$3G{_+J^um<a,'5w]2<ciCx<x_jRAskZ4C-zXDbspR'<5
+    DxIV#=EuOll$Vvv[-<r@]n'*sp!v#xBp~}%CvQ\BTR?V@C*@_{Y$G^Tlj*\AY{^HwHO;CXjVw_~$
+    ^'R9L,K}![?su3p3XT-Y3SHGEW[i[Ip!jQ$3ja+Vk?~AIoTxu5tx":2\mO$Bl<~a2zvnjm*JOle}
+    R;=#@1Q{X>t75rz%jau<A}>T'vZrsOT;lK^Uk&O?\!rjrDQ2w@'XQKY!@=ww}@=E\oggAD'EvQxH
+    <nv>k<KBfi1uUv323^i[KNupx\7p$wi1rmVxTG#lk}PUY;s8+'lQaETT'VnYNj)pjYJwr{x=QziA
+    QwlAY;;Y]3I[<$AI5xUXq}RY[BraJa[Wk5n+KIHB2NBC}T}YxsaXlB"zt[<5OBYCu#ap?+aU<IC=
+    =s$sElnx5rlZQ->$sQJ~RQzBAI3,WQm7s5r$~:%(eoslzjX}zCDAwA1$5n*#OXl,=1\wE;}j^UzJ
+    s\?UC2XDKx*p72W$zl2E'pjTsZx{psD?.'+\[VCulEWC,>BYxM3BerGX<^'{DJ,dEYxWe+D]'I*w
+    3aHDlnY!4?7A[Z<E\kalA6>D,{R=,C=15z$#+oLYo~s-EX^}!*'zr;jTq.g:r*Dx-UBvYnAa}OU?
+    UH[aO_XRK\Np'}_Gvv<\\ss#tn\I5K*vY';-l3[{>c{$IQ1_A+|\;ITuO>V]s-Q-}TB1H-7BY+?u
+    H@Z><RC]\x?I$Cos5A*$nTp%.QvE^Mi=Zj6Lkn{QEv_2]eA2!nEWH-!5Vo-um{XXEpH]DU5,H[~2
+    v5Eug7zUIVS>-C]Ap,,J}}m37zH{Y7U}eKO[*G#e*wjLW'u_e{>jQI+E^DUTioXs:Bv5u+nETr*Y
+    a'B7{6,-o[{n[VO-w##>Br^mY$,eW*itv{4j?$Cs[\oGXpvvl>w#G~}oT-?ZHO>iw5{Dp'zk[?ak
+    {\XD,R1r<Qx}R-K{^7lur\x\ve1X'--]]XnC*DWEBA;jBE7FkDVDl~X,[J--$mEZS<YOs7\3Y_zu
+    p^7imzJEA|J>A_5Y[2*{{'W{}upkup_7RX+*aO'?a3{_;pB['_u{-CK'v_.#+;afi{jaM2->BDCo
+    usa{*Zj^vxnr#_3^QUsams_Tun]x_ro+^@5T'|jOl5[#12@*xjOQsaExVKx'z54xsih@*[k}#E11
+    aeZQT];O;2*VUmxYz-3?p+El?Wo4*'O{JGnIA>Y}o1#Xk[kG}x+u,~z72DJ2vi5o#+=T3<J;<o,'
+    }7a{Da]{l@zr7Eo@}sVnpj5l^x'?7k=n~Bx\5w5C7i$zVk_1A+x]QpeoB=sz5e>U(#Y7OiS,svJr
+    J'@\kp,cG5Koj!V~Qiu;eOIvj$}u,_AJE~<Ca{e2'G7DxQ]WZA[XKGlEH_r#f{=?wzk!lzp,Z'37
+    uW,j_s7#*]*Xv\Y*iK}'!^3wR=nG#\r]1opaY{}x+]5Rn[/@QQiskC>,5{7}Mm[V@Q$#1#AQi75s
+    JTE*l3'l$7Y;?#Hp=}nJ*C$2!R-nu!SDNEsV;?w,^uxKT#Uj~~}DK{OW5=U7*Ii!YU^x5H]lp/z*
+    sw'Go#za>At$7]p5T'=*z^GMv@G2N"]^2+|zrVlYJzA@\e@jRmo]n_{CTsW2p_*{=?Bs5AVuDDXB
+    B>+>a5{'=_l}Ik=EX;2r+]ei+D;-V[[Y1i=+-*7'kuZICYZH]#=JplvU<Z[
+`endprotected
+
+  wire data_phase = (bus_state === ZI_WAIT_STATE);
+
+  wire abort_phase = (bus_state === ZI_EXIT_STATE ||
+                      bus_state === ZI_RETRY_STATE ||
+		      bus_state === ZI_DISCONNECT_AB_STATE ||
+		      bus_state === ZI_DISCONNECT_C_STATE ||
+		      bus_state === ZI_TARGET_ABORT_STATE);
+
+  wire fast_back2back = (bus_state !== ZI_IDLE_STATE && 
+			    prev_frame_n === 1'b1 && frame_n === 1'b0);
+
+  /*******************************************************************
+   * Protocol Checks
+   *******************************************************************/
+
+  reg illegal_config_cycle;
+
+`protected
+
+    MTI!#uQB'W1{D&Yf'iAUp'E-<=w@<*!o-[E}FBclt":F6}4ksQW_Aa#/7C[U7@KeTQkB_1}W?DY2
+    ]fCn^,emoz7?<Z9lv+EejMpzJJ@{YX<vv]eRln-^J[[+Z!!YQZW5=Tff}mxQQ*_^E;}Qom$+]~;r
+    nDk}zGLeQT]ij-W>9u\)jB2mkEkal3wpK=1~zI^5Us!#^+jl'mQnF,#[2p3n#-^}{^RwKj+r;<B-
+    VTD+jt+{H1=Zvp-*\}~B_u,Kplg,^W$@+JYVTQl5*B*Uam{(1lzw$-'#)Us>Oj^-1kwxYLsCz_vv
+    #}3At~}xTBC5-Fr^TO21XH\zxYU5UE[;],ljDI'yNu5OY-{*}5kX}EZ+IGnI''E${Z$J>['_!UBr
+    k=#^}n[@u=*-Tz@a\VKJQUB}B{D@+7@+uG_R+Oviu*!{-z<AREA@1z,QIzWVpRp_W^C-AewnR<>\
+    3\e_3wjri^K_3p1C[<XTGl@Z75iV^GQV]^DwC~Y,ze<T{G\G]R2roo2r7p5}?$^@^gO^vHxrVv$_
+    *XpBiJ]mT[#-RHzxi+XEu-dr]TC*zB~7+EY';1!5=#7oVZu25Il-]-Zv=?\3$']liT\2Vs#QGiYs
+    0rHOw51pGCeT}7VJk?o,JVl[w7j5KU$12WamsR@-[*wzZuHeC'!>RPp#32oro$]n}}*n,r]l,a#<
+    5?8F1*>\hsU~!H,QI$iKpC3zC|8<CUK+e1V
+`endprotected
+
+  reg parity_32_tar, parity_64_tar;
+  reg target_ready_reg;
+  reg ack64_n_asserted_reg; 
+  reg req64_n_asserted; 
+  reg master_comp_term;
+  
+  wire ack64_n_asserted = (prev_devsel_n === 1'b1 && devsel_n === 1'b0 && 
+			     prev_ack64_n === 1'b1 && ack64_n === 1'b0);
+
+`protected
+
+    MTI!#n_xw5EID0=DZeSC_Tj3EK*L]jC\.{j][ffo=k<\;xi1;],k<m]^Tp2k5JEyQ?BYhwXH~w}m
+    HFt&?^k;u[r7/|2Dp$jwsQ=O}[p~V3xxv'X^DZvpklC}mB;pO^\C=ZEa$[]slw^}-p=x\\C5BZ7H
+    _nvs#EB{m#B$j\BXIV~X<ui[j[cRJ~pk\]ui7@ka[X_VA5Q)K7?{ov@~e5B2r$/\~sYSEpCu,^7-
+    |ma+E7<$xESf,2BO],]_#=Dxp=W7G;[m(!Yp{:1\n\<BB^TsZ?pDUjari*'C[5ti5rl/Np-J]IwX
+    lDOV7v$arL!}'T:J7i[H}xr,~z^o#uB*Ykeu=_-sX>G7JsxJN@R\TqE?$a|Vl+@ezav}Qf/-}]x.
+    :OkjYhXYpmpY%@wov+1;I,?[Obuw*}rRYKv$lDq^;IuT_1$,i$#QVs#wVZT3}uT>a,H)wR!>J[?^
+    U$$j,-IX>H]^]s?=$\C]IUV+u=\x$O[3I5,T+U>D;XV,w><w3^5J<t3<Y!^u-<UQD\;7Vi*][z-I
+    asdn<[[B\KE|oE#^Z7G[l{K]$5rw}<KH1JD]Rf=xUw|9YZC!eXsBN*32Wm'*~2=JVk']#_Y-}FQI
+    KRG:KGoo[JCk*kHG\zr2C=#u&v_u!:CKm;j[w{fOwsE25vHs$k;fg%{{zaBJ'_^RW}$o7<=#QIA1
+    QX)CuYGH]]}IiJz:Eu~T^_e_|nYvpHes]}?G#*'<p;D1=l@DB=J_iEkj}sJ>]1--RPu*mOWzee4I
+    j*zdoJ{=YmVIUz12W-{Yz{vx!O$W>\Xl^aa_iD=i!o!1|g1Z+<'i>l,W\*gDeGIFOKQp$jJ#C![T
+    Z}#TB;A>NjmJs?<=!z1p?l\}l<p'pQv$\2[p17c"!T*1u,+Ek]kv2SA'ITR+2~taj?~XRmkt<'vl
+    v>nX2RDCVtKHz=Q\+KP?r<Tv2,2{j?lu>uv7?IOsn->1~X!:Y$YoP,x+$@A+Rx;Xk\'#!u_dA^]T
+    b@>7}BmV;Cez'Rzp#31$x|T<rpa-!pZtR22o:AI5@}2eoTB1m=pX@_-DB{>Ux5W<HEVu#}Za;GK1
+    Zs1R'1Ueli_O-TpnHI]!GGEXU<-+-|Fn]Y@T+}5rB}s<<JlICk<us5!JsnHRu<50Q#]*_'{~bl^'
+    B2=7mHX{{$kn7rskp8qVkE}?z=}8GOVK8)I--$kY\$XAaO[u<ZzsvHEZ\-aaUz~Xzisu,2Y_w<\!
+    +ze[GXWXBmk[k{ro+5Ng}*psNQ\\[;5-n(O>B[WToHlm<AD,}7~'{D/ER,U!+AR-xUCRB@!L(:Cp
+    _p52\<iQ3E\YI=-E~^q=@T*UD+jPt>^Y?@^kIEQ<s,Jw,"2_CR~5?}?C#^u5Xu<7E'OmAT5v3=lp
+    XVCm}il*[<T[m\Dm~Tze^a2}]'lD2CBn1^@U}H[mvs=RuUn$Q$Vla=j37k=Y$3PE<JE9!G!\j,\I
+    1;vzJ,[zaU]D{$5{5+XzC;mFB~aErCJCl@Ba;vVKx*++5E1?{[R;,Jl*,eTjc7*!K=TJkmwEp9u+
+    zp8"r~}J60ZQBwv?'Vj<I$V;BuCRY=7rpmspj,\K\O=#pO[_!mXQJZ,x5+)ZYoWOQ#G-$1BjJl<s
+    HvQx-T>[zRDfGRX~lK~>O_I>=8IBO<u{17O^>u?oAjAsxeEeC^rR=?nRsr?}_m<YGvp{KTYYuUiw
+    7i^?~#*Z-!G$\Wh{5#,ARn?o73E|1X_?=urAANa$vD{U27p['}7<E$V+QA]pVICm^_C-nzL/[#e]
+    \J'~Q~T${sK,_93e2xHj<X5DJT}V5jliw*SC{@3I;n'3Y]i7O+r9*G]il5-VY-mO/w{<{BAj]1JB
+    ?D'Z_2]XvB~^B6~[]RADvW^iUJDGr$p5<!K9=>A'JojZQ^~2nlW5[[BGCv\~!n1Cn{zXp-,W3a@X
+    @'C{^uu_+pm>Yu-l!_G^A>YoB>I,*+2^WjnTj],,DsAAX-2!K*;eBGlWjIRC{o-wt%xY1?i5m{D?
+    jzA<S1U[Kx#m@&M^Xe2BsG{z{@]11X<rJ;*ZY#m35r7eO?^y'#Ga!>{QrB2G]TBoeI@QOUDT_ReX
+    jl_}eWDV?,BH8#T[;1="Y}=EsB~k
+`endprotected
+
+  reg [63:0] addr_cnt;
+  reg [63:0] fast_cnt;
+  reg [63:0] medm_cnt;
+  reg [63:0] slow_cnt;
+  reg [63:0] bdge_cnt;
+  reg [63:0] rtry_cnt;
+  reg [63:0] dnab_cnt;
+  reg [63:0] dntc_cnt;
+  reg [63:0] tabr_cnt;
+  reg [63:0] mabr_cnt;
+  reg [63:0] unkn_cnt;
+  reg [63:0] dual_add_st_cnt;
+  
+  reg [63:0] intr_cnt;
+  reg [63:0] spec_cnt;
+  reg [63:0] read_cnt;
+  reg [63:0] writ_cnt;
+  reg [63:0] rese_cnt;
+  reg [63:0] dual_cnt;
+  
+  reg [3:0] new_cmd;
+
+  wire collect_stats;
+
+`protected
+
+    MTI!#17xJm7pA2\l+:RjeU=?K7sY2#^K<$iVF"7;h|b7*#D=?BKKsp]oQQBOfTj^ro$+@2$;m}^v
+    oXDim@CRuD-WW^@7vGj;W[Z1i-<'Apm37I@U}@$RQQ~2@-YnrHT$lBkCQ9x#7+ok=D[OBTi'{VOE
+    {$K[J$^ZWj/,G@TaGU,lI+uxz$>[C1QYT1vZG-E5a'}1l=ER}?Brva_=#JH;=YZ^EpXT1YDP!C}p
+    e22^2rv$I\T2,zx$TEVTnei5E32=7JV]'XY<_\=El${svnmzkTu{75$o@5?aD$wOEz1{9KR\w(YQ
+    x*k=Xvd^uA\=]\Y]3,#s+O>Ox~V3V$}0F2{CYT&^*k[=Z][4wCH-a'XKtYwo!Zjs*(*IHBLMsYa!
+    |Vlu\[Zu<s,Q*7m!R]jWJ_aO[D_5~}[v3\EK2]x,O15z'[d\+REx~IV[QvaNIm{1GX;k+>l[*;T[
+    k>_$TRi<QDIQ]@pV~aT<^]!mXooKk7Wk<U-u?B!OBI={XTE2g]V_}[!oe2Yi{|[X3QB#vYpCsQ}m
+    D+V^\3z,v'&x\D+1J1@en]Z[T-vEC\w{snY2\!}xozCsvRw!$suv;+oa>{Kz\$AKsl-TD-TBCem^
+    AO~|apkl_wBH:{]O~)}D?<B>l}_'7TX-nZ,{>!j7=$O}AU[Rs'r+}5[YEJ+XCEDzT\Y!ORkjQvhB
+    p7>E>\?ROr~O@~->wuU;[J'nj>\OrW+iT{RKUnY@Bll(W=!T*!'k5D!#}1ruHlp{~-[,5wJlr2AI
+    }-3p#$\5l{^Ig5,H{ol3m7>CWe*\rGW2XsiK,%-zTpk\kuOG?n4-,O2=j?kUzWUQpoZjJ[}I"3Eo
+    *vbol~O"Kw;O#D#3alV<AERn.Rz!oXrQO}?\#[R=or}=,'WC;^1$Gxjl?@*wwf{x^CRoDHDer[C{
+    OoiD1^rhGQcGVKmW]pY&$IXaAv;jE^}BX_<RD]JR{}s~#YAA]s-zOs,ax[~W_a<-Ar$Xx'Z@jAVu
+    6-Gr_({'rRcY\ekhos3^^\IT*1DuM^lnVoHT]<XZr=[2nreY7B${_OU<[lCpu{wVVT>$~We212$K
+    JHau$1EvU^Ik#7+Yr*vJKz|ZYE#<zsjOj]B7=EAT[}!rElk,VXInawWg{B^niO-]IHWQvW{<_]Hx
+    VjE@I@{D/1]=^B?oYZBR$g=l#Ab>5>^Gu$a<D+!r<O-Emn,Re;5_J,Qz*A'>{5B5K!DoCHw!v_wO
+    uB]vp#oeM[n2oBXva$,Dj,rlmi\;A$k$X~plC\J_z$g@E!'wvOvrUJu>,z[Qv[V'!QJ3<}T\j;Z\
+    Y7$x5jvcs-*Z}ljuJ5D7o?JuEw$>o]s[K-D?Z5r<rDi]m''[Q-H1=Z6I2-zbcB@_2/!}Q]\EB~uo
+    r~{Y+@DNEBm;b:t=nla<D[a77'O}@IGmDjO$<v[/E2lZ[=CwTTeIU+~Tn=~*>r;T,ID$<wJ[+a+>
+    QucR<3+O>Q#',-w5pk;A5\[>$k1>N-]*-w{\iDofY}*Wp7}ZYn3^jWn$=mBGp?XT%-<w^[p,OTR[
+    n*>w[8BV;<i_e-T'{2?aD{jZ5JW{GuvWZ[Gl'DYKz3,+<ZJ<r@7/|QZR7^Q3Hou[ZHTY[hx2X'ss
+    }TY=-$D*DW#wY'rIXESPR5rR'wX#x]u_HA>pi*-r~Y2~7XJjr{JK]E<XZOkz$HlRwe2CxvipBjmA
+    ]TwnL#>CvUBR!8A1?xj$Kj@vR?{$^D$K![lk7[|=;;HDIzih_@]Hp^Yj=W}*'n<pXOjDp3[U(nUY
+    >K\UOL~}<5^^]?wD1YgXaD}&4Yj!a37G^}KUW'YiXL?wXTl2~o,,s!ns71iCT$V=]J?>IQB_@,T<
+    wup<Z*?$IrO,aZ{n}wC!7v}j5}5CzV}nXZ;T<3zouB4eijkr_R}N9YpHnY;[A?Gljx$#OoZu[Us2
+    BOGiEroi=~s~@{sAXUQi77=K737^[Y?ZuP<nX^gZnpC[2^7$zlTGO_wvrVTiRVvUnDkWG+]ll<$o
+    D{UeD<AERU$Vu\wVK_1ym=7!k*~>i=}HhPDDzTG_,k+wW{[dHBWKApae
+`endprotected
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_pci_target_monitor_assertions.svh"
+`include "qvl_pci_target_monitor_cover.svh"
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_target_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_target_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_target_monitor
+`include "zi_cw_pci_target_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_pci_target_monitor

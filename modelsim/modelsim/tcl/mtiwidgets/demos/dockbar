@@ -1,0 +1,56 @@
+#!/bin/sh
+# ----------------------------------------------------------------------
+#  DEMO: dockbar in mtiwidgets
+# ----------------------------------------------------------------------
+#\
+exec itkwish "$0" ${1+"$@"}
+package require Iwidgets
+package require Mtiwidgets
+
+# itkwish interprets the rest...
+# ----------------------------------------------------------------------
+label .status -textvariable statusVar -width 40 -anchor w
+pack .status -side bottom
+
+mtiwidgets::dockbar .db -relief sunken -borderwidth 1
+pack .db -side top -fill x
+
+.db add standard -wrap 0 -orient horizontal -helpvariable statusVar
+.db add tools -wrap 0 -orient horizontal -helpvariable statusVar
+
+set imagedir [file join ${iwidgets::library} demos images]
+
+.db.tbf0.standard add button select \
+    -helpstr "Select drawing elements" \
+    -image [image create photo -file [file join $imagedir select.gif]] \
+    -balloonstr "Selection tool" \
+    -command {puts "tool: select"}
+
+.db.tbf0.standard add button magnify \
+    -helpstr "Magnify drawing area" \
+    -image [image create photo -file [file join $imagedir mag.gif]] \
+    -balloonstr "Zoom tool" \
+    -command {puts "tool: magnify"}
+
+.db.tbf0.standard add button ruler \
+    -helpstr "Measure distances on drawing" \
+    -image [image create photo -file [file join $imagedir ruler.gif]] \
+    -balloonstr "Ruler tool" \
+    -command {puts "tool: ruler"}
+
+.db.tbf0.standard add frame filler \
+    -borderwidth 1 \
+    -width 10 \
+    -height 10
+
+.db.tbf1.tools add button poly \
+    -helpstr "Draw a polygon" \
+    -image [image create photo -file [file join $imagedir poly.gif]] \
+    -balloonstr "Polygon tool" \
+    -command {puts "tool: polygon"}
+
+text .worksp -width 34 -height 10 \
+    -borderwidth 2 -relief sunken -wrap word \
+    -background white -foreground black
+.worksp insert insert "The dockbar above contains 2 toolbars, each toolbar can be dragged around within the dockbar space.\nThe RMB will bring up a popup menu that controls the visibility of each toolbar."
+pack .worksp -side right -expand yes -fill both -padx 4 -pady 4

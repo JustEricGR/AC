@@ -1,0 +1,2932 @@
+##
+# Multiple Document Interface Widget
+# Translation of Mysund_MDI implementation into Itk
+#     mdi.tcl
+#     A Microsoft Multiple Document Interface for Tcl/Tk 8.0 or later
+#     Author: Jesper Svensson
+#     COPYRIGHT  1998 by Mysund Scripts
+#
+# Author: b.s.griffin       e-mail: bgriffin@model.com
+#
+# Copyright 2002-2009 Mentor Graphics Corporation
+#
+# The authors hereby grant permission to use, copy, modify, distribute,
+# and license this software and its documentation for any purpose,
+# provided that existing copyright notices are retained in all copies
+# and that this notice is included verbatim in any distributions. No
+# written agreement, license, or royalty fee is required for any of the
+# authorized uses.  Modifications to this software may be copyrighted by
+# their authors and need not follow the licensing terms described here,
+# provided that the new terms are clearly indicated on the first page of
+# each file where they apply.
+#
+# IN NO EVENT SHALL THE AUTHORS OR DISTRIBUTORS BE LIABLE TO ANY PARTY
+# FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES
+# ARISING OUT OF THE USE OF THIS SOFTWARE, ITS DOCUMENTATION, OR ANY
+# DERIVATIVES THEREOF, EVEN IF THE AUTHORS HAVE BEEN ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+# THE AUTHORS AND DISTRIBUTORS SPECIFICALLY DISCLAIM ANY WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+# NON-INFRINGEMENT.  THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, AND
+# THE AUTHORS AND DISTRIBUTORS HAVE NO OBLIGATION TO PROVIDE
+# MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+# ======================================================================
+
+package provide Mdi 1.1
+
+package require Itk
+
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#= Mdiclient =#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+
+::itcl::class ::mtiwidgets::Mdiclient {
+	#inherit itk::Widget
+	inherit itk::Archetype
+
+	constructor {args} {}
+
+	itk_option define -actioncommand actionCommand Command {}
+	itk_option define -activebackground activeBackground ActiveBackground White
+	itk_option define -activeforeground activeForeground ActiveForeground Black
+	itk_option define -balloonbackground balloonBackground BalloonBackground {Light Yellow}
+	itk_option define -balloonfont balloonFont MenuFont {Helvetica 9}
+	itk_option define -balloonforeground balloonForeground BalloonForeground Black
+	itk_option define -borderwidth borderWidth BorderWidth 3
+	itk_option define -class class Class Frame
+	itk_option define -closecommand closecommand Command {}
+	itk_option define -command command Command {}
+	itk_option define -expelcommand expelcommand Command {}
+	itk_option define -expelimage expelImage ExpelImage {}
+	itk_option define -foreground foreground Foreground Black
+	itk_option define -height height Height 250
+	itk_option define -icon icon Icon {}
+	itk_option define -inactivebackground inactiveBackground InactiveBackground grey50
+	itk_option define -inactiveforeground inactiveForeground InactiveForeground black
+	itk_option define -mark mark Mark {}
+	itk_option define -maxcommand maxcommand Command {}
+	itk_option define -mincommand mincommand Command {}
+	itk_option define -minheight minheight Height 20
+	itk_option define -minwidth minwidth Width 120
+	itk_option define -pluscommand plusCommand Command {}
+	itk_option define -plusimage plusImage PlusImage {}
+	itk_option define -relief relief Relief raised
+	itk_option define -state state State  normal   ;# one of active, inactive, normal (active, no focus)
+	itk_option define -status status Status normal ;# one of normal, min, max
+	itk_option define -tabtitle tabtitle TabTitle ""
+	itk_option define -takefocus takeFocus TakeFocus {}
+	itk_option define -title title Title ""
+	itk_option define -width width Width 300
+
+	public method action {args}
+	public method activate {}
+	public method childsite {}
+	public method cursor {x y}
+	public method deactivate {}
+	public method join {}
+	public method rip {}
+	public method ripped {} {if {$_enableDragout} {return [wm toplevel $itk_component(cs)]} else {return 0}}
+
+	private method _button1 {}
+	private method _icursor {x y}
+	private method _initImages {}
+	proc _balloonEnter {w msg}
+	proc _balloonLeave {w}
+	proc _balloonMotion {w}
+	proc _balloonPopup {w x y msg}
+	private method _balloonBindings {w msg}
+
+	protected variable mdiframe
+	private variable balloonMsg
+	private variable csManager
+	private variable csPackInfo
+
+	private common _enableDragout
+
+    if {[catch {wm toplevel .} ]} {
+	set _enableDragout 0
+    } else {
+	set _enableDragout 1
+    }
+
+	common balloonAfter ""
+	common balloonWidget
+	common balloonHelp ""
+	common balloonForeground
+	common balloonBackground
+	common balloonFont
+
+	common _base64
+	common _imageName
+	common _images
+	common cursors
+
+set _imageName(File) mdi_file
+set _imageName(Close) mdi_close
+set _imageName(Min)   mdi_min
+set _imageName(Max)   mdi_max
+set _imageName(Norm)  mdi_norm
+set _imageName(Mclose) mdi_mclose
+set _imageName(Mmin)   mdi_mmin
+set _imageName(Mnorm)  mdi_mnorm
+
+	if {$::tcl_platform(platform) == "windows"} {
+		set cursors(arrow) {}
+		set cursors({}) {}
+		set cursors() {}
+		set cursors(top_left_corner) size_nw_se
+		set cursors(bottom_left_corner) size_ne_sw
+		set cursors(left_side) size_we
+		set cursors(top_right_corner) size_ne_sw
+		set cursors(bottom_right_corner) size_nw_se
+		set cursors(right_side) size_we
+		set cursors(top_side) size_ns
+		set cursors(bottom_side) size_ns
+	} else {
+		set cursors(arrow) {}
+		set cursors({}) {}
+		set cursors() {}
+		set cursors(top_left_corner) top_left_corner
+		set cursors(bottom_left_corner) bottom_left_corner
+		set cursors(left_side) left_side
+		set cursors(top_right_corner) top_right_corner
+		set cursors(bottom_right_corner) bottom_right_corner
+		set cursors(right_side) right_side
+		set cursors(top_side) top_side
+		set cursors(bottom_side) bottom_side
+	}
+}
+
+option add *Mdiclient.activeBackground "#000080" widgetDefault
+option add *Mdiclient.activeForeground White     widgetDefault
+option add *Mdiclient.inactiveBackground grey50  widgetDefault
+option add *Mdiclient.inactiveForeground grey75  widgetDefault
+
+proc ::mtiwidgets::mdiclient {pathName args} {
+	uplevel ::mtiwidgets::Mdiclient $pathName $args
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::constructor {args} {
+	#
+	#  Create a toplevel window with the same name as this object
+	#
+	set itk_hull [namespace tail $this]
+	set itk_interior $itk_hull
+
+	if {$_enableDragout} {
+	itk_component add hull {
+		::toplevel $itk_hull -class [namespace tail [info class]]
+	} {
+		keep -background -cursor -takefocus -menu
+	}
+	} else {
+	itk_component add hull {
+		frame $itk_hull -class [namespace tail [info class]]
+	} {
+		keep -background -cursor -takefocus
+	}
+	}
+	bind itk-delete-$itk_hull <Destroy> "::itcl::delete object $this"
+
+	set tags [bindtags $itk_hull]
+	bindtags $itk_hull [linsert $tags 0 itk-delete-$itk_hull]
+
+	if {$_enableDragout} {
+		# Turn it into a Frame straight away
+		wm toplevel $itk_hull 0
+	}
+
+	_initImages
+
+	if {[set i [lsearch $args "-class"]] >= 0} {
+		set class [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args $i [expr {$i + 1}]]
+	} else {
+		set class Frame
+	}
+
+	itk_component add wf {
+		frame $itk_component(hull).wf -borderwidth 3 -relief raised -takefocus 0
+	} {
+		ignore -borderwidth -relief -takefocus
+	}
+
+	itk_component add clip {
+		frame $itk_component(wf).clip -borderwidth 1 -relief flat -takefocus 0
+	} {
+		ignore -borderwidth -relief -takefocus
+	}
+
+	itk_component add system {
+		frame $itk_component(clip).system -borderwidth 0 -cursor $cursors(arrow) -takefocus 0
+	} {
+		ignore -background
+		ignore -borderwidth -relief -takefocus
+	}
+
+	itk_component add file {
+		menubutton  $itk_component(system).pfile \
+			-image $_images(File) \
+			-bd 1 -takefocus 0 \
+			-relief flat \
+			-indicatoron 0
+	} {
+		ignore -activebackground -activeforeground
+		ignore -borderwidth -relief -takefocus
+		rename -background -activebackground activeBackground ActiveBackground
+		rename -foreground -activeforeground activeForeground ActiveForeground
+	}
+
+	$itk_component(file) configure -activeforeground [$itk_component(file) cget -foreground]
+	$itk_component(file) configure -activebackground [$itk_component(file) cget -background]
+
+	itk_component add title {
+		label $itk_component(system).title -anchor e -bd 0 -takefocus 0
+	} {
+		keep -font
+		ignore -background -foreground -activebackground -activeforeground
+		ignore -borderwidth -relief -takefocus
+		rename -text -title title Title
+		rename -background -activebackground activeBackground ActiveBackground
+		rename -foreground -activeforeground activeForeground ActiveForeground
+	}
+
+	itk_component add cs {
+		frame $itk_component(clip).cs -cursor $cursors(arrow) -bd 0 -relief flat -class $class
+	} {
+		ignore -borderwidth -relief
+		keep -takefocus
+	}
+
+	itk_component add menu {
+		menu  $itk_component(file).menu -tearoff false -takefocus 0
+	} {
+		ignore -activebackground -activeforeground
+		ignore -borderwidth -relief -takefocus
+	}
+
+	$itk_component(file) configure -menu $itk_component(menu)
+
+	for {set w $itk_component(hull)} {$w != ""} {set w [winfo parent $w]} {
+		# we cannot use the class name as in the past, due to derivation of the Mdiframe
+		catch { $w isa ::mtiwidgets::Mdiframe} results
+		if { $results == 1 } {
+			set mdiframe $w
+			break
+		}
+	}
+
+
+	grid columnconfigure $itk_component(system) 0 -weight 0
+	grid columnconfigure $itk_component(system) 1 -weight 1
+	grid columnconfigure $itk_component(system) 2 -weight 0
+	grid columnconfigure $itk_component(system) 3 -weight 0
+	grid columnconfigure $itk_component(system) 4 -weight 0
+	grid columnconfigure $itk_component(system) 5 -weight 0
+	grid $itk_component(file) -padx 1 -sticky {} -column 0 -row 0
+	grid $itk_component(title)        -sticky w  -column 1 -row 0
+	pack $itk_component(system) -side top -fill x -padx 0 -pady 0
+	pack $itk_component(cs) -side top -fill both -expand yes
+	pack $itk_component(clip) -side top -fill both -expand 1 -padx 0 -pady 0
+	pack $itk_component(wf) -side top -fill both -expand 1
+
+	set name [winfo name $itk_component(hull)]
+
+	bind $itk_component(wf)     <Motion>   [::itcl::code $this _icursor %x %y]
+	bind $itk_component(wf)     <Enter>    [::itcl::code $this _icursor %x %y]
+	bind $itk_component(clip)   <Enter>    [::itcl::code $this component wf configure -cursor {}]
+	bind $itk_component(wf)     <Leave>    [::itcl::code $this component wf configure -cursor {}]
+	bind $itk_component(hull)   <Leave>    [::itcl::code $this component wf configure -cursor {}]
+	#bind $itk_component(file)   <1>        "mti_popup $itk_component(menu) %X %Y"
+	bind $itk_component(system) <3>        "mti_popup $itk_component(menu) %X %Y"
+	bind $itk_component(title)  <3>        "mti_popup $itk_component(menu) %X %Y"
+	bind $itk_component(hull)   <FocusIn>  [::itcl::code $this activate]
+	bind $itk_component(hull)   <FocusOut> [::itcl::code $this deactivate]
+
+	bind $itk_component(hull)   <1> [::itcl::code $this _button1]  
+	bind $itk_component(wf)     <1> [::itcl::code $this _button1]
+	bind $itk_component(clip)   <1> [::itcl::code $this _button1]
+	bind $itk_component(system) <1> [::itcl::code $this _button1]
+	bind $itk_component(title)  <1> [::itcl::code $this _button1]
+	bind $itk_component(file)   <1> [::itcl::code $this _button1]
+
+	eval [linsert $args 0 itk_initialize]
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::icon {
+	if {[info exists itk_component(file)]} {
+		if {$itk_option(-icon) ne ""} {
+			$itk_component(file) configure -image $itk_option(-icon)
+		} else {
+			$itk_component(file) configure -image $_images(File)
+		}
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::maxcommand {
+	if {$itk_option(-maxcommand) eq "" &&
+		[info exists itk_component(max)] &&
+		[winfo exists $itk_component(max)]} {
+		destroy $itk_component(max)
+		# TODO: update system menu
+	}
+	if {$itk_option(-maxcommand) ne ""} {
+		itk_component add max {
+			button $itk_component(system).pmax \
+				-image $_images(Max) -bd 1 -takefocus 0 \
+				-width 10 -height 9
+		} {
+			ignore -activebackground -activeforeground
+			ignore -borderwidth -relief -takefocus
+		}
+		$itk_component(max) configure -command $itk_option(-maxcommand)
+		grid $itk_component(max) -padx 1 -sticky {} -column 4 -row 0
+		_balloonBindings $itk_component(max) "Maximize window"
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::mincommand {
+	if {$itk_option(-mincommand) eq "" &&
+		[info exists itk_component(min)] &&
+		[winfo exists $itk_component(min)]} {
+		destroy $itk_component(min)
+        $itk_component(menu) entryconfig 1 -state disabled
+	}
+	if {$itk_option(-mincommand) ne ""} {
+		itk_component add min {
+			button $itk_component(system).pmin \
+				-image $_images(Min)   -bd 1 -takefocus 0 \
+				-width 10 -height 9
+		} {
+			ignore -activebackground -activeforeground
+			ignore -borderwidth -relief -takefocus
+		}
+		$itk_component(min) configure -command $itk_option(-mincommand)
+		grid $itk_component(min) -padx 1 -sticky {} -column 3 -row 0
+		_balloonBindings $itk_component(min) "Minimize window"
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::closecommand {
+	if {$itk_option(-closecommand) eq "" &&
+		[info exists itk_component(close)] &&
+		[winfo exists $itk_component(close)]} {
+		destroy $itk_component(close)
+        $itk_component(menu) entryconfig 4 -state disabled
+	}
+	if {$itk_option(-closecommand) ne ""} {
+		itk_component add close {
+			button $itk_component(system).pclose \
+				-image $_images(Close) -bd 1 -takefocus 0 \
+				-width 10 -height 9
+		} {
+			ignore -activebackground -activeforeground
+			ignore -borderwidth -relief -takefocus
+		}
+		$itk_component(close) configure -command $itk_option(-closecommand)
+		grid $itk_component(close) -padx 1 -sticky {} -column 6 -row 0
+		_balloonBindings $itk_component(close) "Close window"
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::pluscommand {
+	if {$itk_option(-pluscommand) eq "" &&
+		[info exists itk_component(plusbutton)] &&
+		[winfo exists $itk_component(plusbutton)]} {
+		destroy $itk_component(plusbutton)
+		if {[$itk_component(menu) type 3] eq "command" &&
+			[$itk_component(menu) entrycget 3 -label] eq "Zoom"} {
+			$itk_component(menu) delete 3
+		}
+	}
+	if {$itk_option(-pluscommand) ne ""} {
+		itk_component add plusbutton {
+			eval button $itk_component(system).plusbutton \
+				-borderwidth 1 \
+				-cursor left_ptr \
+				-width 10 -height 9
+		} {
+			ignore -activebackground -activeforeground
+			ignore -borderwidth -relief -takefocus
+		}
+		$itk_component(plusbutton) configure -command $itk_option(-pluscommand)
+		if {$itk_option(-plusimage) ne ""} {
+			$itk_component(plusbutton) configure -image $itk_option(-plusimage)
+		}
+		grid $itk_component(plusbutton) -padx 1 -sticky {} -column 2 -row 0
+		_balloonBindings $itk_component(plusbutton) "Zoom/Unzoom window"
+
+		if {[$itk_component(menu) type 3] eq "separator"} {
+			$itk_component(menu) insert 2 command -label "Zoom/Unzoom" -command [::itcl::code $this _pluscommand_]
+		} else {
+			$itk_component(menu) entryconfigure 2 -label -command [::itcl::code $this _pluscommand_]
+		}
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::plusimage {
+	if {[info exists itk_component(plusbutton)]} {
+		if {$itk_option(-plusimage) ne ""} {
+			$itk_component(plusbutton) configure -image $itk_option(-plusimage)
+		}
+	}		
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::expelcommand {
+	if {$itk_option(-expelcommand) eq "" &&
+		[info exists itk_component(expelbutton)] &&
+		[winfo exists $itk_component(expelbutton)]} {
+		destroy $itk_component(expelbutton)
+		for {set i 0} {$i <= [$itk_component(menu) index end]} {incr i} {
+			if {[$itk_component(menu) type $i] eq "command" &&
+				[$itk_component(menu) entrycget $i -label] eq "Undock"} {
+				$itk_component(menu) delete $i
+				break
+			}
+		}
+	}
+	if {$itk_option(-expelcommand) ne ""} {
+		itk_component add expelbutton {
+			eval button $itk_component(system).expelbutton \
+				-borderwidth 1 \
+				-cursor left_ptr \
+				-width 10 -height 9
+		} {
+			ignore -activebackground -activeforeground
+			ignore -borderwidth -relief -takefocus
+		}
+		$itk_component(expelbutton) configure -command $itk_option(-expelcommand)
+		if {$itk_option(-expelimage) ne ""} {
+			$itk_component(expelbutton) configure -image $itk_option(-expelimage)
+		}
+		grid $itk_component(expelbutton) -padx 1 -sticky {} -column 5 -row 0
+		_balloonBindings $itk_component(expelbutton) "Undock"
+
+		for {set i 0} {$i <= [$itk_component(menu) index end]} {incr i} {
+			if {[$itk_component(menu) type $i] eq "command" &&
+				[$itk_component(menu) entrycget $i -label] eq "Undock"} {
+				$itk_component(menu) entryconfigure $i -label -command $itk_option(-expelcommand)
+				break
+			}
+		}
+		# If not found, then force it in
+		if {[$itk_component(menu) type $i] eq "command" &&
+			[$itk_component(menu) entrycget $i -label] ne "Undock"} {
+			if {[$itk_component(menu) type $i] eq "command" &&
+				[$itk_component(menu) entrycget $i -label] ne "Close"} {
+				incr i -1
+			}
+			$itk_component(menu) insert $i command -label "Undock" -command $itk_option(-expelcommand)
+		}
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiclient::expelimage {
+	if {[info exists itk_component(expelbutton)]} {
+		$itk_component(expelbutton) configure -image $itk_option(-expelimage)
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiclient::status {
+	switch $itk_option(-status) {
+		maximized {
+			$itk_component(wf) configure -borderwidth 0
+			$itk_component(clip) configure -borderwidth 0
+			pack $itk_component(cs) -side top -fill both -expand yes
+			$itk_component(title) configure -text $itk_option(-title)
+			if {$itk_option(-maxcommand) ne ""} {
+				_balloonBindings $itk_component(max) "Restore window"
+			}
+			if {$itk_option(-mincommand) ne ""} {
+				_balloonBindings $itk_component(min) "Minimize window"
+			}
+		}
+		minimized {
+			$itk_component(wf) configure -borderwidth $itk_option(-borderwidth)
+			pack forget $itk_component(cs)
+			set font [$itk_component(title) cget -font]
+			set wbf [expr {([info exists itk_component(file)]  && 
+							[winfo exists $itk_component(file)])  ? [winfo width $itk_component(file)] : 0}]
+			set wbm [expr {([info exists itk_component(min)]   && 
+							[winfo exists $itk_component(min)])   ? [winfo width $itk_component(min)] : 0}]
+			set wbx [expr {([info exists itk_component(max)]   && 
+							[winfo exists $itk_component(max)])   ? [winfo width $itk_component(max)] : 0}]
+			set wbc [expr {([info exists itk_component(close)] && 
+							[winfo exists $itk_component(close)]) ? [winfo width $itk_component(close)] : 0}]
+			set str $itk_option(-title)
+			set wstr [font measure $font $str]
+			set strl 0
+			set strend [string length $str]
+			# 16 accounts for borderwidth and padx for each button in the title bar.
+			set bwSum [expr {$wbf + $wbm + $wbx + $wbc + 16}]
+			while {$strl < $strend && [expr {$wstr + $bwSum}] > $itk_option(-minwidth)} {
+				incr strl
+				set str "...[string range $itk_option(-title) $strl end]"
+				set wstr [font measure $font $str]
+			}
+			$itk_component(title) configure -text $str
+			if {$itk_option(-maxcommand) ne ""} {
+				_balloonBindings $itk_component(max) "Maximize window"
+			}
+			if {$itk_option(-mincommand) ne ""} {
+				_balloonBindings $itk_component(min) "Restore up"
+			}
+		}
+		normal {
+			$itk_component(wf) configure -borderwidth $itk_option(-borderwidth)
+			$itk_component(clip) configure -borderwidth 1
+			pack $itk_component(cs) -side top -fill both -expand yes
+			$itk_component(title) configure -text $itk_option(-title)
+			if {$itk_option(-maxcommand) ne ""} {
+				_balloonBindings $itk_component(max) "Maximize window"
+			}
+			if {$itk_option(-mincommand) ne ""} {
+				_balloonBindings $itk_component(min) "Minimize window"
+			}
+		}
+		default {
+			error "illegal status: $itk_option(-status))"
+			set itk_option(-status) normal
+		}
+	}
+	# State configuration is dependent on status
+	# So force an update.
+	switch $itk_option(-state) {
+		active {
+			activate
+		}
+		normal -
+		inactive {
+			deactivate
+		}
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiclient::state {
+	set abg $itk_option(-activebackground)
+	set afg $itk_option(-activeforeground)
+	set ibg $itk_option(-background)
+	set ifg $itk_option(-foreground)
+	switch $itk_option(-state) {
+		normal {}
+		active {
+# 			$itk_component(system) configure -background $abg
+# 			$itk_component(title) configure -background $abg -foreground $afg
+# 			$itk_component(file) configure -background $abg -activebackground $abg
+		}
+		inactive {
+# 			$itk_component(system) configure -background $ibg
+# 			$itk_component(title) configure -background $ibg -foreground $ifg
+# 			$itk_component(file) configure -background $ibg -activebackground $ibg
+		}
+		default {
+			error "illegal state: $itk_option(-state)"
+			set itk_option(-state) inactive
+		}
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiclient::balloonforeground {
+	set balloonForeground $itk_option(-balloonforeground)
+}
+
+::itcl::configbody ::mtiwidgets::Mdiclient::balloonbackground {
+	set balloonBackground $itk_option(-balloonbackground)
+}
+
+::itcl::configbody ::mtiwidgets::Mdiclient::balloonfont {
+	set balloonFont $itk_option(-balloonfont)
+}
+
+::itcl::configbody ::mtiwidgets::Mdiclient::title {
+	$itk_component(title) configure -text [string trim "$itk_option(-title) $itk_option(-mark)"]
+	if {[ripped]} {
+		wm title $itk_component(cs) [string trim "$itk_option(-title) $itk_option(-mark)"]
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiclient::mark {
+	$itk_component(title) configure -text [string trim "$itk_option(-title) $itk_option(-mark)"]
+	if {[ripped]} {
+		wm title $itk_component(cs) [string trim "$itk_option(-title) $itk_option(-mark)"]
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::action {args} {
+	if {$itk_option(-actioncommand) ne ""} {
+		eval [linsert $args 0 $itk_option(-actioncommand)]
+	}
+}
+
+# We prevent activate/deactivate calls from doing anything if we know that a
+# grab is active. This is done to fix at least one known problem where <Delete>
+# key processing was allowed to occur while a modal dialog was opened from the
+# Wave window(bugz 10041)
+#
+::itcl::body ::mtiwidgets::Mdiclient::activate {} {
+   if {[grab current] ne ""} return
+	set abg $itk_option(-activebackground)
+	set afg $itk_option(-activeforeground)
+	set ibg $itk_option(-background)
+	set ifg $itk_option(-foreground)
+	$itk_component(system) configure -background $abg
+	$itk_component(title) configure -background $abg -foreground $afg
+	$itk_component(file) configure -background $abg
+	$mdiframe setcurrent [winfo name $itk_component(hull)]
+	action activate
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::_button1 {} {
+	set currentFocus [focus]
+	set cf [split $currentFocus .]
+	set csf [split $itk_component(cs) .]
+	if {[lrange cf 0 [expr {[llength $csf] - 1}]] eq $csf} {
+		return
+	}
+	focus $itk_component(cs)
+	activate
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::deactivate {} {
+   if {[grab current] ne ""} return
+	$itk_component(system) configure -background $itk_option(-background)
+	$itk_component(title) configure -background $itk_option(-background) -foreground $itk_option(-foreground)
+	$itk_component(file) configure -background $itk_option(-background)
+	action deactivate
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::childsite {} {
+	return $itk_component(cs)
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::_icursor {x y} {
+	set cur [cursor $x $y]
+	$itk_component(wf) configure -cursor $cursors($cur)
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::cursor {x y} {
+	if {$itk_option(-status) == "minimized"} return
+	set geom [winfo geometry $itk_interior]
+	if {[scan $geom "%dx%d+%d+%d" wid hgt right down] != 4} {
+		error "Bad geometry specification!"
+	}
+	set bd [expr {$itk_option(-borderwidth) - 1}]
+	set down  [expr {$hgt - $bd}]
+	set right [expr {$wid - $bd}]
+	set twenty [expr {20 - $bd}]
+	set down20 [expr {$down - $twenty}]
+	set right20 [expr {$right -$twenty}]
+
+	if {$x < $twenty} { 
+		# westy
+		if {$y < $twenty} {
+			set result top_left_corner
+		} else {
+			if {$y > $down20} {
+				set result bottom_left_corner
+			} else {
+				set result left_side
+			}
+		}
+	} else { 
+		# NOT westy
+		if {$x > $right20} { 
+			# easty
+			if {$y < $twenty} {
+				set result top_right_corner
+			} else {
+				if {$y > $down20} {
+					set result bottom_right_corner
+				} else {
+					set result right_side
+				}
+			}
+		} else {
+			# NOT westy and  NOT easty
+			if {$y > $down} {
+				set result bottom_side
+			} elseif {$y < $bd} {
+				set result top_side
+			} else {
+				set result ""
+			}
+		}
+	}
+	return $result
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::_initImages {} {
+	# "File Close Min Max Norm Mclose Mmin Mnorm"
+	set imglist [array names _imageName]
+	if {[llength imglist] > 0 && ![info exists _images([lindex $imglist 1])]} {
+		set bml [list]
+		# Gather possible locations for bitmaps
+		set bml [list [file join $::mtiwidgets::library bitmaps]]
+		lappend bml [file join $::mtiwidgets::library .. bitmaps]
+		# Check the uniq set of locations
+		set gbml [list]
+		foreach dir $bml {
+			if {[file exists $dir]} {
+				lappend gbml $dir
+			}
+		}
+		# Search for the mdi images
+		foreach img $imglist {
+			foreach dir $gbml {
+				set file [file join $dir $_imageName($img).gif]
+				if {[file exists $file]} {
+					set _images($img) [image create photo -file $file]
+					break
+				}
+			}
+		}
+	}
+	set imglist [array names _base64]
+	if {[llength imglist] > 0 && ![info exists _images([lindex $imglist 1])]} {
+		foreach img $imglist {
+			set _images($img) [image create photo -data $_base64($img)]
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::join {} {
+    if {[ripped]} {
+	wm toplevel $itk_component(cs) 0
+	eval [linsert $csPackInfo 0 $csManager $itk_component(cs)]
+    }
+}
+
+::itcl::body ::mtiwidgets::Mdiclient::rip {} {
+    if {$_enableDragout && ![ripped]} {
+	set csManager [winfo manage $itk_component(cs)]
+	set csPackInfo [$csManager info $itk_component(cs)]
+	wm toplevel $itk_component(cs) 1
+	wm title $itk_component(cs) [string trim "$itk_option(-title) $itk_option(-mark)"]
+	return
+    }
+}
+
+::itcl::body mtiwidgets::Mdiclient::_balloonBindings {w msg} {
+	bind $w <Enter>  [list [namespace current]::_balloonEnter %W $msg]
+	bind $w <Leave>  [list [namespace current]::_balloonLeave %W]
+	bind $w <Motion> [list [namespace current]::_balloonMotion %W]
+}
+
+::itcl::body mtiwidgets::Mdiclient::_balloonEnter {w msg} {
+	set balloonWidget $w
+	set x [winfo rootx $w]
+	set y [winfo rooty $w]
+	after cancel $balloonAfter
+	set balloonAfter [after 500 [list [namespace current]::_balloonPopup $w $x $y $msg]]
+}
+
+::itcl::body mtiwidgets::Mdiclient::_balloonLeave {w} {
+	after cancel $balloonAfter
+	set balloonAfter ""
+	if {[winfo exists $balloonHelp]} {
+		destroy $balloonHelp
+	}
+}
+
+::itcl::body mtiwidgets::Mdiclient::_balloonMotion {w} {
+	if {$w != $balloonWidget} {
+		_balloonLeave $balloonWidget
+	}
+}
+
+::itcl::body mtiwidgets::Mdiclient::_balloonPopup {w x y msg} {
+	if {[winfo exists $balloonHelp]} {
+		destroy $balloonHelp
+	}
+	if {![winfo exists $w]} {
+		return
+	}
+	set in_w [winfo containing [winfo pointerx $w] [winfo pointery $w]]
+	if {$in_w != $w} return
+	#
+	# Balloon could originate from elsewhere,
+	# remove it
+	if {[winfo exists .mtiBalloon]} {
+		destroy .mtiBalloon
+	}
+	set balloonHelp [::toplevel .mtiBalloon]
+	wm withdraw $balloonHelp
+	wm override $balloonHelp 1
+	label $balloonHelp.msg -text $msg \
+		-bg $balloonBackground \
+		-fg $balloonForeground \
+		-bd 1 -relief solid \
+		-font $balloonFont
+
+    set font [$balloonHelp.msg cget -font]
+    set bd   [$balloonHelp.msg cget -borderwidth]
+	set right [lindex [wm maxsize .] 0]
+	set width [expr {[font measure $font $msg] + (2 * $bd) + 10}]
+
+	pack $balloonHelp.msg -side top -fill both -expand 1
+	wm deiconify $balloonHelp
+	incr x 25 
+	incr y 25 
+    if {[expr {$x + $width}] > $right} {
+		set x [expr {$right - $width}]
+	}
+
+	wm geom $balloonHelp +$x+$y
+	after 5000 [namespace current]::_balloonLeave $w
+}
+
+
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#= Mdiframe  =#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#
+
+proc ::mtiwidgets::mdiframe {pathName args} {
+	uplevel ::mtiwidgets::Mdiframe $pathName $args
+}
+
+::itcl::class ::mtiwidgets::Mdiframe {
+	inherit itk::Widget
+	constructor {args} {}
+	destructor {}
+
+	itk_option define -activebackground activeBackground ActiveBackground "#000080"
+	itk_option define -activeforeground activeForeground ActiveForeground White
+	itk_option define -background background Background grey75
+	itk_option define -borderwidth borderWidth BorderWidth 0
+	itk_option define -clientborderwidth clientBorderwidth ClientBorderwidth 3
+	itk_option define -clientrelief clientRelief ClientRelief raised
+	itk_option define -command command Command {}
+	itk_option define -font font Font {Helvetica 12}
+	itk_option define -foreground foreground Foreground black
+	itk_option define -height height Height 0
+	itk_option define -inactivebackground inactiveBackground InactiveBackground grey50
+	itk_option define -inactiveforeground inactiveForeground InactiveForeground grey75
+	itk_option define -minheight minheight Height 20
+	itk_option define -minusimage minusImage MinusImage {}
+	itk_option define -minwidth minwidth Width 120
+	itk_option define -mode mode Mode tabbed ;# one of "classic" or "tabbed"
+	itk_option define -orient orient Orient horizontal
+	itk_option define -pluscommand plusCommand Command {}
+	itk_option define -plusimage plusImage PlusImage {}
+	itk_option define -popupmenu popupMenu PopMenu {}
+	itk_option define -relief relief Relief flat
+	itk_option define -showtabs showTabs ShowTabs 1
+	itk_option define -tabpos tabpos TabPos s
+	itk_option define -takefocus takeFocus TakeFocus {}
+	itk_option define -wallpaper wallpaper Wallpaper {}
+	itk_option define -wallpapermode wallpaperMode WallpaperMode center
+	itk_option define -width width Width 0
+
+	public method TabExists {label}
+	public method TabSelected {tabname ix}
+	public method action {action args} {return 0}
+	public method actionstate {action args}
+	public method activate {name}
+	public method childsite {{name ""}}
+	public method client {name args}
+	public method clients {}
+	public method closeclient {path}
+	public method findclient {win}
+	public method geometry {name args}
+	public method getcurrent {}
+	public method GetTitle {name} 
+	public method index {label}
+	public method join {name}
+	public method lastcurrent {}
+	public method layout {what}
+	public method makeResizeCorner {w client}
+	public method maxclient {path}
+	public method minclient {path}
+	public method move {name group}
+	public method normclient {path}
+	public method raiseclient {name}
+	public method rip {name}
+	public method setcurrent {path {active normal}}
+	public method split {name}
+	public method status {{name ""}}
+	public method SetTitle {name title {tab_label ""}}
+	public method SetMark {name mark}
+	public method tabcget {name option}
+	public method tabconfigure {name args}
+	public method tabnext {name} ;# name required to identify tabgroup
+	public method tabprev {name} ;# name required to identify tabgroup
+
+
+	protected method _activateClient {w} {}
+	protected method _bgndConfig {} {}
+	protected method _cascade_layout {} {}
+	protected method _cmd_sub {str action state status client} {}
+	protected method _domove {name x y} {}
+	protected method _doresize {name x y} {}
+	protected method _endmove {name x y} {}
+	protected method _endresize {name x y} {}
+	protected method _startmove {name x y} {}
+	protected method _startresize {name x y X Y} {}
+	protected method _tile_layout {{which horizontal}} {}
+	protected method _post {w x y} 
+	protected method _tile_ {}
+	protected method _pluscommand_ {}
+	protected method _generateSelectEvent {}
+	private method _delayedOrient {}
+	private method _maximize {}
+	private method _normalize {}
+	private method _paneBugWorkaround {}
+
+	variable _client_cnt 0
+	variable _disablePackBG 0
+	variable clients
+	variable closecmd
+	variable current ""
+	variable eventtype
+	variable _group_cnt 0
+	variable handle
+	variable height
+	variable imgList
+	variable lastCurrent ""
+	variable lastXevent
+	variable lastYevent
+	variable minroot
+	variable rootx
+	variable rooty
+	variable state normal
+	variable status
+	variable titles
+	variable width
+	variable tabcurrent
+	variable tabs
+	variable tabNames
+	variable tabLabels
+	private variable wallpaperImage ""
+	private variable tiledImage ""
+	private variable TabSelecting
+	private variable plusimage
+	private variable mdi_bgnd_tag ""
+	private variable inSetCurrent 0
+}
+
+option add *Mdiframe.activeBackground "#000080" widgetDefault
+option add *Mdiframe.activeForeground White     widgetDefault
+option add *Mdiframe.inactiveBackground grey50  widgetDefault
+option add *Mdiframe.inactiveForeground grey75  widgetDefault
+
+::itcl::body ::mtiwidgets::Mdiframe::constructor {args} {
+	# Formally the clip frame.  This panedwindow holds the tab groups
+	itk_component add -protected paneset {
+		panedwindow $itk_component(hull).paneset -borderwidth 0 -relief flat \
+			-showhandle 0 -sashpad 4 -sashwidth 2
+	} {
+		ignore -orient
+	}
+
+	# Work around bug in Paned window when -hide option changes are made when panedwindow
+	# is not mapped, the -hide changes are "ignored"
+	bind $itk_component(paneset) <Map> [code $this _paneBugWorkaround]
+
+	# This defines the default background in tabbed mode
+	itk_component add -protected tabbed_bgnd {
+		label $itk_component(paneset).tabbed_bgnd -anchor c -justify center
+	} {
+		rename -background -backdrop backDrop BackDrop
+		ignore -anchor -justify
+	}
+
+	# This background is also the classic MDI mode container
+	itk_component add -protected mdi_bgnd {
+		canvas $itk_component(paneset).mdi_bgnd -borderwidth 0 -relief flat \
+			-highlightthickness 0
+	} {
+		usual
+		ignore -borderwidth -relief
+		ignore -insertborderwidth -insertbackground -insertofftime -insertontime
+		ignore -insertwidth -selectbackground -selectborderwidth -selectforeground
+		rename -background -backdrop backDrop BackDrop
+		keep -takefocus 
+	}
+    # Remove class bindings (mouse wheel!)
+    set bt [bindtags $itk_component(mdi_bgnd)]
+    set ix [lsearch $bt Canvas]
+    if {$ix >= 0} {
+		set bt [lreplace $bt $ix $ix]
+    }
+    bindtags $itk_component(mdi_bgnd) $bt
+
+	# Define the classic MDI mode tabset
+	set TabSelecting 0
+	itk_component add tab { 
+		mtiwidgets::Tabset $itk_component(hull).tab  -tabpos s -alwaysselect 1 \
+		 -angle 0 -bevelamount 2 -margin 2 -pady 2 -equaltabs false -tabpady 2 \
+			-command [::itcl::code $this TabSelected tab] \
+	} {
+		keep -background -foreground
+		ignore -selectbackground -selectforeground -tabpos
+	}
+
+	bind [$itk_component(tab) component hull] <Enter> {}
+	bind $itk_component(tab) <Any-Enter> {}
+
+	#
+	# Get rid of <Enter> event binding
+	# No widget should grab focus like this!
+	#
+	bind [$itk_component(tab) component hull] <Enter> {}
+
+	grid $itk_component(paneset) -sticky nsew -row 0 -column 0
+	grid rowconfigure $itk_component(hull) 0 -weight 1
+	grid columnconfigure $itk_component(hull) 0 -weight 1
+
+	set _client_cnt 0
+	bind $itk_component(mdi_bgnd) <Configure>     [::itcl::code $this _bgndConfig]
+    bind $itk_component(mdi_bgnd) <ButtonPress-3> [::itcl::code $this _post %W %x %y]
+	bind $itk_component(hull) <FocusIn> [::itcl::code $this _generateSelectEvent]
+	bind $itk_component(hull) <Button-1> [::itcl::code $this _generateSelectEvent]
+	eval itk_initialize $args
+	return $this
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::destructor {} {	
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_paneBugWorkaround {} {
+	$itk_component(paneset) configure -background [$itk_component(paneset) cget -background]
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::height {
+	if {[$itk_component(hull) cget -height] != $itk_option(-height)} {
+		$itk_component(hull) configure -height $itk_option(-height)
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::width {
+	if {[$itk_component(hull) cget -width] != $itk_option(-width)} {
+		$itk_component(hull) configure -width $itk_option(-width)
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::mode {
+	if {$itk_option(-mode) eq "classic"} {
+		$itk_component(paneset) forget $itk_component(tabbed_bgnd)
+		set before [lindex [$itk_component(paneset) panes] 0]
+		$itk_component(paneset) add $itk_component(mdi_bgnd) -before $before -sticky nsew
+	} else {
+		$itk_component(paneset) forget $itk_component(mdi_bgnd)
+		set before [lindex [$itk_component(paneset) panes] 0]
+		$itk_component(paneset) add $itk_component(tabbed_bgnd) -before $before -sticky nsew
+		grid forget $itk_component(tab)
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiframe::popupmenu {
+	if { $itk_option(-popupmenu) != "" } {
+		$itk_component(tab) configure -menu  $itk_option(-popupmenu)
+	} 
+}
+
+::itcl::configbody ::mtiwidgets::Mdiframe::borderwidth {
+	$this component hull configure -borderwidth $itk_option(-borderwidth)
+}
+
+::itcl::configbody ::mtiwidgets::Mdiframe::relief {
+	$this component hull configure -relief $itk_option(-relief)
+}
+
+::itcl::configbody ::mtiwidgets::Mdiframe::wallpaper {
+	if {[info exists wallpaperImage] &&
+		$wallpaperImage ne ""} {
+		image delete $wallpaperImage
+		image delete $tiledImage
+		set wallpaperImage ""
+		set tiledImage ""
+	}
+	if {[file exists $itk_option(-wallpaper)]} {
+		set wallpaperImage [image create photo -file $itk_option(-wallpaper)]
+		$itk_component(tabbed_bgnd) configure -image $wallpaperImage
+		if {$tiledImage eq ""} {
+			set tiledImage [image create photo]
+		} else {
+			$tiledImage blank
+		}
+		if {$mdi_bgnd_tag ne ""} {
+			$itk_component(mdi_bgnd) itemconfigure $mdi_bgnd_tag \
+				-image $tiledImage
+		} else {
+			set mdi_bgnd_tag [$itk_component(mdi_bgnd) create image 0 0 \
+								  -anchor nw \
+								  -image $tiledImage \
+								  -tags {backgroundBitmap}]
+		}
+		$itk_component(mdi_bgnd) lower backgroundBitmap
+		_tile_
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiframe::wallpapermode {
+	_tile_
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::pluscommand {
+	if {$itk_option(-pluscommand) ne ""} {
+		if {![info exists plusimage]} {
+			set plusimage [image create photo]
+		}
+		$plusimage blank
+		if {$itk_option(-plusimage) ne ""} {
+			$plusimage copy $itk_option(-plusimage)
+		}
+		foreach name [clients] {
+			$itk_component($name) configure -pluscommand [::itcl::code $this _pluscommand_] \
+				-plusimage $plusimage
+		}
+	} else {
+		foreach name [clients] {
+			$itk_component($name) configure -pluscommand {}
+		}
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::plusimage {
+	if {![info exists plusimage]} {
+		set plusimage [image create photo]
+	}
+	$plusimage blank
+	if {$itk_option(-plusimage) ne ""} {
+		$plusimage copy $itk_option(-plusimage)
+		foreach name [clients] {
+			$itk_component($name) configure -plusimage $plusimage
+		}
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::minusimage {
+	if {![info exists plusimage]} {
+		set plusimage [image create photo]
+	}
+}
+
+::itcl::body mtiwidgets::Mdiframe::_pluscommand_ {} {
+	if {$itk_option(-pluscommand) ne ""} {
+		if {[catch {uplevel "#0" $itk_option(-pluscommand)} rv]} {
+			CallTrace stderr "\n\tpluscommand: $itk_option(-pluscommand)\n\terrorInfo=$::errorInfo\n\trv=$rv"
+			return
+		}
+		if {$rv} {
+			$plusimage blank
+			if {$itk_option(-minusimage) ne ""} {
+				$plusimage copy $itk_option(-minusimage)
+			}
+		} else {
+			$plusimage blank
+			if {$itk_option(-plusimage) ne ""} {
+				$plusimage copy $itk_option(-plusimage)
+			}
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_tile_ {} {
+	if {[info exists wallpaperImage] &&
+		$wallpaperImage ne "" &&
+		[info exists tiledImage] && 
+		$tiledImage ne ""} {
+		switch $itk_option(-wallpapermode) {
+			tile {
+				$tiledImage blank
+				$itk_component(mdi_bgnd) coords backgroundBitmap 0.0 0.0
+				$tiledImage copy $wallpaperImage \
+					-to 0 0 [winfo width $itk_component(mdi_bgnd)] [winfo height $itk_component(mdi_bgnd)]
+			}
+			center {
+				$tiledImage blank
+				$tiledImage copy $wallpaperImage
+				set w [winfo width $itk_component(mdi_bgnd)]
+				set h [winfo height $itk_component(mdi_bgnd)]
+				set iw [image width $wallpaperImage]
+				set ih [image height $wallpaperImage]
+				$itk_component(mdi_bgnd) coords backgroundBitmap [expr {$w/2.0 - $iw/2.0}] [expr {$h/2.0 - $ih/2.0}]
+			}
+			zoom {
+				$itk_component(mdi_bgnd) coords backgroundBitmap 0.0 0.0
+				set w [winfo width $itk_component(mdi_bgnd)]
+				set h [winfo height $itk_component(mdi_bgnd)]
+				set iw [image width $wallpaperImage]
+				set ih [image height $wallpaperImage]
+				set zx [expr {$w / $iw}]
+				set zy [expr {$h / $ih}]
+				$tiledImage blank
+				$tiledImage copy $wallpaperImage \
+					-zoom $zx $zy
+			}
+			default {
+			}
+		}
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiframe::background {
+	$itk_component(tab) configure -selectbackground $itk_option(-background)
+	foreach p [lrange [$itk_component(paneset) panes] 1 end] {
+		$p configure -selectbackground $itk_option(-background)
+	}
+}
+
+::itcl::configbody ::mtiwidgets::Mdiframe::foreground {
+	$itk_component(tab) configure -selectforeground $itk_option(-foreground)
+	foreach p [lrange [$itk_component(paneset) panes] 1 end] {
+		$p configure -selectbackground $itk_option(-foreground)
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::orient {
+	after idle [::itcl::code $this _delayedOrient]
+}
+
+::itcl::body mtiwidgets::Mdiframe::_delayedOrient {} {
+	if {[winfo exists $itk_component(paneset)]} {
+		$itk_component(paneset) configure -orient $itk_option(-orient)
+	}
+}
+
+::itcl::configbody mtiwidgets::Mdiframe::tabpos {
+	switch $itk_option(-tabpos) {
+		n {
+			$itk_component(tab) configure -tabpos n
+			if {$itk_option(-showtabs) && $itk_option(-mode) eq "classic"} {
+				grid $itk_component(tab) -sticky nsew   -row 0 -column 0
+			}
+			grid $itk_component(paneset) -sticky nsew -row 1 -column 0
+			grid rowconfigure $itk_component(hull) 0 -weight 0
+			grid rowconfigure $itk_component(hull) 1 -weight 1
+			grid columnconfigure $itk_component(hull) 0 -weight 1
+			grid columnconfigure $itk_component(hull) 1 -weight 0
+		}
+		s {
+			$itk_component(tab) configure -tabpos s
+			if {$itk_option(-showtabs) && $itk_option(-mode) eq "classic"} {
+				grid $itk_component(tab) -sticky nsew   -row 1 -column 0
+			}
+			grid $itk_component(paneset) -sticky nsew -row 0 -column 0
+			grid rowconfigure $itk_component(hull) 0 -weight 1
+			grid rowconfigure $itk_component(hull) 1 -weight 0
+			grid columnconfigure $itk_component(hull) 0 -weight 1
+			grid columnconfigure $itk_component(hull) 1 -weight 0
+		}
+		e {
+			$itk_component(tab) configure -tabpos e
+			grid $itk_component(paneset) -sticky nsew -row 0 -column 0
+			if {$itk_option(-showtabs) && $itk_option(-mode) eq "classic"} {
+				grid $itk_component(tab) -sticky nsew   -row 0 -column 1
+			}
+			grid rowconfigure $itk_component(hull) 0 -weight 1
+			grid rowconfigure $itk_component(hull) 1 -weight 0
+			grid columnconfigure $itk_component(hull) 0 -weight 1
+			grid columnconfigure $itk_component(hull) 1 -weight 0
+		}
+		w {
+			$itk_component(tab) configure -tabpos w
+			if {$itk_option(-showtabs) && $itk_option(-mode) eq "classic"} {
+				grid $itk_component(tab) -sticky nsew   -row 0 -column 0
+			}
+			grid $itk_component(paneset) -sticky nsew -row 0 -column 1
+			grid rowconfigure $itk_component(hull) 0 -weight 1
+			grid rowconfigure $itk_component(hull) 1 -weight 0
+			grid columnconfigure $itk_component(hull) 0 -weight 0
+			grid columnconfigure $itk_component(hull) 1 -weight 1
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::TabSelected {tabname ix} {
+	if { $TabSelecting } {
+		return
+	}
+	set ts $itk_component($tabname)
+	set name [$ts tabcget $ix -label]
+
+	foreach cl [clients] {
+		if {[tabcget $cl -label] eq $name} {
+			setcurrent $cl active
+			break
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::TabExists { label} {
+	if {[index $label] ne ""} {
+		return 1
+	}
+	return 0
+}
+
+
+::itcl::body ::mtiwidgets::Mdiframe::index { label} {
+	foreach name [array names tabs] { 
+		if { $label eq [$itk_component($tabs($name)) tabcget $tabLabels($name) -label] } {
+			return $name
+		}
+	}
+	return ""
+}
+
+
+::itcl::configbody ::mtiwidgets::Mdiframe::showtabs {
+	if {$itk_option(-mode) eq "classic" && 
+		$itk_option(-showtabs) } {
+		# Triggering tabpos configure will
+		# make sure all components are properly placed
+		configure -tabpos $itk_option(-tabpos)
+	} else {
+		grid forget $itk_component(tab) 
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::childsite {{name ""}} {
+	if {$name == ""} {
+		set name $current
+	}
+	if {[info exists itk_component($name)]} {
+		return [$itk_component($name) component cs]
+	} else {
+		return ""
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::clients {} {
+	if {[info exists clients]} {
+		return $clients
+	} else {
+		return [list]
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::client {name args} {
+	incr _client_cnt
+	if {[info exists status($current)]} {
+		set saveStatus $status($current)
+		set saveCurrent $current
+	} elseif {[info exists status($lastCurrent)]} {
+		set saveStatus $status($lastCurrent)
+		set saveCurrent $lastCurrent
+	} else {
+		set saveStatus maximized
+		set saveCurrent ""
+	}
+
+	if {[set i [lsearch $args "-class"]] >= 0} {
+		set class [lindex $args [expr {$i + 1}]]
+		if {"[::find class $class]" == "$class"} {
+			set mdiclientclass $class
+			set args [lreplace $args $i [expr {$i + 1}]]
+		} else {
+			set mdiclientclass ::mtiwidgets::Mdiclient
+		}
+	} else {
+		set mdiclientclass ::mtiwidgets::Mdiclient
+		set class Frame
+	}
+
+	itk_component add $name {
+		set tmp [eval [linsert $args 0 $mdiclientclass $itk_component(paneset).$name]]
+		if {[catch {$tmp isa ::mtiwidgets::Mdiclient} b] || $b == 0} {
+			destroy $tmp
+			return -code error "$mdiclientclass is not a Mdiclient!"
+		}
+		set tmp
+	} {
+		ignore -pluscommand
+		rename -borderwidth -clientborderwidth clientBorderwidth ClientBorderwidth
+		rename -relief -clientrelief clientRelief ClientRelief
+		keep -minwidth -minheight -takefocus
+	}
+
+	set icon_image [$itk_component($name) cget -icon]
+
+	if {[set i [lsearch $args "-title"]] >= 0} {
+		set titles($name) [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args $i [expr {$i + 1}]]
+	} else {
+		set titles($name) $name
+	}
+
+	if {[set i [lsearch $args "-tabtitle"]] >= 0} {
+		set tab_label [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args $i [expr {$i + 1}]]
+	} else {
+		set tab_label $titles($name)
+	}
+
+	if {$itk_option(-pluscommand) ne ""} {
+		if {![info exists plusimage]} {
+			set plusimage [image create photo]
+		}
+		$itk_component($name) configure -pluscommand [::itcl::code $this _pluscommand_] \
+			-plusimage $plusimage
+	}
+
+	$itk_component($name) configure -title $titles($name) -status maximized
+	if {[set i [lsearch $args "-width"]] >= 0} {
+		set width($name) [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args  $i [expr {$i + 1}]]
+	} else {
+		set fw [expr {int(0.85 * [winfo width $itk_component(hull)])}]
+		set width($name) $fw
+	}
+	if {[set i [lsearch $args "-height"]] >= 0} {
+		set height($name) [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args $i [expr {$i + 1}]]
+	} else {
+		set fh [expr {int(0.85 * [winfo height $itk_component(hull)])}]
+		set height($name) $fh
+	}
+	if {[set i [lsearch $args "-class"]] >= 0} {
+		set class [lindex $args [expr {$i + 1}]]
+		set args [lreplace $args $i [expr {$i + 1}]]
+	} else {
+		set class Frame
+	}
+
+	set menu [$itk_component($name) component menu]
+	if {$itk_option(-mode) eq "classic"} {
+		$menu add command -label "Restore"  -command [::itcl::code $this normclient $name] -state disabled
+		$menu add command -label "Minimize" -command [::itcl::code $this minclient $name]
+		$menu add command -label "Maximize" -command [::itcl::code $this maxclient $name]
+	}
+	if {[info exists itk_option(-pluscommand)] &&
+		$itk_option(-pluscommand) ne ""} {
+		$menu add command -label "Zoom/Unzoom" -command [::itcl::code $this _pluscommand_]
+	}
+	$menu add separator
+	$menu add command -label "Close" -command [::itcl::code $this closeclient $name]
+
+	if {$itk_option(-mode) eq "classic"} {
+		$itk_component($name) configure -mincommand [::itcl::code $this minclient $name]
+		$itk_component($name) configure -maxcommand [::itcl::code $this maxclient $name]
+	}
+	$itk_component($name) configure -closecommand [::itcl::code $this closeclient $name]
+
+	set rootx($name) [expr {($_client_cnt % 8) * 30}]
+	set rooty($name) [expr {($_client_cnt % 8) * 30}]
+	set minroot($name) ""
+	if {$current != ""} {
+		set status($name) $status($current)
+	} else {
+		set status($name) normal
+	}
+	set path $itk_component($name)
+
+	lappend clients $name
+
+	set orig_tab_label $tab_label
+	set idx 0
+	
+	while {$idx < 9999} {
+		if { [TabExists $tab_label] } {
+			incr idx
+			set tab_label "$orig_tab_label ($idx)"
+		} else {
+			break
+		}
+	}
+
+	if {$itk_option(-mode) eq "classic"} {
+		##########################
+		#   Classic Mode layout  #
+		##########################
+
+		set handle($name) [$itk_component(mdi_bgnd) create window $rootx($name) $rooty($name) \
+							   -width $width($name) -height $height($name) -window $path -anchor nw]
+
+		set title [$itk_component($name) component title]
+		set system [$itk_component($name) component system]
+		set file [$itk_component($name) component file]
+		set wf [$itk_component($name) component wf]
+
+		bind $title   <ButtonPress-1>   [::itcl::code $this _startmove $name %X %Y]
+		bind $title   <B1-Motion>       [::itcl::code $this _domove    $name %X %Y]
+		bind $title   <ButtonRelease-1> [::itcl::code $this _endmove   $name %X %Y]
+		bind $system  <ButtonPress-1>   [::itcl::code $this _startmove $name %X %Y]
+		bind $system  <B1-Motion>       [::itcl::code $this _domove    $name %X %Y]
+		bind $system  <ButtonRelease-1> [::itcl::code $this _endmove   $name %X %Y]
+		bind $wf      <Button-1>        [::itcl::code $this _startresize  $name %x %y %X %Y]
+		bind $wf      <B1-Motion>       [::itcl::code $this _doresize     $name %X %Y]
+
+		set tabNames($name) [$itk_component(tab) add -label $tab_label -image $icon_image]
+		set tabLabels($name) $tab_label
+		set tabcurrent(tab) $name
+		set tabs($name) tab
+		$itk_component(tab) select $tab_label
+
+		if {$saveStatus == "maximized"} {
+			if {$saveCurrent ne ""} {
+				set _disablePackBG 1
+				normclient $saveCurrent
+			}
+			maxclient $name
+		} else {
+			normclient $name
+		}
+
+	} else { 
+		#########################
+		#   Tabbed Mode layout  #
+		#########################
+		if {[llength [array names itk_component group*]] <= 0} {
+			set currentgroup group${_group_cnt}
+			itk_component add $currentgroup {
+				mtiwidgets::tabbedpane $itk_component(paneset).$currentgroup -mode tabbed \
+					-tabpos s -angle 0 -bevelamount 2 -margin 2 -pady 2 \
+					-equaltabs false -tabpady 2
+			} {
+				keep -orient -background
+			}
+			$itk_component($currentgroup) configure \
+				-command [::itcl::code $this TabSelected $currentgroup] \
+				-selectbackground $itk_option(-background) \
+				-selectforeground $itk_option(-foreground)
+			bind $itk_component($currentgroup) <<TabSelected>> [::itcl::code $this _generateSelectEvent]
+			$itk_component(paneset) add $itk_component($currentgroup) -sticky nsew -stretch always
+			incr _group_cnt
+			$itk_component(paneset) paneconfigure $itk_component(tabbed_bgnd) -hide 1
+		} else {
+			set currentgroup [winfo name [lindex [$itk_component(paneset) panes] 1]]
+		}
+		if { $itk_option(-popupmenu)  != "" } {
+			$itk_component($currentgroup) configure -menu $itk_option(-popupmenu)
+		}
+		$itk_component($currentgroup) add $itk_component($name) -label $tab_label -sticky nsew -stretch always -image $icon_image
+		set tabLabels($name) $tab_label
+		set tabcurrent($currentgroup) $name
+		set tabs($name) $currentgroup
+
+		$itk_component($currentgroup) select $itk_component($name)
+
+		set status($name) "tabbed"
+	}
+
+
+	setcurrent $name
+	set lastCurrent $name
+
+	# Execute action/status/state change command
+	if {$itk_option(-command) != ""} {
+		set cmd [_cmd_sub $itk_option(-command) create "maximized" [$itk_component($name) cget -state] $name]
+		if {[catch {eval $cmd} rv]} {
+			error "client: $rv"
+		}
+	}
+
+	# Trigger paned window to recompute geometries
+	after idle [::itcl::code $this _delayedOrient]
+
+	raise $itk_component($name)
+
+	# The default is to return the childsite so the caller will have
+	# the frame to start packing things.
+	if {$mdiclientclass == "Mdiclient"} {
+		return [$itk_component($name) component cs]
+	} else {
+		# If, however, the client is a derived class, the caller
+		# More than likely wants the object, not the childsite.
+		return $itk_component($name)
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_generateSelectEvent {} {
+	if {[info exists itk_component($current)] &&
+		 [winfo exists $itk_component($current)]} {
+		event generate $itk_component($current) <<TabSelected>>
+	}
+}
+
+##############################################################
+# -Geometrics (Resizeclient)
+##############################################################
+::itcl::body ::mtiwidgets::Mdiframe::_startresize {name x y X Y} {
+    if {$status($name) eq "minimized"} return
+    activate $name
+    if {[winfo exists $itk_component($name)]} {focus $itk_component($name)}
+    set lastXevent($name) $X
+    set lastYevent($name) $Y
+    set eventtype($name) [$itk_component($name) cursor $x $y]
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_doresize {name x y} {
+    if {$status($name) eq "minimized"} return
+    set oldx  $lastXevent($name)
+    set oldy  $lastYevent($name)
+    if {[winfo rootx $itk_component(mdi_bgnd)] > $x} {
+	set x [winfo rootx $itk_component(mdi_bgnd)]
+    }
+    if {[winfo rooty $itk_component(mdi_bgnd)] > $y} {
+	set y [winfo rooty $itk_component(mdi_bgnd)]
+    }
+    if {([winfo rootx $itk_component(mdi_bgnd)]+[winfo width  $itk_component(mdi_bgnd)]) < $x} {
+	set x [expr {[winfo width  $itk_component(mdi_bgnd)]+[winfo rootx $itk_component(mdi_bgnd)]}]
+    }
+    if {([winfo rooty $itk_component(mdi_bgnd)]+[winfo height $itk_component(mdi_bgnd)]) < $y} {
+	set y [expr {[winfo height $itk_component(mdi_bgnd)]+[winfo rooty $itk_component(mdi_bgnd)]}]
+    }
+    set maxx  [winfo width  $itk_component($name)]
+    set maxy  [winfo height $itk_component($name)]
+    set miny [winfo height [$itk_component($name) component system]]
+    set miny [expr {$miny > $itk_option(-minheight) ? $miny : $itk_option(-minheight)}]
+    set dx    [expr {$x - $oldx}]
+    set dy    [expr {$y - $oldy}]
+    switch $eventtype($name) {
+	top_side  {
+	    if {[expr {$maxy - $dy}] < $miny} return
+	    $itk_component(mdi_bgnd) itemconfig $handle($name) -height [expr {$maxy - $dy}]
+	    $itk_component(mdi_bgnd) move $handle($name)  0 $dy
+	}
+	top_right_corner {
+	    if {[expr {$maxy - $dy}] < $miny} {
+		if {[expr {$maxx + $dx}]<$itk_option(-minwidth)} {
+		    return
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx + $dx}]
+		    set y $oldy
+		}
+	    } else {
+		if {[expr {$maxx + $dx}]<$itk_option(-minwidth)} {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -height [expr {$maxy - $dy}]
+		    $itk_component(mdi_bgnd) move $handle($name)  0 $dy
+		    set x $oldx
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx + $dx}] -height [expr {$maxy - $dy}]
+		    $itk_component(mdi_bgnd) move $handle($name)  0 $dy
+		}
+	    }
+	}
+	right_side  {
+	    if {[expr {$maxx + $dx}]<$itk_option(-minwidth)} return
+	    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx + $dx}]
+	}
+	bottom_right_corner {
+	    if {[expr {$maxy + $dy}]< $miny} {
+		if {[expr {$maxx + $dx}]<$itk_option(-minwidth)} { 
+		    return 
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx + $dx}]
+		    set y $oldy
+		}
+	    } else {
+		if {[expr {$maxx + $dx}]<$itk_option(-minwidth)} { 
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -height [expr {$maxy + $dy}]
+		    set x $oldx
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx + $dx}] -height [expr {$maxy + $dy}]
+		}
+	    }
+	}
+	bottom_side  {
+	    if {[expr {$maxy + $dy}] < $miny} return
+	    $itk_component(mdi_bgnd) itemconfig $handle($name) -height [expr {$maxy + $dy}]
+	}
+	bottom_left_corner {
+	    if {[expr {$maxy + $dy}] < $miny} {
+		if {[expr {$maxx - $dx}]<$itk_option(-minwidth)} {
+		    return
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx - $dx}]
+		    $itk_component(mdi_bgnd) move $handle($name) $dx 0
+		    set y $oldy
+		}
+	    } else {
+		if {[expr {$maxx - $dx}] < $itk_option(-minwidth)} {  
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -height [expr {$maxy + $dy}]
+		    set x $oldx
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx - $dx}] -height [expr {$maxy + $dy}]
+		    $itk_component(mdi_bgnd) move $handle($name)  $dx 0
+		}           
+	    }
+	}
+	left_side  {
+	    if {[expr {$maxx - $dx}] < $itk_option(-minwidth)} return
+	    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx - $dx}]
+	    $itk_component(mdi_bgnd) move $handle($name) $dx 0
+	}
+	top_left_corner {
+	    if {[expr {$maxy - $dy}] < $miny} {
+		if {[expr {$maxx - $dx}]<$itk_option(-minwidth)} {
+		    return
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx - $dx}]
+		    $itk_component(mdi_bgnd) move $handle($name) $dx 0
+		    set y $oldy
+		}
+	    } else {
+		if {[expr {$maxx - $dx}]<$itk_option(-minwidth)} {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -height [expr {$maxy - $dy}]
+		    $itk_component(mdi_bgnd) move $handle($name)  0 $dy
+		    set x $oldx
+		} else {
+		    $itk_component(mdi_bgnd) itemconfig $handle($name) -width  [expr {$maxx - $dx}] -height [expr {$maxy - $dy}]
+		    $itk_component(mdi_bgnd) move $handle($name)  $dx $dy
+		}
+	    }           
+	}
+    }
+    set lastXevent($name) $x
+    set lastYevent($name) $y
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_endresize {name x y} {
+    if {($status($name) eq "minimized") || ($status($name) eq "maximized")} return
+    update idletasks
+    set lastXevent($name) -1
+    set lastYevent($name) -1
+    set eventtype($name) ""
+    set geom($name) [list [winfo width $itk_component($name)] \
+			 [winfo height $itk_component($name)] \
+			 [lindex [$itk_component(mdi_bgnd) bbox $handle($name)] 0] \
+			 [lindex [$itk_component(mdi_bgnd) bbox $handle($name)] 1]]
+    $itk_component($name) configure -cursor {}
+}
+
+##############################################################
+# -Geometrics (Moveclient)
+##############################################################
+::itcl::body ::mtiwidgets::Mdiframe::_startmove {name x y} {
+    if {[winfo exists $itk_component($name)]} {focus $itk_component($name)}
+    activate $name
+    if {$status($name) eq "maximized"} return
+    set lastXevent($name) [expr {$x - [winfo rootx $itk_component($name)]}]
+    set lastYevent($name) [expr {$y - [winfo rooty $itk_component($name)]}]
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_domove {name x y} {
+    if {$status($name) eq "maximized"} return
+    set oldx  $lastXevent($name)
+    set oldy  $lastYevent($name)
+    set x [expr {$x - [winfo rootx $itk_component(mdi_bgnd)]}]
+    set y [expr {$y - [winfo rooty $itk_component(mdi_bgnd)]}]
+    if {$x < 0} {
+	set x 0
+    }
+    if {$y < 0} {
+	set y 0
+    }
+    if {$x > [winfo width  $itk_component(mdi_bgnd)]} {
+	set x [winfo width  $itk_component(mdi_bgnd)]
+    }
+    if {$y > [winfo height $itk_component(mdi_bgnd)]} {
+	set y [winfo height $itk_component(mdi_bgnd)]
+    }
+    set cx [$itk_component(mdi_bgnd) canvasx [expr {$x - $oldx}]]
+    set cy [$itk_component(mdi_bgnd) canvasy [expr {$y - $oldy}]]
+    $itk_component(mdi_bgnd) coord $handle($name) $cx $cy
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_endmove {name x y} {
+    if {$status($name) == "maximized"} return
+    if {$status($name)=="minimized"} {
+	set minroot($name) [lrange [$itk_component(mdi_bgnd) bbox $handle($name)] 0 1]
+    } else {
+	set rootx($name) [lindex [$itk_component(mdi_bgnd) bbox $handle($name)] 0]
+	set rooty($name) [lindex [$itk_component(mdi_bgnd) bbox $handle($name)] 1]
+    }
+    set cstruct(lastevent) "-1 -1"
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_cmd_sub {str action state status client} {
+	set res [list]
+	set i 0
+	while {[set x [string first % $str $i]] >= 0} {
+		switch [string index $str [expr {$x + 1}]] {
+			a {
+				# Command
+				set e [string range $str $i [expr {$x - 1}]]
+				append res $e
+				append res $action
+				set i [expr {$x + 2}]
+			}
+			t {
+				# State
+				set e [string range $str $i [expr {$x - 1}]]
+				append res $e
+				append res $state
+				set i [expr {$x + 2}]
+			}
+			s {
+				# Status
+				set e [string range $str $i [expr {$x - 1}]]
+				append res $e
+				append res $status
+				set i [expr {$x + 2}]
+			}
+			c {
+				# Client
+				set e [string range $str $i [expr {$x - 1}]]
+				append res  $e
+				append res $client
+				set i [expr {$x + 2}]
+			}
+			default {
+				set e [string range $str $i $x]
+				append res $e
+				set i [expr {$x + 1}]
+			}
+		}
+	}
+	set e [string range $str $i end]
+	append res $e
+	return $res
+}
+
+##############################################################
+# -Client close makes calls to call back routines
+##############################################################
+::itcl::body ::mtiwidgets::Mdiframe::closeclient {name} {
+	# Execute action/status/state change command
+	if {$itk_option(-command) ne ""} {
+		set cmd [_cmd_sub $itk_option(-command) close $status($name) [$itk_component($name) cget -state] $name]
+		if {[catch {eval $cmd} rv]} {
+			puts stderr "client: $rv"
+			error "client: $rv"
+		}
+		if  { $rv ==  1} { return $rv }
+	}
+
+	if {[$itk_component($name) cget -command] ne ""} {
+		set cmd [_cmd_sub [$itk_component($name) cget -command] close $status($name) [$itk_component($name) cget -state] $name]
+		if {[catch {eval $cmd} rv]} {
+			puts stderr "closeclient: $rv"
+			error "closeclient: $rv"
+		}
+
+		if {$rv == ""} {
+			return
+		}
+		if  { $rv ==  1} { return $rv }
+	}
+	
+	if {$name ne "" && [info exists itk_component($name)] } {
+		if { [info exists tabs($name) ] } {
+			# Make another tab active first
+			if {$name eq $current} {
+				$itk_component($tabs($name)) prev
+			}
+
+			if {$itk_option(-mode) eq "classic"} {
+				$itk_component(tab) delete $tabLabels($name)
+			} else {
+				$itk_component($tabs($name)) forget $itk_component($name)
+				# If this was the last tab, then remove the tabbed pane also
+				if {[llength [$itk_component($tabs($name)) panes]] == 0} {
+					destroy $itk_component($tabs($name))
+				}
+				# If this was the last tabgroup then make the background visible
+				if {[llength [$itk_component(paneset) panes]] == 1} {
+					$itk_component(paneset) paneconfigure $itk_component(tabbed_bgnd) -hide 0
+				}
+			}
+			unset tabs($name)
+		}
+	}
+	
+	set saveStatus $status($name)
+	destroy $itk_component($name)
+	if {[info exists handle($name)]} {
+		$itk_component(mdi_bgnd) delete $handle($name)
+		unset handle($name)
+	}
+	set ix [lsearch -exact $clients $name]
+	if {$ix >= 0} {
+		set clients [lreplace $clients $ix $ix]
+	}
+	if {$lastCurrent eq $name} {
+		set lastCurrent ""
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::minclient {name} {
+    if {$itk_option(-mode) ne "classic"} { return }
+    if {[info exists itk_component($name)] &&
+	[$itk_component($name) ripped]} { return }
+    # Execute action/status/state change command
+    if {$itk_option(-command) != ""} {
+	set cmd [_cmd_sub $itk_option(-command) minimize $status($name) [$itk_component($name) cget -state] $name]
+	if {[catch {eval $cmd} rv]} {
+	    error "client: $rv"
+	}
+    }
+
+    if {[$itk_component($name) cget -command] != {}} {
+	set cmd [_cmd_sub [$itk_component($name) cget -command] minimize $status($name) [$itk_component($name) cget -state] $name]
+	if {[catch {eval $cmd} rv]} {
+	    error "minclient: $rv"
+	}
+	if {$rv == ""} {
+	    return
+	}
+    }
+    set doMaximize 0
+    if {$status($name) == "normal"} {
+	set width($name) [winfo width $itk_component($name)]
+	set height($name) [winfo height $itk_component($name)]
+	set doSetCurrent 1
+    } elseif {$status($name) == "maximized"} {
+	set doMaximize 1
+	set doSetCurrent 1
+	set _disablePackBG 1
+	normclient $name
+    } else {
+	set doSetCurrent 0
+    }
+    if {$status($name) != "minimized"} {
+	$itk_component($name) configure -status minimized
+    }
+    set miny [winfo reqheight $itk_component($name)]
+    if {$miny < $itk_option(-minheight)} {
+	set miny $itk_option(-minheight)
+    }
+
+    set minx 0
+    foreach x [winfo children [$itk_component($name) component system]] {
+	incr minx [winfo reqwidth $x]
+    }
+    if {$minx < $itk_option(-minwidth)} {
+	set minx $itk_option(-minwidth)
+    }
+    $itk_component(mdi_bgnd) itemconfig $handle($name) -width $minx -height $miny
+
+    set canx  [winfo width  $itk_component(mdi_bgnd)]
+    set cany  [winfo height $itk_component(mdi_bgnd)]
+    set minx  $itk_option(-minwidth)
+    set miny  $itk_option(-minheight)
+    
+    [$itk_component($name) component menu] entryconfig 0 -state normal
+    if {[info exists itk_component(min)]} {
+        [$itk_component($name) component menu] entryconfig 1 -state disabled
+    }
+    [$itk_component($name) component menu] entryconfig 2 -state normal
+    if {$minroot($name) != ""} {
+	set x [lindex $minroot($name) 0]
+	set y [lindex $minroot($name) 1]
+	if {$x > [expr {$canx - $minx}]} {
+	    set x [expr {$canx - $minx}]
+	}
+	if {$y > [expr {$cany - $miny}]} {
+	    set y [expr {$cany - $miny}]
+	}
+	$itk_component(mdi_bgnd) coords $handle($name) $x $y
+    } else {
+	set found 0
+	for {set ix 0} {$ix < "[expr {$canx - $minx}]" } {incr ix [expr {1 + $itk_option(-minwidth)}]} {
+	    for {set iy 0} {$iy < "[expr {$cany - $miny}]" } {incr iy [expr {1 + $itk_option(-minheight)}]} {
+		set overlappers [$itk_component(mdi_bgnd) find overlapping $ix $iy [expr {$ix + $minx}] [expr {$iy + $miny}]]
+		set found 1
+		if {[llength $overlappers] == 0} {
+		    break     
+		} else {
+		    set found 1
+		    foreach cli [array names handle] {
+			if {$cli eq $name} continue
+			set srch [lsearch $overlappers $handle($cli)]
+			if {$srch >= 0 && $status($cli) ne "minimized"} continue
+			if {$srch >= 0} {
+			    set found 0
+			    break
+			}
+		    }
+		    if {$found} break
+		}
+		if {$found} break
+	    }
+	    if {$found} break
+	}
+	if {$found == 1} {
+	    $itk_component(mdi_bgnd) coords $handle($name) $ix $iy
+	} elseif {$found == 2} {
+	    set tmpx [lindex [$itk_component(mdi_bgnd) coords $handle($name)] 0]
+	    $itk_component(mdi_bgnd) coords $handle($name) $tmpx [expr {$cany - $iy - $miny}]
+	}
+    }
+    if {$status($name) == "maximized"} {
+	catch {[$itk_component($name) component min] configure -image $::mtiwidgets::Mdiclient::_images(Norm) -command [::itcl::code $this maxclient $name]}
+    } else {
+	catch {[$itk_component($name) component min] configure -image $::mtiwidgets::Mdiclient::_images(Norm) -command [::itcl::code $this normclient $name]}
+    }
+    [$itk_component($name) component max] configure -image $::mtiwidgets::Mdiclient::_images(Max)  -command [::itcl::code $this maxclient $name]
+    catch {[$itk_component($name) component min] configure -image $::mtiwidgets::Mdiclient::_images(Norm) -command [::itcl::code $this normclient $name]}
+    set status($name) "minimized"
+    catch {eval [subst {bind [$itk_component($name) component system] <Double-ButtonPress-1> { [$itk_component($name) component min] invoke}}]}
+    catch {eval [subst {bind [$itk_component($name) component title] <Double-ButtonPress-1> { [$itk_component($name) component min] invoke}}]}
+    if {$doSetCurrent} {
+	set done 0
+	foreach cli [array names handle] {
+	    if {$status($cli)!="minimized"} {
+		if {$doMaximize} {
+		    maxclient $cli
+		} else {
+		    setcurrent $cli
+		}
+		set done 1
+		break
+	    }
+	}
+	if {!$done} {
+	    if {[winfo manage $itk_component(mdi_bgnd)] == ""} {
+		pack $itk_component(mdi_bgnd) -side top -fill both -expand 1
+	    }
+	}
+    }
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::maxclient {name} {
+    event generate $itk_component(hull) <<MaxClient>>
+
+	if {$itk_option(-mode) ne "classic"} { return }
+	if {[info exists itk_component($name)] &&
+		[$itk_component($name) ripped]} { return }
+	# Execute action/status/state change command
+	if {$itk_option(-command) != ""} {
+		set cmd [_cmd_sub $itk_option(-command) maximize $status($name) [$itk_component($name) cget -state] $name]
+		if {[catch {eval $cmd} rv]} {
+			error "client: $rv"
+		}
+	}
+
+	if {[$itk_component($name) cget -command] != {}} {
+		set cmd [_cmd_sub [$itk_component($name) cget -command] maximize $status($name) [$itk_component($name) cget -state] $name]
+		if {[catch {eval $cmd} rv]} {
+			error "maxclient: $rv"
+		}
+		if {$rv == ""} {
+			return
+		}
+	}
+
+	if {$current != $name && $current != "" && $status($current) == "maximized"} {
+		set _disablePackBG 1
+		normclient $current
+	}
+	setcurrent $name [$itk_component($name) cget -state]
+	if {$status($name) == "normal" && [winfo ismapped $itk_component($name)]} {
+		set width($name) [winfo width $itk_component($name)]
+		set height($name) [winfo height $itk_component($name)]
+	}
+	if {[winfo manage $itk_component(mdi_bgnd)] != ""} {
+		pack forget $itk_component(mdi_bgnd)
+	}
+	$itk_component($name) component max configure -command ""
+	set status($name) "maximized"
+	$itk_component($name) configure -status maximized
+	
+	$itk_component($name) component menu entryconfig 0 -state normal
+    if {[info exists itk_component(min)]} {
+    	$itk_component($name) component menu entryconfig 1 -state normal
+    }
+	$itk_component($name) component menu entryconfig 2 -state disabled
+	# if there's no menu, put the buttons at the top of the background frame
+
+#	$itk_component($name) activate
+	pack $itk_component($name) -in $itk_component(paneset) -side top -fill both -expand 1 -anchor n
+
+	configure -relief flat
+	catch {$itk_component($name) component min configure -image $::mtiwidgets::Mdiclient::_images(Min)  -command [::itcl::code $this minclient $name]}
+	$itk_component($name) component max configure -image $::mtiwidgets::Mdiclient::_images(Norm) -command [::itcl::code $this normclient $name]
+}
+
+::itcl::body mtiwidgets::Mdiframe::_maximize {} {
+	return ;# Not implemented yet
+}
+
+::itcl::body mtiwidgets::Mdiframe::_normalize {} {
+	return ;# Not implemented yet
+}
+
+
+#####################
+#
+# normalclient name
+#
+#####################
+::itcl::body ::mtiwidgets::Mdiframe::normclient {name} {
+    event generate $itk_component(hull) <<NormClient>>
+
+	if {$itk_option(-mode) ne "classic"} { return }
+	if {[info exists itk_component($name)] &&
+		[$itk_component($name) ripped]} { return }
+	# Execute action/status/state change command
+	if {$itk_option(-command) != ""} {
+		set cmd [_cmd_sub $itk_option(-command) normal $status($name) [$itk_component($name) cget -state] $name]
+		if {[catch {eval $cmd} rv]} {
+			error "client: $rv"
+		}
+	}
+
+	if {[$itk_component($name) cget -command] != {}} {
+		set cmd [_cmd_sub [$itk_component($name) cget -command] restore $status($name) [$itk_component($name) cget -state] $name]
+		if {[catch {eval $cmd} rv]} {
+			error "normclient: $rv"
+		}
+		if {$rv == ""} {
+			return
+		}
+	}
+	if {$status($name) == "maximized"} {
+		if {[catch {
+			pack forget $itk_component($name)
+			configure -relief sunken
+			$itk_component(mdi_bgnd) itemconfigure $handle($name) -window $itk_component($name)
+		} rv]} {
+			error "client: $rv"
+		}
+	}
+
+	if {!$_disablePackBG && "$name" == "$current" && [winfo manage $itk_component(mdi_bgnd)] == ""} {
+		pack $itk_component(mdi_bgnd) -side top -fill both -expand 1
+	}
+	set _disablePackBG 0
+		
+	set path $itk_component($name)
+	set menu [$path component menu]
+	$menu entryconfig 0 -state disabled
+    if {[info exists itk_component(min)]} {
+        $menu entryconfig 1 -state normal
+    }
+	$menu entryconfig 2 -state normal
+	$path component title configure -text $titles($name)
+	$itk_component(mdi_bgnd) itemconfig $handle($name) -width $width($name) -height $height($name)
+	$itk_component(mdi_bgnd) coords $handle($name) $rootx($name) $rooty($name)
+
+	catch {$path component min configure -image $::mtiwidgets::Mdiclient::_images(Min) -command [::itcl::code $this minclient $name]}
+	$path component max configure -image $::mtiwidgets::Mdiclient::_images(Max) -command [::itcl::code $this maxclient $name]
+	set status($name) normal
+	$itk_component($name) configure -status normal
+	raise $itk_component($name)
+	bind [$path component system] <Double-1> "$path component max invoke"
+	bind [$path component title]  <Double-1> "$path component max invoke"
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_bgndConfig {} {
+	if {$itk_option(-mode) ne "classic"} { return }
+	# move the minimized windows to keep them in view
+	foreach cli [array names handle] {
+		if {$status($cli)=="minimized"} {
+			minclient $cli
+		}
+	}
+	_tile_
+}
+
+
+
+::itcl::body ::mtiwidgets::Mdiframe::_activateClient {w} {
+	if {[winfo exists $w]} {
+		set wname $w
+		while {$wname ne "." && [winfo parent $wname] ne $itk_component(paneset)} {
+			set wname [winfo parent $wname]
+		}
+		if {[winfo parent $wname] eq $itk_component(paneset)} {
+			if {  [winfo class $wname] ne "Mdiclient" } {
+				return
+			}
+			setcurrent [winfo name $wname]
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::activate {name} {
+	if {$name eq "-lastcurrent"} {
+		setcurrent [lastcurrent] active
+	} elseif {[info exists itk_component($name)]} {
+		setcurrent $name active
+	} elseif {[string index $name 0] eq "."} {
+		setcurrent [findclient $name] active
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::setcurrent {name {active normal}} {
+
+	if {$inSetCurrent} {
+		return
+	}
+	if {[info exists itk_component($name)] &&
+		[winfo exists $itk_component($name)] &&
+		[$itk_component($name) ripped]} {
+		::raise [$itk_component($name) childsite]
+		return
+	}
+	set inSetCurrent 1
+	if {[info exists current] && $current != "bgnd" && [info exists itk_component($current)]} {
+		if {[info exists tabs($name)]} {
+			set ts_new $tabs($name)
+		} else {
+			set ts_new ""
+		}
+		if {[info exists tabs($current)]} {
+			set ts_current $tabs($current)
+		} else {
+			set ts_current ""
+		}
+		if {$current ne $name} {
+			$itk_component($current) configure -state inactive
+			switch $status($current) {
+				tabbeded {
+					if {$ts_new eq $ts_current} {
+						if {$name != "" && $current != ""} {
+							$itk_component($tabs($name)) paneconfigure $itk_component($current) -hide 1
+						}
+					}
+				}
+				maximized {
+					if {$name != "" && $current != ""} {
+						set status($name) $status($current)
+						set _disablePackBG 1
+						normclient $current
+						raise $itk_component($name)
+					}
+				}
+			}
+		} else {
+			if {$current != ""} {
+				$itk_component($current) configure -state $active
+				raise $itk_component($name)
+			}
+		}
+	}
+
+	if {$current != ""} {
+		set lastCurrent $current
+	}
+	set current $name
+
+	if {$name != "bgnd" && $current != "" && [info exists itk_component($name)]} {
+		switch $status($name) {
+			tabbed {
+				$itk_component($tabs($name)) select $itk_component($name)
+				$itk_component($name) configure -state $active
+				raise $itk_component($name)
+			}
+			maximized {
+				$itk_component($tabs($name)) select $tabLabels($name)
+				maxclient $name
+				$itk_component($name) configure -state $active
+			}
+			default {
+				$itk_component($tabs($name)) select $tabLabels($name)
+				raise $itk_component($name)
+				$itk_component($name) configure -state $active
+
+			}
+		}
+	} else {
+		# Bad name, revert to last current and make inactive
+		set current $lastCurrent
+		if {$current != "" && [info exists itk_component($current)]} {
+			$itk_component($current) configure -state inactive
+			raise $itk_component($current)
+		}
+	}
+	# Execute action/status/state change command
+	if {$itk_option(-command) != ""} {
+		if {$name != "" && $name != "bgnd"} {
+			set cmd [_cmd_sub $itk_option(-command) activate "maximized" [$itk_component($name) cget -state] $name]
+		} else {
+			set cmd [_cmd_sub $itk_option(-command) inactive "" "" $name]
+		}
+		if {[catch {eval $cmd} rv]} {
+			set inSetCurrent 0
+			error "client: $rv"
+		}
+	}
+	if {$name != "" && [info exists itk_component($name)] } {
+		if {[$itk_component($name) cget -command] != {}} {
+			set cmd [_cmd_sub [$itk_component($name) cget -command] Activate "maximized" [$itk_component($name) cget -state] $name]
+			if {[catch {eval $cmd} rv]} {
+			}
+		}
+		if { $itk_option(-mode) eq "classic" &&
+			 [info exists tabs($itk_component($name)) ] } {
+			set TabSelecting 1
+			$itk_component(tab) select $tabLabels($name)
+			set TabSelecting 0
+		}
+	}
+	set inSetCurrent 0
+	return ""
+}
+
+# Save as activate, but does not highlight window
+::itcl::body ::mtiwidgets::Mdiframe::raiseclient {name} {
+	setcurrent $name normal
+}
+
+#
+# Given an arbitrary widget path, find it's containing client
+#
+::itcl::body ::mtiwidgets::Mdiframe::findclient {win} {
+	if {![winfo exists $win]} {
+		return ""
+	}
+	set client $win
+	while {1} {
+		set obj [::find object ::$client]
+		if {$obj ne "" && [$obj isa ::mtiwidgets::Mdiclient]} {
+			set name [winfo name $client]
+			if {[info exists itk_component($name)]} {
+				return $name
+			}
+		}
+		set client [winfo parent $client]
+		if {$client eq "."} {
+			break
+		}
+	}
+	return ""
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::lastcurrent {} {
+	if {$current != ""} {
+		return $current
+	} elseif {[info exists status($lastCurrent)]} {
+		return $lastCurrent
+	} else {
+		return ""
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::status {{name ""}} {
+	if {$name == ""} { 
+		set name [lastcurrent]
+	}
+	return $status($name)
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::getcurrent {} {
+	return $current
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::layout {what} {
+	if {$itk_option(-mode) ne "classic"} { return }
+	if {[info exists status($current)]} {
+		if {$status($current) == "maximized"} {
+			normclient $current
+		}
+	}
+	switch $what {
+		cascade {
+			_cascade_layout
+		}
+		horizontal {
+			_tile_layout horizontal
+		}
+		vertical {
+			_tile_layout vertical
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::geometry {name args} {
+	if {[info exists handle($name)]} {
+		set w $width($name)
+		set h $height($name)
+		set x $rootx($name)
+		set y $rooty($name)
+		if {[llength $args] == 1} {
+			set geom [lindex $args 0]
+			if {[string index $geom 0] == "+"} {
+				scan $geom "+%d+%d" x y
+			} else {
+				scan $geom "%dx%d+%d+%d" w h x y
+			}
+			set width($name) $w
+			set height($name) $h
+			set rootx($name) $x
+			set rooty($name) $y
+			if {$status($name) == "normal"} {
+				$itk_component(mdi_bgnd) itemconfig $handle($name) -width $width($name) -height $height($name)
+				$itk_component(mdi_bgnd) coords $handle($name) $rootx($name) $rooty($name)
+			}
+			set rv ""
+		} else {
+			set rv [format "%dx%d+%d+%d" $w $h $x $y]
+		}
+	} else {
+		error "$name: no such window"
+	}
+	return $rv
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_cascade_layout {} {
+	set startx 0
+	set starty 0
+	set x $startx
+	set y $starty
+	set maxx [winfo width $itk_component(mdi_bgnd)]
+	set maxy [winfo height $itk_component(mdi_bgnd)]
+	set w [expr {int($maxx * 0.75)}]
+	set h [expr {int($maxy * 0.75)}]
+	set dx 10
+	foreach name [array names handle] {
+		if {$status($name) == "normal"} {
+			geometry $name [format "%dx%d+%d+%d" $w $h $x $y]
+			setcurrent $name
+			set dy [expr {[winfo height [$itk_component($name) component system]] + 5}]
+			incr x $dx
+			incr y $dy
+			if {[expr {$y + $h}] > $maxy} {
+				incr startx [expr {$dx * 2}]
+				set x $startx
+				set y $starty
+			}
+			if {[expr {$x + $w}] > $maxx} {
+				set starty 0
+				set startx 0
+				set x $startx
+				set y $starty
+			}
+		}
+	}
+} 
+
+::itcl::body ::mtiwidgets::Mdiframe::_tile_layout {{which horizontal}} {
+	set maxx [winfo width $itk_component(mdi_bgnd)]
+	set maxy [winfo height $itk_component(mdi_bgnd)]
+	set w $maxx
+	set h $maxy
+
+	set fx 0 ;#5
+	set fy 0 ;#[expr {[winfo height [$itk_component($name) component system]] + 3}]
+
+	set clist [list]
+	foreach name $clients {
+		if {$status($name) == "normal"} {
+			lappend clist $name
+		}
+	}
+
+	set nwins [llength $clist]
+	if {$nwins <= 0} {
+		# No visible windows
+		return
+	}
+	set ncols [expr {int(sqrt($nwins))}]
+	set nrows [expr {$nwins/$ncols}]
+	if {$which == "vertical"} {
+		# How to perform a swap without using a temp
+		foreach {nrows ncols} [list $ncols $nrows] {}
+	}
+	set nleft [expr {$nwins - $nrows * $ncols}]
+
+	set xoff 0
+	set yoff 0
+
+	set win_width  [expr {$w / $ncols}]
+	set x $xoff
+	set n 0
+
+	for {set i 1} {$i <= $ncols} {incr i} {
+		set y $yoff
+		set nwins_this_col [expr {$nrows + ($nleft > ($ncols - $i))}]
+		set win_height [expr {$h / $nwins_this_col}]
+		for {set j 1} {$j <= $nwins_this_col} {incr j} {
+			set name [lindex $clist $n]
+			set wingeom [format "%dx%d+%d+%d" \
+			[expr {$win_width-$fx*2}] [expr {$win_height-$fy}] $x $y]
+			geometry $name $wingeom
+			incr n
+			incr y $win_height
+		}
+		incr x $win_width
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::makeResizeCorner {w client} {
+	global tcl_platform
+	set background [$itk_component($client) cget -background]
+	canvas $w -width 14 -height 14 -background $background
+	if {$tcl_platform(platform) == "windows"} {
+		set cursor size_nw_se
+		set colorD System3dDarkShadow
+		set colorL System3dLight
+	} else {
+		set shadows [mtiwidgets::3DborderColor $itk_component($client) both]
+		set cursor bottom_right_corner
+		set colorD [lindex $shadows 0]
+		set colorL [lindex $shadows 1]
+	}
+	$w configure -cursor $cursor -takefocus 0 \
+		-highlightthickness 1 \
+		-highlightcolor [$w cget -background] \
+		-highlightbackground [$w cget -background]
+	$w create line 15 4 4 15 -fill $colorL -width 1
+	$w create line 15 5 5 15 -fill $colorD -width 1
+	$w create line 15 8 8 15 -fill $colorL -width 1
+	$w create line 15 9 9 15 -fill $colorD -width 1
+	$w create line 15 12 12 15 -fill $colorL -width 1
+	$w create line 15 13 13 15 -fill $colorD -width 1
+	$w addtag resize all
+	$w create polygon 0 0 0 15 15 0 -fill [$w cget -bg]
+	$w addtag move closest 0 0
+	$w bind resize <ButtonPress-1>   [::itcl::code $this _startresize $client 10000 10000 %X %Y]
+	$w bind resize <B1-Motion>       [::itcl::code $this _doresize $client %X %Y]
+	$w bind move   <ButtonPress-1>   [::itcl::code $this _startmove $client %X %Y]
+	$w bind move   <Enter> "%W configure -cursor fleur"
+	$w bind move   <Leave> "%W configure -cursor $cursor"
+	$w bind move   <B1-Motion>       [::itcl::code $this _domove $client %X %Y]
+	$w bind move   <ButtonRelease-1> [::itcl::code $this _endmove $client %X %Y]
+	return $w
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::_post {w x y} {
+	if {$itk_option(-popupmenu) == {} } {
+		# Don't post the menu if there's nothing in it
+		return
+	}
+	set rx [expr {[winfo rootx $w]+$x}]
+	set ry [expr {[winfo rooty $w]+$y}]
+
+	tk_popup $itk_option(-popupmenu) $rx $ry
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::rip {name} {
+	if {[info exists itk_component($name)]} {
+		if {[$itk_component($name) ripped]} {
+			# Already rip'ed
+			return
+		}
+		$itk_component($name) rip
+		#tabconfigure $name -hide 1
+		# Remove tab
+		if {$itk_option(-mode) eq "classic"} {
+			if {[llength $clients] > 1} {
+				$itk_component(tab) next
+			}
+			$itk_component(tab) delete $tabLabels($name)
+			if {$status($name) eq "maximized"} {
+				pack forget $itk_component($name)
+			} else {
+				$itk_component(paneset) paneconfigure $itk_component($name) -hide 1
+				$itk_component(mdi_bgnd) itemconfigure $handle($name) -window {}
+			}
+		} else {
+			if {[llength [$itk_component($tabs($name)) panes]] > 1} {
+				$itk_component($tabs($name)) next
+			}
+			$itk_component($tabs($name)) forget $itk_component($name)
+			# If this was the last tab, then remove the tabbed pane also
+			if {[llength [$itk_component($tabs($name)) panes]] == 0} {
+				destroy $itk_component($tabs($name))
+			}
+			# If this was the last tabgroup then make the background visible
+			if {[llength [$itk_component(paneset) panes]] == 1} {
+				$itk_component(paneset) paneconfigure $itk_component(tabbed_bgnd) -hide 0
+			}
+		}
+		if {[info exists tabs($name)]} {
+			unset tabs($name)
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::join {name} {
+	if {[info exists itk_component($name)]} {
+		if {![$itk_component($name) ripped]} {
+			# Already join'ed
+			return
+		}
+		$itk_component($name) join
+
+		set tab_label [$itk_component($name) cget -tabtitle]
+		if {$tab_label eq ""} {
+		set tab_label $titles($name)
+		}
+		set orig_tab_label $tab_label
+		set idx 0
+
+		while {$idx < 9999} {
+			if { [TabExists $tab_label] } {
+				incr idx
+				set tab_label "$orig_tab_label ($idx)"
+			} else {
+				break
+			}
+		}
+
+		set icon_image [$itk_component($name) cget -icon]
+
+		if {$itk_option(-mode) eq "classic"} {
+			##########################
+			#   Classic Mode layout  #
+			##########################
+			$itk_component(mdi_bgnd) itemconfigure $handle($name) -window $itk_component($name)
+			set tabNames($name) [$itk_component(tab) add -label $tab_label -image $icon_image]
+			set tabLabels($name) $tab_label
+			set tabcurrent(tab) $name
+			set tabs($name) tab
+			$itk_component(tab) select $tab_label
+		} else {
+			#########################
+			#   Tabbed Mode layout  #
+			#########################
+			if {[llength [array names itk_component group*]] <= 0} {
+				set currentgroup group${_group_cnt}
+				itk_component add $currentgroup {
+					mtiwidgets::tabbedpane $itk_component(paneset).$currentgroup -mode tabbed \
+						-tabpos s -angle 0 -bevelamount 2 -margin 2 -pady 2 \
+						-equaltabs false -tabpady 2
+				} {
+					keep -orient -background
+				}
+				$itk_component($currentgroup) configure  \
+					-command [::itcl::code $this TabSelected $currentgroup] \
+					-selectbackground $itk_option(-background) \
+					-selectforeground $itk_option(-foreground)
+				bind $itk_component($currentgroup) <<TabSelected>> [::itcl::code $this _generateSelectEvent]
+				$itk_component(paneset) add $itk_component($currentgroup) -sticky nsew -stretch always
+				if { $itk_option(-popupmenu) != {} }  {
+					$itk_component($currentgroup) configure -menu $itk_option(-popupmenu)
+				}
+				incr _group_cnt
+				$itk_component(paneset) paneconfigure $itk_component(tabbed_bgnd) -hide 1
+			} else {
+				set currentgroup [winfo name [lindex [$itk_component(paneset) panes] end]]
+			}
+			$itk_component($currentgroup) add $itk_component($name) \
+				-label $tab_label \
+				-image $icon_image \
+				-sticky nsew \
+				-stretch always
+			set tabLabels($name) $tab_label
+			set tabcurrent($currentgroup) $name
+			set tabs($name) $currentgroup
+
+			$itk_component($currentgroup) select $itk_component($name)
+
+			set status($name) "tabbed"
+			
+		}
+
+		tabconfigure $name -hide 0
+		raiseclient $name
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::GetTitle {name} { 
+	if {[info exists itk_component($name)]} {
+		return $titles($name)
+	}
+	return ""
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::SetTitle {name title {tab_label ""}} {
+	if {[info exists itk_component($name)]} {
+		set titles($name) $title
+
+		if {$tab_label eq ""} {
+		set tab_label $title
+		}
+
+		$itk_component($name) configure -title $title -tabtitle $tab_label
+
+		set orig_tab_label $tab_label
+		set idx 0
+		set label_list [array get tabLabels]
+
+		while {$idx < 9999} {
+			if {$tabLabels($name) eq $tab_label} {
+				# This item already has this label
+				return
+			} elseif {[lsearch -exact $label_list $tab_label] >= 0} {
+				incr idx
+				set tab_label "$orig_tab_label ($idx)"
+			} else {
+				break
+			}
+		}
+
+		set TabSelecting 1
+		if {![$itk_component($name) ripped]} {
+			tabconfigure $name -label $tab_label
+		}
+		set tabLabels($name) $tab_label
+		set TabSelecting 0
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::SetMark {name mark} {
+	if {[info exists itk_component($name)]} {
+		if {[$itk_component($name) cget -mark] ne $mark} {
+			$itk_component($name) configure -mark $mark
+		}
+		if {![$itk_component($name) ripped]} {
+			tabconfigure $name -mark $mark
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::tabconfigure {name args} {
+	if {[info exists itk_component($name)]} {
+		if {$itk_option(-mode) eq "classic"} {
+			set idx $tabLabels($name)
+		} else {
+			set idx $itk_component($name)
+		}
+		eval [linsert $args 0 $itk_component($tabs($name)) tabconfigure $idx]
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::tabcget {name option} {
+	if {[info exists itk_component($name)]} {
+		if {$itk_option(-mode) eq "classic"} {
+			set idx $tabLabels($name)
+		} else {
+			set idx $itk_component($name)
+		}
+		if {[info exists tabs($name)]} {
+			return [$itk_component($tabs($name)) tabcget $idx $option]
+		} else {
+			return {}
+		}
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::tabnext {name} {
+	if {[info exists itk_component($name)]} {
+		$itk_component($tabs($name)) next
+	}
+}
+
+::itcl::body ::mtiwidgets::Mdiframe::tabprev {name} {
+	if {[info exists itk_component($name)]} {
+		$itk_component($tabs($name)) prev
+	}
+}
+
+::itcl::body mtiwidgets::Mdiframe::split {name} {
+	if {$itk_option(-mode) eq "classic"} { return }
+	if {$name eq "current"} {
+		set name $current
+	}
+	if {![info exists itk_component($name)]} {
+		error "bad client: $name"
+	}
+
+	# Create the new tab group
+	set newgroup group${_group_cnt}
+	incr _group_cnt
+	itk_component add $newgroup {
+		mtiwidgets::tabbedpane $itk_component(paneset).$newgroup -mode tabbed \
+			-tabpos s -angle 0 -bevelamount 2 -margin 2 -pady 2 \
+			-equaltabs false -tabpady 2
+	} {
+		keep -orient -background
+	}
+	$itk_component($newgroup) configure  \
+		-command [::itcl::code $this TabSelected $newgroup] \
+		-selectbackground $itk_option(-background) \
+		-selectforeground $itk_option(-foreground)
+	if { $itk_option(-popupmenu) != {} }  {
+		$itk_component($newgroup) configure -menu $itk_option(-popupmenu)
+	}
+	bind $itk_component($newgroup) <<TabSelected>> [::itcl::code $this _generateSelectEvent]
+	$itk_component(paneset) add $itk_component($newgroup) -sticky nsew -stretch always
+	$itk_component(paneset) paneconfigure $itk_component(tabbed_bgnd) -hide 1
+
+	# Move the tap to the new group
+	#   1. get tab configuration
+	set tabconf [list]
+	foreach conf [$itk_component($tabs($name)) tabconfigure $itk_component($name)] {
+		lappend tabconf [lindex $conf 0] [lindex $conf 2]
+	}
+	#   2. remove client from old tabset
+	$itk_component($tabs($name)) prev
+	$itk_component($tabs($name)) forget $itk_component($name)
+	#   3. place in new tabset
+	$itk_component($newgroup) add $itk_component($name) -sticky nsew -stretch always
+	# Update group
+	set tabs($name) $newgroup
+	#   4. configure tab
+	eval [linsert $tabconf 0 $itk_component($newgroup) tabconfigure $itk_component($name)]
+	raise $itk_component($name)
+	setcurrent $name active
+}
+
+::itcl::body mtiwidgets::Mdiframe::move {name group} {
+	if {$itk_option(-mode) eq "classic"} { return }
+	if {$name eq "current"} {
+		set name $current
+	}
+	if {![info exists itk_component($name)]} {
+		error "bad client: $name"
+	}
+
+	set ngroups [expr {[llength [$itk_component(paneset) panes]] - 1}]
+
+	if {$group eq "next"} {
+		set ts $itk_component($tabs($name))
+		set group [lsearch -exact [$itk_component(paneset) panes] $ts]
+	} elseif {$group eq "prev"} {
+		set ts $itk_component($tabs($name))
+		set group [lsearch -exact [$itk_component(paneset) panes] $ts]
+		incr group -2
+	}
+
+	if {$group >= $ngroups || $group < 0} {
+		error "bad tab group: $group"
+	}
+
+	# Offset group because of tabbed_bgnd
+	incr group
+	set dest [winfo name [lindex [$itk_component(paneset) panes] $group]]
+	if {$dest eq $tabs($name)} {
+		# Already there, nothing to do
+		return
+	}
+
+	# Move the tap to the new group
+	#   1. get tab configuration
+	set tabconf [list]
+	foreach conf [$itk_component($tabs($name)) tabconfigure $itk_component($name)] {
+		lappend tabconf [lindex $conf 0] [lindex $conf 2]
+	}
+	#   2. remove client from old tabset
+	$itk_component($tabs($name)) prev
+	$itk_component($tabs($name)) forget $itk_component($name)
+	set oldgroup $tabs($name)
+	#   3. place in new tabset
+	$itk_component($dest) add $itk_component($name) -sticky nsew -stretch always
+	set tabs($name) $dest
+	#   4. configure tab
+	eval [linsert $tabconf 0 $itk_component($dest) tabconfigure $itk_component($name)]
+	# Update group
+	raise $itk_component($name)
+	setcurrent $name active
+
+	# Clean up.  If this is the last tab in the group, then remove the group
+	# If this was the last tab, then remove the tabbed pane also
+	if {[llength [$itk_component($oldgroup) panes]] == 0} {
+		destroy $itk_component($oldgroup)
+	}
+}
+
+
+
+::itcl::body mtiwidgets::Mdiframe::actionstate {action args} {
+	if {$itk_option(-mode) eq "classic"} { 
+		switch $action {
+			can_hidetabs {
+				return normal
+			}
+			default {
+				return disabled 
+			}
+		}
+	}
+	switch $action {
+		can_orient {
+			return normal
+		}
+		can_hidetabs {
+			return disabled
+		}
+		can_moveprev {
+			if {![info exists tabs($current)]} {
+				return disabled
+			}
+			set ngroups [expr {[llength [$itk_component(paneset) panes]] - 1}]
+			set ts $itk_component($tabs($current))
+			set group [lsearch -exact [$itk_component(paneset) panes] $ts]
+			incr group -2
+			if {$group >= 0} {
+				return normal
+			} else {
+				return disabled
+			}
+		}
+		can_movenext {
+			if {![info exists tabs($current)]} {
+				return disabled
+			}
+			set ngroups [expr {[llength [$itk_component(paneset) panes]] - 1}]
+			set ts $itk_component($tabs($current))
+			set group [lsearch -exact [$itk_component(paneset) panes] $ts]
+			if {$group < $ngroups} {
+				return normal
+			} else {
+				return disabled
+			}
+		}
+		can_split {
+			if { [winfo exists $itk_component($tabs($current))] } {
+				set len [ llength [$itk_component($tabs($current)) panes]]}
+				if { $len > 1} {
+					return normal
+			} 
+			return disabled
+		}
+	}
+	return disabled
+}
+
+if {[info commands mti_popup] eq ""} {
+	interp alias {} mti_popup {} tk_popup
+}

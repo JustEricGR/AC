@@ -1,0 +1,1220 @@
+                Release Notes For ModelSim ALTERA Version 5.5
+
+                                                       1
+                                                       March
+                                                       2001
+
+  ------------------------------------------------------------------------
+
+*Product Installation and Licensing Information
+For brief instructions about product installation please visit the
+"install_notes" file on the Model Technology web site. The install_notes
+file can be viewed at:
+http://www.model.com/products/release.asp
+For detailed information about product installation and licensing see the
+ModelSim Start Here Guide. The manual can be downloaded from:
+http://www.model.com/support/documentation.asp
+
+*How to Get Support
+
+This OEM product is supported by Altera Corporation
+
+   * Telephone Support
+
+     Call 800-800-3753 or 408-544-7000
+
+
+   * Email Support
+
+     support@altera.com
+
+
+   * World-Wide-Web Support
+
+     https://websupport.altera.com/
+
+
+
+
+*Release Notes Archives
+For release notes of previous versions visit the release notes archive at:
+http://www.model.com/support/default.asp
+
+  ------------------------------------------------------------------------
+
+Index to Release Notes
+
+   * Key Information
+   * User Interface Defects Repaired in 5.5
+   * Verilog Defects Repaired in 5.5
+   * PLI Defects Repaired in 5.5
+   * VHDL Defects Repaired in 5.5
+   * FLI Defects Repaired in 5.5
+   * VITAL Defects Repaired in 5.5
+   * Mixed Language Defects Repaired in 5.5
+   * General Defects Repaired in 5.5
+   * Mentor Graphics DR's Repaired in 5.5
+   * Known Defects in 5.5
+   * Product Changes to 5.5
+   * New Features Added to 5.5
+
+
+  ------------------------------------------------------------------------
+
+Key Information
+
+   * You must recompile or refresh your models if you are moving forward
+     from 5.4x or earlier release versions. See "Regenerating your
+     Libraries" in the ModelSim Start Here Guide for more information on
+     refreshing your models.
+   * The following lists the supported platforms:
+        o win32aloem - Windows 95, 98, Me, NT, 2000
+        o sunos5aloem - Solaris 2.6, 7, 8
+        o hp700aloem - HP-UX 10.2, 11
+
+
+   * The Windows 95 platform will no longer be supported starting with the
+     next major ModelSim release, version 5.6.
+
+User Interface Defects Repaired in Release 5.5
+
+   * Always blocks, initial blocks, and continuous assignments that were
+     located within a module and were inlined, displayed incomplete
+     information in the Dataflow Window. This was caused by the
+     optimization performed by inlining which in turn did not generate the
+     necessary debug information.
+   * The Wave Window has been fixed to correctly perform the restart
+     command when the Wave Window contains signals from multiple datasets.
+   * Checks were missing in the wave and list format files to verify the
+     existence of the datasets required by the format file. Appropriate
+     error messages are now displayed if the requisite datasets do not all
+     exist. The -force option can be used to force the execution of a wave
+     or list format file even if all needed datasets are not available.
+     Error messages will be generated for signals referencing nonexistent
+     datasets.
+
+Verilog Defects Repaired in Release 5.5
+
+   * The simulator failed to report the error that a port instance of an
+     INTERCONNECT or PORT SDF construct was not found in a VITAL design if
+     the instance name needed to be escaped (for a VHDL extended
+     identifier), but was not escaped.
+   * Environment variables used with the +incdir switch were not expanded
+     if the +incdir switch occurred in a file read with the -f switch or
+     the .ini OptionFile entry.
+   * The `include directive did not accept a macro for the filename.  For
+     example, the following did not work:
+          `define myfile "myfile.v"
+          `include `myfile
+   * The simulator issued a false error message when annotating an SDF
+     IOPATH delay onto a Verilog path delay that drives a registered output
+     port.
+   * During simulation, an event control construct that contained an
+     expression could be incorrectly triggered. The following code
+     fragment:
+          always @(some_wire === 1'b1)
+          begin ..
+          end
+
+          assign some_wire = 1'b0;
+     would always be triggered at time zero by some_wire taking the value
+     '0'. The problem was that the initial value of an expression was
+     always assumed to be X. When some_wire gets the value '0', the
+     expression (some_wire == 1'b1) is evaluated to '0' and since there is
+     a 'X' -> '0' transition the always block is executed. In 5.5 the
+     initial value of expression in event control constructs is computed
+     correctly.
+   * vlog was incorrectly handling a module with ports that were shorted
+     when -fast was on. Ports that were shorted by repeating the formal
+     name multiple times in the port list did not behave correctly. For
+     example:
+          module test(a, a);
+          inout a;
+          end module
+   * In some cases, the default statement of a Verilog case statement did
+     not show up as an executable line. This affected the code coverage by
+     reducing the line count. In a few cases, this caused a crash when the
+     default case was executed because temporary variables were not up to
+     date.
+
+PLI Defects Repaired in Release 5.5
+
+   * tf_ievaluatep() messed up the internal current instance pointer
+     so that subsequent calls to certain tf functions (such as
+     tf_resychronize()) did not work properly.
+   * The problem occurred when loading two PLI applications where one
+     referenced init_userfs and the other referenced veriuserfs. If
+     veriusertfs was loaded after init_usertfs, veriuserfs' functions
+     were never registered.
+
+VHDL Defects Repaired in Release 5.5
+
+   * The simulator failed to check lengths of port maps assigning to slices
+     of ports. The simulator was changed so it checks that the length of an
+     actual array is identical to the length of the slice of a formal port.
+     If a mismatch occurs, a fatal error is reported.
+   * If a configuration explicitly configured an instance to open, the
+     default configuration for that instance was incorrectly used at
+     simulation time.  As of 5.5,  if the user explicitly configures an
+     instance to open, i.e. for all: component_name use open; the default
+     configuration will not be used and the instance will be left unbound.
+     No warning will be issued for the unbound component instance since the
+     user explicitly indicated that it remain unbound.
+   * A port expression in a component declaration in a package crashed vcom
+     if the port was an unconstrained vector using a generic attribute
+     (e.g. gen'length) to constrain the port size.
+   * When a non resolved scalar's signal assignment was within a
+     conditional generate block, the compiler incorrectly determined that
+     it conflicted with other signal assignments to the same signal. During
+     its search for conflicting signal assignments, the compiler now
+     determines if they are within generate statements before emitting
+     error messages.
+   * vcom crashed when a case selector expression was a loop variable
+     declared using the `range attribute. For example:
+          for i in foo`range loop
+               ....
+               case i ...
+   * Run time range checking on sub ranges of integer ports where the
+     sub-range direction is different from the base type resulted in the
+     following incorrect error message:
+          "Range of actual does not intersect with range of formal"
+   * vcom incorrectly produced the error "Aggregate with multiple choices
+     has non-static others choice." when analyzing a multi-dimension array
+     containing a static-sized dimension with an others choice and higher
+     non-static dimensions (with only static choices). The compiler now
+     differentiates between array dimensions.
+   * Ports that were one-dimentional arrays in some cases appeared in the
+     Wave Window or in GUI commands and had incorrect bounds. This defect
+     did not affect simulation results.  The cause of the problem was an
+     optimization that reduced the number of signals in the design.
+
+FLI Defects Repaired in Release 5.5
+
+   * Using mti_Sensitize() on a signal that had a force command active on
+     it caused the force to be forgotten.
+
+VITAL Defects Repaired in Release 5.5
+
+   * The Simulator failed to detect some cases where instance names in the
+     SDF file were not found in the design. As a result annotation did not
+     take place, but no errors were issued.
+
+Mixed Language Defects Repaired in Release 5.5
+
+   * If a signal  in a VHDL design unit is connected to a Verilog model's
+     inout port, a force -freeze command applied to the signal appeared to
+     have no effect. The Verilog signal's contribution was erroneously
+     combined with the VHDL signal's effective value. Verilog net
+     evaluation has been changed to ignore the Verilog contribution in this
+     case.
+   * The force -deposit and force -freeze commands will produce an error
+     message if a Verilog net is connected to an inout port, which connects
+     to an upper level VHDL signal. The force command should be applied to
+     the upper level signal.
+   * The force -drive command applied to a Verilog net, which is an inout
+     port connected to an upper level std_logic VHDL signal, caused the
+     VHDL signal to transition to "X". The net's initialization actions
+     were overwritten by the force command. The simulator has been changed
+     to not overwrite net initialization actions until after the net has
+     been initialized.
+
+General Defects Repaired in Release 5.5
+
+   * The path name specified in the modelsim.ini or *.mpf file for the
+     entry OptionFile did not expand the environment variable. For
+     example:
+          Environment
+          Home = /user/johndoe
+          modelsim.ini
+          ...
+          [vlog]
+          OptionFile = $HOME/vlog.opt
+          ...
+     Previously the Verilog compiler would attempt to open the file
+     $HOME/vlog.opt. In 5.5 the Verilog compiler will attempt to open
+     the file /user/johndoe/vlog.opt.
+   * The write list command failed and issued a usage message if the
+     filename argument contained the string "-wind"  or "event".
+   * default_radix and the radix command were not working correctly in
+     -view mode. The radix default is now defined to be 0 (it was
+     defined as 1) and any time a radix is radix_default the current
+     global default_radix is used. All GUI tree item radices are set
+     to 0 at initialization and therefore take the global
+     default_radix. radix_symbol had been defined to 0 which had the
+     affect of explicitly setting every tree item to symbolic
+     resulting in the radix command being ignored. radix_symbol is now
+     defined to be 1 (it was defined as 0). You should see no change
+     in how values are displayed because symbolic is the default
+     global default_radix. Any command that takes a radix will now
+     accept -symbolic and -default_radix. Several commands did not
+     accept these switches previously. Setting the radix configuration
+     on an item in the GUI will accept -radix default_radix or -radix
+     symbolic, as well as the other radices.
+   * A simulation crashed occurred when mti_getNextNextEventTime() was
+     called and there was a cancelled event in the long delay list
+     which caused the list to be empty and there were also events on
+     the time wheel at the same time.
+
+Mentor Graphics Defect Reports Repaired in Release 5.5
+
+   * 277524 - Need a better method to close the color palette in the Wave
+     Window.
+   * 277776 - ModelSim did not perform checks on arguments 6, 7 and 8 of
+     $setuphold.
+   * 278081 - vmake does not account for architecture changes in dependent
+     libraries.
+   * 288798 - When a non-resolved scalar's signal assignment was within a
+     conditional generate block, the compiler incorrectly determined that
+     it conflicted with other signal assignments to the same signal. During
+     its search for conflicting signal assignments, the compiler now
+     determines if they are within generate statements before emitting
+     error messages.
+   * 287433 - Verilog arrays of instances have been implemented for release
+     5.5.
+   * 290764 - The message "WARNING[10]: mux41.v(8): Redefinition of macro:
+     BUS_WIDTH"  occurs when compiling multiple files on a single command
+     line.
+   * 283149 - Error checking is not consistent for Port Map size
+     mismatches.
+   * 291330 - The simulator crashed if an old version of ieee.math_real
+     package was used in conjunction with math_real acceleration.
+   * 292731 - The simulator hangs after the mgcld license is interrupted.
+   * 282017 - Add Apex 20KE libraries to FPGA Library Manager.
+   * 291502 - The "new project" menu selection copies the contents of the
+     MODELSIM environment variable to the project directory.
+   * 275199 - The FLI call mti_SetGenerics() does not always work correctly
+     with Verilog modules.
+   * 293345 - A Verilog netlist which instantiates Vital models incorrectly
+     used Vital default timing when the timing from the SDF file should
+     have been used.
+
+Known Defects in Release 5.5
+
+   * When I invoke "vsim -lib vhwork", I expected the Library entry in the
+     workspace of the main window to be set to the value vhwork and shows
+     my design units. However, it shows the default work lib.
+   * The library entry in the DESIGN TAB of the Load Design dialog.
+   * In the Projects source area, Windows 95 drag and drop from windows
+     explorer does not work.
+   * Performance issue when re-displaying the workspace. If a work lib with
+     a thousand design units is in the workspace structure, it seems to
+     take a while when this structure is re-displayed.
+   * Compare commands are Wave Window specific.
+     In one Wave Window, add some compare signals Compare > Run to generate
+     some data In a new wave window, add some other compare signals with
+     some other criteria Compare > Run in this new window. The output of
+     the Compare > Differences > Show command gives data for both runs. I
+     would think the compare information is Wave Window specific since the
+     two windows I have are comparing signals with different criteria's.
+     Also, the compare (see -prev -next buttons) behaves as if both runs
+     are the same.  That is, if I keep doing -next, the DIFF report will
+     take me from one window and jumps to the second. Other commands that
+     are not window specific are:
+          Compare > Differences > Save
+          Compare > Differences > Write Report...
+          Compare > Rules > Show
+          Compare > Rules > Save
+     One behavior which was consistent with what I expect were commands
+     like Compare > Differences > Clear. They only cleared the compare
+     information in the active Wave Window.
+   * A compare is started, do some compare runs, if a compare reload
+     command is unsuccessful, vsim does an implicit compare end and all the
+     data was lost. No chance to save any data.
+   * Virtual verilog signals can not be created from a wave.do on a loaded
+     dataset. It works properly on a loaded Verilog design, VHDL design, or
+     a VHDL dataset.  The problem exists for PE and SE. A Reload of verilog
+     virtual signals works. The problem is with functions.
+   * Problem with Verilog strength. These virtual functions are defined.
+     clk and strb are verilog scalar nets.
+          # virtual function {not clk} bar
+          # /top/m/bar
+          # virtual function {not strb} bar
+          # /top/m/bar001
+     In the wave tree write output, its values shows as N/A
+   * Windows 95- new layout Wave window can't be grown. It snaps back to
+     original placement.
+   * When one views the Signals Window, the children of an array of verilog
+     registers show up the correct values.  The problem is in the tree
+     write command for the Signals Window, its values are written as
+     (null).
+   * In some cases loading a shared library fails on hppa64 and rs64. For
+     hppa64
+          # load ./testload.sl
+          # ERROR: dynamic loading is not currently available on this
+          system
+   * The WLFSaveAllRegions modelsim.ini variable (or the setting in the
+     Simulation Options for the same operation) do not change anything.
+     This feature is not implemented yet.
+   * When using the browser for compare->add->region, the current
+     environment gets changed when anything is selected in the browser.
+   * The List Signal Search dialog does not always display the name of the
+     selected signal.  Names of the format /top/signame do not display.
+     Names of the format signame do.  If I select multiple signals of the
+     first format, all I see are commas in the Signal Name(s) box.
+   * List Window Marker problems
+        o If I add a bunch of signals to the List Window then select
+          Markers > Add Marker with nothing selected in the List Window,
+          then the 2nd list line is highlighted (?).  If I then click on
+          another line then no marker outline is left on the supposedly
+          added marker line.
+        o If I click on some line and do Markers > Add Marker then the line
+          I had selected is marked with an outline but the second list line
+          is highlighted(!).
+        o With a marker added on a particular line, if I then click on
+          various lines in the List Window then the marker outline
+          occasionally moves to some other line (usually the previously
+          selected line). Markers don't stay put.
+   *  List Window scrolling problems
+        o When using the Find dialog box to find signals, when the next
+          signal is outside of what is currently showing in the List
+          Window, the window is not scrolled to show the next item found.
+        o If you do a find to the left and the search goes past the
+          beginning of the list to wrap around to the end of the list and
+          there's a lot of stuff in the list window that is out of view,
+          then the List Window scrolls right only one page even though that
+          does not bring the next selected item into view.
+        o When doing a search forward on an item's values, the next line to
+          match is scrolled to be the top line but the scroll bar stays the
+          full length of the scroll bar region.  (This is in a List Window
+          where there aren't very many lines of data.)
+        o The documentation for the List Window says that the up and down
+          arrow keys are supposed to move the line selection up or down one
+          line.  The current behavior is that the up and down arrow keys
+          behave exactly the same as the TAB and shift-TAB keys (searches
+          for next transition).
+   * When using F3 in the Source Window to Find Next, it always skips the
+     Next and finds the Next Next.  The menu item seems to work OK.
+   * The key shortcut for Source > Edit > Replace is indicated to be ESC
+     R.  Hitting ESC R simply inserts an "r" at the current insertion
+     point. This is an unix only problem.
+   * In some cases, redhat 6.0 did not have coverage for the entire source
+     file. There is no problem with redhat 6.1, 6.2 and 7.0.
+   * After changing the height of a compare signal in the Wave Window using
+     the Signal Properties dialog, the next zoom causes the entire scroll
+     bar region to turn red and the 'triangle' icon to show no differences.
+   *  Even though the hierCutoff and rankCutoff variables are set to 1 in
+     pref.tcl, when I bring up the Hierarchical and Ranked Profile windows
+     I see a default % of 0.  The default is supposed to be whatever the
+     cutoff is set to.
+   *  When single-stepping in a .coverage_source window, as long as the
+     context stays within the current file the coverage numbers can be seen
+     to increment with each step.  If a step causes another source file to
+     be brought up, then the coverage numbers in the first column are all
+     screwed up.  The only way to fix them is to click on the name of the
+     current source file in the coverage_summary window, but even this does
+     not always work.
+   * On the left side of the Wave Window is a tree displaying all of the
+     signal names being waved.  If those are arrays, there is a plus to the
+     left of the name so that you can open it and access the individual
+     elements of the array.  If you have really long signal names and you
+     scroll all the way to the right to see the end of the names and then
+     click on a plus to open an array, the horizontal scroller is reset all
+     the way to the left.  So I have to scroll all the way to the right
+     again to see the signal names.
+   * This is from Lesson 12 in the Tutorial.
+     When comparing the current sim dataset against a previous run and when
+     I hit the Find Next Difference button in the Wave Window and the next
+     difference happens to be a vector sub-element, the top signal in the
+     Wave Window is highlighted instead of the signal with the difference
+     (example: /top/paddr(3)).  All signals are visible in the Wave Window
+     at the time.
+   * Create a List Window with some signals, choose Prop > Display Props,
+     select the Triggers page, click on Trigger Gating: Expression and
+     press the Use Expression Builder button.  Select a signal in the List
+     Window and press the Insert Selected Signal button in the Expression
+     Builder.  Nothing happens. The selected signal should be added to the
+     expression.
+   * Dragging a virtual constant out of a parent virtual signal in the Wave
+     Window crashes with the following error message:
+          Fatal WLF Error (14): evaluating expression
+          "foo5(2)" Internal error. Unallocated result valueIn some cases
+          the simulator failed when attempting to reload format of a
+          verilog bit slice.
+          --- fragment of dofile
+          add wave {y(13)}
+          write format wave ./results/vlogbit.fmt
+          do ./results/vlogbit.fmt
+           --- fragment of transcript
+           # add wave -noupdate -format Logic
+          {virtuals:/v/y[13]}
+          # ERROR: No objects found matching
+          "virtuals:/v/y[13]"
+          # Executing ONERROR command at macro
+          ././results/vlogbit.fmt line 3
+   * The left and right commands with -expression (temporary virtuals) do
+     not work correctly. This problem is platform specific. It affects only
+     rs6000 rs64 hp700 hppa64 linux.
+   * Failure in cold restore, warm restore, restart -f all failures with
+     compare signal name changes using extended identifiers.
+   * Verilog virtual aliases are not saved in the wave format. The List
+     Window equalent is OK and correct.
+   * Verilog virtual bus made of slices does not display waveforms for
+     individual bits of virtual bus. The waveform for the bus is displayed
+     but flattening the bus to look at the individual bits does not show
+     waveforms. NOTE: This does not occur when the virtual Verilog bus is
+     made up of individual bits.
+   * Wave.do that is run with a loaded dataset fails for either VHDL or
+     Verilog when using virtual bus created from bus slices. I was able to
+     recreate this with the examples counter.vhd and counter.v. The message
+     that is reported is: "unrecognized dataset prefix: sim"
+   * After closing a dataset for either VHDL or Verilog the Menu
+     File>Change Directory remains shaded so that it cannot be used.  The
+     "cd" command still works to change directories.
+   * Virtual constant does not display a wave in the Wave Window. Example:
+     virtual signal {'1'} foo. The value of foo will be 1, but no wave gets
+     drawn.
+   * Given the following command: virtual signal -install {/top/m/i} foo,
+     in the Signals Window, this signal is seen as foo In the Wave Window,
+     this signal is seen as /top/m/i. View declaration of signal foo from
+     the Signals Window worked.  View declaration of signal foo from the
+     Wave Window did not work. The Wave Window is correct. The Signals
+     Window behaves incorrectly.
+   * Issue with Source Window
+     If a src file is in DOS format (with CONTROL M's), it appears as
+     double-spaced in the Source Window. This mess up view declaration
+     functionality, breakpoints functionality, Process Window
+     functionality.
+   * This bug also exists in 5.4e. A virtual signal foo is defined.
+     checkpoint command is issued. Then, virtual count gives a count of 0.
+     Shouldn't it be 1?Nothing is saved during virtual save command. The
+     virtual count and save commands before the checkpoint give the correct
+     expected results. Also virtual show and virtual describe foo after the
+     checkpoint give the correct expected results. Somehow, count and save
+     are not working correctly.
+   * Entering commands used in the Wave or List Window such as up, down,
+     left, right, etc., when no Wave or List Window is open causes the
+     window to be opened. It makes sense to raise the window or deiconify
+     it, but it should not create an empty window if none existed before.
+   * There is an inconsistency in how the path separator works when parsing
+     commands. Given that the path separator in the example below is "/
+     ".top.clk should work.
+            echo $PathSeparator
+            # /
+           exa /top/clk
+           # 1
+            exa /clk
+            # 1
+            exa clk
+           # 1
+            exa .top.clk
+            # 1
+           exa .clk
+           # evaluating expression ".clk"
+          # No object found matching clk in context /
+          # Item '.clk' not found
+   * In the compare wizard, an opened dataset and a sim dataset was
+     specified to be compare started. Simulation signals had been logged
+     but no simulation run was done yet. Also, the button "Update after
+     simulation run" is NOT checked. On clicking the "Compute Diffs Now"
+     button in the wizard, This message was given "Null time range for
+     signal compare". This message was not obvious. Maybe the message can
+     be improved to "Cannot compare run because No simulation data
+     available yet" Now I run 500. If I do a compare info command now, this
+     message is given: "No comparison differences" This message was
+     misleading. Does it mean my comparisons were all matches? Shouldn't it
+     be "No available compare data, please do a compare run or compare
+     update first" I had not done a compare run or compare update, so there
+     should be no compare results or data. The Wave Window is correct at
+     this point, the compare signal does not show any compare result.
+   * In the Source Window select Edit > Find. The Find dialog box comes up
+     on top of the Source Window. If you enter some text and hit Find Next
+     and then move the Find dialog box out of the way, the text that was
+     found is not highlighted.  Highlighting appears to happen only when
+     the next occurrence is found and the Find dialog box is not covering
+     it.  It would be better if the Find dialog box came outside of the
+     Source Window next to one edge or somewhere else less in-the-way.
+   * In the FLI Reference manual, the following link instruction for the
+     64-bit RS/6000 platform is incorrect:
+          cc -o app.sl app.o -q64 -bE:app.exp \
+          -bI:/<install_dir>/modeltech/rs64/mti_exports \
+          -Wl,-G -bnoentry
+     The correct link command is:
+           ld -o app.sl app.o -b64 -bE:app.exp \
+          -bI:/<install_dir>/modeltech/rs64/mti_exports \
+          -bM:SRE -bnoentry -lc
+   * No waves are displayed in the Wave Window for virtual constants or
+     virtual functions that are children of virtuals.
+   * Virtuals concatenations which contain a virtual constant always
+     display a "value--even" when non-constant children are "-No Data-".
+     For example:
+          virtual signal {'1' & clk & prdy} foo
+   * Virtual signals which are concatenation of a signal from a view
+     dataset and a sim dataset show "-No Data-" in the Signals Window even
+     after simulation.
+   * On Win32 platforms when using Mentor Graphics Licensing, inappropriate
+     queueing may take place when more than one license feature could
+     fulfill a request (e.g., When a VHDL simulator license is requested,
+     the user may get queued for a qhsimvh when there is an msimhdlsim
+     available). The workaround in GUI mode is to cancel the queueing
+     dialog and then the available feature will be checked out.  The only
+     workaround in command line or batch mode is to invoke with the
+     "-lic_noqueue" switch.
+
+Product Changes to Release 5.5
+
+   * The mouse button definitions in the Wave Window have changed to be
+     more consistent  with the rest of ModelSim. There is now no difference
+     between a 2-button and 3-button mouse. The LMB always positions the
+     cursor and RMB always brings up a pop-up menu. The MMB on a 3-button
+     mouse still performs a zoom area operation. Control-Button-1 was added
+     and also performs a zoom area operation for those stuck with a
+     2-button mouse (This also works with a 3-button mouse.)
+     This change eliminates the problem sometimes seen on Windows systems
+     where the OS incorrectly identifies a 3-button mouse as a 2-button
+     mouse. A 3-button mouse in such an environment will now work
+     correctly. To summarize:
+        o 2-button mouse no longer uses RMB for zoom.
+        o Control-Button-1 can be used to perform a zoom.
+   * Virtual signals created by the Combine dialog box in the Wave Window
+     no longer have default labels associated with them. The full path of
+     the created virtual signal is now displayed by default.
+   * Virtual signal children names in the Wave Window now conform to the
+     display properties. The names were displayed as an index and path, but
+     the path did not recognize the display properties.
+   * Prior to 5.5 there was a global flag that enabled and disabled all
+     breakpoints. As of 5.5 the global flag is no longer present.  Now
+     doing disable or disable -all is the same as disabling each breakpoint
+     individually.  The same is true for enable and enable -all.
+   * Added a compile button to the Source Window toolbar that will compile
+     the current file being viewed in the Source Window.
+   * The -all switch was removed from the quit command. The dataset close
+     -all command has replaced quit -all.
+
+New Features Added to Release 5.5
+
+   * Waveform Comparison
+          The ModelSim Waveform Comparison feature allows you to compare
+          the current live simulation against a reference wave logfile or
+          dataset (.wlf file), compare two saved datasets, or compare
+          different parts of the current live simulation. You can view the
+          results of these comparisons in the Wave and List windows and
+          generate a text file of the results in the Main window. With the
+          Waveform Comparison feature you can:
+             + specify the signals or regions to be compared,
+             + define tolerances for timing differences,
+             + set a start time and end time for the comparison,
+             + limit the comparison to a specific number of timing
+               differences, and
+             + step through a succession of timing differences via buttons
+               in the Wave Window.
+          By default, Waveform Comparison computes the timing differences
+          between test signals and reference signals from time zero to the
+          end of the shortest dataset, or to the end of the current live
+          simulation. But you can also specify an optional start time and
+          end time, or you can limit the comparison to a specific number of
+          encountered timing differences. In addition, you can exclude
+          windows of time with -when conditions in either the clock
+          definitions or in the compare signal command. The display will
+          indicate intervals of time during which no attempt was made to
+          compute differences.
+          All waveform differences encountered in the waveform comparison
+          are summarized and listed in the transcript area of the Main
+          Window and show up in the waveform display of the Wave Window.
+          You can also write a listing of the differences to a file using
+          the compare info command.
+          Timing differences are shown in the Wave Window with difference
+          markers. New icons in the Wave Window allow you to go to the
+          first and last differences encountered and step forward and
+          backward through successive differences ordered in time. You can
+          also use the Tab and Shift-Tab keys on your keyboard to move to
+          the next or previous difference of a selected signal.
+          Waveform Comparison is initiated from either the Main or Wave
+          Windows. From either window, select: Compare > Start Comparison
+          or Compare > Comparison Wizard.
+          The command set for the waveform comparison feature is listed
+          below:
+             + compare annotate allows a difference to be flagged as
+               ignore, or an additional text string to be attached
+             + compare clock  defines a clock for clocked comparison; or,
+               if -delete is specified, deletes a previously defined clock
+             + compare end destroys the compare data structures and forgets
+               clock definitions and signals selected for comparison.
+             + compare delete deletes a signal or region from the current
+               open comparison.
+             + compare info  writes out results of the comparison; writes
+               to the transcript unless the -write option is specified.
+             + compare list shows all the compare region and compare signal
+               commands currently in effect
+             + compare start  initializes internal data structures for
+               waveform compare
+             + compare options  sets values for various compare options on
+               the Tcl parser side; when subsequent commands are called,
+               these values become the defaults.
+             + compare add defines a comparison between the signals in a
+               specified reference design region and the signals in a
+               specified test design region
+             + compare reset  clears the current compare differences,
+               allowing another compare start to be executed
+             + compare reload  reloads comparison differences to allow
+               viewing without recomputation
+             + compare savediffs  saves the comparison result differences
+               in a form that can be reloaded later
+             + compare saverules  saves the comparison setup information
+               (or "rules") to a file that can be re-elected later as a
+               command file; saves compare options and all clock
+               definitions and region and signal selections
+             + compare see causes the specified compare difference to be
+               made visible in the specified wave window, using whatever
+               horizontal and vertical scrolling is necessary
+             + compare signal  defines a comparison between a signal in the
+               reference design and a signal in the test design
+             + compare run registers required callbacks and runs the
+               difference computation on the signals selected for
+               comparison; reports the total number of errors found.
+             + compare stop used internally by the compare stop button to
+               suspend comparison computations in progress
+             + compare update used internally to update the comparison
+               differences when comparing a live simulation against a .wlf
+               file
+          Waveform comparison requires its own license and can be used with
+          either SE or PE.
+          Please see the Waveform Comparison chapter of the ModelSim User's
+          Manual for more details.
+   * ModelSim Projects
+          Projects have improved a great deal from earlier versions. Some
+          of the key differences include:
+             + A new interface eliminates the need to write custom scripts.
+             + You don't have to copy files into a specific directory; you
+               can establish references to files in any location.
+             + You don't have to specify compiler switches; the automatic
+               defaults will work for many designs. However, if you do want
+               to customize the settings, you do it through a dialog box
+               rather than writing a script.
+             + All metadata (compiler settings, compile order, file
+               mappings) are stored in the project .mpf file.
+          Please see the Projects and Systems Initialization chapter of the
+          ModelSim User's Manual for more details.
+   * Gate-level Optimizations
+          The Verilog compiler's "-fast" option is used to analyze and
+          optimize an entire design for improved simulation performance.
+          This option improves performance for RTL, behavioral, and
+          gate-level designs.
+          ModelSim's default mode of compilation defers module
+          instantiations, parameter propagation, and hierarchical reference
+          resolution until the time that a design is loaded by the
+          simulator. This has the advantage that a design does not have to
+          be compiled all at once, allowing independent compilation of
+          modules without requiring knowledge of the context in which they
+          are used.
+          Compiling modules independently provides flexibility to the user,
+          but results in less efficient simulation performance in many
+          cases. For example, the compiler must generate code for a module
+          containing parameters as though the parameters are variables that
+          will receive their final values when the design is loaded by the
+          simulator. If the compiler is allowed to analyze the entire
+          design at once, it can determine the final values of parameters
+          and treat them as constants in expressions, thus generating more
+          efficient code. This is one example of many optimizations that
+          require analysis of the entire design. Using the -fast switch
+          enables these performance optimizations and requires the entire
+          design to be analyzed at once.
+          Gate-level designs often have large netlists that are slow to
+          compile with -fast. In most cases, we recommend the following
+          flow for optimizing gate-level designs:
+             + Compile the cell library using -fast and the -forcecode
+               argument. The -forcecode argument ensures that code is
+               generated for in-lined modules.
+             + Compile the device under test and test bench without -fast.
+             + Create separate work directories for the cell library and
+               the rest of the design.
+          One case where you wouldn't follow this flow is when the test
+          bench has hierarchical references into the cell library.
+          Optimizing the library alone would result in unresolved
+          references. In such a case, you'll have to compile the library,
+          design, and test bench with -fast in one invocation of the
+          compiler. The hierarchical reference cells are then not
+          optimized. You can use the write report command and the
+          -debugCellOpt argument to the vlog command to obtain information
+          about which cells have and have not been optimized. write report
+          produces a text file that lists all modules. Modules with
+          "(cell)" following their names are optimized cells. For example,
+          Module: top
+          Architecture: fast
+          Module: bottom (cell)
+          Architecture: fast
+          In this case, both top and bottom were compiled with -fast, but
+          top was not optimized and bottom was. The -debugCellOpt argument
+          is used with -fast when compiling the cell library. Using this
+          argument results in Transcript Window output that identifies why
+          certain cells were not optimized. Please see the Verilog
+          Simulation chapter of the ModelSim User's Manual for more
+          details.
+   * VHDL performance improvements
+        o vcom now accelerates cells containing VitalMux statements for the
+          common cases of 2, 4 and 8 inputs.
+        o Currently, unless VHDL files are compiled with the -nocheck
+          switch, the simulator will perform range and index checks. A
+          range check verifies that a scalar value defined with a range
+          subtype is always assigned a value within its range. An index
+          check verifies that whenever an array subscript expression is
+          evaluated, the subscript will be within the array's range. To
+          improve performance, range checking will no longer be performed
+          without explicitly stating the need for range checking. Index
+          checks will still be performed by default, since they prevent
+          accesses outside array bounds that could result in segmentation
+          violations. To obtain range checking, the -rangecheck switch has
+          been added. The meaning of the -nocheck switch has not been
+          altered: range and index checks are disabled. Two new key/value
+          entries have been added to the modelsim.ini file. When
+          RangeCheck=1, range checking is enabled for all compiles. When
+          NoIndexCheck=1, index checking is disabled for all compiles.
+   * Verilog case statement evaluator performance improvement
+          When the statements casex and casez have constant selectors, the
+          number of selectors is large and all are less than 32 bits.
+          Significant performance  improvements may be achieved from the
+          new case statement evaluator.
+   * Waveform Viewer License
+          A new license feature has been added which allows you to view an
+          existing waveform (.wlf file). The viewer license does not allow
+          simulation, it only allows viewing a waveform.
+          There is a new dialog box for license queueing on a waveform
+          viewer license. Instead of just allowing a user the option to
+          "Cancel" rather than wait for the queued viewer license, this new
+          dialog has a second option to try for either a viewer or a
+          simulator license whichever is available first. There is a new
+          command line switch for control of viewer licensing behavior. The
+          new switch is "-lic_viewsim". It is used to tell ModelSim that
+          you will accept a simulator license rather than be queued for a
+          viewer license. The "-lic_noqueue" command line switch works the
+          same for viewer licenses as it does for any other license. When
+          using Mentor Graphics licensing, the queueing dialog box works
+          with Unix and Linux platforms but not Windows platforms.  The
+          queuing dialog box works with all supported platforms when using
+          Model Technology licensing.
+   * VCD File Enhancements
+          ModelSim now supports multiple VCD files. This functionality is
+          an extension of the IEEE 1364 specification. The tasks behave the
+          same as the IEEE equivalent tasks such as $dumpfile, $dumpvar,
+          etc. The difference is that $fdumpfile can be called multiple
+          times to create more than one VCD file, and the remaining tasks
+          require a filename argument to associate their actions with a
+          specific file. The table below maps the VCD commands to their
+          associated tasks. For additional details, please see the Verilog
+          IEEE 1364-2000 specification.
+
+           VCD commands                         VCD system tasks
+           --------------------------------------------------------------------------
+           vcd add                              $fdumpvars
+           vcd checkpoint                       $fdumpall
+           vcd files                            $fdumpfile
+           vcd flush                            $fdumpflush
+           vcd limit                            $fdumplimit
+           vcd off                              $fdumpoff
+           vcd on                               $fdumpon
+          In addition to the commands above, the vcd comment command can be
+          used to add comments to the VCD file. ModelSim now supports
+          dumpports system tasks. The table below maps the VCD dumpports
+          commands to their associated tasks.
+
+           VCD dumpports commands               VCD system tasks
+           --------------------------------------------------------------------------
+           vcd dumpports                        $dumpports
+           vcd dumpportsall                     $dumpportsall
+           vcd dumpportsflush                   $dumpportsflush
+           vcd dumpportslimit                   $dumpportslimit
+           vcd dumpportsoff                     $dumpportsoff
+           vcd dumpportson                      $dumpportson
+   * vcd2wlf
+          vcd2wlf is a utility that translates a VCD (Value Change Dump)
+          file into a WLF file. After loading a WLF file in vsim it can be
+          displayed with the "-view" switch. Extended VCD files, containing
+          additional port driver data captured using the vcd dumpports
+          command, are not currently supported. Also, types of type real
+          are not currently supported.
+          Syntax
+                    vcd2wlf
+                         <vcd file> <wlf file>
+          Arguments
+                    <vcd file>
+                         Specifies the name of the VCD file you want to
+                         translate into a WLF file. Required.
+                    <wlf file>
+                         Specifies the name of the output WLF file.
+                         Required.
+   * SDF annotation of the REMOVAL timing check has been implemented.
+   * Bookmarks
+          Bookmarks allow you to save a particular zoom range and scroll
+          position in the Wave window. This lets you return easily to a
+          specific view later. You save the bookmark with a name, and then
+          access the named bookmark from the Bookmark menu.
+          Bookmarks are saved in the Wave format file and are restored when
+          the format file is read. There is no limit to the number of
+          bookmarks you can save.
+          Bookmarks can also be created and managed from the command line.
+          See bookmark add wave command in the Command Reference Manual for
+          details.
+          To add a bookmark, select Bookmark > Add Bookmark (Wave Window).
+          Please see the ModelSim Graphic Interface chapter of the ModelSim
+          User's Manual for more details.
+   * Workspace
+          The workspace feature provides convenient access to projects,
+          compiled design units, and simulation/dataset structures. It can
+          be hidden or displayed by selecting the View > Hide/Show
+          Workspace menu in the Main Window.
+             + Project page
+               Shows all files that are included in the open project. See
+               the Projects and System Initialization chapter for details.
+             + Library page
+               Shows compiled design units in the specified library. See
+               "Managing library contents" for details.
+             + Structure pages
+               Shows a hierarchical view of the active simulation and any
+               open datasets. This is the same data that is displayed in
+               the "Structure Window" in the ModelSim Graphic Interface
+               chapter. There is one page for the current simulation and
+               one page for each open dataset. See "Viewing dataset
+               structure" in the Datasets chapter for details.
+             + Compare page
+               Shows comparison objects that were created by doing a
+               waveform comparison. See the Waveform Comparison chapter for
+               details.
+          All chapter  references above refer to the ModelSim User's
+          Manual.
+   * Find and Replace in Source Window
+          The Find dialog box allows you to find and replace text strings
+          or regular expressions in the Source window. Select Edit >
+          Replace to bring up the Find dialog box. If you select Find, the
+          Replace field is absent from the dialog.
+          To use the dialog box, enter the value to search for in the Find
+          field. If you are doing a replace, enter the appropriate value in
+          the Replace field. Optionally specify whether the entries are
+          case sensitive and whether to search backwards from the current
+          cursor location. Check the Regular expression checkbox if you are
+          using regular expressions.
+   * View Declaration
+          Signals Window
+             + A double-click on a signal in the Signals Window will view
+               and select the signal in the Source Window.
+          Wave Window
+             + The double-click action in the signal and name sections of
+               the Wave Window has changed to support this feature.
+               Double-clicking on a signal name will highlight  the signals
+               declaration in the Source Window.  Double-clicking on a
+               value brings up the Wave Signal Properties dialog box. The
+               properties dialog box is also available from the popup menu
+               (via mouse-button-3).
+   * Selected PLI calls are now available from the Tcl command line.
+     The supported calls are listed below
+        o acc_handle_by_name
+        o acc_handle_object
+        o acc_handle_parent
+        o acc_handle_path
+        o acc_handle_pathin
+        o acc_handle_pathout
+        o acc_handle_port
+        o acc_handle_scope
+        o acc_handle_simulated_net
+        o acc_next
+        o acc_fetch_fullname
+        o acc_fetch_location
+   * Breakpoints Dialog
+          You can set signal breakpoints (a.k.a., when breakpoints; see the
+          when command in the Command Reference Manual for more details)
+          using a pop-up menu. Start by selecting a signal and then
+          clicking your second (Windows) or third (UNIX) mouse button in
+          the Wave Window. Select Signal Breakpoints from the pop-up menu
+          and you'll see four items:
+             + Add
+               Creates a signal breakpoint on the selected signal
+             + Edit Breakpoint
+               Allows the specified breakpoint to be modified
+             + Edit All Breakpoints
+               Allows all breakpoints to be modified
+             + Remove Signal
+               Removes the signal breakpoint from the selected signal
+             + Remove All Signals
+               Remove all signal breakpoints
+             + Show All
+               Shows a list of all signal breakpoints
+          When a breakpoint is hit, a message appears in the transcript
+          window about which signal caused the breakpoint. Breakpoints
+          created by the when command are not affected by the Remove All
+          menu pick, nor are they reported via Show All.
+   * modelsim_lib.util Utilities Package
+          This package contains procedures and functions that are not
+          available in any default or standard package.  To use the "util"
+          package you will need to add the following library and use
+          clauses:
+             + library modelsim_lib;
+             + use modelsim_lib.util.all;
+           The package contains the following procedures and functions:
+             + get_resolution() - returns the current simulator resolution
+               in units of seconds.
+             + to_real(time value) - returns the time value argument as a
+               real number.
+             + to_time(real value) - returns the real value argument as a
+               time.
+             + init_signal_spy(source, destination, verbose) - sets the
+               value of the source (a VHDL signal or Verilog register/wire)
+               on to the destination (an existing VHDL signal).  This
+               allows a user to reference signals, registers, or wires at
+               any level of hierarchy from within a VHDL architecture
+               (e.g., a test bench).
+          A valid mapping for this library exists in the modelsim.ini file.
+
+          Please see the VHDL Simulation chapter of the ModelSim User's
+          Manual for more details.
+   * Signal Spy
+          The capability discussed in the "Monitoring Internal Signals from
+          a VHDL Test bench" application note, also known as Signal Spy,
+          has been expanded and included as a built-in in the 5.5 release
+          of ModelSim.  The original FLI solution handled VHDL spying on
+          VHDL.  In 5.5, the name has been changed to "init_signal_spy" and
+          can connect VHDL to VHDL, VHDL to Verilog, Verilog to VHDL, and
+          Verilog to Verilog.  The command sets the value of the source (a
+          VHDL signal or Verilog register/wire) onto the destination (an
+          existing VHDL signal or Verilog register).  Init_signal_spy is
+          used in the VHDL or Verilog code itself and is not issued from
+          the ModelSim or vsim command line.
+          In VHDL you need to include the following library and use
+          clauses:
+               library modelsim_lib;
+               use modelsim_lib.util.all;
+          and then you reference the command, init_signal_spy(), in a
+          process.   Please see chapter 4 of the ModelSim User's Manual for
+          more details.
+          In Verilog, the command is available as a system task and is
+          called $init_signal_spy().  Please see the Verilog Simulation
+          chapter of the ModelSim User's Manual for more details.
+   * Verilog 2000 support
+          The following features have been implemented.
+             + New File I/O tasks, command line args $test$plusargs and
+               $value$plusargs
+             + Full implementation of attributes
+             + New commands in extended VCD
+             + New compiler directives `ifndef and `line
+             + Added the "**" operator
+             + Allow a comma in place of "or"
+             + Register declaration assignments
+             + Full port declarations in Module port list
+             + Local Parameters
+             + Module parameters type, sign, and range
+             + New `elsif compiler directive added (from verilog-2000
+               presentation)
+             + Signed and Unsigned functionality
+             + Standard $random algorithm
+                    The probabilistic distribution functions have been
+                    reimplemented to conform to the Verilog 2000 standard.
+                    The behavior of $random() is not changed, but the other
+                    functions may produce different results in this
+                    release. The functions affected are $random(),
+                    $dist_uniform(), $dist_normal(), $dist_exponential(),
+                    $dist_poisson(), $dist_chi_square(), $dist_t(), and
+                    $dist_erlang().
+             + Enhanced `uselib to create libraries and compile source
+               files
+             + On-event and On-detect pulse filtering
+                    A new specify block declaration has been added to
+                    control how pulse errors are propagated to outputs.
+                    Specifying "pulsestyle_ondetect" for an output will
+                    cause it to transition to X immediately upon detection
+                    of a pulse at the input, instead of transitioning to X
+                    at the scheduled time of the leading edge of the pulse.
+                    The keyword "pulsestyle_onevent" represents the
+                    default, unchanged behavior. For example:
+                         specify
+                              pulsestyle_ondetect out, out_b;
+                              (a => out) = (2, 3);
+                              (a => out_b) = (3, 4);
+                         endspecify
+                    This functionality can also be controlled globally
+                    using the existing vsim command line switches
+                    "+pulse_e_style_onevent". The command line switches
+                    will take precedence over the specify block
+                    declarations.
+             + Showcancelled and noshowcancelled pulse behavior
+                    A new specify block declaration has been added to
+                    control the scheduling of negative pulses.  If the
+                    delays for a module path are unequal, it is possible
+                    that the trailing edge of a pulse will be scheduled
+                    earlier than the leading edge, resulting in a pulse
+                    with a negative width.  Normally such pulses are
+                    canceled, but specifying "showcancelled" for an output
+                    will schedule a transition to and from X over the
+                    duration of the negative pulse (trailing edge to
+                    leading edge).  The keyword "noshowcancelled"
+                    represents the default, unchanged behavior. For
+                    example:
+                         specify
+                              showcancelled out, out_b;
+                              (a => out) = (2, 3);
+                              (a => out_b) = (3, 4);
+                         endspecify
+                    This functionality can also be controlled globally
+                    using the new vsim command line switches
+                    "+show_cancelled_e" and "+no_show_cancelled_e". The
+                    command line switches will take precedence over the
+                    specify block declarations.
+   * Vital 2000 support
+   * New Code Coverage features
+        o Code coverage now supports the user excluding files and line
+          numbers from coverage analysis. It also supports merging multiple
+          coverage files into a single analysis. It has an enhanced user
+          interface to support interactive coverage analysis.
+        o The format of the coverage exclusion filter file is similar to
+          the coverage report files, but contains additional functionality.
+          You can start with a coverage report that is an exclusion filter
+          file. The file format supports using the keyword "all" after the
+          file name to exclude the entire file. A list of line numbers, or
+          ranges of line numbers, is also supported.
+        o Code coverage supports merging of multiple reports into a single
+          report. The reports can involve lines that are not in the current
+          design. The reports can accumulate hits from several report files
+          on the same source line.
+        o The coverage report command has been enhanced to support several
+          new report types. The -total switch writes out a one line summary
+          of the total files, lines, hits and overall percentage for users
+          that just want to track if anything changed. The -summary switch
+          writes out the summary lines, hits and percentages for each
+          source file being analyzed. This is the same information that is
+          in the coverage summary window. The -lines switch writes out the
+          source file summary data and after each file it writes out the
+          details for each line in the file. This is the most detailed
+          report. The -excluded switch writes out the files and lines that
+          are currently being excluded by the user from the coverage
+          analysis. It compresses the results as much as possible. Thus a
+          sequence of lines is printed as a range. The -zeros switch writes
+          out a detailed report like the -lines but only reports on the
+          lines that do not have any coverage.
+        o The GUI has a number of changes to support code coverage. The
+          source window now shows a green 'X' in the coverage column on any
+          line that has been excluded. The View->Other->Source Coverage
+          menu item now brings up a modified coverage window. The window
+          contains a menu bar like the other windows. It also contains the
+          original coverage summary report. Below that it contains a tabbed
+          notebook that has two other reports. The first report is the
+          lines with no coverage in the file currently being viewed. The
+          second report is the files and lines currently being excluded
+          from the analysis.
+        o Another major change is that coverage files that are not in the
+          currently active design that are kept show up in the reports.
+          This means that the summary report window lists them. The source
+          viewer will view them and the lines will show the hit counts.
+        o The windows support multiple selections and a right mouse button
+          popup that acts on them to exclude, or include the multiple files
+          or line numbers.
+        o The tab notebook for zero coverage shows which line numbers have
+          zero coverage and includes the source code for that line.
+          Selecting a zero coverage line will cause the Source Window to
+          update to that line.
+        o The tab for the exclusion filters shows all the exclusion filters
+          that have been applied. This includes files and line numbers.
+          Selecting the file brings up the file in the source window to
+          allow the exclusion filtering to be changed. When a change is
+          made, the entire coverage system is updated to reflect it.
+        o The menu bar supports saving the various reports to a file. If
+          the file is empty a warning message is written to the transcript.
+          It also supports clearing out the current code coverage and
+          loading other coverage reports. Loading a new report overwrites
+          the current data. It also supports merging multiple coverage
+          reports, including the current simulation.
+        o The exclusion filtering can be disabled, resulting in the raw
+          coverage being reported. It can be dynamically edited using the
+          source window or the selection in other windows. It can be
+          cleared. It also can be re-initialized from any original coverage
+          filtering that was enabled at the start of the simulation.
+          The following preference variables exist :
+          PrefCoverage(excludedHitsColor) green # The color of the excluded
+          symbol
+          PrefCoverage(pref_filename) "cover.dat" # default name to write
+          coverage reports to
+          PrefCoverage(coverage_sort_by) "name"# Choices are name, line,
+          hits, or percentage
+          PrefCoverage(DefaultReport) "summary"# Choices are summary, line,
+          filter, missed, total
+          PrefCoverage(promptForClear) "yes"# Choices are "yes" or "no"
+          PrefCoverage(pref_InitiallyFilter) 1 # Look for an exclusion
+          filter when loading the design
+          PrefCoverage(pref_InitFilterFrom) "Exclude.cov"# The filename to
+          read from for an exclusion filter when loading # the design. This
+          file is not modified
+          PrefCoverage(pref_filtername) "workingExclude.cov"   # The name
+          of the temp file to use when editing the exclusion filtering #
+          The data in here is not saved unless the user does so.
+   * FLI features
+        o The new function mti_GetWlfFilename() returns the name of the
+          waveform database (.wlf) file.
+        o FLI foreign subprograms can now return real and time values. The
+          return type of a foreign subprogram that returns a real value
+          must be mtiRealT. The return type of a foreign subprogram that
+          returns a time value must be mtiTime64T. The new mtiRealT type
+          and supporting macros are defined in mti.h.
+          Note: On Linux, the compiler switch -freg-struct-return must be
+          used when compiling any FLI application code that contains
+          foreign functions that return real or time values.
+        o Constants, variables and signals of type RECORD can now be passed
+          as parameters to foreign subprograms. Please refer to the FLI
+          Reference Manual for details.
+        o mti_FindSignal() can now be used to find indexed array scalar
+          sub-elements and scalar selected record fields. For example:
+               sigid = mti_FindSignal( "slv_array(1)" );
+               sigid = mti_FindSignal( "myarray(3) (2)" );
+               sigid = mti_FindSignal( "myrec.f1" );
+               sigid = mti_FindSignal( "myrec.f2.ai(1)" );
+   * PLI features
+        o acc_vcl_add() and acc_vcl_delete() can now be used to put or
+          remove value change callbacks on accRegBit objects.
+        o Since the function acc_fetch_paramval() cannot be used on 64-bit
+          machines to get a string value, the new function
+          acc_fetch_paramval_str() is now available for use in getting
+          string values of parameters. This function is defined in
+          acc_user.h and can be used on all platforms.
+   * The vsim invocation options -g and -G can now be used for overriding
+     Verilog parameter values.
+        o The -g option overrides a parameter value only if there is no
+          inherited or defparam value specified for the parameter.
+        o The -G option always overrides a parameter value no matter where
+          else the value for the parameter may have been set.
+          A case-insensitive comparison is used on the parameter name. See
+          the vsim command in the ModelSim Command Reference Manual for
+          more information.
+   * Dataflow Window improvements
+        o The Dataflow Window now handles Verilog registers.
+        o  The simulation time is now provided in the window to give a
+          context to the signal values.
+   * Verilog features
+        o The default_decay_time compiler directive is now supported for
+          compatibility with Verilog-XL.
+        o A new switch "-lint" has been added to vlog.  The switch enables
+          the following three checks:
+             + A warning is issued when Module ports are NULL.
+               Example: module (a,,b); // Second port has no name
+             + A warning is issued when assigning to an input port.
+               Example: (see next example)
+             + A warning is issued when referencing undeclared
+               variable/nets in instantiation.
+               Example:
+                    module test_undefined(CLKINH, CLKOUTH, RESSETL);
+                    input CLKINH;
+                    RESETL;
+                    output CLKOUTH;
+                    wire RESETH;
+                    CLK19;
+                    assign RESETH; // assigning to input port!
+                    MODNDCNTR (CLKINH, DIV19, RSTH);  // DIV19 and RSTH
+                    undeclared
+               These warnings are reported as WARNING[8],  which means they
+               can be disabled via -nowarn 8. The ini variable is
+               Show_Lint. The default value is 0. So, if the ini file turns
+               the switch on (Show_Lint = 1), then it can be disable from
+               the command line via "vlog -nowarn 8".
+   * Support for time-offset evaluation of virtual signals, virtual
+     functions, and expressions.
+        o The option "-delay" was added to the virtual signal and virtual
+          function commands.
+          virtual signal | function -delay <time> ... Where  <time> may be
+          a signed integer number of simulation time steps, or {<float>
+          <unit>} time value, enclosed in curly braces.
+        o ModelSim GUI expressions now support VHDL-style signal'delayed()
+          notation.
+        o ModelSim GUI expressions now support Verilog-style subexpression
+          evaluation at offset times.
+          Please see the page for the virtual signal | virtual function
+          commands in the ModelSim Command Reference Manual for more
+          details.
+   * Type conversion improvement
+        o Type conversion on a formal port was not supported if sub-element
+          associations were used.
+
+Back To Top
+

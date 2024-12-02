@@ -1,0 +1,544 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+*
+* PURPOSE     This file is part of 0-In CheckerWare.
+*
+* DESCRIPTION This monitor tracks the SAS interface for compliance with
+*             Serial Attached SCSI specification and protocol.
+*             
+* REFERENCES   Serial Attached SCSI, Revision 1.1, Revision 04, Mar 13, 2004. 
+*
+* INPUTS      
+*             areset                    - Asynchronous reset, active high
+*             reset                     - Synchronous reset, active high
+*
+*             tx_clk                    - Transmit clock. 
+*             tx_data_plus              - Transmit data plus
+*             tx_data_minus             - Transmit data minus
+*             tx_idle_signal            - Transmit Electrical Idle signal 
+*
+*             rx_clk                    - Receive clock.
+*             rx_data_plus              - Receive data plus
+*             rx_data_minus             - Receive data minus
+*             rx_idle_signal            - Receive Electrical Idle signal
+*             bypass_reset_sequence     - Bypassing the reset sequence
+*             start_speed_negotiation   - Starting point of RCD phase
+*
+* MONITOR INSTANTIATION 
+*
+*     1. In a Initiator Device
+*        ---------------------
+*
+*       +---------------+                 +-----------------+
+*       |   INITIATOR   |  Transmit       |                 |
+*       |       +---+   |  Interface      |                 |
+*       |       | M |<--|---------------->|       TARGET    |
+*       |       | O |   |                 |       DEVICE    |
+*       |       | N |   |                 |                 |
+*       |       | I |   |                 |                 |
+*       |       | T |   |  Receive        |                 |
+*       |       | O |   |  Interface      |                 |
+*       |       | R |<--|<----------------|                 |
+*       |       +---+   |                 |                 |
+*       |               |                 |                 |
+*       +---------------+                 +-----------------+
+*
+*     2. In an Expander device
+*        ---------------------
+*      
+*       Note : Monitor is instantiated in the Expander device.
+*
+*       +---------------+                 +-----------------+
+*       |   EXPANDER    |  Transmit       |                 |
+*       |       +---+   |  Interface      |                 |
+*       |       | M |<--|---------------->|       TARGET    |
+*       |       | O |   |                 |       DEVICE    |
+*       |       | N |   |                 |                 |
+*       |       | I |   |                 |                 |
+*       |       | T |   |  Receive        |                 |
+*       |       | O |   |  Interface      |                 |
+*       |       | R |<--|<----------------|                 |
+*       |       +---+   |                 |                 |
+*       |               |                 |                 |
+*       +---------------+                 +-----------------+
+*
+*     3. In a Target device
+*        ------------------ 
+* 
+*       Note : Monitor is instantiated in the Target device.
+*
+*       +---------------+                 +-----------------+
+*       |   INITIATOR   |  Receive        |     TARGET      |
+*       |    DEVICE     |  Interface      |    +---+        |
+*       |               |---------------->|--->|   |        |
+*       |               |                 |    | M |        |
+*       |               |                 |    | O |        |
+*       |               |                 |    | N |        |
+*       |               |  Transmit       |    | I |        |
+*       |               |  Interface      |    | T |        |
+*       |               |<----------------|--->| O |        |
+*       |               |                 |    | R |        |
+*       |               |                 |    +---+        |
+*       +---------------+                 +-----------------+
+*
+*
+* LAST MODIFIED DATE : 10th July 2006
+*
+*****************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_SVA_INTERFACE
+`define qvlmodule interface
+`define qvlendmodule endinterface
+`else
+`define qvlmodule module
+`define qvlendmodule endmodule
+`endif
+
+`ifdef QVL_ASSERT_ON
+`define OVL_ASSERT_ON
+`define OVL_SVA
+`endif
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_sas_monitor(
+                         reset,
+                         areset,
+                          
+                         tx_clk,
+                         tx_data_plus,
+                         tx_data_minus,
+			 tx_idle_signal,
+
+                         rx_clk,
+                         rx_data_plus,
+                         rx_data_minus,
+			 rx_idle_signal,
+                         bypass_reset_sequence,
+                         start_speed_negotiation
+                        );
+
+  // Set this parameter to 1 if the checks in the monitor are to be used 
+  // as constraints for 0-In Search. 
+
+`ifdef QVL_ZIN
+  parameter Constraints_Mode = 1;
+`else
+  parameter Constraints_Mode = 0;
+`endif //QVL_ZIN
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Configures the monitor to track a initiator/target device or an 
+  // expander/fanout expander device.  Set this parameter to 1 to track an 
+  // expander/fanout expander device.  By default the monitor tracks 
+  // initator/target device.
+
+  parameter SAS_DEVICE_TYPE = 0;
+  wire [31:0] pw_SAS_DEVICE_TYPE = SAS_DEVICE_TYPE;
+
+  // This parameter configures the monitor to either serial or parallel mode. 
+  // Set this parameter to 1 if the monitor is instantiated on a 10-bit parallel 
+  // interface. Set this parameter to 2, if the monitor is instantiated on a
+  // 20-bit parallel interface. By default the monitor is instantiated on a 
+  // serial interface.
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // Configures the active edge of the tx_clk/rx_clk clocks. Set this 
+  // parameter to 1 if both edges of tx_clk/rx_clk clocks are active. Set 
+  // this parameter to 0 if tx_clk/rx_clk is active on only rising edge. 
+  // By default, tx_clk/rx_clk is active on only rising edge.
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // Configures the rate at which ALIGNs are transmitted after powerup.Set 
+  // this parameter to 1 if ALIGNs are transmitted at G2(3.0Gbps) rate. 
+  // By default, ALIGNs are transmitted at G1 (1.5Gbps) rate.
+
+  parameter TX_DEVICE_SPEED_RATE = 0;
+  wire [31:0] pw_TX_DEVICE_SPEED_RATE = TX_DEVICE_SPEED_RATE;
+
+  // Configures the rate at which ALIGNs are received after powerup.Set 
+  // this parameter to 1 if ALIGNs are received at G2(3.0Gbps) rate. 
+  // By default, ALIGNs are received at G1 (1.5Gbps) rate.
+
+  parameter RX_DEVICE_SPEED_RATE = 0;
+  wire [31:0] pw_RX_DEVICE_SPEED_RATE = RX_DEVICE_SPEED_RATE;
+
+  // Configures the idle time period between ALIGN bursts in a COMINIT sequence
+  // The idle time period must be specified in UIs. By default, the idle time 
+  // period is set to 480UIs.
+
+  parameter TX_COMINIT_IDLE_TIME = 480;
+  wire [31:0] pw_TX_COMINIT_IDLE_TIME = TX_COMINIT_IDLE_TIME;
+
+  // Configures the idle time period between ALIGN bursts in a COMSAS sequence
+  // The idle time period must be specified in UIs. By default, the idle time 
+  // period is set to 1440UIs.
+
+  parameter TX_COMSAS_IDLE_TIME = 1440;
+  wire [31:0] pw_RX_COMSAS_IDLE_TIME = TX_COMSAS_IDLE_TIME;
+
+  // Configures the negation time after a COMINIT sequence. By default the 
+  // negation time is set to 800UIs.
+
+  parameter TX_COMINIT_NEGATION_TIME_PERIOD = 800;
+  wire [31:0] pw_TX_COMINIT_NEGATION_TIME_PERIOD = TX_COMINIT_NEGATION_TIME_PERIOD;
+
+  // Configures the negation time after COMSAS sequence. By default, the 
+  // negation time after COMSAS sequence is set to 2400UIs.
+
+  parameter TX_COMSAS_NEGATION_TIME_PERIOD = 2400; 
+  wire [31:0] pw_TX_COMSAS_NEGATION_TIME_PERIOD = TX_COMSAS_NEGATION_TIME_PERIOD;
+
+  // Specifies the value of the encoded 10B data during electrical idle 
+  // conditions. This parameter is applicable only when INTERFACE_TYPE is set 
+  // to 1 (parallel mode of operation). The default value of the  parameter is 
+  // the value equivalent to 3FFh, the assumed 10-bit encoded value for 
+  // electrical idle.  In serial mode of operation, the monitor detects 
+  // electrical idle when both D+ and D- inputs are driven to same level.
+
+  parameter ELECTRICAL_IDLE_TIME_BIT_PATTERN = 10'h3ff;
+  wire [31:0] pw_ELECTRICAL_IDLE_TIME_BIT_PATTERN =
+                                           ELECTRICAL_IDLE_TIME_BIT_PATTERN;
+
+  // Specifies the time the transmitter shall transmit D.C. idle between
+  // rates during speed negotiation.  By default, the RATE_CHANGE_DELAY 
+  // value is set to 750000 UIs.
+
+  parameter RATE_CHANGE_DELAY = 750000;
+  wire [31:0] pw_RATE_CHANGE_DELAY = RATE_CHANGE_DELAY;
+
+  // Specifies the maximum time during the speed negotiation window for
+  // a transmitter to reply with ALIGN (1).  By default, the 
+  // SPEED_NEGOTIATION_LOCK_TIME value is set to 153600 UIs.
+
+  parameter SPEED_NEGOTIATION_LOCK_TIME = 153600;
+  wire [31:0] pw_SPEED_NEGOTIATION_LOCK_TIME = SPEED_NEGOTIATION_LOCK_TIME;
+
+  // Specifies time during which ALIGN (0) or ALIGN (1) is transmitted at each
+  // physical link rate during the speed negotiation sequecnce.  By default,
+  // the SPEED_NEGOTIATION_TRANSMIT_TIME value is set to 163840 UIs.
+
+  parameter SPEED_NEGOTIATION_TRANSMIT_TIME = 163840;
+  wire [31:0] pw_SPEED_NEGOTIATION_TRANSMIT_TIME = 
+				       SPEED_NEGOTIATION_TRANSMIT_TIME;
+
+  // This parameter will determine the maximum rate supported by the device.
+  // If this is set to 1, maximum supported rate is G2.  If this is set to 0,
+  // Maximum supported rate is G1.   Bydefault this is set to 0.
+  // by the TX device. 
+
+  parameter TX_MAX_SUPPORTED_RATE = 0;
+  wire [31:0] pw_TX_MAX_SUPPORTED_RATE = TX_MAX_SUPPORTED_RATE;
+
+  // This parameter will determine the maximun rate supported by the device.
+  // If this is set to 1, maximum supported rate is G2.  If this is set to 0,
+  // Maximum supported rate is G1.   Bydefault this is set to 0.
+  // by the RX device.
+
+  parameter RX_MAX_SUPPORTED_RATE = 0;
+  wire [31:0] pw_RX_MAX_SUPPORTED_RATE = RX_MAX_SUPPORTED_RATE; 
+
+  // Configures the monitor to track repeatitive primitive sequences.
+  // Set this parameter to 0 to disable the tracking of repeated primitive 
+  // sequences.By default , monitor tracks repetitive primitive sequences.
+
+  parameter REPEATED_PRIMITIVE_SEQ = 1;
+  wire [31:0] pw_REPEATED_PRIMITIVE_SEQ = REPEATED_PRIMITIVE_SEQ;
+
+  // Configures the monitor to perform the transaction layer checks. Set this
+  // parameter to 0 to configure the monitor to disable transport layer
+  // checks.  By default, the transport layer checks are turned on.
+
+  parameter TRANSPORT_LAYER_CHECKS_ENABLE = 1;
+  wire [31:0] pw_TRANSPORT_LAYER_CHECKS_ENABLE = 
+                                           TRANSPORT_LAYER_CHECKS_ENABLE;
+
+  // Configures the time period within which COMINIT sequence must be 
+  // received after transmitting COMINIT sequence.By default, the hot plug 
+  // timeout period is set to 1 milli secs.The values are mentioned in UIs.
+
+  parameter HOTPLUG_TIMEOUT_PERIOD = 1499250;
+  wire [31:0] pw_HOTPLUG_TIMEOUT_PERIOD = HOTPLUG_TIMEOUT_PERIOD;
+
+  // Configures the time period within which COMSAS sequence must be received 
+  // after transmitting COMSAS sequence.By default, the comsas timeout period 
+  // is set to 13.65 micro secs.The values are mentioned in UIs.
+
+  parameter COMSAS_TIMEOUT_PERIOD = 20480;
+  wire [31:0] pw_COMSAS_TIMEOUT_PERIOD = COMSAS_TIMEOUT_PERIOD;
+
+  // Configures the hard reset period. After a  port detects hard 
+  // reset, it should not send any valid primitives within one milli second.  
+  // Values are mentioned in UIs.
+
+  parameter HARD_RESET_PERIOD = 1499250;
+  wire [31:0] pw_HARD_RESET_PERIOD = HARD_RESET_PERIOD; 
+
+  //Configures the monitor to perform scrambling. Set this parameter to 1 to
+  //configure the monitor to disable scrambling of 8bit data.  By default
+  //monitor performs scrambling of 8bit data.
+
+  parameter DISABLE_DESCRAMBLER = 0;
+  wire [31:0] pw_DISABLE_DESCRAMBLER = DISABLE_DESCRAMBLER;
+
+  // Configures the identification address frame timeout period.  If the 
+  // port transmits identification address frame, it should receive the same 
+  // from the other side within one milli second.  Values are mentioned in UIs.
+
+  parameter IDENT_TIMEOUT = 1499250;
+  wire [31:0] pw_IDENT_TIMEOUT = IDENT_TIMEOUT;
+
+  // Configures the break timeout period.  If the port sends break, it should 
+  // receive break within one 1 milli second.  Values are mentioned in UIs.
+
+  parameter BREAK_TIMEOUT = 1499250;
+  wire [31:0] pw_BREAK_TIMEOUT = BREAK_TIMEOUT;
+
+  // Configures the open address response timeout period.  After a port sends 
+  // an open address frame should receive a response within one milli second.  
+  // Values are mentioned in UIs.
+
+  parameter OPEN_ADDR_RES_TIMEOUT = 1499250;
+  wire [31:0] pw_OPEN_ADDR_RES_TIMEOUT = OPEN_ADDR_RES_TIMEOUT; 
+
+  // Configures the credit timeout period.  Port which accepts an open address 
+  // frame, should send credit within 1 milli second.  Values are mentioned 
+  // in UIs.
+
+  parameter CREDIT_TIMEOUT = 1499250;
+  wire [31:0] pw_CREDIT_TIMEOUT = CREDIT_TIMEOUT;
+
+  // Configures the ACK/NAK timeout period. If the port sends an SSP frame, 
+  // it should be acknowledged within one milli second.  Values are mentioned 
+  // in UIs.
+
+  parameter ACK_NAK_TIMEOUT = 1499250;
+  wire [31:0] pw_ACK_NAK_TIMEOUT = ACK_NAK_TIMEOUT;
+
+  // Configures the Close timeout period.  If the port send close, it should 
+  // receive close within one 1 milli second.  Values are mentioned in UIs.
+
+  parameter CLOSE_TIMEOUT = 1499250;
+  wire [31:0] pw_CLOSE_TIMEOUT = CLOSE_TIMEOUT;
+
+  // Configures the Done timeout period.  If the port send done, it should
+  // receive done within one 1 milli second.  Values are mentioned in UIs.
+
+  parameter DONE_TIMEOUT = 1499250;
+  wire [31:0] pw_DONE_TIMEOUT = DONE_TIMEOUT;
+
+  // Configures the monitor to perform the checks during reset sequence.
+  // Set the parameter to 1 to configure the monitor to perform the 
+  // reset sequence checks.  By default, reset sequence checks are 
+  // turned off.
+
+  parameter PHY_RESET_SEQ_CHECK_ENABLE = 0;
+  wire [31:0] pw_PHY_RESET_SEQ_CHECK_ENABLE = PHY_RESET_SEQ_CHECK_ENABLE;
+
+  // Configures the monitor to perform the check for the reserved values.
+  // Set the parameter to 1 to configure the monitor to perform the check.
+  // By default, checks are performed for the reserved values.
+
+  parameter RESERVED_FIELD_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_FIELD_CHECK_ENABLE = RESERVED_FIELD_CHECK_ENABLE;
+
+  // Parameter VENDOR_SPECIFIC_ENCODING_ENABLE = 0 configures the monitor to
+  // allow the usage of vendor specific encodings in the SSP and SMP frames.
+
+  parameter VENDOR_SPECIFIC_ENCODING_ENABLE = 0;
+  wire [31:0] pw_VENDOR_SPECIFIC_ENCODING_ENABLE =
+                                             VENDOR_SPECIFIC_ENCODING_ENABLE;
+
+  // Configures the receiver's minimum idle time period between ALIGN bursts in
+  // a COMINIT sequence. The idle time period must be specified in UIs. By
+  // default, the idle time period is set to 260UIs.
+
+  parameter RX_COMINIT_IDLE_TIME_MIN = 260;
+  wire [31:0] pw_RX_COMINIT_IDLE_TIME_MIN = RX_COMINIT_IDLE_TIME_MIN;
+
+  // Configures the receiver's maximum idle time period between ALIGN bursts in
+  // a COMINIT sequence. The idle time period must be specified in UIs. By
+  // default, the idle time period is set to 780UIs.
+
+  parameter RX_COMINIT_IDLE_TIME_MAX = 780;
+  wire [31:0] pw_RX_COMINIT_IDLE_TIME_MAX = RX_COMINIT_IDLE_TIME_MAX;
+
+  // Configures the receiver's minimum idle time period between ALIGN bursts in
+  // a COMSAS sequence. The idle time period must be specified in UIs. By
+  // default, the idle time period is set to 780UIs.
+
+  parameter RX_COMSAS_IDLE_TIME_MIN = 780;
+  wire [31:0] pw_RX_COMSAS_IDLE_TIME_MIN = RX_COMSAS_IDLE_TIME_MIN;
+
+  // Configures the receiver's maximum idle time period between ALIGN bursts in
+  // a COMSAS sequence. The idle time period must be specified in UIs. By
+  // default, the idle time period is set to 2360UIs.
+
+  parameter RX_COMSAS_IDLE_TIME_MAX = 2360;
+  wire [31:0] pw_RX_COMSAS_IDLE_TIME_MAX = RX_COMSAS_IDLE_TIME_MAX;
+
+  // Configures the receive negation time after a COMINIT sequence. By default the
+  // negation time is set to 780UIs.
+
+  parameter RX_COMINIT_NEGATION_TIME_PERIOD = 780;
+  wire [31:0] pw_RX_COMINIT_NEGATION_TIME_PERIOD = RX_COMINIT_NEGATION_TIME_PERIOD;
+
+  // Configures the receive negation time after COMSAS sequence. By default, the
+  // negation time after COMSAS sequence is set to 200UIs.
+
+  parameter RX_COMSAS_NEGATION_TIME_PERIOD = 2360;
+  wire [31:0] pw_RX_COMSAS_NEGATION_TIME_PERIOD = RX_COMSAS_NEGATION_TIME_PERIOD;
+
+  // ---------------------------------
+  // Internal Parameter declarations
+  // ---------------------------------
+
+  parameter ZI_PORT_WIDTH = (INTERFACE_TYPE === 0 ? 1 : 
+			     (INTERFACE_TYPE === 1 ? 10 :
+			     (INTERFACE_TYPE === 2 ? 20 : 20)));
+
+  // Input declarations
+
+  input reset;
+  input areset;
+  input tx_clk;
+  input [ZI_PORT_WIDTH - 1:0] tx_data_plus;
+  input [ZI_PORT_WIDTH - 1:0] tx_data_minus;
+  input tx_idle_signal;
+  input rx_clk;
+  input [ZI_PORT_WIDTH - 1:0] rx_data_plus;
+  input [ZI_PORT_WIDTH - 1:0] rx_data_minus;
+  input rx_idle_signal;
+  input start_speed_negotiation;
+
+  // Configure this port to 1'b1 to track phy reset sequence, when 
+  // configured as 1'b0 the monitor assumes the link is in idle condition.
+
+  input bypass_reset_sequence;
+
+  // ----------------------------------------------------
+  // Instantiation of the new version of the SAS monitor
+  // ----------------------------------------------------
+
+  qvl_sas_dynamic_timer_values_monitor
+                        #(Constraints_Mode,
+                          SAS_DEVICE_TYPE,
+                          INTERFACE_TYPE,
+                          DOUBLE_DATA_RATE,
+                          TX_DEVICE_SPEED_RATE,
+                          RX_DEVICE_SPEED_RATE,
+                          ELECTRICAL_IDLE_TIME_BIT_PATTERN,
+                          TX_MAX_SUPPORTED_RATE,
+                          RX_MAX_SUPPORTED_RATE,
+                          REPEATED_PRIMITIVE_SEQ,
+                          TRANSPORT_LAYER_CHECKS_ENABLE,
+                          DISABLE_DESCRAMBLER,
+                          PHY_RESET_SEQ_CHECK_ENABLE,
+                          RESERVED_FIELD_CHECK_ENABLE,
+                          VENDOR_SPECIFIC_ENCODING_ENABLE   
+			 ) 
+        SAS_PORTS_VERSION (.areset(areset),
+			   .reset(reset),
+
+			   .tx_clk(tx_clk),
+			   .tx_data_plus(tx_data_plus),
+			   .tx_data_minus(tx_data_minus),
+			   .tx_idle_signal(tx_idle_signal),
+
+                           .rx_clk(rx_clk),
+                           .rx_data_plus(rx_data_plus),
+                           .rx_data_minus(rx_data_minus),
+                           .rx_idle_signal(rx_idle_signal),
+
+                           .bypass_reset_sequence(bypass_reset_sequence),
+                           .start_speed_negotiation(start_speed_negotiation),
+
+                           .tx_cominit_idle_time(TX_COMINIT_IDLE_TIME),
+                           .tx_comsas_idle_time(TX_COMSAS_IDLE_TIME),
+                           .rx_cominit_idle_time_min
+                                         (RX_COMINIT_IDLE_TIME_MIN),
+                           .rx_cominit_idle_time_max
+                                         (RX_COMINIT_IDLE_TIME_MAX),
+                           .rx_comsas_idle_time_min
+                                         (RX_COMSAS_IDLE_TIME_MIN),
+                           .rx_comsas_idle_time_max
+                                         (RX_COMSAS_IDLE_TIME_MAX),
+                           .tx_cominit_neg_time(TX_COMINIT_NEGATION_TIME_PERIOD),
+                           .tx_comsas_neg_time(TX_COMSAS_NEGATION_TIME_PERIOD),
+                           .rx_cominit_neg_time(RX_COMINIT_NEGATION_TIME_PERIOD),
+                           .rx_comsas_neg_time(RX_COMSAS_NEGATION_TIME_PERIOD),
+                           .rate_change_delay(RATE_CHANGE_DELAY),
+                           .spd_neg_lock_time(SPEED_NEGOTIATION_LOCK_TIME),
+                           .spd_neg_transmit_time
+				     (SPEED_NEGOTIATION_TRANSMIT_TIME),
+                           .hotplug_timeout(HOTPLUG_TIMEOUT_PERIOD),
+                           .comsas_timeout(COMSAS_TIMEOUT_PERIOD),
+                           .hard_reset_timeout(HARD_RESET_PERIOD),
+                           .ident_frame_timeout(IDENT_TIMEOUT),
+                           .break_timeout(BREAK_TIMEOUT),
+                           .open_addr_res_timeout(OPEN_ADDR_RES_TIMEOUT),
+                           .credit_timeout(CREDIT_TIMEOUT),
+                           .ack_nak_timeout(ACK_NAK_TIMEOUT),
+                           .close_timeout(CLOSE_TIMEOUT),
+                           .done_timeout(DONE_TIMEOUT) 
+                          );
+
+`protected
+
+    MTI!#)opKxTA-K>pa+v#EGpB$\.KCloU}IQerk=CT*i0}r'[hK]=;E><j1xY-ste)Z<{~;X4An+r
+    +x}H=[1YvHRY3Y#BAruwHGexVQKQ;<e<f~j?XoX'i^vmz^,1@WHj19IXrYIfGV![i{7e}#=@x"7a
+    2^#>e^EW{AGHRm8;To[7''#U_K^,D?@5Hx-pzTx7~Z{B=Rs?7zkO33kkX+Kr7iYoulWBj[E?j!#L
+    1_,JnEjrTG*[hK]GpQsCVZ$BEYT+\DVw^@Expv&Ke~TC}]',^URB<+GB{OikreEQeXV;]\R@rARc
+    +O[u}OrH}?'i;j+jGCW$5k,#BloU3aZ{5DaW91K~Do?AH3$Y{*1mnY}Ej{xaUW*akwV}#A7D\"YO
+    psK>l7<5-[iTmBxxrs7~ue<xlnIXx[$I^]j?{m?O2D*Q{*GZ1pYskw*,Y5vR?5B+J?kR!Q<X-.[e
+    [{-r7<t*5j<5GV7s2=2,3YG1v~=|I5RvMu5zHDX$3!1D@!eOziHWC,33;%XQXX:i]]{[B5Y=,?l0
+    <Vw'bHCTJrtp=;J:uD=~Zw>]\]<;O}=__X+R31a,W+,J~$yU-j#ka*ZJ$7KE!57Vpe*<n=iRmuHA
+    7ws~TjuL[?pIPqLX{YY]?UGUEDoA,uTm={UsnT$oZIo*lo-JCiv^x>[_~xoolZ[]7#KOVvW^B<*<
+    Y[#[Wwl<*rQ7!o#kTG2m{mG^TpxDl7oea>Z{Sgy2p\</^j<+p22x+r3'BEz'B3D![4+<H,.Qm,m5
+    eG-YeZ<~rEX6[-R>BCBxlts~j2weKA'[
+`endprotected
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sas_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sas_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sas_monitor
+`include "zi_cw_sas_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // end module qvl_sas_monitor.v

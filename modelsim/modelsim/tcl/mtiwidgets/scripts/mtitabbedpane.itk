@@ -1,0 +1,516 @@
+###############################################################################
+#
+# Tabbed paned window
+#
+# Combine a panedwindow with tabs (a.k.a. notebook)
+#
+# Author: Brian Griffin
+#
+# Copyright 2004-2009 Mentor Graphics Corporation
+#
+###############################################################################
+
+package provide ::mtiwidgets::Tabbedpane 0.1
+
+proc mtiwidgets::tabbedpane {pathName args} {
+    uplevel mtiwidgets::Tabbedpane $pathName $args
+}
+
+itcl::class mtiwidgets::Tabbedpane {
+	inherit itk::Widget
+
+	constructor {args} {}
+	destructor {}
+
+	itk_option define -command command Command {}
+	itk_option define -mode mode Mode paned  ;# Enum: paned tabbed
+	
+	public method add {args}
+	public method forget {args}
+	public method identify {x y}
+	public method panecget {window option}
+	public method paneconfigure {window args}
+	public method panes {}
+	public method proxy {cmd args}
+	public method sash {cmd args}
+
+	public method bbox {}
+	public method next {}
+	public method tabcget {window option}
+	public method tabconfigure {window args}
+	public method prev {}
+	public method select {window}               
+	public method selectIndex {index}               	
+	public method getSelected {}
+
+	private method _getargs {optionList argListvar}
+	private method _select {active}
+}
+
+itcl::body mtiwidgets::Tabbedpane::constructor {args} {
+	itk_component add pw {
+		panedwindow $itk_component(hull).pw
+	} {
+		keep -background -borderwidth -cursor -handlepad
+		keep -handlesize -height -opaqueresize -orient 
+		keep -relief -sashcursor -sashpad -sashrelief
+		keep -sashwidth -showhandle -width
+	}
+
+	itk_component add ts {
+		mtiwidgets::tabset $itk_component(hull).ts
+	} {
+		keep -angle -backdrop -background -bevelamount -clientdata
+		keep -cursor -disabledforeground -equaltabs -font
+		keep -foreground -gap -margin -padx -pady -raiseselect
+		keep -selectbackground -selectforeground -start -state -tabborders
+		keep -tabpadx -tabpady -tabpos -menu
+		ignore -height -width -command
+	}
+
+	$itk_component(ts) configure -command [itcl::code $this _select] -alwaysselect 1
+
+	grid $itk_component(pw) -sticky nsew -row 0 -column 0
+	grid columnconfigure $itk_component(hull) 0 -weight 1
+	grid rowconfigure $itk_component(hull)    0 -weight 1
+
+	eval itk_initialize $args
+}
+
+itcl::body mtiwidgets::Tabbedpane::destructor {} {
+}
+
+itcl::configbody mtiwidgets::Tabbedpane::mode {
+	switch $itk_option(-mode) {
+		tabbed {
+			grid $itk_component(ts) -row 1 -column 0 -sticky nsew
+			set active [$itk_component(ts) index select]
+			set i 0
+			foreach w [$itk_component(pw) panes] {
+				if {$i eq $active} {
+					$itk_component(pw) paneconfigure $w -hide 0
+				} else {
+					$itk_component(pw) paneconfigure $w -hide 1
+				}
+				incr i
+			}
+		}
+		paned {
+			grid forget $itk_component(ts)
+			foreach w [$itk_component(pw) panes] {
+				$itk_component(pw) paneconfigure $w -hide 0
+			}
+		}
+	}
+	
+}
+
+#itcl::configbody mtiwidgets::Tabbedpane::
+
+# add window ?window...? ?options...?
+#
+# Add one or more windows to the panedwindow, each in a separate
+# pane. The arguments consist of the names of one or more windows
+# followed by pairs of arguments that specify how to manage the
+# windows. Option may have any of the values accepted by the configure
+# subcommand.  Also add a new tab at the end of the tabset.  If
+# additional arguments are present, they specify any of the following
+# options:
+#
+# -angle value
+# 	Specifes the angle of slope from the inner edge to the outer edge of
+# 	the tab. An angle of 0 specifies square tabs. Valid ranges are 0 to
+# 	45 degrees inclusive. Default is 15 degrees. If this option is
+# 	specified as an empty string (the default), then the angle option
+# 	for the overall tabset is used.
+#
+# -background value
+# 	Specifies a background color to use for displaying tabs when they
+# 	are in their normal state (unselected). If this option is specified
+# 	as an empty string (the default), then the background option for the
+# 	overall tabset is used.
+#
+# -bevelamount value
+# 	Specifes the size of tab corners. A value of 0 with angle set to 0
+# 	results in square tabs. A bevelAmount of 4, means that the tab will
+# 	be drawn with angled corners that cut in 4 pixels from the edge of
+# 	the tab. The default is 0. This is generally only set at the tabset
+# 	configuration level. Tabs normally will want to share the same
+# 	bevelAmount.
+# 
+# -bitmap value
+# 	If label is a non-empty string, specifies a bitmap to display in the
+# 	tab. Bitmap may be of any of the forms accepted by Tk_GetBitmap.
+#
+# -disabledforeground value
+# 	Specifies a foreground color to use for displaying tab labels when
+# 	tabs are in their disable state. If this option is specified as an
+# 	empty string (the default), then the disabledforeground option for
+# 	the overall tabset is used.
+#
+# -font value
+# 	Specifies the font to use when drawing the label on a tab. If this
+# 	option is specified as an empty string then the font option for the
+# 	overall tabset is used.
+#
+# -foreground value
+# 	Specifies a foreground color to use for displaying tab labels when
+# 	tabs are in their normal unselected state. If this option is
+# 	specified as an empty string (the default), then the foreground
+# 	option for the overall tabset is used.
+#
+# -image value
+# 	If label is a non-empty string, specifies an image to display in the
+# 	tab. Image must have been created with the image create
+# 	command. Typically, if the image option is specified then it
+# 	overrides other options that specify a bitmap or textual value to
+# 	display in the widget; the image option may be reset to an empty
+# 	string to re-enable a bitmap or text display.
+#
+# -label value
+# 	Specifies a text string to be placed in the tabs label. If this
+# 	value is set, the bitmap option is overridden and this option is
+# 	used instead. This label serves as an additional identifier used to
+# 	reference the tab. This label may be used for the index value in
+# 	widget commands.
+#
+# -selectbackground value
+# 	Specifies a background color to use for displaying the selected
+# 	tab. If this option is specified as an empty string (the default),
+# 	then the selectBackground option for the overall tabset is used.
+#
+# -selectforeground value
+# 	Specifies a foreground color to use for displaying the selected
+# 	tab. If this option is specified as an empty string (the default),
+# 	then the selectForeground option for the overall tabset is used.
+#
+# -padx value
+# 	Specifies a non-negative value indicating how much extra space to
+# 	request for a tab around its label in the X-direction. When
+# 	computing how large a window it needs, the tab will add this amount
+# 	to the width it would normally need The tab will end up with extra
+# 	internal space to the left and right of its text label. This value
+# 	may have any of the forms acceptable to Tk_GetPixels. If this option
+# 	is specified as an empty string (the default), then the padX option
+# 	for the overall tabset is used
+#
+# -pady value
+# 	Specifies a non-negative value indicating how much extra space to
+# 	request for a tab around its label in the Y-direction. When
+# 	computing how large a window it needs, the tab will add this amount
+# 	to the height it would normally need The tab will end up with extra
+# 	internal space to the top and bottom of its text label. This value
+# 	may have any of the forms acceptable to Tk_GetPixels. If this option
+# 	is specified as an empty string (the default), then the padY option
+# 	for the overall tabset is used
+#
+# -state value
+# 	Sets the state of the tab. Specifying normal allows this tab to be
+# 	selectable. Specifying disabled disables the this tab causing its
+# 	tab label to be drawn in the disabledForeground color. The tab will
+# 	not respond to events until the state is set back to normal.
+
+itcl::body mtiwidgets::Tabbedpane::add {args} {
+	set taboptions [list -angle -background -bevelamount -bitmap \
+						-disabledforeground -font -foreground -image \
+						-label -selectbackground -selectforeground -padx \
+						-pady -state]
+	set paneoptions [list -after -before -height -minsize -padx -pady \
+						 -sticky -width -stretch]
+
+	set paneargs [_getargs $paneoptions args]
+	set tabargs [_getargs $taboptions args]
+	if {$itk_option(-mode) eq "tabbed"} {
+		lappend paneargs -hide 1
+	} else {
+		lappend paneargs -hide 0
+	}
+	eval [linsert [concat $args $paneargs] 0 $itk_component(pw) add]
+	foreach w $args {
+		eval [linsert $tabargs 0 $itk_component(ts) add]
+	}
+}
+
+
+# forget window ?window ...?
+#
+# Remove the pane containing window from the panedwindow. All geometry
+# management options for window will be forgotten.
+
+itcl::body mtiwidgets::Tabbedpane::forget {args} {
+	foreach w $args {
+		set ix [lsearch -exact [$itk_component(pw) panes] $w]
+		if {$ix < 0} {
+			error "Bad window: $w"
+		}
+		$itk_component(pw) forget $w
+		$itk_component(ts) delete $ix
+	}
+}
+
+# identify x y 
+#
+# Identify the panedwindow component underneath the point given by x
+# and y, in window coordinates. If the point is over a sash or a sash
+# handle, the result is a two element list containing the index of the
+# sash or handle, and a word indicating whether it is over a sash or a
+# handle, such as {0 sash} or {2 handle}. If the point is over any
+# other part of the panedwindow, the result is an empty list.
+
+itcl::body mtiwidgets::Tabbedpane::identify {x y} {
+	$itk_component(pw) identify $x $y
+}
+
+# panecget window option
+#
+# Query a management option for window. Option may be any value
+# allowed by the paneconfigure subcommand.
+
+itcl::body mtiwidgets::Tabbedpane::panecget {window option} {
+	$itk_component($pw) $window $option
+}
+
+# paneconfigure window ?option? ?value option value ...?
+#
+# Query or modify the management options for window. If no option is
+# specified, returns a list describing all of the available options
+# for pathName (see Tk_ConfigureInfo for information on the format of
+# this list). If option is specified with no value, then the command
+# returns a list describing the one named option (this list will be
+# identical to the corresponding sublist of the value returned if no
+# option is specified). If one or more option-value pairs are
+# specified, then the command modifies the given widget option(s) to
+# have the given value(s); in this case the command returns an empty
+# string. The following options are supported:
+#
+# -after window
+# 	Insert the window after the window specified. window should be the
+# 	name of a window already managed by pathName.
+#
+# -before window
+# 	Insert the window before the window specified. window should be the
+# 	name of a window already managed by pathName.
+#
+# -height size
+# 	Specify a height for the window. The height will be the outer
+# 	dimension of the window including its border, if any. If size is an
+# 	empty string, or if -height is not specified, then the height
+# 	requested internally by the window will be used initially; the
+# 	height may later be adjusted by the movement of sashes in the
+# 	panedwindow. Size may be any value accepted by Tk_GetPixels.
+#
+# -minsize n
+# 	Specifies that the size of the window cannot be made less than
+# 	n. This constraint only affects the size of the widget in the paned
+# 	dimension -- the x dimension for horizontal panedwindows, the y
+# 	dimension for vertical panedwindows. May be any value accepted by
+# 	Tk_GetPixels.
+#
+# -padx n
+# 	Specifies a non-negative value indicating how much extra space to
+# 	leave on each side of the window in the X-direction. The value may
+# 	have any of the forms accepted by Tk_GetPixels.
+#
+# -pady n
+# 	Specifies a non-negative value indicating how much extra space to
+# 	leave on each side of the window in the Y-direction. The value may
+# 	have any of the forms accepted by Tk_GetPixels.
+#
+# -sticky style
+# 	If a window's pane is larger than the requested dimensions of the
+# 	window, this option may be used to position (or stretch) the window
+# 	within its pane. Style is a string that contains zero or more of the
+# 	characters n, s, e or w. The string can optionally contains spaces
+# 	or commas, but they are ignored. Each letter refers to a side
+# 	(north, south, east, or west) that the window will "stick" to. If
+# 	both n and s (or e and w) are specified, the window will be
+# 	stretched to fill the entire height (or width) of its cavity.
+#
+# -width size
+# 	Specify a width for the window. The width will be the outer
+# 	dimension of the window including its border, if any. If size is an
+# 	empty string, or if -width is not specified, then the width
+# 	requested internally by the window will be used initially; the width
+# 	may later be adjusted by the movement of sashes in the
+# 	panedwindow. Size may be any value accepted by Tk_GetPixels.
+
+itcl::body mtiwidgets::Tabbedpane::paneconfigure {window args} {
+	eval [linsert $args 0 $itk_component(pw) paneconfigure $window]
+}
+
+# panes
+#
+# Returns an ordered list of the widgets managed by pathName.
+
+itcl::body mtiwidgets::Tabbedpane::panes {}	{
+	$itk_component(pw) panes
+}
+
+# proxy ?args?
+# 	This command is used to query and change the position of the sash
+# 	proxy, used for rubberband-style pane resizing. It can take any of
+# 	the following forms:
+#
+# 	proxy coord
+# 	  Return a list containing the x and y coordinates of the most recent
+# 	  proxy location.
+#
+# 	proxy forget
+# 	  Remove the proxy from the display.
+#
+#   proxy place x y
+#     Place the proxy at the given x and y coordinates.
+
+itcl::body mtiwidgets::Tabbedpane::proxy {cmd args} {
+	eval [linsert $args 0 $itk_component(pw) proxy $cmd]
+}
+
+# sash ?args?
+#  This command is used to query and change the position of sashes in
+#  the panedwindow. It can take any of the following forms:
+#
+# 	sash coord index
+# 	  Return the current x and y coordinate pair for the sash given by
+# 	  index. Index must be an integer between 0 and 1 less than the number
+# 	  of panes in the panedwindow. The coordinates given are those of the
+# 	  top left corner of the region containing the sash. 
+#
+# 	sash
+# 	  dragto index x y This command computes the difference between the
+# 	  given coordinates and the coordinates given to the last sash coord
+# 	  command for the given sash. It then moves that sash the computed
+# 	  difference. The return value is the empty string.
+#
+# 	sash mark index x y
+# 	  Records x and y for the sash given by index; used in conjunction
+# 	  with later dragto commands to move the sash.
+#
+# 	sash place index x y
+#     Place the sash given by index at the given coordinates.
+
+itcl::body mtiwidgets::Tabbedpane::sash {cmd args} {
+	eval [linsert $args 0 $itk_component(pw) sash $cmd]
+}
+                              
+# next
+# 	Advances the selected tab to the next tab (order is determined by
+# 	insertion order). If the currently selected tab is the last tab in
+# 	the tabset, the selection wraps around to the first tab. It behaves
+# 	as if the user selected the next tab.
+
+itcl::body mtiwidgets::Tabbedpane::next {} {
+	$itk_component(ts) next
+}
+
+# tabconfigure index ?option? ?value?
+# 	This command is similar to the configure command, except that it
+# 	applies to the options for an individual tab, whereas configure
+# 	applies to the options for the tabset as a whole. Options may have
+# 	any of the values accepted by the add widget command. If options are
+# 	specified, options are modified as indicated in the command and the
+# 	command returns an empty string. If no options are specified,
+# 	returns a list describing the current options for tab index (see
+# 	Tk_ConfigureInfo for information on the format of this list).
+
+itcl::body mtiwidgets::Tabbedpane::tabconfigure {window args} {
+	if {[string is integer $window]} {
+		set ix $window
+	} elseif {[winfo exists $window]} {
+		set ix [lsearch -exact [$itk_component(pw) panes] $window]
+	} else {
+		error "Bad window index: $window"
+	}
+	eval [linsert $args 0 $itk_component(ts) tabconfigure $ix]
+}
+
+# tabcget index option
+# 	This command is similar to the configure command, except that it
+# 	applies to the options for an individual tab, whereas configure
+# 	applies to the options for the tabset as a whole. Options may have
+# 	any of the values accepted by the add widget command. If options are
+# 	specified, options are modified as indicated in the command and the
+# 	command returns an empty string. If no options are specified,
+# 	returns a list describing the current options for tab index (see
+# 	Tk_ConfigureInfo for information on the format of this list).
+
+itcl::body mtiwidgets::Tabbedpane::tabcget {window option} {
+	if {[string is integer $window]} {
+		set ix $window
+	} elseif {[winfo exists $window]} {
+		set ix [lsearch -exact [$itk_component(pw) panes] $window]
+	} else {
+		#error "Bad window index: $window"
+		set ix $window
+	}
+	$itk_component(ts) tabcget $ix $option
+}
+
+# prev
+# 	Moves the selected tab to the previous tab (order is determined by
+# 	insertion order). If the currently selected tab is the first tab in
+# 	the tabset, the selection wraps around to the last tab in the
+# 	tabset. It behaves as if the user selected the previous tab.
+
+itcl::body mtiwidgets::Tabbedpane::prev {} {
+	$itk_component(ts) prev
+}
+
+# select window
+# 	Selects the tab specified by window path name as the currently selected tab. It
+# 	behaves as if the user selected the new tab.
+
+itcl::body mtiwidgets::Tabbedpane::select {window} {
+	set ix [lsearch [$itk_component(pw) panes] $window]
+	if {$ix >= 0} {
+		$itk_component(ts) select $ix
+	}
+}
+
+# select index
+# 	Selects the tab specified by index as the currently selected tab. It
+# 	behaves as if the user selected the new tab.
+
+itcl::body mtiwidgets::Tabbedpane::selectIndex {index} {
+	#only allow valid indexes
+	if {$index < [llength [panes]] && $index >= 0} {
+		$itk_component(ts) select $index
+	}
+}
+
+# getSelected
+# 	Returns the index of the currently selected tab
+# 	
+itcl::body mtiwidgets::Tabbedpane::getSelected { } {
+	return [$itk_component(ts) getSelected]	
+}
+
+itcl::body mtiwidgets::Tabbedpane::_getargs {optionList argListvar} {
+	upvar $argListvar argList
+	set args [list]
+	foreach opt $optionList {
+		set io [lsearch -exact $argList $opt]
+		if {$io >= 0} {
+			set iv [expr {$io + 1}]
+			lappend args [lindex $argList $io]
+			lappend args [lindex $argList $iv]
+			set argList [lreplace $argList $io $iv]
+		}
+	}
+	return $args
+}
+
+itcl::body mtiwidgets::Tabbedpane::_select {active} {
+	set i 0
+	foreach w [$itk_component(pw) panes] {
+		if {$i eq $active} {
+			$itk_component(pw) paneconfigure $w -hide 0
+		} else {
+			$itk_component(pw) paneconfigure $w -hide 1
+		}
+		incr i
+	}
+	if {$itk_option(-command) ne ""} {
+		set cmd [concat $itk_option(-command) $active]
+		eval $cmd
+	}
+}

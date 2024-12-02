@@ -1,0 +1,987 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_multi_clock_multi_port_memory_access_assertions (
+                                 write_clock,
+                                 read_clock,
+                                 areset,
+                                 write_reset,
+                                 read_reset,
+                                 active,
+                                 write_active,
+                                 read_active, 
+                                 write,
+                                 write_addr,
+                                 write_data,
+                                 read,
+                                 read_addr,
+                                 read_data, 
+                                 start_addr,
+                                 end_addr,
+
+                                 initialized,
+                                 single_write,
+                                 single_read,
+                                 read_while_write,
+                                 write_while_read,
+                                 write_range,
+                                 read_range,
+                                 data,
+                                 multiple_write,
+                                 multiple_read,
+
+                                 initialized_fire,
+                                 single_write_fire,
+                                 single_read_fire,
+                                 write_while_read_fire,
+                                 read_while_write_fire,
+                                 write_range_fire,
+                                 read_range_fire,
+                                 data_fire,
+                                 multiple_write_fire,
+                                 multiple_read_fire,
+
+                                 all_ports_written,
+                                 all_ports_read,
+                                 all_locations_written,
+                                 all_locations_read,
+
+                                 memory_accesses,
+                                 memory_reads,
+                                 memory_writes,
+                                 locations_written,
+                                 locations_read,
+                                 single_location_multiple_reads,
+                                 concurrent_writes,
+                                 concurrent_reads,
+                                 maximum_writes, 
+                                 maximum_reads, 
+                                 min_idle_time,
+                                 max_idle_time, 
+                                 write_port_bit_map,
+                                 read_port_bit_map,
+                                 support,
+                                 fire_count
+                                                  );
+
+
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+  parameter READ_WIDTH = 1; 
+  parameter READ_ITEM_WIDTH = 1; 
+  parameter READ_ITEM_COUNT = 1; 
+
+  parameter READ_ADDR_ITEM_WIDTH = 1; 
+  parameter READ_ADDR_ITEM_COUNT = 1; 
+  parameter READ_ADDR_WIDTH = READ_ADDR_ITEM_WIDTH * READ_ADDR_ITEM_COUNT; 
+
+  parameter READ_DATA_ITEM_WIDTH = 1; 
+  parameter READ_DATA_ITEM_COUNT = READ_ITEM_COUNT; 
+  parameter TMP_READ_DATA_TOTAL_WIDTH = (READ_DATA_ITEM_COUNT * 
+                                         READ_DATA_ITEM_WIDTH);
+  parameter READ_DATA_TOTAL_WIDTH = (TMP_READ_DATA_TOTAL_WIDTH ? 
+                                     TMP_READ_DATA_TOTAL_WIDTH : 1);
+  parameter READ_DATA_WIDTH = READ_ITEM_COUNT; 
+
+  parameter WRITE_ITEM_COUNT = 1; 
+  parameter WRITE_ITEM_WIDTH = 1; 
+
+  parameter WRITE_WIDTH = 1; 
+
+  parameter WRITE_ADDR_ITEM_WIDTH = 1; 
+  parameter WRITE_ADDR_ITEM_COUNT = 1; 
+  parameter WRITE_ADDR_WIDTH = WRITE_ADDR_ITEM_COUNT * WRITE_ADDR_ITEM_WIDTH;
+
+  parameter WRITE_DATA_ITEM_WIDTH = 1; 
+  parameter WRITE_DATA_ITEM_COUNT = WRITE_ITEM_COUNT; 
+  parameter TMP_WRITE_DATA_TOTAL_WIDTH = (WRITE_DATA_ITEM_COUNT * 
+                                         WRITE_DATA_ITEM_WIDTH);
+  parameter WRITE_DATA_TOTAL_WIDTH = (TMP_WRITE_DATA_TOTAL_WIDTH ? 
+                                     TMP_WRITE_DATA_TOTAL_WIDTH : 1);
+  parameter WRITE_DATA_WIDTH = WRITE_ITEM_COUNT; 
+
+  parameter START_ADDR_WIDTH = WRITE_ADDR_ITEM_WIDTH; 
+  parameter END_ADDR_WIDTH = WRITE_ADDR_ITEM_WIDTH; 
+
+  parameter START_ADDR_SPECIFIED = 0; 
+  parameter END_ADDR_SPECIFIED = 0; 
+
+  parameter WRITE_DATA_SPECIFIED = 0; 
+  parameter READ_DATA_SPECIFIED = 0; 
+
+  parameter LATENCY = 0; 
+  parameter LATENCY_WIDTH = 1; 
+  wire [LATENCY_WIDTH:0] pw_latency = LATENCY;
+  wire [31:0] pw_latency_width=LATENCY_WIDTH;
+
+  parameter WRITE_LOCK_PERIOD = 0; 
+  parameter WRITE_LOCK_PERIOD_WIDTH = 1; 
+  wire [WRITE_LOCK_PERIOD_WIDTH:0] pw_write_lock_period = WRITE_LOCK_PERIOD;
+
+  parameter READ_LOCK_PERIOD = 0; 
+  parameter READ_LOCK_PERIOD_WIDTH = 1; 
+  wire [READ_LOCK_PERIOD_WIDTH:0] pw_read_lock_period = READ_LOCK_PERIOD;
+
+  parameter READ_PORT_IND_WIDTH = 1; 
+  parameter WRITE_PORT_IND_WIDTH = 1; 
+
+  parameter SUPPORT_WIDTH = 1; 
+
+  parameter MAX_MEM_LOC = {WRITE_ADDR_ITEM_WIDTH{1'b1}} + 1;
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+  parameter MULTIPLE_READ_CHECK = 0;
+  parameter DATA_CHECK = 0;
+  parameter SINGLE_WRITE_CHECK = 0;
+  parameter INITIALIZED_CHECK = 0;
+  parameter SINGLE_READ_CHECK = 0;
+
+  input areset;       
+  input write_clock;  
+  input write_reset;  
+  input read_clock;   
+  input read_reset;   
+  input active;       
+  input write_active; 
+  input read_active;  
+
+
+  input [READ_DATA_WIDTH-1:0] read_data; 
+  input [READ_ADDR_WIDTH-1:0] read_addr; 
+  input [READ_WIDTH-1:0]read; 
+
+  input [WRITE_DATA_WIDTH-1:0] write_data; 
+  input [WRITE_ADDR_WIDTH-1:0] write_addr; 
+  input [WRITE_WIDTH-1:0] write; 
+  
+  input [START_ADDR_WIDTH-1:0] start_addr; 
+  input [END_ADDR_WIDTH-1:0] end_addr; 
+
+
+  input initialized; 
+
+  input single_write; 
+
+  input single_read; 
+
+  input write_while_read; 
+
+  input read_while_write; 
+
+  input write_range; 
+
+  input read_range; 
+
+  input data; 
+
+  input multiple_write; 
+
+  input multiple_read; 
+  
+  input [SUPPORT_WIDTH-1:0] support; 
+
+  output initialized_fire;
+  output single_write_fire;
+  output single_read_fire;
+  output write_while_read_fire;
+  output read_while_write_fire;
+  output write_range_fire;
+  output read_range_fire;
+  output data_fire;
+  output multiple_read_fire;
+  output multiple_write_fire;
+
+  // Corner Cases and Statistics
+  output [STAT_CNT_WIDTH-1:0] all_ports_read;
+  output [STAT_CNT_WIDTH-1:0] all_ports_written;
+  output all_locations_read;
+  output all_locations_written;
+
+  output [STAT_CNT_WIDTH-1:0] memory_accesses; 
+  output [STAT_CNT_WIDTH-1:0] memory_reads;
+  output [STAT_CNT_WIDTH-1:0] memory_writes;
+  output [STAT_CNT_WIDTH-1:0] locations_read;
+  output [STAT_CNT_WIDTH-1:0] locations_written;
+  output [STAT_CNT_WIDTH-1:0] single_location_multiple_reads;
+  output [STAT_CNT_WIDTH-1:0] concurrent_reads;
+  output [STAT_CNT_WIDTH-1:0] concurrent_writes;
+  output [STAT_CNT_WIDTH-1:0] maximum_reads;
+  output [STAT_CNT_WIDTH-1:0] maximum_writes;
+  output [STAT_CNT_WIDTH-1:0] min_idle_time;
+  output [STAT_CNT_WIDTH-1:0] max_idle_time;
+  output [READ_ITEM_COUNT-1:0] read_port_bit_map;
+  output [WRITE_ITEM_COUNT-1:0] write_port_bit_map;
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+
+  reg initialized_fire;
+  reg single_write_fire;
+  reg single_read_fire;
+  reg write_while_read_fire;
+  reg read_while_write_fire;
+  reg write_range_fire;
+  reg read_range_fire;
+  reg data_fire;
+  reg multiple_read_fire;
+  reg multiple_write_fire;
+
+
+  reg write_reset_domain_transfer;
+  reg write_reset_domain_transfer_ack;
+  reg read_reset_domain_transfer;
+  reg read_reset_domain_transfer_ack;
+
+  reg [START_ADDR_WIDTH-1:0] start_addr_reg;
+  reg [END_ADDR_WIDTH-1:0] end_addr_reg;
+
+  reg first_write_clock;
+  reg first_read_clock;
+  reg [MAX_MEM_LOC-1:0] mem_loc_init;
+  reg [MAX_MEM_LOC-1:0] mem_loc_init_combo;
+  reg [MAX_MEM_LOC-1:0] read_in_rd_clk_domain;
+  reg [MAX_MEM_LOC-1:0] read_in_wr_clk_domain;
+
+  reg [WRITE_ITEM_COUNT-1:0] write_lock;
+  reg [READ_ITEM_COUNT-1:0] read_lock;
+
+  reg [MAX_MEM_LOC-1:0] mem_loc_stat;
+  reg [WRITE_DATA_ITEM_WIDTH-1:0] data_mem [0:MAX_MEM_LOC-1];
+
+  reg [WRITE_LOCK_PERIOD_WIDTH:0] write_lock_period_counter
+                                                       [0:WRITE_ITEM_COUNT-1];
+  reg [READ_LOCK_PERIOD_WIDTH:0] read_lock_period_counter
+                                                       [0:READ_ITEM_COUNT-1];
+
+  reg [WRITE_ITEM_COUNT-1:0] single_write_port_bit_map;
+  reg single_write_violation;
+  reg [WRITE_ITEM_COUNT-1:0] write_while_read_port_bit_map;
+  reg write_while_read_violation;
+  reg [WRITE_ITEM_COUNT-1:0] write_range_port_bit_map;
+  reg write_range_violation;
+  reg [WRITE_ITEM_COUNT-1:0] multiple_write_port_bit_map;
+  reg multiple_write_violation;
+
+  reg [READ_ITEM_COUNT-1:0] initialized_read_port_bit_map;
+  reg initialized_violation;
+  reg [READ_ITEM_COUNT-1:0] single_read_port_bit_map;
+  reg single_read_violation;
+  reg [READ_ITEM_COUNT-1:0] read_while_write_port_bit_map;
+  reg read_while_write_violation;
+  reg [READ_ITEM_COUNT-1:0] read_range_port_bit_map;
+  reg read_range_violation;
+  reg [READ_ITEM_COUNT-1:0] data_port_bit_map;
+  reg data_violation;
+  reg [READ_ITEM_COUNT-1:0] multiple_read_port_bit_map;
+  reg multiple_read_violation;
+  reg dummy1; // variable used to avoid warnings in SPC
+  reg dummy2; // variable used to avoid warnings in SPC
+  reg dummy3; // variable used to avoid warnings in SPC
+  reg dummy4; // variable used to avoid warnings in SPC
+  reg toggle_at_wr_clk;
+  reg toggle_at_rd_clk;
+  reg reg_toggle_at_wr_clk;
+  reg reg_toggle_at_rd_clk;
+  reg [WRITE_ADDR_ITEM_WIDTH-1:0] single_write_addr1;
+  reg [WRITE_ADDR_ITEM_WIDTH-1:0] single_write_addr2;
+  reg [WRITE_ADDR_ITEM_WIDTH-1:0] single_write_addr3;
+  reg [READ_ADDR_ITEM_WIDTH-1:0] single_read_addr1;
+  reg [READ_ADDR_ITEM_WIDTH-1:0] single_read_addr2;
+  reg [READ_ADDR_ITEM_WIDTH-1:0] single_read_addr3;
+  reg [READ_ADDR_ITEM_WIDTH-1:0] single_read_addr4;
+  reg [READ_DATA_ITEM_WIDTH-1:0] single_read_data1;
+  reg [READ_DATA_ITEM_WIDTH-1:0] single_read_data2;
+
+  reg [MAX_MEM_LOC-1:0] write_clash;
+  reg [MAX_MEM_LOC-1:0] write_clash_combo;
+  reg [WRITE_ADDR_ITEM_WIDTH-1:0] write_locked_location [0:WRITE_ITEM_COUNT];
+  reg [READ_ADDR_ITEM_WIDTH-1:0] read_locked_location [0:READ_ITEM_COUNT];
+  reg [READ_WIDTH-1:0] read_pipe [0:LATENCY];
+  reg [READ_ADDR_WIDTH-1:0] read_addr_pipe [0:LATENCY];
+  reg [READ_DATA_WIDTH-1:0] read_data_pipe [0:LATENCY];
+  reg [MAX_MEM_LOC-1:0] write_clash_pipe [0:LATENCY];
+  reg [READ_ITEM_COUNT-1:0] read_clash_pipe [0:LATENCY];
+  reg [READ_ITEM_COUNT-1:0] read_range_port_bit_map_pipe [0:LATENCY];
+  reg write_in_wr_clk_domain;
+  reg write_in_rd_clk_domain;
+  reg write_in_rd_clk_domain_reg;
+  reg [READ_DATA_WIDTH-1:0] temp_read_data;
+  reg [MAX_MEM_LOC-1:0] write_mem_loc_stat;
+  reg [MAX_MEM_LOC-1:0] read_in_rd_clk_domain_combo;
+  reg write_in_wr_clk_domain_combo;
+  reg [WRITE_ADDR_ITEM_WIDTH-1:0] single_write_addr;
+
+`ifdef QVL_COVER_ON
+  reg  [STAT_CNT_WIDTH-1:0] all_ports_read;
+  reg  [STAT_CNT_WIDTH-1:0] all_ports_written;
+
+  reg [STAT_CNT_WIDTH-1:0] memory_reads;
+  reg [STAT_CNT_WIDTH-1:0] memory_writes;
+  reg [STAT_CNT_WIDTH-1:0] locations_read;
+  reg [STAT_CNT_WIDTH-1:0] locations_written;
+  reg [STAT_CNT_WIDTH-1:0] single_location_multiple_reads;
+  reg [STAT_CNT_WIDTH-1:0] concurrent_reads;
+  reg [STAT_CNT_WIDTH-1:0] concurrent_writes;
+  reg [STAT_CNT_WIDTH-1:0] maximum_reads;
+  reg [STAT_CNT_WIDTH-1:0] maximum_writes;
+  reg [STAT_CNT_WIDTH-1:0] min_idle_time;
+  reg [STAT_CNT_WIDTH-1:0] max_idle_time;
+  reg [READ_ITEM_COUNT-1:0] read_port_bit_map;
+  reg [WRITE_ITEM_COUNT-1:0] write_port_bit_map;
+
+  reg [MAX_MEM_LOC-1:0] memory_locations_read;
+  reg [MAX_MEM_LOC-1:0] memory_locations_written;
+  reg [READ_PORT_IND_WIDTH:0] num_reads;
+  reg [WRITE_PORT_IND_WIDTH:0] num_writes;
+  reg [STAT_CNT_WIDTH-1:0] idle_time;
+  reg first_read;
+
+  wire [STAT_CNT_WIDTH-1:0] memory_accesses;
+  wire  all_locations_read;
+  wire  all_locations_written;
+`endif
+
+`ifdef ZI_CW_FOR_FPGA
+     reg [STAT_CNT_WIDTH-1:0] write_fire_count;
+     reg [STAT_CNT_WIDTH-1:0] read_fire_count;
+     wire [STAT_CNT_WIDTH-1:0] fire_count;
+     assign fire_count = ((write_fire_count + read_fire_count) < 
+                          STAT_CNT_WIDTH{1'b1}) ?
+                         (write_fire_count + read_fire_count) :
+                          STAT_CNT_WIDTH{1'b1};
+`endif
+
+  wire read_lock_period_counter_start;
+  wire write_lock_period_counter_start;
+  wire any_check_is_on;
+
+  wire [READ_WIDTH-1:0] expected_read;
+  wire [READ_ADDR_WIDTH-1:0] expected_read_addr;
+  wire [READ_DATA_WIDTH-1:0] expected_read_data;
+  wire [MAX_MEM_LOC-1:0] expected_write_clash;
+  wire [READ_ITEM_COUNT-1:0] expected_read_clash;
+  wire [READ_ITEM_COUNT-1:0] expected_read_range_port_bit_map;
+
+  wire [MAX_MEM_LOC-1:0] read_mem_loc_stat;
+
+  wire write_xz_detected = (((^write) === 1'bX) || ((^write_addr) === 1'bX)
+                            || ((^write_data) === 1'bX));
+  wire read_xz_detected = (((^read) === 1'bX) || ((^read_addr) === 1'bX) || 
+                           ((^read_data) === 1'bX));
+  wire xz_detected = write_xz_detected || read_xz_detected;
+
+
+  integer i1;
+  integer i2;
+  integer i3;
+  integer i4;
+  integer i5;
+
+  integer j1;
+  integer j2;
+  integer j3;
+  integer j4;
+  integer j5;
+  integer j6;
+  integer j7;
+  integer j8;
+  integer j9;
+  integer j10;
+
+  integer k1;
+  integer k2;
+  integer k3;
+  integer k4;
+  integer k5;
+  integer k6;
+  integer k7;
+  integer k8;
+  integer k9;
+  integer k10;
+
+  integer l1;
+  integer l2;
+
+`ifdef QVL_COVER_ON
+`else
+  assign all_ports_read = {STAT_CNT_WIDTH{1'b0}};
+  assign all_ports_written = {STAT_CNT_WIDTH{1'b0}};
+  assign memory_reads = {STAT_CNT_WIDTH{1'b0}};
+  assign memory_writes = {STAT_CNT_WIDTH{1'b0}};
+  assign locations_read = {STAT_CNT_WIDTH{1'b0}};
+  assign locations_written = {STAT_CNT_WIDTH{1'b0}};
+  assign single_location_multiple_reads = {STAT_CNT_WIDTH{1'b0}};
+  assign concurrent_reads = {STAT_CNT_WIDTH{1'b0}};
+  assign concurrent_writes = {STAT_CNT_WIDTH{1'b0}};
+  assign maximum_reads = {STAT_CNT_WIDTH{1'b0}};
+  assign maximum_writes = {STAT_CNT_WIDTH{1'b0}};
+  assign min_idle_time = {STAT_CNT_WIDTH{1'b1}};
+  assign max_idle_time = {STAT_CNT_WIDTH{1'b0}};
+  assign read_port_bit_map = {READ_ITEM_COUNT{1'b0}};
+  assign write_port_bit_map = {WRITE_ITEM_COUNT{1'b0}};
+  assign memory_locations_read = {MAX_MEM_LOC{1'b0}};
+  assign memory_locations_written = {MAX_MEM_LOC{1'b0}};
+  assign num_reads = {READ_PORT_IND_WIDTH{1'b0}};
+  assign num_writes = {READ_PORT_IND_WIDTH{1'b0}};
+  assign idle_time={STAT_CNT_WIDTH{1'b0}};
+  assign first_read=1'b1;
+`endif
+
+`protected
+
+    MTI!#KEv+5Xr~-v=rBv<jo',lqjusoWApZ7<u[L,5w[Cia7}m<o^?nDip*^rZp2|$$w7kCllWIRI
+    5'Wo<'WNm-WRw5i[m}Yn~GB7vC@I7#V,mp5jTHW@\kQO^@ov}7^iQH][?wK^nq>TYnL1T>T?$!!>
+    ]k*"[5mWXDA^{1u,YiU<-\eVGT}\,>s]VB'Z#wZ~neZU{5?Z_{QK_oAp>9Q-1EI}^Zz}JYUG?RD3
+    xw@+a@eW[xXTwkCwW3ov#pq\Q1r\r@-\7lW7mA+TpYsj~GnF5wIQ=^Q#B@G3~$Q@p_{lx3Bz_B-x
+    mR3Qz@{$]mlE_pov>sGz<nHYev2pnp'xHvKHkD$mO,JE+v!2a\I[#U<G31eoR;5AfVV{j=]Raza+
+    ?=!0o2vjKE>}p$Bjl?Y@=E$-9Wa{pZlV@Ek_o*u~G]\@UHw!\XO$?O^JZ+e_=mo*urJQ-irJjkDj
+    YUeOm1ex_5-1TPRD!XZ<n*=~D;axX*J=2~1^T>^G[zneH<8av__+aa;(aXI^As$<CK\IZ$?eA7;?
+    )}J[]'?@??\;Xz~UQisV@vl$mrsCwkhz@wW=OEoY{\!\eV28><]*^?w=3Q;r0PNIrbL{A,i@{Haw
+    5a{'a]Up3e!I1UV7371ssAe',51ZasYl^V1?a+]>z>Z_DK!R]2O#D_2Ie;roJ,71,=I{C7l%o__=
+    }!_iBV3OYQ}o^1?k56-XruTDZsxICGQj~CGWDE?}@3OBa-KwB$(hw.#axQj^I$aV5{'xoi|Oeo{1
+    $o^C]$@:@o~7NoZ3J7<apV<'BlI,2$oW*z@Im>jB}^=>zX>,I,O,Y5[Y,9+HX!}]kBn\,'[p5>*j
+    'Dww<ZjC;*RGx<B5!!nx7Q3jX[6EVBALBBK#n'#KEXXro2OE-{2uA7Kp_7_@YnZ[7aEU15u*D-sY
+    OQQXG3zBDX_3O2l,[|q>YTr8O<QZrOGWQ;G=OxQ2jrjjG-v3R^R!g7RY;lKsC2=rs'@=vTHe5}^>
+    lOim[Blo*@>~'IBG]rW,injGKE}u;lAJ~FB;Y_+__nm\J}>BaKmDe@]e^ulwY]E~A{rV$Gwek}]w
+    1p_Z^?1Q$OZ'<k#YZY+Q11=Hp[_'@o;r?^ul,m8@paxIoR~2apZ=~hbQ?BE7XHskQYY5VYU}JAG&
+    ]{-+OB_v>sm{s5zTz~pDoB*^76QV5D[UNIi$$I7KYZXDvc[pUa+]?X[Q!W\'H[A5{ob"^_-OYlV7
+    X>czTszNGwKE_}'7wOOjsTm1TQ!$_zr_']#xGCa2HC'D-<{wuYwJQ,Y,<VkG*QnYaSODwIK5\5^v
+    I\h]QQ3=u;C7?Zxz5X~K+QoZEHvJOZ]iAC!ypZp1H-$+9R[awY+-5CE@22'CuD,x?\GikvX~,*'*
+    [1!O{2*w}om\<{G+zZrE?!r1^/^5D2QM;A-~_*+\8"pmOp"a5oz-DT<#^Xz#-E,n'R#>1rl@n$+_
+    k-Y\;rD3Y8,'mXnrk{Bre<IxsnjwH?$aDx=,,x]Y>}T{T*GAA].~wBU@pV7#IGoUReZEi}a7!m2p
+    w{JpZ{-;5u?I@3_m]3#V'TY+srTVHV{zs7*2lRGw=zHl?-CI_ABa>Z^]Hm!<'WB9iYBWaxvmF7kE
+    A*k=\$aK?nRr7>HE7.$EJzvewOu$#2Wo3zx#@*j,*!iC;lJTrp5(ox!s+lEoWR@{fxBX3Z,\u+]V
+    'OO;r<$owpJZomo-Q',Xj9_k7G+Aj$V=+DI'?sz1l*'};YC]}XDCGvsR1Vs5_}2*<of[}DUZ\1oT
+    <moC}{C2XADAj'uZDloRxs'<CWA2Xp'^^E;x~DTu}~'e1pz#Gzp]~H>m}7xPc\2]JrjoEJVMT[W]
+    BpDI62Y+2=C7wr_J3$$VkSm*-BvmYRZRs,{s\*VCzuaXQkE_C5kEXXsU+uj-[V>QAaLsn^e'YCp\
+    O7Gr\wGI#KY>C7CM-Q!>,ZziE7nB=#'ltA,+$YXnv]mplzev$|iD,TTOwvC?{vi5~E[2Jol''oY7
+    @T%<_+CD^__Q@5>IWKR-DDlzV!<y,>}33a]z$w<[[@moP@\~}"5+x?lBX<iH2xlaaIJQ>2WQApaa
+    +*5jKpYAV$C7C$$Ua;GUvsn$imT\YI=*k7u+>;x{^'v1eR-]K\EA5l,%rO}lzXvA^DQo[j$nCh'>
+    T=i]zJp*v{=;BCwl_3QK+[d{7T[l;\B~{osOi,R&3<u3RmT+[V2pNf~{}k'ZOXWlDBu$AkuIIix!
+    -V[i>kGG_T;YEk{htIAl/X>n^+U<?X\2'QnD;=cvae-p3o7>aO$]j{,uVC~DllZ-IBaxAO~11*r2
+    'iVDu@w}]nn]<g\-+-$Gjpe'IG}i@<Zh0*rOB*1Q5@CrG\]751{lBM#7^z]GiC,o'[[@vGIk'vw^
+    UYWx!QO!a]IUXDf'lx2\Y=^-RUnC?=\sGDi7<@UIrwj+5U}mzr\O5wAER:3o]267CUY^Ue;GO,#|
+    EGu}Txk<ZC@_Y3^CO"C2CE\9&pGKUnRKTz1j$Cr+#3YTr2*pCs7ZDZwaAW=n]$-1T@w*;^pzD*Gm
+    K}?x}Cen*Hp\aIs<^E+u~C?R!I*!X,,RZcn|E~Tu~1JlGYo@VouoPt,7seJVTK6EG[us[B{DU]OC
+    ,jGpj.2Y^o1IrT\2!EyRGXvrv>}#[]_mnpHSz^;,e32^{e;Eop5a~rH7J\{u7>o+je@oHV<HFw<-
+    CR>,3[xC21XH9^[,?p-8}U2R=;Yn>jp#ZI-'2V#1<H<lPv3T{tns]i$AUJ=Z{eXjp$AX@TjTnruq
+    4E!v2r*[])~pXx<HQrRv{~&1nx5pao@e!<22j^?YE}=]'<UXRW#zz*[+C51HvOkeYke\KX>T$A1$
+    E>3H<B^[Ee_V;5,W'#\SQ2Q,h$zZ-<Rz}tvUmCvZHz8)mp@<EIYxwpA?aQlaJaI,NvY$s+xDI>D<
+    UC15w$Rn3T\uOlJw$Vse+ROC~R7izm1DJHXD#uB,kX=??R!n>Ax@@HeE\_2+WjHo#jI=$R7sWj7O
+    X+XoGIR]G5nvw^TO2O@nu,+QaX+v'DmTkz2aRwe~]Ew1[Q3>$WDDWI@riSr_YC5*~}^Bl3soxJI<
+    {l=KRorrkQ.g}42rVK~jJ{1BYGgFepX[[~GW[UGDvJ2Go3rnemzJiY*=]KBYbnw+<!Ae-=lm]+D'
+    ^lKl@DXe>&O#@=lBp]ZRn,Aj\l=JO$5~pj@\IGn[vIdxwW7@r'=YB<$%n5l^3,'[zXalx{t*ZDD*
+    ku>csJJ_\>muL\m[]QeQU>jAVlz?2V\\C_!^xx*XDE5|k+[,EoJ7TRI!s~Wv^UamNL,\$Ir>-YF0
+    $>TUsB}B|R\R>Q=A-7$i-Y*m{Nr?sAl?V7A]@YmOlK#o2!}0|*{Ou~1qs!!O@>$xH7
+`endprotected
+    assign read_mem_loc_stat = mem_loc_stat & (~read_in_wr_clk_domain);
+
+`protected
+
+    MTI!#uVU2o]<Z4]3j?{I{2|AjY#Ze13*CZzwR#'e]1[vdy=#l\wXl+H-pQ[fns#7RVIA!aYn-1@a
+    S]G+*uYT+wDv;HjGi/,$~JlaI{GP_Ls_-HI3jiv~owBIT-eR_'C1}^AsT<iz_U2$@lyu{JaY\H51
+    ~DVBeT~\~A*'=z?q$*Vim[=!az3$}1~G:)l3n1!Q]I[UX<xIBsjVIzB9GKuW!H^~s!JU@REoH,Xx
+    H$?H5a1;ODkopUzj;=$C}oARk}^!H-}}nR\7[}[*1QY7lu31InGDxJI]Bp+$|?UU]3T_s>UXISZj
+    k]wrD1'=]To;n;e+VzK'jnCI*!t)Q=wo*z$,=kI1jjWoIt;H[v^<!vu1B[s*RK>ew#JvA=rn~<HE
+    wEurHmAV+KBi@T1)o[HGW<s2P>w1[sH}'T(_u-p*5p#P=+IWv@2eup]B5!l}e3u2E]Cz2D;s3r>~
+    D1ps?-p+?ROjZYX+S*Ou*u'Ie%+DE~L"Q,!aA*2BG7!T^~7Z12EvnR@K#w=KMhQOaBY2^}.7@]*5
+    55U\]51MkDJD]nj_E;1#L^Haz]~3E,t5K{EX7G\}}T*eY^5}a-wkI_^rem$r\k]1m2J>AR}@B*A0
+    IB;?pxJ<pA,Y?Yrz$qYvw4<5Y?HC^eAUB\\DU-,K>?R<nK,;l=Dpo}'}'@xB=Zjnx$r*][?pR*lX
+    H\YpXGp5@_j=+*TQ{3kV-z9V,le,xWB%m];]2*\EZ>YO-Ae<kI7-M1ZWZhi7;\AYmd;z_O,3'-~1
+    3@}'l^,kU=tvxC5]xw=]R'v<];up@W=@a$DT<pRkG^BswvOiwR~lawoT]}1sWADBHs{_aYpS#vok
+    x;Y3DCvHn1JX|9W-VZlI1-#$l^!<{uu*D\BH2TOUDI7x{;*Rk]+sX#~pQulsATRulkypIn*@O+'n
+    w{eKC?d-e3KHxuG.s*}i)u1Hnzj,[v5W]r'$@RKpYi1Y<q-(TzE['?C5~UGB^o-#aB,]R$i'E'<Q
+    {-HO>I7jlZuprpY-K7^<s2~{k=!vEs3$!zpi[A~!3R#=h=j}pr[i;[Tlj'i'i:K*B^qpE@R~]@pB
+    '{WJjQrJx[^5!1Yl~s}_nHW=nTp$HwBCG,IH>5*7An$gX'VxE5Ipe>-Qfe+'uIRxx}@Cv,G+J=Ei
+    XQjIp=@s2^Dos$[\\[-U>IsG+On{A!C2xBkD=zZ$K[-=\Vn<*HjnxVY]o$rk?eS<1w}GXAYsI2v+
+    }TIIx[VPTjJmEO55l^RwF]~WR*IoR][sz]Hrj]@s2ko7CoIH_swv}}O$rQB+[~U=^jk[iln'n'X,
+    T-*s\,}{ewCxUJ-!~#-$[-HmU^v;QY*!7TTG3>XYOzr*o@Up,<^D3urk**J<>e3W@@w3;!R[D^1w
+    ,~C_+a5rW\RCUIlwkZ$]7WXIv}Q_vCHwC5}3'QCHpGaRC>AH!_kRYmvHl]EQ1X\ps_,oJ{jJ{#UQ
+    p!zY'<r}[?X1uReT@OzBvCDjor-Glj~''G{JClH\^wQ#+Xr#!xJ=VOx\$7L)mz>CYV?$Q;r5E!O*
+    4z}OT4p#l-CR\>%l^2w^~U7'nAa2RA_XDoxwoTZ!n]k-pzj;Yp}}R~z5^EW[2}7Z$z*YARC$jBB<
+    VkT\Vr!As_CO=-r\S)"A$rOR<2Y*A[-#w}Z]Y'?I-]lj>XrWG3@73<p<Gem,Y5K@TJ7Xw_YCXe{>
+    }J7Rou]duGK3D1WVGxU}CliQav~vjv+{CE^X9D1GioXV$:EZYlYI<z6Gl_Wl=iK[Dn;[Uwk3GY~G
+    ZK6I25KRR@x=nB;^{aUapiORQU}7!*u#lTCMH<
+`endprotected
+  assign write_lock_period_counter_start = toggle_at_wr_clk ^ 
+                                           reg_toggle_at_wr_clk;
+`protected
+
+    MTI!#,DD,I;U~O2_'GMEOWYa><+#7D7r?aYC=i<7=P=iGmhms@#9pzVIi$1^|:.5JxAahLH7n2'G
+    n+=r#ZFq>';z]Yz2EzGp5a7Ol+ACtv;$<i$?siXU\aXzi#o%\WDX_]3*sInj=XTX3wu!*V<5=~*-
+    NG{Dac'zJW7uA{;hmD5Baz2Tmo~C7^/3<wrj<+J*wC=Ou^>,\K\=jU?!XIzv*T#$;Zr:}Q{Ek_[m
+    .BiXDe'$-rYmGr+IKOv#27Vriie[7Vap,Bk}x0IkAk{]TBoW=]*aQ>XY'Yjm-1u[='6BWx\Ho7G+
+    $J]7YA{W+WUA,^=I5=?^o[[&^}i?j$o,$3{uVZY2KSGA\1I~VZIo^>{+w-_,!aOpXEUnUj<_J]U-
+    $#wVx$#<*oXw\iw[QH[3=Y*QmQ\RjCIXOV}v-kgxWGm]D#3rl+;y}Rz}2a<Ie%ek{[sWODTnC3i9
+    Ba^m*~\O'E,aduDu[DZYlI<R!KE"hw8H-Gr5Bu[RHm^jZ[_}3\$C[aZtq,_H]Nm5'i_[v+<V5um$
+    w;weYDQm-2[+A]kXvv$\-]2G5n5uu~*X<<3eW@,naZl?Yn'J{Be#'#E\Kk=#OYQu@$mD]J1?<l)K
+    n}G^!n=UwWVO7unV~~#CTEU_VRRS1aCI7'C7?QIx_$HG[ZA_zA27Ar7{e]\;~+A]J1^e]ZnxBC*Z
+    77Y#Dz3T1,^G'jw?0lx#+;D<wl7o?v7DmT[$ak<*U-5;Y<5s13$As*7kIzTw{n<xHVm&K]W<ivU]
+    FrJO$j@I<g1\A7-{zp$+V+Ym-$'MDr-}<R>m-T@orISSson;I=_j+VR?K$'+QQG\[rDjr-@1GQaY
+    %=zH>!,XC7jDJxr[T,mo2~C87EDK>$zJD\o!}aXV=,*ai_kuj{2O!v7#=5<AU]AY*U!v(~*H2lK=
+    2s3~3loB{AH!rU^m!O3'BuYmvfm<~TVkpY1UUQxw'vK<a>ee]nK]Br_\CnH1io$2H~.EuU#HEAYj
+    puB\<JjlrWWxuH!-<ld-C>*XrvOQ?z_B4kE\lI}5}$#D#T=?I'5I\D+x~#Q$2W'pH{Ik!~B?#F{-
+    E~ZI3H{v^eG\;}[sG7WYZD\+z7\2lw,Dm\i]rz>Y+e1-Z3Avw>&>QZk1'w?YK'+Eke3+HU?MJ&ws
+    E>bY{E?D}V'lnenkC_xjV^uBGJej+[2uVj]A>xmoX_C8waJs,TjK#az$o]l#y3sRH=3AmY_#@Vm~
+    r=x]W_sjH_p?Rcx5*eS.RW1vO_D,ZDxr5;K_'meT'S!XaTwUen_1JnhXI$Z<,vXVrBVhxmjkCU;^
+    3jva}y{A5#O>Ee@rAC}sanKozp4m>DC^;NY{@\'Rne7<EZRHQpkrv^wj=He}VE-CnEz3V,a77GEH
+    ={$+x^X[Q_T1-l]-Km-<~=>6Xl+2[32BYuQ[an$BlRieBzXKH^pk:+O~x{na[5k!o6rGIp7s7v[Z
+    WY;A,v3}XuM~Q12[GRzw5@7mVR*S!5VO3Gu$1w2s{$2H^!pHJ-HzU}^re<_2ekXj"-x2WmI5G'm7
+    nxWeJp#$R=TG1a$J'jVGC721a[-]Z{$7'GCuHjS}~BeB-~r0"nAJJ'V+-9;XOiRVQC{rYl,UDm7s
+    iY%l]OOooU[x]1?=_U\^zi?'xkn;anxBAK3$>~+;Io?#Bk]MAA~X:;R_'m$<aZ_7z*VHB-Y^~K5G
+    @0"4>'x_~*Ei7uvX3nDu]i
+`endprotected
+  assign read_lock_period_counter_start = toggle_at_rd_clk ^ 
+                                          reg_toggle_at_rd_clk;
+`protected
+
+    MTI!#\'CV#5k^<[C{iY[K7oI2?rKr]5>DM-}tF~CR"iz*!F"#hxxuOXtY3To9Wsl<qv?*2uEl<?-
+    '=I~-]rO=Q]OlR*<_^e]1OY^x\;oI[n+z^USPY-HDGj^KB;-v\+Gri_zH/I3~>L,?lY^WG>>1lx$
+    H'?~sH:]ToY]V]+KR!Tusx@Qx+xR_e+_,Rat{}Zvz5vkO3]7u=}=jXK@v{}Y?T}r}\E[.1AwEJ{4
+    om~CUXD=|i1H}F4t^D\JTXvu;p_JE[aRZ935DIH'-CrXE=Gaw^E#=$$Wu+IOj=YJo@snsUFXo[}v
+    ;B3~1j!,sx,{^z'9/Ov7]sIEYKT$~K[WJD[$_ARH'eY5sv=\TulJn$<p-~1Tnn_IT2RJ]I*1or^[
+    j5u}X$'!EH_n3Jo=DR;Avzza7pVrxB@jQjD@sa[\B|HlJ2iR{lb]z?<TGZGDvO23GpU^rVRYwo1'
+    eRz]WI]}}]wUvZD!7-OsH^!{leG"lmroIYE^DI1$$mH]1[rGr_TCQTG~~I}Aov+[<[$pa>uK*eK{
+    5x=X'Tn7u==iaoaZoV?{7m+'!wj=X[E,Rvw{o=nBn=<=+eYBAI[7_XxrXTTE,Z3Vo\QG,?O5~7OI
+    e->3Sw1u]xk!p7@QiCz<v,\s[lJV{GTpX1i
+`endprotected
+  assign expected_read = (LATENCY==0) ? read_pipe[0] : read_pipe[LATENCY];
+  assign expected_read_addr = (LATENCY==0) ? read_addr_pipe[0] 
+                                           : read_addr_pipe[LATENCY];
+  assign expected_read_data = (LATENCY==0) ? read_data_pipe[0] 
+                                           : read_data_pipe[LATENCY];
+  assign expected_read_range_port_bit_map = (LATENCY==0) 
+                                          ? read_range_port_bit_map_pipe[0] 
+                                       : read_range_port_bit_map_pipe[LATENCY];
+  assign expected_write_clash = (LATENCY==0) ? write_clash_pipe[0] 
+                                           : write_clash_pipe[LATENCY];
+  assign expected_read_clash = (LATENCY==0) ? read_clash_pipe[0] 
+                                           : read_clash_pipe[LATENCY];
+`protected
+
+    MTI!#?zu>#E5Ck91ZY@']p~i{ze>O'@#5?lAs?'OrQ["$jZs=~[Xie_HQr8R~O>&[-[YOQQmRR2;
+    !jC~tBy>,ma?aXCjx5zOHx>]O]A1DJahTEpH^v*^EO'+NlBpYI#o*q7C+1I~<x{X][vVj2~R{Tia
+    pI9f,I{uD*!'wvj[~E!Zi5JvGpkxpHo35CWHnlHp3TT@PxWs;ksE{nU5VL;7'kvC^k,E+E*Z[!,7
+    !W=em$S]EDa<Dmj4vs?AnX5$5<K3fB__ID;v=,}>nIHaQMY'@z^,?xYm_RYw\xmn>@{IC2^$]_q]
+    JvHpgx-Zw^ClHjs$GJzYC'{@x[n~[I<B_r;U!tmY"t5o\B|Fj!Dn]QDkYVJmi_RHTaCCKrjGERCx
+    _0|xsAppYE2/-B_<J<H-b[e^T^S/Q~'x=B1[]\O]kX~?}[#ur+nGJA$BZN}3[K!={zoZ1-Ql-3Q!
+    d=_uCoC,T+x#>KT+,bIvk[77rUjplxEux}[5*^Z$=8Y@0Y_z=GI-'-EEYxr_5HnvCE[-XxBOWL][
+    Tr5oX*Jx1Tj7<V:_&=C]Gi=_rD><5b*~~~sIr$Kpk*WpH[8/x?CX$3\Vu^~>Z*m7V+w{Y#VXdI\Y
+    GwTr7Fo.1veuvFT-n{K>>^]?G5-^Jx#A>k5i-t^~pa7_2s&kVBTVmKI'{+u8o*xDqe~Xjo{R2MB6
+    mx}=RE!rI,izrW$;^j@sZRjnB*er)O\wI1?T<r+7}-Bw]rx}@0XDv{y?I#UO\?;r!\7A*\rO1nC5
+    z{Ap_aGYH'mvs72z1\Zh{>CB2$<74A>OTCC4vejRp3+l]${;DpXU5'G+Y-H]q@e?IQwGoHI}]DC@
+    {-}a=sTlCjvZQ1=uWwa[uT-Qn*zJ$}[XXG\Gz%HD]UDY}TLe'sY~H1wGv1rwDXI7vG_$no5xT2lH
+    ^7DeeVa'H^DQ]KG2Y$joDJH<SrKQ{[2uU?loo}C=?-'7{ro7s>B;['avQCBX\sa_3K{exOn3l$FZ
+    Baw\1n~vOT~rsA1+CUwTDT;pJTA2{oOIaUx=iT{U_Vl_Tvm8\DZlXlGlP",DE]*?_-v;YpB5~Uu>
+    o^*T$$#>Co#CuY[?an}<VYfBZ~p!OK{5*o~s?V~$]QDxx_Th_KpIBK!QS7[vJ{na+\;^^iw,QoZu
+    z\G7s}\rW]v\_{aDHK^3-O}l@~RxBz>IHzoek*3}EV2J!r*AnEW7KmXfuD\WQr1-p#}O*+7Vt7r*
+    \u'pxa5!eJ=nzQ;Go=)rKWV}2RpmDR<>o#-'mvQr]D,as$UQOCB#{H!\rp[]Y*_iO}I5{E'(QojC
+    Ov{~o#Uu^7jD1[{mvT[Q907~<3]~w<}7ulL+YkG2Yn_YH=e$5@Gf>\I*aA^XE~2ZkY[A#^J2J'wE
+    G2-~^Dl?+DWR![DW1JT+r7r<#x;{];!=Fw^io?x~Ax!ssInu^);,2lCZsX+w]ezq5a1>vIE7\$X'
+    vT1uJQ]1-l@kC!w]aT=TO=}TVo_DM?Aw1~<OinrQ3jH5>4DC*<+U3ZlkJO}V=wAAwD[HEK$lm1^v
+    CX7,ZV#TX,7~lG8T=wK=;o}=HrWr{oE8*n{kK7~puxXGsbxIUUkvs+Ios$e@>R+jZ*o<mC_EnWpo
+    xV-+Tz_DA51OW']rJOTB'jTH{@a['HE#v-I?Ovl>o?'[ewH\+oseKjI}v7{5pCiSGlX{o>Js[mZD
+    CIZQmr-pXR5V>\[k=}<]xmUxPCUrCR3wW=Kx2UVZGPE?K=vY<p-*QZBnI~|AwupIZTImQ{VUBJ}R
+    GQk3VDil1-vW5wX2wB'mrEvBa~l>V!rOO@IdVOxZfoWEY#xnJi[I=;smD-o]^zaO_3*\]e<=einn
+    $,_\}XU@'fL~^-#n5=D@I$>8%a]HHkY7!DvW{<aI]+_>zW+;>&xVYin$ED6O^w$T<Gl},?s=X@3K
+    <,xs-,wOk]i2a7oar^v^1^'$_lvv5#R?+WU1AQjaVij^l'eEu7XzKrGYQs[h>w-Wa-~$XOB=IS}u
+    '<]J~uer5wV,Gomx2BdcAOX<GZ5=n'xl|aw1o50BCCRK-OxOT@X]Ho{hxx{[[{'=iTGin=<3E!wn
+    UX\=>=kVOX<ZYH]DTa1n~>u$Q,mCf*Q-G?UX^vU{;fN:?>Z1\TrIvij<y]vIV|{XT$;NI!^^NKQe
+    ]TT-lIv{[CN\>DQJ1Vp7vQw/{x#jj?5uI<X$-Y[x<*mlDExr=]Xl^~~\ID\kx=~{*AjO]n\=@{=5
+    /+U{J[AQKUY#OB3;wp1Djfjj@$;p]DQX5W7O>>0wS{]Z@'e~!k-U~[\C>^e;{eQ*ZrZrJqXEE]U[
+    pr],>TB{\z$IiXwnAzvI7T!v,^CEDj!eX[6iw}zO@_#sA*_kC^V?$vv:Qlv-'<5Z~1_-$sO}VXIH
+    {V3mE*A_|I2]^^mV;H>G=67\E,Q537Q;jDHBH!^_$3lU]R]xVVo+w?Q5KHRz$TH+[jI!YC7emU$T
+    !3zC$;-AVe!^]W[}3+e}T3|n}7G#G@Q2A-7;^j]n*Y>=sBRY+RE=3Ua!EC$C]RYlw\1@UvwlC^Cs
+    S'YXmGJ;*|cl53;xrzYonovBEv\3U1-9z-ow$kezj,HQp{E$X-~pOeQ~orxw^[]x[CVJGxHEe51*
+    Q++WXY\UJ]X?<a,Mo\k3tIWwvn+A@xJnY:wTEuy+>;+W-a>5l5x6#=@Ql_XC]BmWs=BUV=E2e1Cs
+    $iW]kHJ5><u\q~,^UFwsE1-5_'mvo~Mpz#3r.Bl~A6\\VsB\v''AI5rRQ]BAQ{M/%;wvB?U^3R]E
+    QKRUvrnwJjEIx3T7Ai[@?_2zI+8pUD^_'k_tD~G'YoY_@Y~Uc^WCmk*\vj#l@\QIENDz];DVGeY4
+    )-("GJ@UZ_Q=<I#2xU_J5KT+Fx{]~vKQ$kV{YT+;~*l!j[<o7=$^'CQ,}eEHE&E,$uI}\Jurok-7
+    QX+Twncl#Xa*eV'JUKQ.A=GClsj'V1]Rq#|1YTziwu+{Rlx-AuHRz}x$JVuQ5u'Ul??QsG{3RE={
+    jbp+A^Oj2UIwzATs7~!vnZ7wO>~-r_5>!RATpWsal\fKx15vQr?XC7$46K5z[E<7+D[uWAlZ1uwX
+    U}p+1{,UXjr\O7nZ{IQ-o+Ee3.}j#2m^=KX^<Own^xG'ws1,\>Cu[32HsE+sB{G1ouSflV;O}ve<
+    <7\wR#]z$aoA^\+$IZ>~1!**VjC<7mxx[5T'?>zoD?$+{XZe!12B7?xz[3T\*_Gj,CoWkD~Zn[{#
+    xU7{pOD_GO\vU1kW{Vrs\;vUD\jiUHrKR7;T7TC{kvXrVR$V;,=po+s{xXDzs2OIr=oI5B>[Y;w$
+    !VeH1$x+~wv}rr=KF@U]Z,AurEVXuom*Rtl?,DV+-[8vY]A1OKjr$H2/'1WJOa+~H5Q=V2377m*w
+    e'oBY\mQloQUnljVo7)wnoplvVj"T1aEp?'?GwRQ3+}_iO,>7=DTUEWVy_AvTw^zrGYX7%R^WpE@
+    rJoQ,[u'XEw\!;3^xo@$\uJj_zB3_nzQw$rDZuG~]K{63}'#][!-#jkC<7EvlJ<CUlej4jI{JxvT
+    [a}1]DZvRlEwlWUp5STUVxBVinw,~1^lOtQQ{Jew|pi\]uzeGSf(\Q7IE#x}6K_?@1UQQSGXp^ux
+    ,ZQ3=B?']@;nBaX(^X<Ij*lpm>VKUsHBZ6$2a+JvmWXrxHRAER^umH%A<l_=<}lS&Xz,r,!AaO@&
+    B{e>o}Z]?$<$+puTrUnOl*E';I~@u^\vQ(H=-pa1?^eiRet$R+zp$me8jj@sKYH\$O,\BjeInv-T
+    xk13BGw1$m[7a]{<_3\-Vvo^x;3v-{>aRsrpu^eEplIk%+DJXKxAZ*UA^xGxpU{sjZOAxj_+m3]=
+    Z5Co}>z,v<7ew]>O\s'K<%_=JoOHKUYm\o\.~^_AjCw?D_ujz?H^O{]zZG=sPz@v\WvjH,u=Q4ip
+    n]*$5DBjow!7ZXgXA29ERA'yK*{'Us*~-1-U/pkoBCeH5j7BGe#u$2]O^aI2v's>x*jDj,x5x$]-
+    !OBr,=eKVG,eARsCRqi{D>ieE\ne2U;<3ajROuO$?V}J^?lIiQ$[CV&]_-z7HX_aYw]eYU#1],_d
+    ONC;<DE&xYK,PD-jI!>K{DeX#ZU<+[x_}u7e-A\={Vs=31#Z_Hxz2E*=~\5,xmDDV_W*mcx+Vr1O
+    l>CA{e+I~jCAsU1R5UC7A^i\GTe{B[n+z$l11D?EZ$#=#K4kw@Hwe1D_UU*{^~w{jJ?Up#a@=EA}
+    ;'Q*W>xJ]3ZWwI]~_Yj5HssGJ1Kaaz<G*>l!TD*]=UW^VxUO1a;$x<Iu7]-[11Cm$*G[7}DoxU]5
+    OCBe}2BJTDC{GD=!o}$XlmpQGBQ;pw\penlp{\~Lq3,V*O),?}RR@]sfl-CUu}R$5Jo#+al-O#{Y
+    yQ_e]*x>l=x,[v;E_-5+o}E2p\U]**"%UYWXDBkmDmD?Lo'XXwe>$LEi;3e#v$Gs{vl?*v?CTjvx
+    z1]r*5T*ixcm*7{<Uv}iDursA>eR$z;Fc3Q\nI>;X
+`endprotected
+
+`ifdef QVL_COVER_ON
+
+  assign any_check_is_on = (initialized ||
+                      single_write ||
+                      single_read ||
+                      read_while_write ||
+                      write_while_read ||
+                      write_range ||
+                      read_range ||
+                      data ===1'b1 ||
+                      multiple_write ||
+                      multiple_read);
+`endif
+
+`protected
+
+    MTI!#K<5e_a+WvXnI1zVr[#-JEI]T7nG>K7C8[?uC7~B+-$l~)l\#Z7E?#$D72GxIU3[\>T+RmxB
+    Vi8k1@#1kCmWCrv<]i}KH~p=-<We,lpa]u;_s+]c~O}#)~XHIFjI3}^-s]OvnVzxx_E@=_d);zx7
+    -Q?pUxH7IA{}T1u5i$!*:=A+o7uzXl5#T}TwpCADoTn3BVldOpR]GVa#.I@xzrJ^k?O'vy~T^k=R
+    YTu'j$${uOw{I[7}=-apO\v5\Dev[IV+zJ;A=_-wvn';]a17m^WwJ^CsCWIins72V3I_^x&l_zRx
+    D2Rl\o!X{-JCeoiUpk~~\eojY\E[irxe[I]j}kUG<*'+'Bp}bo#<57VoKCL'-1C_e;D2T2ZKY<~8
+    Knr[+UIB,vu!U$p#$1DoT*rw,#A]kV^K}uHXV$pW:3v5[_<KTtSCwCoE]Axe>R1YAems<[up\#z^
+    'OQ;='->Y;\Z{GiXQTGvWWXP1Z1eJ{aE]KICUU]puTj5a{-G!5ji3easi}WjR\?~d"sXw:uDowkQ
+    hc^TeXVEa^,!Bow[XH;DqC"8HNm[7+Q3@?7?Qph5'J7wvClX-sufm_U]ZY1}j-}X#TXlJCX55#OB
+    gDBRVR1*j'QBE_}XWbEDiBzH}-D^_{@,pH_Re?uOu10zDA+[\,UBV]V}EWoQEvi,s@7212par\#G
+    $~BB@>E^*QQ_'wj>apY%I\RO7#7?b*H@[>G>rR5pr6zOT3C\$<n<YAd3'VU#_+xiD!U*v3~}e!jI
+    Oleu<R<5\viS7TUK\Ow5
+`endprotected
+
+`ifdef QVL_COVER_ON
+    assign memory_accesses = ((memory_writes + memory_reads) 
+                             < {STAT_CNT_WIDTH{1'b1}}) 
+                             ? (memory_writes + memory_reads) 
+                             : {STAT_CNT_WIDTH{1'b1}}; 
+    assign all_locations_written = &memory_locations_written;
+`endif
+
+`protected
+
+    MTI!#o-n_1a]<.Zw=3<aEpv+s'I$7u1RsC@Bf/"j7/~BQiRm^Uf*_GA2UlOo,x_*2I@2[lX>jEWJ
+    Y:/7T@}pvVI[Q=*Fem\km,r'?j?mtHe~x<s?_b}n-O[z5Q?Q,mX{+l+_X@>$O3C!pXW{~3?wC^>D
+    K-}fl*2D&#{w,GnK__>pj/hEI_5=;*_\jZrRx'2YamO|#&e"djCQ['K-X}=G>#[mIr+Ju;5_<X_+
+    =slszka}$U1>{[k{-,DD[/=lOGvm$xpUa>[\7OaTHG$E_$[*+20Pj3S#GzD}\IEAzexk<pi_V}YQ
+    'mG]f8eZoDGO'_%*JaV*j,+l=XXx{QpEO[+mw_x~Hp5p!wDusU\rQljGYp\?$r?Je>V1+=p"{{+3
+    h+1v3wI-vuh"$nJ5LWUG'<^E7X5+_CG-Ow}1oQBCWS$r>QVuG{Ii'C!xZ5aAY=p2j#]vkv5U~'QY
+    #nE?nwrVjT>\wH=w*zVEx2{=Be;p5xVei~&KClKeo@ou+BDrW<Q[HQ]ze{HX-H=1;[>xu33B,<v\
+    @wkRw+!=Q7W='<<e,=T[jlJ=AuO&'zX!1GmKeIv|+v[[4tHCCD1\V$3<KW0{*#l^3_1U$BjY<n{^
+    nw$B\DlQ}An<aDnlAsp_I\{B<1>uR2p,l={xHuo7BW}n=*=ovUuW_CX*E+,d*^x-C#xO>^jsz"RV
+    ixVsXG:CsB~S+Or<IwA_I=W}ZEO*?n5G[_7V1A-#rR^pIZIJ'?IG|BU+_,CAkgOx^U'J7$Q~A{7\
+    CO>U=Houj[edxO,=8tYY#>xwBJjC~+}7=K[3mliXapRKR235u2isV_5j>vwn5TB!no&\CCl=<-;u
+    O}re,[ziR37FM<BzvJUK1?{IvuUDkiEU]uvs7.)jYIw=<_D.vCmDo+Z}q'pB*oBYwBl^1,DDJHw>
+    @s@3JEzaC2sH#j?mHHD]ODYvEOeVApJa!C~rJ'ZW\C231Rvues>=mUHTaQtBrj*+jD$y'J'}VB-w
+    V>lxW+jJ]Em-2OU]E?aYkvI$:'XDU[}xUv"'A&zKv~jJGp5nAvFUBT*vEGim7x'OHrTm'*mV=\}l
+    rz>VZODv#ow^TZ=h]av[a}?;UjUC]Tv\C<r^>pwVCC#x@j#^H9gT_?Ba*>Vaw[7e*~!T$s^sTCj<
+    HxOK[]!7eUXQKS<,uI2}_e+V~<-<3I}J3BN-Tw+=}e53p1#~ETQ[h1w3!Hz]I']#VjvQ{k5,,jZR
+    XY=Hz.xK+nkIrQuQ_xDm**=+UI\'KvVOw<^z$BBY]sn_sQ+olxp{DE[F>e;_f,tEw$5~}2K'euRI
+    \]R'$VA@T_B75l$,i5v$HJzDoO5x~ers=;]YUHZ&y;l'$aI~]\<5QaA3K<'[@85xZA?'s;$<3vxV
+    K'{,YH_Bx#h~{aGMRQ]#}#DEvOVZa$'}$?YK+aDD:mC7jKpZ!}Pe~Kjk,,V'zx_1U+Tn'CX^U<Zz
+    ^pr/#<$wreUV7BrI2_kZcMV5+]QK!QGR_iv~~3+5!ZD~,{]+DX$eBdjKukJOwEEs7XQpWoV}xDVz
+    EwrTC[p!TX$#7s{}wG^l52H<H72_m@*W[~Kru~Elik?HKZXX5#\DAeuTX1AARXkQ+I_}>pMN;avY
+    V|\CZJRoU}JTJE1n>\b,'YsUqnaAWj<CjGilAE[xr{sIn+}IIA$X{jZC~#>v~l\3C{TrU[x-r1Oo
+    x6g!s}m*nvu>Q3w+-XQQ1ARvGl*jwTp[uxn]Da'*HG;vxK]NsZv<1]~Vm7
+`endprotected
+
+`ifdef QVL_COVER_ON
+
+    assign all_locations_read = &memory_locations_read;
+`endif
+
+`protected
+
+    MTI!#+lz1?G{U0bzzs#i+azIk2z1E{^EHXXG]#!EW1[6sWR[G~WHB~DH\,Z'kwUz,,e!B{E;-D'E
+    BBriq/7T@}pvVI[Q=*Fem\@2EuG?\k2X*A[JYG>]Z@D^Z!#>UjiVY'v!'?<nwsaqkB;AV**Z5kGx
+    j]ODv+{poJ[T{XZk{<JGD!;QV^[[?Hxa$I@Eq(?EC1'en>7Rm?T+a_Q3^,7?\Y_V'75r#WQK3U~5
+    plB{U3FwV-~'e$u$[1sfBJYG~+_p*WRkk\kkv5;oZoT!+aDj\1!Y>w>l>D-_5T{-TXEHg!,$!F9G
+    [yT},{IG-<<[\$'$#K,+z#3Bee=HYA~rDlGQZ?YlpT;]up}VZ5$]pY1\xC=X~Yo_a+r{r@DBKJq!
+    -e}$;=Z='~\-HvQ\><^NZVO2x@uCju'[@\l_1C}jZIRIOE{!rRA-X1$-bJ+u]?RVjuD#[1TG^J$s
+    j|jQWDB_s'GY_=%zoZ=#Y^D"}zi}AE?@\<\>8OuuZ>=kae}~DX]mG%R7HZ^oi*IED>#pI<!{,VE\
+    =Xvl}3eC@rVRe}B_1,eR=lT<CAmRuxrW7Z,Dl}$C1DR5R2o~>!!Gi'y<TEQ*!Om'z\QA1@G75*^j
+    wH#VT<pEir2vHW7=,Aw_(!N?a]euD@AE7<Q;U[3;+l}elR\^aI3-ow{zz2V$*7Y.sY;YnwBU'OO}
+    V<;K.7W\jwV=BEKajlep7];'>Hp,n]$kYADG\~D$Or<T3<>n!lnE_A^v=UrDrxzV'C[\}Q;*#te>
+    vU#U[w[M=~,xEju1M3EQxK>eZ$5p'^6oz!OVBOGH*HnW$EUns@;CBOO~O@AEi-3N3\xB*kmrw]wQ
+    2}KaCiTY1-7HqQF1eRH3oo!zxn$KXv@o;XmU5*,^;JlPAsI[JvAxFFCW$vlxe{eTaHGKeTJ$k]1k
+    X!mT_e^I3kBT@=W1Z@bWvJ2C$A5[[:(=xxaI5#Gr5^p?pYaop_kr]J#qm}$kVa1JXIax+>{3^$<W
+    'js2$RrW,uErA'G7O7[lTXm<S&YCE]3r\HNkUuDlTG?.]IWDXRk]1HOTITCAw{l$,v!pXvDvjIUw
+    GsEUDAzl+XIn[Brn~wXlA$'rsa<eUr$-1arsm+n;Z^\?\VW*A<rX[QAD:Uj#TwCToX,u;Y-7JD*u
+    xJ]<_r~E'7Jl^x[iYYXzXo<{++VHp#VE]J_A$L>^,kpl>k_EB3,^!uE@rrX,'Vo@32[[GuT}',X]
+    UA{1OITz;ZK[Q141H1@&AlTDw-rmm-};snxB\]UeQY\K*+ZJ5{<]FrU51BIOXx!Bk~R@5g:*O,;_
+    5YV$vV1d@7]j\{j!uonAip{szDpu{$U]roGbK7vl,Kjm7xA?K[v<VO=i2Iv{-_O=,O]]=R7UoZ{1
+    lK*IloC5$@aoVcOO<,=?[{Y{\_E@wU:suJ>FQRK'Ck>'wV5{aX[loHz~v5^TeTHTb>IJ3?,Q=MB<
+    a$>w\G-}'=<}[mDYl2}NEn$O#E$7$I3;3H'i(^]J#BYiOV?[<Ul*ITG'x];@U^@rZi]Wnjr1rV'e
+    >~w^ThkE]QpYn;%aH}[_ZE$_~JI<]An+jzzDW=muAD_,*R{OW$_<OpTOB3?CZX#RYR^#ReDTYuZ1
+    Ij-~okI^[YlED#JU*U+Dml_!Tp@4V1nsHX@GAC.#p@{p]<Wu1mB$HY[KX@YIH*Go&DRu1x=KoeV{
+    @|z?nHoD>,+7
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+ wire qvl_fire_enable_rd = ((~read_reset && ~write_reset_domain_transfer &&
+                       active && read_active && ~read_xz_detected) === 1'b1);
+ wire qvl_fire_enable_wr = ((~write_reset && ~read_reset_domain_transfer &&
+                       active && write_active && ~write_xz_detected) === 1'b1);
+ wire qvl_mcmpmemacc_initialized_fire_combo = initialized && initialized_violation && qvl_fire_enable_rd;
+ wire qvl_mcmpmemacc_single_read_fire_combo = single_read && single_read_violation && qvl_fire_enable_rd;
+ wire qvl_mcmpmemacc_read_while_write_fire_combo = read_while_write && read_while_write_violation && qvl_fire_enable_rd;
+ wire qvl_mcmpmemacc_read_range_fire_combo = read_range && read_range_violation && qvl_fire_enable_rd;
+ wire qvl_mcmpmemacc_multiple_read_fire_combo = multiple_read && multiple_read_violation && qvl_fire_enable_rd;
+ wire qvl_mcmpmemacc_data_fire_combo = data && data_violation && qvl_fire_enable_rd;
+ wire qvl_mcmpmemacc_single_write_fire_combo = single_write && single_write_violation && qvl_fire_enable_wr;
+ wire qvl_mcmpmemacc_write_while_read_fire_combo = write_while_read && write_while_read_violation && qvl_fire_enable_wr;
+ wire qvl_mcmpmemacc_write_range_fire_combo = write_range && write_range_violation && qvl_fire_enable_wr;
+ wire qvl_mcmpmemacc_multiple_write_fire_combo = multiple_write && multiple_write_violation && qvl_fire_enable_wr;
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        if (INITIALIZED_CHECK == 1) 
+          begin : assert_mcmpmemacc_initialized
+            A_qvl_mcmpmemacc_initialized: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_initialized_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_mcmpmemacc_initialized"),
+                              .msg            ({msg,"Memory location was read before it was written."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (SINGLE_READ_CHECK == 1) 
+          begin : assert_mcmpmemacc_single_read
+            A_qvl_mcmpmemacc_single_read: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_single_read_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_mcmpmemacc_single_read"),
+                              .msg            ({msg,"Memory location was read more than once without an intervening write."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        A_qvl_mcmpmemacc_read_while_write: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (read_clock),
+                      .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_read_while_write_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_mcmpmemacc_read_while_write"),
+                          .msg            ({msg,"Memory location was read during its write lock period."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_mcmpmemacc_read_range: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (read_clock),
+                      .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_read_range_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_mcmpmemacc_read_range"),
+                          .msg            ({msg,"Memory adddress falls outside the specified address range."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (MULTIPLE_READ_CHECK == 1)
+          begin : assert_mcmpmemacc_multiple_read
+            A_qvl_mcmpmemacc_multiple_read: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_multiple_read_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_mcmpmemacc_multiple_read"),
+                              .msg            ({msg,"Memory location was read through multiple read ports in the same cycle."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (DATA_CHECK == 1) 
+          begin : assert_mcmpmemacc_data
+            A_qvl_mcmpmemacc_data: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_data_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_mcmpmemacc_data"),
+                              .msg            ({msg,"Data read through the read port do not match the expected data."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (SINGLE_WRITE_CHECK == 1)
+          begin : assert_mcmpmemacc_single_write
+            A_qvl_mcmpmemacc_single_write: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (write_clock),
+                          .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_single_write_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_mcmpmemacc_single_write"),
+                              .msg            ({msg,"Memory location was written more than once without an intervening read."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        A_qvl_mcmpmemacc_write_while_read: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (write_clock),
+                      .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_write_while_read_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_mcmpmemacc_write_while_read"),
+                          .msg            ({msg,"Memory location was written during its read lock period."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_mcmpmemacc_write_range: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (write_clock),
+                      .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_write_range_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_mcmpmemacc_write_range"),
+                          .msg            ({msg,"Memory address falls outside the specified address range."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        A_qvl_mcmpmemacc_multiple_write: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (write_clock),
+                      .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_multiple_write_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_mcmpmemacc_multiple_write"),
+                          .msg            ({msg,"Memory location was written through multiple write ports in the same cycle."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        if (INITIALIZED_CHECK == 1) 
+          begin : assume_mcmpmemacc_initialized
+            M_qvl_mcmpmemacc_initialized: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_initialized_fire_combo)));
+          end
+        if (SINGLE_READ_CHECK == 1) 
+          begin : assume_mcmpmemacc_single_read
+            M_qvl_mcmpmemacc_single_read: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_single_read_fire_combo)));
+          end
+        M_qvl_mcmpmemacc_read_while_write: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (read_clock),
+                      .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_read_while_write_fire_combo)));
+        M_qvl_mcmpmemacc_read_range: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (read_clock),
+                      .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_read_range_fire_combo)));
+        if (MULTIPLE_READ_CHECK == 1)
+          begin : assume_mcmpmemacc_multiple_read
+            M_qvl_mcmpmemacc_multiple_read: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_multiple_read_fire_combo)));
+          end
+        if (DATA_CHECK == 1) 
+          begin : assume_mcmpmemacc_data
+            M_qvl_mcmpmemacc_data: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (read_clock),
+                          .reset_n   (~read_reset && ~write_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_data_fire_combo)));
+          end
+        if (SINGLE_WRITE_CHECK == 1)
+          begin : assume_mcmpmemacc_single_write
+            M_qvl_mcmpmemacc_single_write: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (write_clock),
+                          .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                          .enable    (1'b1),
+                          .test_expr (qvl_mcmpmemacc_single_write_fire_combo)));
+          end
+        M_qvl_mcmpmemacc_write_while_read: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (write_clock),
+                      .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_write_while_read_fire_combo)));
+        M_qvl_mcmpmemacc_write_range: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (write_clock),
+                      .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_write_range_fire_combo)));
+        M_qvl_mcmpmemacc_multiple_write: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (write_clock),
+                      .reset_n   (~write_reset && ~read_reset_domain_transfer),
+                      .enable    (1'b1),
+                      .test_expr (qvl_mcmpmemacc_multiple_write_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+
+
+
+
+
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_multi_clock_multi_port_memory_access_cover.svh"
+
+`qvlendmodule

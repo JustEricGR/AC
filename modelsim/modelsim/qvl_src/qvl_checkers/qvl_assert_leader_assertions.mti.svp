@@ -1,0 +1,252 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_assert_leader_assertions(
+                                     clock,
+                                     reset,
+                                     areset,
+                                     active,
+                                     leader,
+                                     follower,
+                                     max,
+                                     min,
+                                     max_leader,
+                                     assert_leader_check,
+                                     assert_leader_fire,
+                                     max_response_time,
+                                     min_response_time,
+                                     outstanding_leaders,
+                                     windows_checked,
+                                     min_response_time_equals_min,
+                                     max_response_time_equals_max,
+				     support,
+				     fire_count
+                                  );
+
+
+
+
+parameter severity_level = `QVL_ERROR;
+parameter property_type = `QVL_ASSERT;
+parameter msg = "QVL_VIOLATION : ";
+parameter coverage_level = `QVL_COVER_NONE;
+
+parameter Constraints_Mode = 0; 
+parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+parameter MAX_WIDTH = 1;
+parameter MIN_WIDTH = 1;
+parameter MAX_LEADER_WIDTH = 1;
+parameter MAX_SPECIFIED = 0;
+parameter MIN_SPECIFIED = 0;
+parameter MAX_LEADER_SPECIFIED = 0;
+
+parameter MAX_IS_CONST = 0; 
+parameter MAX_CONST_VAL = 0; 
+
+parameter MAX_LEADER_IS_CONST = 0; 
+parameter MAX_LEADER_CONST_VAL = 0; 
+
+parameter REQ_MAX_WIDTH = (MAX_SPECIFIED && !MAX_LEADER_SPECIFIED) ? MAX_WIDTH : 
+                          (!MAX_SPECIFIED && MAX_LEADER_SPECIFIED) ? MAX_LEADER_WIDTH :
+                          (MAX_SPECIFIED && MAX_LEADER_SPECIFIED) ?
+                                ((MAX_WIDTH > MAX_LEADER_WIDTH) ? MAX_LEADER_WIDTH :
+                                                                  MAX_WIDTH) :
+                          (MIN_SPECIFIED ? 4 : 1);
+
+parameter SUPPORT_WIDTH = 1; 
+input [SUPPORT_WIDTH-1:0]  support; 
+
+parameter FIFO_DEPTH   = (MAX_SPECIFIED && MAX_IS_CONST && !MAX_LEADER_SPECIFIED) ? MAX_CONST_VAL : 
+                         (!MAX_SPECIFIED && MAX_LEADER_SPECIFIED && MAX_LEADER_IS_CONST) ? MAX_LEADER_CONST_VAL :
+                         (MAX_SPECIFIED && MAX_IS_CONST && MAX_LEADER_SPECIFIED && MAX_LEADER_IS_CONST) ? 
+                                ((MAX_CONST_VAL > MAX_LEADER_CONST_VAL) ? MAX_LEADER_CONST_VAL : MAX_CONST_VAL) :
+                         (!MIN_SPECIFIED && !MAX_LEADER_SPECIFIED && !MAX_SPECIFIED) ? 1 :
+                                                             (2 << (REQ_MAX_WIDTH-1));
+parameter FIFO_PTR_WIDTH = REQ_MAX_WIDTH; 
+
+parameter CW_FOR_FPGA = 0;
+parameter STATS1_W = CW_FOR_FPGA ? 32 : 64;
+parameter STATS2_W = CW_FOR_FPGA ? (FIFO_PTR_WIDTH + 1) : 64;
+
+input clock;    
+input reset;    
+input areset;   
+input active;   
+input leader;   
+input follower; 
+input [MAX_WIDTH-1:0] max; 
+input [MIN_WIDTH-1:0] min; 
+input [MAX_LEADER_WIDTH-1:0] max_leader; 
+input assert_leader_check; 
+
+output assert_leader_fire;
+
+output [STATS1_W-1:0] max_response_time;
+output [STATS1_W-1:0] min_response_time;
+output [STAT_CNT_WIDTH-1:0] windows_checked;
+output [STATS2_W-1:0] outstanding_leaders;
+output [STAT_CNT_WIDTH-1:0] min_response_time_equals_min;
+output [STAT_CNT_WIDTH-1:0] max_response_time_equals_max;
+
+output [STAT_CNT_WIDTH-1:0] fire_count;
+reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+reg assert_leader_fire;
+
+reg [STAT_CNT_WIDTH-1:0] windows_checked;
+reg [STATS1_W-1:0] max_response_time;
+reg [STATS1_W-1:0] min_response_time;
+reg [STATS2_W-1:0] outstanding_leaders;
+reg [STAT_CNT_WIDTH-1:0] min_response_time_equals_min;
+reg [STAT_CNT_WIDTH-1:0] max_response_time_equals_max;
+reg minimum_response_time_set;
+
+reg [31:0] clk_count;
+reg [31:0] fifo[0:FIFO_DEPTH-1];
+reg [FIFO_PTR_WIDTH-1:0] rd_ptr;
+reg [FIFO_PTR_WIDTH-1:0] wr_ptr;
+reg [FIFO_PTR_WIDTH:0] leaders_count;
+reg fifo_empty; 
+reg fifo_full; 
+reg un_known_follower;
+reg [31:0] time_at_leader_asserted;
+
+
+integer i;
+
+
+`ifdef ZI_FOR_SEARCH
+wire xz_detected;
+`endif
+
+
+`ifdef QVL_ASSERT_ON
+wire un_known_follower_combo;
+wire assert_leader_fire_combo;
+`endif
+
+
+`ifdef ZI_FOR_SEARCH
+assign xz_detected = (^{leader,follower} === 1'bx);
+`endif
+
+
+`ifdef QVL_ASSERT_ON
+assign un_known_follower_combo =
+       (max != 0 || (!MAX_SPECIFIED && (MIN_SPECIFIED ||
+         MAX_LEADER_SPECIFIED)))                          ?
+       (follower == 1'b1 && (((leaders_count === {(FIFO_PTR_WIDTH+1){1'b0}}) &&
+         (min != 0 || leader == 1'b0)) ||
+        ((leaders_count !== {(FIFO_PTR_WIDTH+1){1'b0}}) &&
+         (clk_count - fifo[rd_ptr]) < min)))             :
+       (follower == 1'b1 && leader == 1'b0);
+
+assign assert_leader_fire_combo = (reset === 1'b0 && active === 1'b1 &&
+       (^{leader,follower}) !== 1'bx && un_known_follower_combo === 1'b1 &&
+       assert_leader_check === 1'b1);
+
+`endif //  `ifdef QVL_ASSERT_ON
+
+`protected
+
+    MTI!#^[>1@'\j'{_3vL0GJv{V{HOm+G,e,$T7@*mj/IK-5'e1^Z[s}lB<V%v\lHav__+avi(w'o[
+    jH*+G;[jE[72Bz\\JU7VFw=lv[j{}>E~A?p+~R*mHrVjV^jW!DCR?@=E;zI]-1R#H,l^Y[5'wix7
+    >Y'kR$xpo13XK]x*R{$\G*>5@rOzL(,>V~]O{nI{pi1@3+qm+~T51*pU<w3[Ju[=+~@L&;|#aJYD
+    okK3$ZepJRVYxs-Cir3s]xn|675<^[IHO5gov^JcN5ruE/Z_Jk]kr^"S5v>p=R!xm[*wbz1?AJsJ
+    ns++W*=e}Gz\5rjke0Q<[]kl\$7'KVe][;l2,A$OrQowB+'j>GeEKeD=1n_~1Q]oWkp2,l&'T@1n
+    DQa2zwo/K,vs3<n}Jw]nTYI]GGXA{-EXj]R-2D]T)V'o3*sJ+>\K>B[E[6_Dkpu+a-TpXv^ZV?kQ
+    <mk['w=l7rE,11C_!nqC;K$~+RTA}I)#ru+>lO=[_{Jn>T+vrC-=lJ=2,?,;EY!H=s-QQBB5i]7e
+    ZAD;xBxonQ,vLm=s[[[[KoXn$P:svD>;ap<[rCAC2Exl^v=(WR+2DeCrAsUB3j{>I+j{&R_OV<v@
+    Vo_o3xD*;B]DeGi$_zeRvIn_]U}vm1XG\=@]-Yoxnv+Ek?jrs-vmWoz-{mo-pAp_BJ5B{p_T\BzK
+    _U[7,9D@W]r#,}/|T]+[C'CiE?!Jm'O53E'U5auppmuK]T*}l<\Wlsl}#TrG}75Y${mx=$V~_wO<
+    ;xPfl~j57\7v<{QwX{>\xx{VR?T;YCp@/eSuT{m;e#]&Aw7n2E@wa$ImveQxNNhHAsp%s;T3Eo*x
+    Ul}_27kUd5]Xa5r-D~1D\[?jrJ{Wo\X@e,!T+$slm^vBpw{TXx^AE6'_{>Z=+w-oRuDZ,W+B^rrD
+    X+,T+T$B-$URI<p$-mb}#YD_oAE[+Jw]<eB=3E'e~RRm=[o_53!e\!]mR[lMp][23+R+-5r,*\Vl
+    vGvQlo{pkLC2JmEw[v5ep^V51w}kOC_w;T7$Z~Ee\W@=wRyssk>Xj_XG?u7C;$=ipT[)s!B}j^h[
+    8b#wo-Zj\1-$W!HVo]JI*AU5'w<'1-r@Y[Clv]d"RlieusGxzR]wXYj}$-n1o@@l~T+1uTjiru1w
+    =)Y1{_0k'*T$>ns/@Yz;ym&*5DiTA-I<>Z7,H!wVo[@1YwkBzIze5evrKY5+]^B'IUX[e1kr$j<-
+    j~,l,x?K'l5#*t@w+Bn}#3F\>}iYOp,{[A\^#[+i_V,^InAVZ]KhdXQ!U$aB3!D!7Y*kZ*CDmXB'
+    ,z_?*\-7k|w5ZT^O>wC1V}HYs]B>}ml3]HK1+CW$K@{}<ZKX\#[,3'"<zxxvDlUf}'=__wX,UVZr
+    oOJj_T7C!R-D[2uC^>AB;wsCFzn^lDxjZ^>*#s]jO5'3\zRUA}R@ux?V@_,_'}Br>uEBkH^E*kRl
+    po'2Jr-Y#!TBlarA-CaIH;5On2B,xK'^oXe*HEV$OXE_>EC,^I32sHH6^NcY[$}Y~'2{]KzY=i?>
+    DijON]\<o+'nE!Tn>_?rV_1V\x-;[E+=JNQuA}L;Vj21I$*IXnOlEJ27DWxl!l?Xz{2;zZ3k>WEj
+    s]QQVU,;1zEs@=n{wneTslWkxksOx?,QCAp8\"#-{mKq]uDH'w2wlH$-<ViB#Am2]7@li'?j42np
+    krK=A>'?~[]#GV;!k\[E;'up[.|PRj=one+,l7J@m5BmfGO12,=k~]p3#pvDX$s}>w55]G2YjvK~
+    }hXC}zs7A^aER#lm]AGH<ZUR<#@\-OlTTI=<D[s;Tr^VUu{{o12=YpmEpwEJpQtAVsJKBYQOk,T.
+    ,eJ\K}uBT>v#q>HYw\3B7lVJ}lJzkjpzA^,*>KD?!$nz]TGz_9EnB!lQu*a_KE>1x=7kWO<rKQ$K
+    -ropxzxEBO*1p!aN*p@5e@WQ5}{>RvkxV?3xsDe#ZI<Umj#m}u~DCOa>]#Z{ln1O%ctU'[ZBRDOc
+    Jxn;5!oTYiB~-O>?&ieITY;XW(doxi5aI{llY5KRn}aBw_2a{*p95_@,~<^mflB@{R[<}wHw7B=~
+    >{}rp~6xi]okw7u{G>1K5-E2r#n[sGI\5ImKwQeVY$pVx~nx_~rLo<<In^55v$A#5m^@a['-xQO,
+    :1-&C[;5^]u$~nZQ[m\HTQ]kKEW'$n,vD\VuH$]]3YwVp'$-6@X}X@U>=m{-?\ri*DD#{oC!CAVe
+    @v<-]qm*QC{{RGC{e+QoX$}B#\l?r#a_JIX=]!{w{*zJ;{m_k<~wOW%YQU^O}Ru<}T_wY=Hja_#\
+    3G3~BU_CXxkO\i?OzXDWRl+3$Br1p7]a7Q@TRpC}aZKH*3YjOuv5KT,z]}T!sI[v,}j7?~7^p_>r
+    ~2?>}IK?sY>_[DHx#1xWEJv~>-J>H^XA$Ei_K7psziA2r*+HGR,='[?eXW=W$]~?a5pM~j\7QbrJ
+    oxZXo[}J[A\rQ3YGmKRu7o8QT@B-]l^Me7Z3+eBXEyN#]V\];$^Lsq*5DQ]p~=Qjn\]>$rc,3*Ku
+    rn\7,*Zu^\~D]}<C{DQ3ICn{V,GRBWk1CQ\szn3;z1EB@A[.nn=KC1!3+x{uCQ3znD-Dq[ZH\Awj
+    kQ=A*xG~l\C[nA9,$XRGkekux['{AC7-V3o3ek3I11wK7UH'5WuID=T>XU3+lQvZ7l],~{_Jl_>N
+    BuO+*;,UnU!}XI2~pk->RXa'E3CjURmms-I^W{W7i[5Hn}we1$--,{>TvGlQ[_*W_KmBjuTkxiV}
+    12A1|0QsJ^G]'vms#v}ko?@.EGD\EqQ>jU@AevGG,E+\zpA}*vJ1eCw[5~2[eXJUVa$1uu@OU'u=
+    !TMp5/'3seI3D>?,e;B3Kr$RG#Erx2*W-v$AB[5mIXY\{*Q_>]*;{IaHBBA,7mFTa_j>[k<DKlEr
+    [c
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_assert_leader_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (assert_leader_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_assert_leader_check"),
+                          .msg            ({msg,"Leader was not asserted within the window."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_assert_leader_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (assert_leader_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif
+
+`include "qvl_assert_leader_cover.svh"
+
+`qvlendmodule

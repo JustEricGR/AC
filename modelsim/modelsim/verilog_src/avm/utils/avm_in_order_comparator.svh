@@ -1,0 +1,173 @@
+// $Id: //dvt/mti/rel/6.5b/src/misc/avm_src/utils/avm_in_order_comparator.svh#1 $
+//----------------------------------------------------------------------
+//   Copyright 2005-2009 Mentor Graphics Corporation
+//
+//   Licensed under the Apache License, Version 2.0 (the
+//   "License"); you may not use this file except in
+//   compliance with the License.  You may obtain a copy of
+//   the License at
+//
+//       http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in
+//   writing, software distributed under the License is
+//   distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+//   CONDITIONS OF ANY KIND, either express or implied.  See
+//   the License for the specific language governing
+//   permissions and limitations under the License.
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// CLASS in_order_comparator
+//
+// in_order_comparator : compares two streams of data
+//
+// makes no assumptions about the relative ordering of the two streams
+//
+// T is the type of the two streams of data.
+//
+// comp and convert are functors which describe how to do
+// comparison and printing for T.
+//
+// These parameters can be changed for different T's :
+// however, we expect that the two pairs of classes above
+// will be OK for most cases. Built in types ( such as ints,
+// bits, logic, and structs ) are dealt with by using the
+// default functors built_in_comp and built_in_converter, while
+// classes should be dealt with by class_comp and
+// class_converter, which in turn assume the existence of comp
+// and convert2string functions in the class itself.
+//----------------------------------------------------------------------
+
+// begin codeblock 01_comparator_head
+class avm_in_order_comparator 
+  #( type T = int ,
+     type comp = avm_built_in_comp #( T ) ,
+     type convert = avm_built_in_converter #( T ) , 
+     type pair_type = avm_built_in_pair #( T ) )
+    extends avm_threaded_component;
+
+  //  The two exports. Actually, there are no assumptions made about
+  // ordering, so it doesn't matter which way around you make the 
+  // connections
+
+  avm_analysis_export #( T ) before_export , after_export;
+  avm_analysis_port #( pair_type ) pair_ap;
+  
+  local analysis_fifo #( T ) before_fifo , after_fifo;
+  int m_matches , m_mismatches;
+// end codeblock 01_comparator_head caption path
+
+
+  function new( string name ,
+		avm_named_component parent ) ;
+
+    super.new( name, parent );
+
+    before_export = new("before_export" , this );
+    after_export = new("after_export" , this );
+
+    pair_ap = new("pair_ap" , this );
+    
+    before_fifo = new("before" , this );
+    after_fifo = new("after" , this );
+    
+    m_matches = 0;
+    m_mismatches = 0;
+  endfunction
+  
+  function void export_connections;
+    before_export.connect( before_fifo.analysis_export );
+    after_export.connect( after_fifo.analysis_export );
+  endfunction
+
+
+  // run is not a user visible task. It gets pairs of befores and
+  // afters, and compares them. Status info is updated according to the
+  // results of this comparison.
+
+  task run();
+ 
+    pair_type pair;
+    T b;
+    T a;
+  
+    string s;
+   
+    forever begin
+      
+      before_fifo.get( b );
+      after_fifo.get( a );
+      
+      if( !comp::comp( b , a ) ) begin
+
+      $sformat( s , "%s differs from %s" ,
+          convert::convert2string( a ) ,
+          convert::convert2string( b ) );
+    
+        avm_report_warning("Comparator Mismatch" , s );
+        m_mismatches++;
+      end
+      else begin
+        s = convert::convert2string( b );
+        avm_report_message("Comparator Match" , s );
+        m_matches++;
+      end
+
+      //
+      // we make the assumption here that a transaction "sent for
+      // analysis" is safe from being edited by another process
+      //
+      // hence, it is safe not to clone a and b.
+      
+      pair = new( a , b );
+      pair_ap.write( pair );
+    end
+  
+  endtask
+
+  function void flush();
+    m_matches = 0;
+    m_mismatches = 0;
+  endfunction
+  
+endclass : avm_in_order_comparator
+
+//----------------------------------------------------------------------
+// CLASS in_order_built_in_comparator
+//----------------------------------------------------------------------
+
+// in_order_built_in_comparator uses the default ( ie,
+// built_in ) comparison and printing policy classes.
+
+class avm_in_order_built_in_comparator #( type T = int )
+  extends avm_in_order_comparator #( T );
+
+  function new( string name ,
+		avm_named_component parent );
+    super.new( name, parent );
+  endfunction
+  
+endclass : avm_in_order_built_in_comparator 
+
+//----------------------------------------------------------------------
+// CLASS in_order_class_comparator
+//----------------------------------------------------------------------
+
+// in_order_class_comparator uses the class comparison and
+// printing policy classes. This ultimately relies on the
+// existence of comp and convert2string methods in the
+// transaction type T
+
+class avm_in_order_class_comparator #( type T = int )
+  extends avm_in_order_comparator #( T , 
+                                     avm_class_comp #( T ) , 
+                                     avm_class_converter #( T ) , 
+                                     avm_class_pair #( T ) );
+
+  function new( string name  ,
+		avm_named_component parent);
+    super.new( name, parent );
+  endfunction
+  
+endclass : avm_in_order_class_comparator

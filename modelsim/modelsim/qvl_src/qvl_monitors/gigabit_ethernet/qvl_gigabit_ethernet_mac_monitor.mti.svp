@@ -1,0 +1,1238 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS. 
+//                
+//                     Questa Verification Library (QVL)                 
+//                                                                          
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Gigabit Ethernet MAC Monitor.
+ *
+ * DESCRIPTION   This monitor checks the Gigabit Etherent frames for 
+ *               malformed packets and inter frame gap violations.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *               
+ *
+ * INPUTS        areset          - asynchronous reset (active high)
+ *               reset           - synchronous reset (active high)
+ *               clk             - interface clock signal
+ *               data            - data (32-bit for 10G and 8-bit for 1G)
+ *               ctrl            - control lines
+ *               crs             - carrier sense (only in 1G)
+ *               col             - collision detect (only in 1G)
+ *               data_valid      - data valid signal
+ *               dec_err         - decode error
+ *               level_select    - signal used to select posedge/negedge
+ * OUTPUTS       w_present_state - present_state of the MAC monitor
+ *               w_next_state    - next_state of the MAC monitor
+ *               w_last_state    - last_state of the MAC monitor
+ *               w_r_data        - registered data bus 
+ *               w_r_ctrl        - registered control information
+ *               w_vid           - VLAN identifier
+ *               w_frame_type    - frame type indicated in LEN/TYPE field
+ *               w_frame_size_count      - frame size in bytes
+ *               w_requested_data_length - length of frame indicated in frame
+ *               w_inter_frame_gap       - interval in bytes between frames
+ *
+ *            
+ * LAST MODIFIED 16 March 2005
+ * 
+ *********************************************************************/ 
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+ 
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+     `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_gigabit_ethernet_mac_monitor (areset,
+                                           reset,
+                                           clk, 
+                                           data, 
+                                           ctrl, 
+                                           crs, 
+                                           col, 
+                                           data_valid, 
+                                           dec_err,
+                                           level_select,
+                                           w_present_state,
+                                           w_next_state,
+                                           w_last_state,
+                                           w_r_data,
+                                           w_r_ctrl,
+                                           w_vid,
+                                           w_frame_type,
+                                           w_frame_size_count,
+                                           w_requested_data_length,
+                                           w_inter_frame_gap
+                                          );
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate as to which side of the GMII/XGMII
+  // the monitor is instantiated. MAC_SIDE = 0 denotes instantiation on the
+  // medium side of the interface. This parameter, along with the Constraints
+  // Mode parameter is used in constraining the correct side in case of the
+  // formal analysis.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+  
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved
+  // values in fields. By default, these checks will be performed.
+
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+ 
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+
+  parameter GMII = 0;
+  wire [31:0] pw_GMII = GMII;
+
+  parameter HALF_DUPLEX = 0;
+  wire [31:0] pw_HALF_DUPLEX = HALF_DUPLEX;
+
+  parameter DIC_SUPPORTED = 0;
+  wire [31:0] pw_DIC_SUPPORTED = DIC_SUPPORTED;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter ZI_DATA_WIDTH = 32; 
+  wire [31:0] pw_DATA_WIDTH = ZI_DATA_WIDTH;
+
+  parameter ZI_CTRL_WIDTH = 4; 
+  wire [31:0] pw_CTRL_WIDTH = ZI_CTRL_WIDTH;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  parameter MII_MON = 0;
+  wire [31:0] pw_MII_MON = MII_MON;
+
+  parameter SLOT_TIME = 512;
+  wire [31:0] pw_SLOT_TIME = SLOT_TIME ;
+
+  parameter JAM_SIZE = 32;
+  wire [31:0] pw_JAM_SIZE = JAM_SIZE ;
+
+  parameter BURST_LIMIT = 65536;
+  wire [31:0] pw_BURST_LIMIT = BURST_LIMIT ;
+
+  parameter ZI_RECEIVE_CONSTRAINT = (Constraints_Mode == 1 &&
+                                    (MAC_SIDE == 1 && TX_INTERFACE == 0) ||
+                                    (MAC_SIDE == 0 && TX_INTERFACE == 1));
+
+  input areset;
+  input reset;
+  input clk;
+  input [ZI_DATA_WIDTH-1:0] data;
+  input [ZI_CTRL_WIDTH-1:0] ctrl;
+  input crs;
+  input col;
+  input data_valid;
+  input dec_err;
+  input level_select;
+  output [04:0] w_present_state;
+  output [04:0] w_next_state;
+  output [04:0] w_last_state;
+  output [ZI_DATA_WIDTH-1:0] w_r_data;
+  output [ZI_CTRL_WIDTH-1:0] w_r_ctrl;
+  output [11:0] w_vid;
+  output [15:0] w_frame_type;
+  output [15:0] w_frame_size_count;
+  output [15:0] w_requested_data_length;
+  output [63:0] w_inter_frame_gap;
+ 
+  // Parameters for states
+
+  parameter ZI_IDLE_STATE = 1;
+  parameter ZI_PREAMBLE_STATE = 2;
+  parameter ZI_SFD_STATE = 3;
+  parameter ZI_DEST_ADDR_STATE = 4;
+  parameter ZI_SRC_ADDR_STATE = 5;
+  parameter ZI_LEN_TYPE_STATE = 6;
+  parameter ZI_DATA_STATE = 7;
+  parameter ZI_PAD_STATE = 8;
+  parameter ZI_FCS_STATE = 9;
+  parameter ZI_TERMINATE_STATE = 10;
+  parameter ZI_CTRL_OPCODE_STATE = 11;
+  parameter ZI_CTRL_PARAM_STATE = 12;
+  parameter ZI_CTRL_RSVD_STATE = 13;
+  parameter ZI_TAG_CTRL_STATE = 14;
+  parameter ZI_FALSE_CAR_STATE = 15;
+  parameter ZI_CAR_EXTN_STATE = 16;
+  parameter ZI_JUMBO_STATE = 17;
+  parameter ZI_UNKNOWN_STATE = 18;
+
+  // Parameters for field values
+
+  parameter ZI_PREAMBLE_FIELD = 8'h55;
+  parameter ZI_SFD_FIELD = 8'hD5;
+  parameter ZI_CRC_RESIDUAL = 32'hC704_DD7B;
+  parameter ZI_START_CTRL_CHAR = 8'hFB;
+  parameter ZI_SEQ_CTRL_CHAR = 8'h9C;
+  parameter ZI_TERM_CTRL_CHAR = 8'hFD;
+  parameter ZI_IDLE_CTRL_CHAR = 8'h07;
+  parameter ZI_ERROR_CTRL_CHAR = 8'hFE;
+  parameter ZI_TAG_TYPE = 16'h81_00; 
+  parameter ZI_UNTAG_CTRL = 16'h88_08;
+  parameter ZI_JUMBO_TYPE = 16'h88_70;
+  parameter ZI_PAUSE_OPCODE = 16'h01_00;
+  parameter ZI_MIN_DATA_SIZE = 16'd46;
+  parameter ZI_MAX_DATA_SIZE = 16'd1500;
+  parameter ZI_MIN_FRAME_SIZE = 16'd64;
+  parameter ZI_UNTAG_CTRL_FRAME_SIZE = 16'd64;
+  parameter ZI_TAGGED_CTRL_FRAME_SIZE = 16'd64;
+  parameter ZI_MIN_UNTAG_DATA_FRAME_SIZE = 16'd64;
+  parameter ZI_MAX_UNTAG_DATA_FRAME_SIZE = 16'd1518;
+  parameter ZI_MIN_TAGGED_DATA_FRAME_SIZE = 16'd64; 
+  parameter ZI_MAX_TAGGED_DATA_FRAME_SIZE = 16'd1518;
+  //parameter ZI_PAUSE_DEST_ADDR = 48'h01_00_00_C2_80_01; //Commented on 26 Jan 07
+ 
+  wire [23:0] zi_pause_dest_addr_low = 24'hC2_80_01; //Added 26 JAN 07
+  wire [23:0] zi_pause_dest_addr_high = 24'h01_00_00; //Added 26 JAN 07
+
+  wire data_valid_gated;
+  // parameter ZI_PAUSE_DEST_ADDR = 48'h01_80_C2_00_00_01;
+
+  // Internal state variables
+
+  reg [4:0] present_state_posedge;
+  reg [4:0] present_state_negedge;
+  reg [4:0] last_state_posedge;
+  reg [4:0] last_state_negedge;
+  reg [4:0] next_state;
+
+  // Internal registers 
+ 
+  reg r_tx_en;
+  reg r_rx_dv;
+  reg r_rx_er;
+  reg r_tx_er;
+  reg frame_error;
+  reg [31:0] next_fcs;
+  reg [11:0] vid; 
+  reg compute_crc;
+  reg legal_end_of_frame;
+  reg [7:0] len_type_high_byte;
+  reg first_frame_posedge;
+  reg first_frame_negedge;
+  reg r_frame_error_posedge;
+  reg r_frame_error_negedge;
+  reg [31:0] current_fcs_posedge;
+  reg [31:0] current_fcs_negedge;
+  reg r_compute_crc_posedge;
+  reg r_compute_crc_negedge;
+  reg valid_ifg_posedge;
+  reg valid_ifg_negedge;
+  reg [15:0] frame_type_posedge;
+  reg [15:0] frame_type_negedge;
+  reg [ZI_DATA_WIDTH-1:0] r_data_posedge;
+  reg [ZI_DATA_WIDTH-1:0] r_data_negedge;
+  reg [ZI_CTRL_WIDTH-1:0] r_ctrl_posedge;
+  reg [ZI_CTRL_WIDTH-1:0] r_ctrl_negedge;
+  reg [47:0] dest_addr_posedge;
+  reg [31:0] dest_addr_position;
+  reg [31:0] ctrl_opcode_position;
+  reg [15:0] g_ctrl_opcode;
+  reg [15:0] xg_ctrl_opcode_posedge;
+  reg [15:0] xg_ctrl_opcode_negedge;
+  reg [47:0] g_destination_address;
+  reg [47:0] dest_addr_negedge;
+  reg  r_terminate_within_frame_posedge;
+  reg  r_terminate_within_frame_negedge;
+  reg  r_xg_terminate_detected_negedge;
+  reg  r_xg_terminate_detected_posedge;
+  reg  g_burst_limit_count_enable;
+  reg  burst_frame;
+  reg  r_burst_frame;
+
+  // These are dummy variables used to force a usage of GMII/XGMII control
+  // signals irrespective of the mode in which the monitor is configured.
+  // This is primarily done to avoid "unnecessary variable in sensitivity
+  // list" warning from SPC on the variables of other mode.
+
+  reg dummy_var_for_gmii_signals;
+  reg dummy_var_for_xgmii_signals;
+
+  reg terminate_within_frame;
+  reg start_before_end_of_current_frame;
+  reg idle_char_within_frame;
+  reg rsvd_ctrl_char_within_frame;
+  reg fault_signal_within_frame;
+  reg car_extn_within_frame;
+  reg error_prop_within_frame;
+  reg terminate_without_frame;
+  reg start_on_next_col_of_terminate;
+  reg rsvd_ctrl_char_during_idle;
+  reg error_ctrl_char_within_frame;
+  reg error_prop_without_frame;
+  reg packet_col_check_gmii;
+  reg r_packet_col_check_gmii;
+
+  integer i;
+  
+  // Register declarations for counters 
+
+  reg [3:0] preamble_count;
+  reg [2:0] addr_count_posedge;
+  reg [2:0] addr_count_negedge;
+  reg [63:0] inter_frame_gap_posedge;
+  reg [63:0] inter_frame_gap_negedge;
+  reg [7:0] ctrl_param_count_posedge;
+  reg [7:0] ctrl_param_count_negedge;
+  reg [15:0] data_count_posedge;
+  reg [15:0] data_count_negedge;
+  reg [15:0] requested_data_length_posedge;
+  reg [15:0] requested_data_length_negedge;
+  reg [15:0] frame_size_count_posedge;
+  reg [15:0] frame_size_count_negedge;
+  reg [31:0] burst_frame_extension_count;
+  reg [31:0] jam_count;
+  reg burst_continued_frame;
+  reg burst_first_frame;
+  reg r_burst_first_frame;
+  
+  // Strings for state variables
+
+  reg [63:0] present_state_string;
+  reg [63:0] next_state_string;
+
+  // Internal wire declarations
+
+  wire tx_en;
+  wire tx_er;
+  wire rx_dv;
+  wire rx_er;
+  wire first_frame;
+  wire r_compute_crc;
+  wire r_frame_error;
+  wire valid_inter_frame_period;
+  wire [2:0] addr_count;
+  wire [4:0] present_state;
+  wire [4:0] r_present_state;
+  wire [4:0] last_state;
+  wire [7:0] ctrl_param_count;
+  wire [63:0] inter_frame_gap;
+  wire [ZI_CTRL_WIDTH-1:0] r_ctrl;
+  wire [ZI_DATA_WIDTH-1:0] r_data;
+  wire [15:0] data_count;
+  wire [15:0] requested_data_length;
+  wire [15:0] frame_size_count;
+  wire [31:0] current_fcs;
+  wire [15:0] frame_type;
+  wire [47:0] destination_address;
+  wire r_terminate_within_frame;
+
+  // Wire declarations to detect various fields and valid conditions. These
+  // wires can be used instead of having full expressions.
+
+  wire g_tx_interface_valid;
+  wire g_rx_interface_valid;
+  wire g_interface_valid;
+  wire g_tx_start_detected;
+  wire g_rx_start_detected;
+  wire g_ipg_idle_detected;
+  wire g_car_extn_detected;
+  wire g_error_prop_detected;
+  wire g_false_car_detected;
+  wire xg_tx_interface_valid;
+  wire xg_rx_interface_valid;
+  wire xg_interface_valid;
+  wire xg_start_detected;
+  wire xg_terminate_detected;
+  wire r_xg_terminate_detected;
+  wire xg_rsvd_control_char;
+  wire xg_idle_char_detected;
+  wire xg_tx_seq_os_detected;
+  wire xg_rx_seq_os_detected;
+  wire xg_fault_detected;
+  wire xg_error_ctrl_detected;
+  wire [15:0] xg_ctrl_opcode;
+
+  // Wire declarations for check enables
+
+  wire min_frame_size_violation;
+  wire max_frame_size_violation;
+  wire frame_length_mismatch_violation;
+  wire preamble_violation;
+  wire sfd_violation;
+  wire source_addr_violation;
+  wire frame_len_type_field_violation;
+  wire control_frame_length_violation;
+  wire illegal_type_violation;
+  wire packet_crc_violation;
+  wire frame_termination_before_start;
+  wire successive_starts_without_termniation;
+  wire pause_ctrl_reserved_field_violation;
+  wire local_fault_on_tx_interface;
+  wire min_ifg_violation_on_rx;
+  wire min_ifg_violation_on_tx;
+  wire pause_frame_dest_addr_violation;
+  wire reserved_ctrl_opcode_violation;
+  wire gmii_burst_limit_exceed;
+  wire pause_frame_halfduplex_violation;
+  wire gmii_incorect_extension_length;
+  wire late_collision;
+  wire jam_size_violation;
+
+  // Wires for fire signals
+
+  wire FIRE_GIGABIT_ETHERNET_PREAMBLE_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_PREAMBLE_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_SFD_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_SFD_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_SOURCE_ADDR_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_SOURCE_ADDR_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_LENGTH_TYPE_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_LENGTH_TYPE_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_TYPE_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_TYPE_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_MIN_FRAME_SIZE_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_MIN_FRAME_SIZE_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_FRAME_LENGTH_MISMATCH_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_FRAME_LENGTH_MISMATCH_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_CONTROL_FRAME_LENGTH_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_CONTROL_FRAME_LENGTH_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_PAUSE_RESERVED_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_PAUSE_RESERVED_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_CRC_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_CRC_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_MAX_FRAME_SIZE_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_MAX_FRAME_SIZE_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_RX_MIN_IFG_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_RX_MIN_IFG_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_TX_MIN_IFG_VIOLATION_P;  
+  wire FIRE_GIGABIT_ETHERNET_TX_MIN_IFG_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_PAUSE_DEST_ADDR_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_PAUSE_DEST_ADDR_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_RESERVED_CONTROL_OPCODE_P;
+  wire FIRE_GIGABIT_ETHERNET_RESERVED_CONTROL_OPCODE_N;
+
+`ifdef Zi_Debug
+  // For debug purpose only
+
+  wire [7:0] lane_0;
+  wire [7:0] lane_1;
+  wire [7:0] lane_2;
+  wire [7:0] lane_3;
+`endif
+
+`protected
+
+    MTI!#*B}]>IxOU7nJ&^3X_u<VlN}=5B}_<w<ji2=Kgh[]T[L/K}'${$I^[W{>!w<<@aZ!GIROGGr
+    7BplWlUl=7B+sB@rn=;~{Es#E#[OQrGRjo1O-Rj^!Q-j[=llsa<$eL=\n@ea~R=ZX[$~j\=D_;Pt
+    pO][|KU_Bzo5Rd6I@Da]Z2<{5A+p*C[C<\_1TrmEuAru>TAzm-Ks*jmza[E*+EDSmzv#3'Q;wj#p
+    "~z_$xkT<{_en};>E2xQZ+11zD,B[>Eix(i_W@o{AGUoX;mo'up2]YIa1_D?>2r;x[Tz7m#R>ROn
+    WRBs'afuDlW~-K@@<Jo|+7-1Gk<-~w~o^RJz[5^a\Do1!$Bo<TDBVVX<Q^E_SD7>@-'B!^nIT>=Y
+    3la-un'O#2z=#B#u$37AzIB}E![=k\|vR!51#AD*YV^DZU~dlU\wvw7K,}eze,7@J^zwTskOJ*@}
+    $U,<EwRa\S[=pGr+@\27=J3Y]kk^x*1J@owOUJx3{}2l1~ar0,2U2u71}:H'#7boVH3HrJ<0~IC^
+    T<z'fx?;3cWaR~KjjW^p^!<r5#'o2\l>-;h6[Vwz=mRJ*ZRRUa[1laun1JY?TUrAb@[v3~w33jJZ
+    ?l~up\k!sNVI_w~wsoliU#^ZG~>oHuOA@s@>RapBXDWA,@0m'<*~7*AWexK,Z;2Q2$KoAm3}3J5+
+    -<w09F.HX5B.d?5X{U>mG[Ao;'z'i3Rp<7{sJEC'_]UBwZBYB?[,BT\#x!^;@qYB{',]lGx!w3pV
+    +~V{A[=>$#zk=O#H=^$GE#vXxU.Rw2uj5jD@U$p);orTIWAv#ss*(}*oC_ax#*TEs{=R$Q,^72-!
+    {vY7^MkB<a%ZzO,YsYm[A!Go_J*U+<V{}]<*[w5jTZVBmA?1Q~ZB@rlCiIR!|#Xz$*msC4MQ>3YA
+    B@z<jXTUoZWO^w*&q&$WJY?o;UsQ};Ww[WUpD]dfI=X,lK,,y:QTJZl3*,^_kZK1o[=m_Bp,J>mo
+    Ys-]1!=U1~=2^~B?5WTjUKk^-De1nX5U}TB#E+~5_^OyuQw#dH]-]DF[V=_~_^u3_n~}i*;IWzR>
+    $^!]-@kQ1u1oSI=uCeIo@,K\5WTraY-~+^Q2oA1TTHO5ku}E#}2@Kn{D'~T*\mRxJOK\EjmRU1[\
+    @!TjoZ71Vo#x^J$A[p;^OOIvGu,W-EOQ[#w-uUGsYhhsU$YBoZoZom~iAK?'7a[G@J+R}oZ]v@n>
+    *X-GAnjA7RI]wm[\?!RqY@IR/{n$CE#$Tg|GuDaL6H]e~pVwk<x;#K]>\-E]U['#[qYHBK{URmna
+    X==rC<j+p'ww,=G*UzO'3!hsio<AqQG{3goqM:;V;~,p[pAR~][1$V<5XC_K@^]aZ$iz,YPx?V>w
+    A*Y@$2UX[v[^=p\YB?{!1j,=!es^naTV>BI.$~;,#][!F=Z-kYOv#?TCD\*^rEja*e_?wq}.<Dmp
+    wHR@2[Ex=OAC*D?Y\B7JQa]kZ\YC!1X}JX-?anEZ*V!+I5I@,}_{vmmOYB,pLQQ1*Vp+uO$*DWTn
+    BE*i!F"#SpQJ*21*iY;Oi1[KV3[
+`endprotected
+  // Wire assignments
+
+  // This indicates the onset of the first frame. It is high throughout the 
+  // simulation from the clock following the detection of start control in 
+  // case of 10G and tx_en or rx_dv in case of 1G.
+  assign first_frame = (first_frame_posedge || first_frame_negedge);
+  
+  assign data_valid_gated = (GMII==1)?(MII_MON==0)?1'b1:data_valid:data_valid;
+
+  // This indicates the present stage/phase of the packet in progress/idle.
+  // Since the 10G interface operates on both edges of clock, this variable 
+  // should also be updated accordingly, which is achieved by muxing of the
+  // posedge and negedge components.
+  assign present_state = (level_select) ? 
+    present_state_posedge : present_state_negedge;
+
+  // This is similar to present_state and holds the stage/phase as on last
+  // active edge of clock (in case of 10G, this is the previous half clock)
+  assign last_state = (level_select) ? last_state_posedge : last_state_negedge;
+
+  assign xg_ctrl_opcode = (level_select) ? xg_ctrl_opcode_posedge : xg_ctrl_opcode_negedge;
+
+  // This counter is used to track the data length and transit to CRC phase 
+  // at the appropriate clock. It is a multiplexed value of posedge & negedge
+  // components since it updates on both edges.
+  assign data_count = (level_select) ? data_count_posedge : data_count_negedge;
+
+  // This holds the length of data indicated in the LEN/TYPE field of packet.
+  // Although this is captured & stored and not updated, this two octet field 
+  // may come on any edge and having posedge and negedge registers ensures 
+  // that this is captured as and when it comes and stored in a muxed variable.
+  assign requested_data_length = (level_select) ? 
+    requested_data_length_posedge : requested_data_length_negedge;
+
+  // Unlike the data_count which is a down counter starting with the supplied
+  // length, this is an up counter that keeps track of the actual length of 
+  // the packet, starting from the destination address field.
+  assign frame_size_count = (level_select) ? 
+    frame_size_count_posedge : frame_size_count_negedge;
+
+  // Similar to data_count, but appliable in case of control frames. Used to 
+  // track the number of octets of control parameters passed.
+  assign ctrl_param_count = (level_select) ? 
+    ctrl_param_count_posedge : ctrl_param_count_negedge;
+
+  // This is the crc register. This is continuously updated until & including
+  // the CRC field. In this scheme, the resultant CRC will be the constant 
+  // fixed value of 32'hC704_DD7B. This is an alternative for computing the 
+  // CRC on the data fields and comparing the resultant CRC register with the
+  // CRC field on the bus.
+
+  assign current_fcs = (level_select) ? 
+    current_fcs_posedge : current_fcs_negedge;
+
+  // This saves the frame type in case of the length/type field indicating
+  // a frame of non-untagged data frames.
+  assign frame_type = (level_select) ? frame_type_posedge : frame_type_negedge;
+
+  // This assigns the previous value of terminate_within_frame flag for checking other checks
+  assign r_terminate_within_frame = (level_select) ? 
+    r_terminate_within_frame_posedge : r_terminate_within_frame_negedge;
+
+  // This assigns the previous value of xg_terminate_detected flag for checking other checks
+  assign r_xg_terminate_detected = (level_select) ? 
+    r_xg_terminate_detected_posedge : r_xg_terminate_detected_negedge;
+
+  // These are the control signals in case of 1G Ethernet. These are passed 
+  // as individual single bit signals to the GMII monitor, which inturn gets
+  // passed to this MAC monitor in encoded form on the ctrl input. Here they
+  // are again split to individual control lines for clarity in usage.
+  assign tx_en = (TX_INTERFACE == 1) ? ctrl[1] : 1'b0;
+  assign tx_er = (TX_INTERFACE == 1) ? ctrl[0] : 1'b0;
+  assign rx_dv = (TX_INTERFACE == 0) ? ctrl[1] : 1'b0;
+  assign rx_er = (TX_INTERFACE == 0) ? ctrl[0] : 1'b0;
+
+  // This indicates that the 1G TX I/F is in valid frame transmission mode
+  assign g_tx_interface_valid = (GMII==1 && TX_INTERFACE == 1 && 
+    tx_en === 1'b1 && tx_er === 1'b0 && (col === 1'b0 || HALF_DUPLEX == 0));
+
+  // This indicates that the 1G RX I/F is in valid frame reception mode
+  assign g_rx_interface_valid = (GMII==1 && TX_INTERFACE == 0 && 
+    rx_dv === 1'b1 && rx_er === 1'b0);
+
+  // This indicates that the 1G interface is valid
+  assign g_interface_valid = (g_tx_interface_valid || g_rx_interface_valid);
+
+  // This will go high for 1 clock period (pulse) whenever a valid start of
+  // frame is detected i.e., tx_en goes from low to high with tx_er & crs low
+  assign g_tx_start_detected = (g_tx_interface_valid === 1'b1 && 
+    r_tx_en === 1'b0 && data === ZI_PREAMBLE_FIELD &&
+      (HALF_DUPLEX == 0 || crs === 1'b0));
+
+  // This is the RX counterpart of g_tx_start_detected.
+  assign g_rx_start_detected = (g_rx_interface_valid === 1'b1 && 
+    r_rx_dv === 1'b0 && data === ZI_PREAMBLE_FIELD);
+
+  // This indicates (as a pulse) whenever a false carrier is detected.
+  assign g_false_car_detected = (GMII==1 && rx_dv === 1'b0 && 
+    rx_er === 1'b1 && data === 8'h0E);
+
+  // TX and RX valid signals in case of 10G do not factor TX_INTERFACE param
+  // since there is no difference in the protocol rules for these two and two
+  // separate wires are provided only for clarity. However both are symmetric
+  // and therefore factoring of TX_INTERFACE is not required.
+
+  assign xg_tx_interface_valid = (GMII==0 && ctrl === 4'b0000); 
+ 
+  assign xg_rx_interface_valid = (GMII==0 && ctrl === 4'b0000);
+
+  assign xg_interface_valid = (xg_tx_interface_valid || xg_rx_interface_valid);
+
+  // This is high as long as the 1G interface is in Idle or interframe period.
+  // This is decided based on tx_en going low with tx_er held low. On the RX
+  // side this is decided based on rx_dv and rx_er.
+  assign g_ipg_idle_detected = (GMII==1 && ((TX_INTERFACE == 1 && 
+    tx_en === 1'b0 && tx_er === 1'b0) || (TX_INTERFACE == 0 && rx_dv === 1'b0 
+    && (rx_er === 1'b0 || (rx_er === 1'b1 && data === 8'h00)))));
+
+  // This indicates frames with carrier extension in a 1G interface
+  assign g_car_extn_detected = (GMII==1 && ((TX_INTERFACE == 1 && 
+    tx_en === 1'b0 && tx_er === 1'b1 && (data === 8'h0F || data === 8'h1F)) ||
+    (TX_INTERFACE == 0 && rx_dv === 1'b0 && rx_er === 1'b1 && (data == 8'h0F ||
+    data === 8'h1F))));
+
+  // This indicates frames with mone or more error control caracters in 1G
+  assign g_error_prop_detected = (GMII==1 && ((TX_INTERFACE == 1 && 
+    tx_en === 1'b1 && tx_er == 1'b1) || (TX_INTERFACE == 0 && rx_dv === 1'b1 &&
+    rx_er === 1'b1)));
+
+  // This indicates the start of a new frame transmission or reception. In 10G
+  // ethernet, the TX and RX interfaces are symmetric and signalling is same.
+  // Given this, we do not need separate tx_start and rx_start signals. Since
+  // as per the standard, the start control character must be aligned to lane0
+  // only lower order byte of data bus is being checked for the start control
+  assign xg_start_detected = (GMII==0 && ctrl[0] === 1'b1 && 
+    data[7:0] === ZI_START_CTRL_CHAR);
+
+  // This signal indicates the detection of atleast an error control character
+  // on atleast one lane in 10G mode. Unlike the start cntrol character, the 
+  // error character can come on any lane.
+  assign xg_error_ctrl_detected = (GMII==0 &&
+    ((ctrl[0] === 1'b1 && data[07:0] === ZI_ERROR_CTRL_CHAR) ||
+    (ctrl[1] === 1'b1 && data[15:08] === ZI_ERROR_CTRL_CHAR) ||
+    (ctrl[2] === 1'b1 && data[23:16] === ZI_ERROR_CTRL_CHAR) ||
+    (ctrl[3] === 1'b1 && data[31:24] === ZI_ERROR_CTRL_CHAR)));
+
+  // This indicates detection of Terminate character on atleast one lane. The 
+  // termination character signifies the completion of a frame and can come on
+  // any lane as it is a function of length of packet.
+  assign xg_terminate_detected = (GMII==0 && 
+    ((ctrl[0] === 1'b1 && data[07:0] === ZI_TERM_CTRL_CHAR) ||
+    (ctrl[1] === 1'b1 && data[15:08] === ZI_TERM_CTRL_CHAR) ||
+    (ctrl[2] === 1'b1 && data[23:16] === ZI_TERM_CTRL_CHAR) ||
+    (ctrl[3] === 1'b1 && data[31:24] === ZI_TERM_CTRL_CHAR)));
+
+  // In case of 10 GBE, control/data characters are differentiated by the 
+  // corresponding control line. Ideally although 256 control characters are
+  // possible (8-bit data with control of 1), only 5 characters are defined
+  // and the rest are reserved and not to be used. The defined control chars
+  // are Start, Terminate, Error, Idle and Sequence
+  assign xg_rsvd_control_char = (GMII==0 && ((ctrl[0] === 1'b1 && 
+    data[7:0] !== ZI_IDLE_CTRL_CHAR && data[7:0] !== ZI_SEQ_CTRL_CHAR &&
+    data[7:0] !== ZI_START_CTRL_CHAR && data[7:0] !== ZI_TERM_CTRL_CHAR &&
+    data[7:0] !== ZI_ERROR_CTRL_CHAR) || (ctrl[1] === 1'b1 &&
+    data[15:8] !== ZI_IDLE_CTRL_CHAR && data[15:8] !== ZI_SEQ_CTRL_CHAR &&
+    data[15:8] !== ZI_START_CTRL_CHAR && data[15:8] !== ZI_TERM_CTRL_CHAR &&
+    data[15:8] !== ZI_ERROR_CTRL_CHAR) || (ctrl[2] === 1'b1 &&
+    data[23:16] !== ZI_IDLE_CTRL_CHAR && data[23:16] !== ZI_SEQ_CTRL_CHAR
+    && data[23:16] !== ZI_START_CTRL_CHAR && data[23:16] !== 
+    ZI_TERM_CTRL_CHAR && data[23:16] !== ZI_ERROR_CTRL_CHAR) ||
+    (ctrl[3] === 1'b1 && data[31:24] !== ZI_IDLE_CTRL_CHAR &&
+    data[31:24] !== ZI_SEQ_CTRL_CHAR && data[31:24] !== ZI_START_CTRL_CHAR 
+    && data[31:24] !== ZI_TERM_CTRL_CHAR && 
+    data[31:24] !== ZI_ERROR_CTRL_CHAR)));
+
+  // This indicates the onset of an idle/inter-packet period in 10GBE. Ideally
+  // this should follow a terminate character. If found at any other location
+  // during a frame, it will be considered as an error.
+  assign xg_idle_char_detected = (GMII==0 &&
+    ((ctrl[0] === 1'b1 && data[07:0] === ZI_IDLE_CTRL_CHAR) ||
+    (ctrl[1] === 1'b1 && data[15:08] === ZI_IDLE_CTRL_CHAR) ||
+    (ctrl[2] === 1'b1 && data[23:16] === ZI_IDLE_CTRL_CHAR) ||
+    (ctrl[3] === 1'b1 && data[31:24] === ZI_IDLE_CTRL_CHAR)));
+
+  // This indicates a sequence control character on the transmit interface of
+  // a 10GBE link. A sequence character must be aligned on lane 0 and the
+  // column containing a sequence character is a sequence ordered set. Although
+  // a sequence ordered set can be used to initiate various actions, currently
+  // the only defined purpose of a sequence ordered set is fault signalling.
+  assign xg_tx_seq_os_detected = (GMII==0 && TX_INTERFACE == 1 &&  
+    data[7:0] === ZI_SEQ_CTRL_CHAR && ctrl[0] === 1'b1);
+
+  // This indicates a sequence character on lane 0 of the recieve interface of
+  // a 10GBE link. Used for receiving a fault signalling from local PHY or the
+  // remote station.
+  assign xg_rx_seq_os_detected = (GMII==0 && TX_INTERFACE == 0 &&
+    data[7:0] === ZI_SEQ_CTRL_CHAR && ctrl[0] === 1'b1);
+
+  // This signal is asserted when a local or remote fault is detected. Here 
+  // only receive interface fault detection is factored since the transmit 
+  // interface of this station will impact the receive interface fault signal
+  // detection in the remote station.
+  assign xg_fault_detected = (xg_rx_seq_os_detected && ctrl[3:1] === 3'b000 &&
+    data[23:8] === 16'b0 && (data[31:24] === 8'h01 || data[31:24] === 8'h02));
+
+  // This provides the window wherein the the interface is Idle. It should be
+  // noted that this is the interval for which the monitor considers the i/f
+  // to be idle. This goes high on detection of a termination and is deasserted
+  // on start of next frame. Since 10GBE is dual edge, the interface can go to
+  // Idle and out of it on any edge and so the muxing of the two components.
+  assign valid_inter_frame_period = (level_select) ? valid_ifg_posedge : 
+    valid_ifg_negedge;
+
+  // This counter that keeps track of the number of bit times (in bytes) for 
+  // which the interface has been idle (since the last terminate). In other 
+  // words this indicates the width of the interframe period. Again, the count
+  // requires to be updated on both edges and so the two components.
+  assign inter_frame_gap = (level_select) ? inter_frame_gap_posedge : 
+    inter_frame_gap_negedge;
+
+  // This is the registered (on each edge) version of the compute_crc flag that
+  // is used to choose the appropriate window of CRC updation.
+  assign r_compute_crc = (level_select) ? r_compute_crc_posedge : 
+    r_compute_crc_negedge;
+
+  // This is the registered data bus. As previously mentioned, this is muxed
+  // output of the posedge and negedge registered components. 
+  assign r_data = (level_select) ? r_data_posedge : r_data_negedge;
+
+  // Registered control signals. Goes hand-in-hand with r_data.
+  assign r_ctrl = (level_select) ? r_ctrl_posedge : r_ctrl_negedge;
+
+  // This indicates an error of some type detected during the frame.
+  assign r_frame_error = (level_select) ? r_frame_error_posedge : 
+    r_frame_error_negedge;
+
+  // This counter is used to track the multiple clocks of destination and 
+  // source addresses in case of 1G and 10GBE.
+  assign addr_count = (level_select) ? addr_count_posedge : addr_count_negedge;
+
+  // This is used to save the destination address, which is inturn used in a 
+  // check to verify that the destination address in case of a Pause control 
+  // frame is the standard global pause address.
+  assign destination_address = (level_select) ? dest_addr_posedge : 
+    dest_addr_negedge ;
+
+  // These are wire outputs of some internal variables which are required for
+  // statistics comuputation. The "w_" prefix indiactes that it is a wire out.
+  assign w_present_state = present_state;
+  assign w_next_state = next_state;
+  assign w_last_state = last_state;
+  assign w_r_data = r_data;
+  assign w_r_ctrl = r_ctrl;
+  assign w_vid = vid;
+  assign w_frame_type = frame_type;
+  assign w_frame_size_count = frame_size_count;
+  assign w_requested_data_length = requested_data_length;
+  assign w_inter_frame_gap = inter_frame_gap;
+
+`ifdef Zi_Debug
+
+  // For debugging purpose only
+
+  assign lane_0 = data[7:0];
+  assign lane_1 = data[15:8];
+  assign lane_2 = data[23:16];
+  assign lane_3 = data[31:24];
+`endif
+`protected
+
+    MTI!#!n_]JECQ{[!UvX[2lx{>6tmOm[=@QE+Y?]OU\[V>G[,Z$eitUs@IU$k}N/Gi^p]x\V*EY])
+    p#v>=K[xo~[i=?,s9{olDiY]]7g=lZC^HB->]i!k[OQ1+QKmVY{M7Fzz2{eC+,B(c{7[u7rZr$v;
+    KLuT+2jO]^e}\'Dz'_s7DKq5g;CQQZ+Cwe;A~7!n_D<\kuD,x0#R>^C!IHVIpW!7CsuDZ*cap{@X
+    U1{#<UR0=z'5]i@BoC>rGCRa/;1sI^\KuzRTzB1,Jb1zR[rZrTGu3YFl3e[T[GCK>eu^1,,;7v~[
+    CK{';1{RIJ<K],e5Cm+]Gc:%HVz7A>mpBwWAo\'*Qu,,_Z=ISYxe<:E<\B5?l1lmnWAau{,5j3Re
+    lEPY>D]H1RG{w3O[C!EAE3C71HIp\@2p_v{eHXnh0#Vusx2e{]euolnA3}5'nEzVmr*k<v\i\ilG
+    ]2$-^v_;-I=2Qm17jC$a^F';nu[-T2-l$-CV'<:_uvz\K@jlU~ecs]EO~}5AOVXAk^zk6<wU*E_m
+    Qj=UBI*z$s3R<Oxv7}};zJT}r_'#a+=WIE7?,s>}2Z$An6!}a3[<$?t6>[YIn}H,x1JE^@EaoWOC
+    HTsAkQTB,QEjQ]?K,,7~J5V{j>2!j<,@KjKK>1+p\v$@?pAE1V,jCVC]?Qn[!U1$vAY5j[j5X-QG
+    sBXOm]orn>_w_K_es3D1&l*~H?YovBDomtKITu,~]Z?'A,Iv-B>}'[la2Of?N'Y*@;=AAmY_kc['
+    V^,#71IiZvYRJnm6.o[*oOzw]YRXx}z@RN{zI2o[uB>w'HDJ'U!GRe~,>5cI>CZ;sKITRxjPEKjl
+    K*Q+B;;;1]Z{2v^]>AZxj7!kUo\w+<ouwvKV1_\@Qi-[v5?B-pYv_12Y<ExZG]nKU7,T\l^=.t4D
+    !BRZz$Ge[[{Q[Ar'1$?how},(M~w$ps^J;Qz*~o~m}L]v<G9d$XrGA^-_<*!7x!QaU$ZODJU\=ZO
+    !U_-7rp$73R$%p}<Z=;Zo${YBGIIizc,=3AnvY[]u<},V;~R;l@O~SM<C5ivUne-Q}2_2J_>5*u]
+    UeT\RQ?<BR3',~zOB\$uG<Km*aG@$A_HrW=1A{v+'5r?T;B}^OE~lU2o$+,v2=pV%EA-3Hz<TGAp
+    sIAQOrm!r,*7oC?AQ$l<Q}]YT=TwX'Wj@=K'3{,z_527$ekW@dzV+WYHUCOv$=5;}#+a~x_X-=a[
+    3^ie<J!BilmQvZTw@;JO:{Yo=]@T<oCz=u=Yr/rK^oWHxplpCnaxklxzXB3wOi}Ck1jHKC2Y,7Ux
+    wxRpkeD;<7ABpapA2]lAXo1+u,=s1]B00$p?UXE##ilG@YE?<WaZ1<UTVH[nWA6HI_!<\\?iHu'$
+    rZ'BQ|apY2$\?w$*}Ksx?[[mJ7CXBvl1O_<XBO7l5Div2m{<^i[B{>7^p7=@R*:Q2jk_V3@@[w>O
+    QHox*QEh,GT5HC8]DU[GA}i;}7X&5V?3H7-n1Cza+1w\'2o<W>7U+*uae"j{GmEeRUlV-[!{D$Iz
+    ul=SC1Kvw<\z=wYXkVji]W@HYUKCJ}pp[x{TP?{H2F9iDB{x>UBBn+{,;U{Hwj;r2pmY2nsnE']~
+    rTT*wrnDpEmRm+3pj{!3BV\mT-#Zj+VD+AapAVQOH_\U|ZD+<JXX>L[k~GH]zjp-Bz5Zszuj]R~r
+    'Tl7G5l;Dzk1*B2rz-WG!!*IGu=axWz{RiPf]G7J6QTR2wEJ1{{xCUa>O#{zD+,ZjQJy-ov<br?v
+    JfQHj\/>QlH+_GGxOXulk>pMs3lD-wnkD\Bj*^oBGEox4A}olBl#Y8m1okYRxlKXxOEN~==r[k-x
+    %A_j<jWA=DV2\#A[O[i\QE}<mA,]!YU!DOu{k1wjW{OHOdZ^?umrz[z@+IIknakpGjbv@ri3\;3D
+    ?O]1;<O$YsK_;[W3pG'zUI}D^wJ=<5I?wH1uGE}C}x\W\AY-Xx!TveaXOH1=?RTHE\}HHU-FF1Hn
+    O@O}3]u=wxzD!HA>ZnA\Y3Ha]]X_sx>QrJ1Gvs1RJeT<Hxs~U$u*U#C=pCRB2~GBR[J+kWGv{ZjT
+    m\]Je]3@k^T^AI\X>p{QvaDcIE~~P[AmW#RInlEHnErkxaOo[uHQ=*5r;j-'nx~x<-zl^Qv{ej"f
+    m1a[C?oxYei]ns#m,\I*~a^lFHj$poXU?=!;G\As$k[r27,?$-z,2L^!<sn]<u,]wT=d{Cpw<TH}
+    *\\jOUXk2RY]\1XRGxYeT7+2\a>[^CaH7~*wIj#Gi$k!eIi@aB*B:J[O16rx},eQ?sl{K@lY[7K+
+    }2C}j=^2'xF\V*[t@^pQ.%vH$p_ATY"MV?J,BT_\+BiUkC\*xAH[''W3R;D>]rjTxB*7*xJ@PRo?
+    o^>TIlUE*~H<X[)EBkUil$Bl#oW;sxZVpwTU=H{i>~<C^[[B?>CDIPwXsw5?[1;577{$wKr=HXVu
+    sB'k*[5}[rm$QeTEGHQ?AZri1BjX^,_\<ElspJ}Bz3]\=^@zTr3*{DWono1j!$U_uo~o5R>Bi[}3
+    C_D'sV'itB3AOx,1Jr#wOD7n\K-]2C?Wu{Yiv'3l+vl-+;6T]I^!B-n=?53lUC@5>\~l2,#rQ=3]
+    ~[l]~U;_pvJI-J]U\}rWpTVWlipI;us1_-oK]*uo!YJt[R]>/^9W\zK)Q<H;sTZA_WuRKE2+^{Hw
+    m}C~l'#xNlR+[~}3^%7\]?Z-Ye#w{W{w+aJQU;A}J,l{QvZUJwI7OKBU]AD#Im)7e7{Ds^W@YW_W
+    ]n#iaZ+Z5o'Dp5#)X$?#Iem,L~sp7J5jpGg]*H5?U!viYp'$OZr3DwsB{WIwo[2]O~Uw<R!B@@]Q
+    zZoC_R$v!_{';x,OaT_?^YitTp~Iz}uYo_vj1te4A{+U=_sDjmDOlwH@lUp'|&aXH@,gxo5ocj2w
+    5^>lvQruxI7+$r-ou=~}mYJzJ2s3Q{GQ{<aOxsU]J>r>2OY_5NYqA5#W1$aWiAm=Y?WB$U]$Bl]!
+    vkQVReZn#QAzKnW57eGpBM^iIKHD!A{5exjeZ^xu'ez5#HxmUCKVvUO,XwTY2YLE7G]8=ooEzC@U
+    {C22W5vw|^!<u3nZ[Exps#E_i=]#~;H>YI#A~@V2!Gps'x;Z;v'-;-Xz~Y21o"1QJntY#$w;R'Ta
+    ,\2p+I^Xj~$^,!5=ZjVl2A!a}KVUQnXB{mjB[;RTCUeei$A(Y3x#ZDlZ*pIo#G}Hennlze]R)[-l
+    X^oOpFOK>oe*Qv7@=B-5I=|\eRCZ+vQ$^J$RpWjDC?m45*3aGR'm|s1eT;x,urm$@K}_z6Y5]QTR
+    -+E{HX+>*@vWDmMNA,DiG=iwl'<x<El2wv\Ov}n$pDIWE{D!,'pma^i}[\<[xBIVx-~[IjlKkGwZ
+    9&ImxRI1waz<oz>a7=v~B'XXa<XjpfYB#\VVzml<mRVQ{-jBafkU^ZdTTElsUYACGmR<DY$0oJ}Z
+    ;=J#s|XVnx]M11ew^[vQJ\C$R-WH2vl?L!+G-XYo1xDU^?'1T^-$eijX{swQ>A,{_Zo[GQ35OZOV
+    uqzRY~HXx-sY3GJxKr<{e~*>~XOnUvc?,iov^,oG~BlISx2Ip3]iW'T^*vJQ+uUejRa7HDC_rZQj
+    @{15><n-e>T7amC>I}WWXtVKwTIzBW7YecIvoePL_2pBg@>T}]xH~#r-a>rk3v#rnvasvT7Oiv7B
+    77GYiv$?kio[\faTU5e'H<D?CpzKIXLY+'*lBQl[G@BQECBmsmA^#r{YZK~2,,a;-!e$er*:=Aa!
+    %sTwkQ]Zo=l+pVB!Z$HVX!s\{KV<{C+wO,{=e>>l*u>!CJ]eY~n@-VRUCHsVlja{C!H-etWlB[VO
+    -,~_nr#,#7lWa$B\*K1_\]Ow@=pFT1A75QHUTAK]HU+*{>-rBD1Gz~ZRn[5VuOevD{3+s?'vo<]\
+    %:VI!@KeToJqJ]l^JR\[aOTOKIV]R$T_jE\$>_anGZr+s*$kCAXK!siG\==I#VDW$weGQp;]q&52
+    ls73lIy}U]JJGT+25}r^'xCfz:u[@Io2;CaRs]u-u};(hAD*=QFAUn_I_k^mjV2J]j!B<ArT=Y7]
+    <K}^T>[7n^!E57eepZ!qi*E_W7raAnZep>BU{D[oyn_mWi}C]z*VeF!+K5r*XZ}Wp,KVz#'pWoo]
+    [>BU'rv$]$Xvw+WXJ#\X}~p;IR#ps^V$J@0#_D?xVj7oIzU-DZ7CK'k%~BUDs[AZ}OW$B*pjo>;U
+    A^!\1@Z'w11Je5zA[!{r~71Q>>O\I{GmnADKvZvR&Spu+sf'+Ak!rToN?Dz{ra>w?,$OQKn_a,v]
+    jla2,{Zk?sk,UE?BEo>;pWsU\C3$*l-!fso'r%*+_@2EW\-_Ql3_p7=[y.71,E}aeGNA<WTIB3oA
+    e7+,QQ}}>}Ew7-]jW=O7oUr>p<'6oSBa2]eR$\xe#UK<EA>an,uxDZ,2QBweAZ@&lKr215nHK\l'
+    xx>DBuW_?l7^zoj[^x}v"($5l#E_B[dpBVG[!Im^*<a0[C>w@7jl*@IvKn*#o_P^]okZr_j\wn[j
+    ^!v_[Q<^g#xEI4OoUjGIJ$.IwI+\?{?A,G{In\ju5QY)us*CxYoH^~*OY'WTQ^Cm,:'A'H<YJ_>Q
+    @<gSQiK~<_O1"+zZxu]Xx}dx?Xz_-GYG\UKV_Ij:sKZTK+-{R<R!#w*}YBjrMBw<D&ArKVaVXu68
+    Yvz?]s}\Cz7QHQ{eRxRUT>!@}nE38pK;]Hola0]m[j[MkUn!{Gw[]D;}Ken$aAE+\R5m$X^n~<_R
+    \uDn.[1[vX+oQ,BK>ioHz^Ilj+<5IQGjQ]s]uR<]JEjKRXO7WRD<CVDaUg9U_O>kA<[Lz=5EpWR+
+    WwRXQ_+QeW7]#_A}jxVV,ZG_x@nYJGDQ_1nB=Dm@$XDUzw=ze@X\7BG,BQ^!^pG^ymjJ;5{jl(]-
+    C,\#mK.o}EE3-_+CmAuV~O1JnOeQruo4S\*W'6{><\CUja]nRGv~Z[kVnu^5\O_i$!2*5^UX7<$u
+    z[$nW'HT'o,U3s4}zkH[?Bw'z>QP5X,+7%$7l[$Oo$Z7ikIA@@g%a|BOe<[Tr@O']v;}_B8^Bv#$
+    srYr@'We5B_xS)x7#T}^kkOx{Zfo'RssIu<]+rr_C-n-*@G.Q{@ZBV1[$Z'A=k~?oG+\t>}ariGK
+    G1TT^q3A']Ul\5,XY$!jmu?=Qnck[-o$[e$\s\T-I-[RJ<_UI=-a>]ID@1I=Xs5Blx}T7kJ}_!BY
+    *zz]Mr=ORli'\kA7sd]BsBO+<+YH!=\v7ve;jnij[]\e^]V;@;i}W}wD]@CHYRQ{H#V+'3,-&A>_
+    ^m'ji++juiGYz!RA32*V$5H+H[va2bj*I-:-so3vRmDAA5;N<R}slX<XPo7p,V=_^1rIvXwjU,!A
+    Doo>mwAZ~Yi[]^_Ba5}@C?B_]D]EY>=5RPI,x5#^-,Pj>w-#RORjaAE?'}Rsu$k@<];j<snDUzY'
+    G_^Kx[?R<5=x@Kz1?XaFEEEp";=_im^ivf{R[}A<pO_YQeP,eSD'rW1!2V[\@$\iri<=$JFma;U2
+    aQ7.5@23yB]Rot5eUlClx!M-Qr_/=xOn=mu^='-2!Y;#R>e^QEKAnrX!<v[EomGBnIjn;-*spBz<
+    E-r1!'Ue-D=~*C\l73YQ3HKloDA!l@GGr-o<k+CO0^^'o7+pJC_Wjo']~mEpGz~U#AN~An2*27sQ
+    2~l\<A#*ur7MrpCo~njp}U]5<oR{n[apnBl>u,YBLdBUjlaDU$z^Ak*vIsUxz^>I}TzJ-DXjH^c_
+    -,jYHTG_knTWro*;GlAUv}\IEB!#1zI\BCKz]Uw^lwAQsv1ZVpuZY'ZZD-YR=a;52_8Bmo?e1l^T
+    $AmI{=n>s=+*O>XGlHjALY2n2UG=$*kURkaoY"s2~pGp2=RB{sO0$gd}UBB$Qn~2,$5gAoCO}j*p
+    zPrx7EQ_+ocZHCsHTQj@A5jK>T23OQ7{O5s%A&9a,\a^O{lVz#mk}B1<-XEev9t'[+K5B^*BG!j$
+    ^K2DHEl^Olj#<]v;sV\Jx\'V,URpJ{>nE\[X'[Oj-p5YR#E''=K@VA7D+\]!Q3ZhAQ>GM9ml+H3[
+    w*e};p6TI};Bx!V!O}nDZjQsCAO;}C79Oj,!pG**uT_e,oz;,5s-v*^vv3x^+n!@#={CTs#RI~>x
+    ^T[}Io5<7a@,\]=[J,_z}+o-tP7ZDYN\Up;9x]TKYmXG$1arJRX<mOCklkDVKI*xe+l-G]}V2,{n
+    UojT=W*1\7wK-C{I'r'[[7>x+*']-*o=*z~k,V@jr->B-]3^W<,O%Z-'Vx7AQ^<e@G$VJbnjiIwo
+    japJBvQAz*cR^x}QI}VXOYiXlVnbVnreQ!=ZsQuX$CXee\U!}-OuU>pmEn_\I-[l^e'R@'3~HUzj
+    '33+}DQk]kA~bjH[5[3>n>jG*HT@!Y?Ri\krw5]U5i_-BoW$p(U--}uo_;O!+[Q~]uQ?a{cqY+IW
+    =]XA_5=2Ba'^u8p1HI_OR<yXV@=}QCK]}?3Gu\e<G5}ABrY:/Y$BTBVBJNV_^JrIYHf97,m_&xZ,
+    ~vzEmwXnEp\{a|7emZ[m*$,@lUHjQ;7IKT}^'UCJj3'z+jGOaV3EzK~-Q_CuuU{lwWBE7R'Ox^w,
+    =AVK]ID5u;eV2^RB!{,~GAI]1Ox}]3{pexqYGRY-*ZTm--#Lx'maDszw#BY#LK'85sk?eUnR_r!k
+    #*zw.}Vn!sO+];wOBeDVD;XB\uUHQh^n<7>'zC~R3wl{'K@j@UE*RVL3s*TkI^,O[1!e2^?},?AB
+    Hv?GX7}Z+O\1B+?GT$w{XTePz<DsB>{~2-3=1^arUn~sB]33osg#B>pDVzIlejJB%-<'WQwxwG*~
+    jR*^;vJ=x_4ACjK>owjus^3Ao'+s+[!rQn]$A1aem$A1xJRqll7],mK5o}{~SjXEI6izB*G{m@1@
+    -ze!>O3[K'_2aZxjoAv7K@3Qo["]YmpD^1+QVlHJ+zilpJ?MWBr}<[xRY~Xz{E]Df3_?\hpK_\KB
+    V?PF}>Ex3sJ@Qu=z,WW>]k3rzoH=ceTa5n$nKij3p]\m^V1a'djErTK+\Z>Vl;Ja~Q}v;Dpw>]S7
+    r,GavzwY{jJ!'an]l2!~,k{j5m*rBKU62HQonBZ??j1<Av+7xi2E#5kw-UK;s,;,UHxp]p=]{em]
+    9GlO16#UnsRHD-[5kv\EX,Uj-;)V$[;4MeQGWQ~+{G,keiTHypnQOA1!TriD#-7RnD#'\-*=wW5V
+    3Qz$m4?vU5WjX'P&mv1D^[nw7Drs,3l=UTI5TYBm3_'2zaQ^w<l#A_G;aTW~YCDV#+5w'#T]['p'
+    Iiz^4ZBjQIViE'lG'_>Tp1'}lnX5E}Umewneu\7QH8sn>'vH,7^'E~&;Ynji5{AsACH<T[ID,j3W
+    GDw>awY}{G3RRlj*R}@>\}Z7~3+V?plk_7wVI-HpxC+1lE5K5O,V,\J;[=3I+RlKT_#OiAD,BmYI
+    ;K@C<5z@BTQn=Ci3'?,!1OEjU1$]'U~!\X2B#<$'*OBewIk/KQ^*OpC3YWoGsx]]uXllzZ;AA>YY
+    vwW?^E<x1XXv'T11mrJx2'jI^vx_a^}+k=;n,HDs\<IWlzs~y(DK$!1uJGu$KjEz#oYaVI@r3+]{
+    'Ksu5v/)c#$Wj#U+JwR[G{A<}'nW5rGBR}2z!lZ[w$aRi-{T^!nD+$[1xco5jRCQ1Gm+OzNQ<Wn7
+    RT#$nmTs'Y3xJ~oj~[zO<uQYD!1_^5>?au,]AHGGWua@Bo-siT\Q^]RmT_uZ53j9A(}QnnAor[gq
+    Un{;b\vel"Z}HO}_v7pi\~a+Z'pKCReV\Vk\O+Zl{}'v3~vp[#D{oB5?o,Bo^ukBU1Ru5*l!AmlI
+    _WVIpHInX'_3p@7r#m<v]T-si~n{U~pO*GZ<UX\!2aWoO]+V\E/]Ik,;I7_O+UAeUoZsvkCm7K!A
+    sWp_ZTQz_o]QD,v9^'A3rYH~!<RsAImpp-zZA>xTw>5?=5EB1;jj+eZ*F<aJ{I\^lJz5@1AU_BKx
+    ko,wY\raGY!Y;_^To<<,puwr,iGRarsY]l+5j}Vq\Eelko;Jo+DiIs$Uwn7<,2~a=-}T3lvUXY~X
+    ml3e{vJ!7'Kz}O^Is'$[QK5IKXo[,[E,;sY}]+R[X\d7j72/1sQJNOjt~jtVk'*4*up<Z9-I1$zl
+    k~T-[voi$#V;C32_UWWxQ?w*X_*12_1W=keD^5cIirzY]jjivXzzbI2H*k}v?v@!$sEH^Ux*e3>s
+    !!'RzlKw>2Cv2k+Ua:DoTnY>G5;,GDdXxQV='Z+!$5!R_woxATU#TQkJzpueuv>;QE~mR{5,=<Qj
+    T-+cDaCAO>3{Ia2}][x?$$-J1\R'DX2'O*>u~h\JZH5^\?@';2Dz1p<_\jZUQArZ~O-l[u[-ZEI#
+    !W!XWYJpi+RTl\oe@}4k''-@\Zo]@KAHqTH![qj@JAJ,],?z=z;Tl1TH3+^-em@,w_}n^O*Js$:W
+    [T7%i_EGQn52R<Vp3jQ+@Va-}ww]Qx^$p#e$k-a',2x3I@;u>pu1uIrVz#]JMp>Or$'3$7Y5*@H{
+    <?wv-=Ge+[YEU$rAkOGr>^zi^jX=WWO_xI+u[1~wH4xnuoown*-ns7nO>7#aGHp;]#_HYvp_xVVQ
+    'D_E;n$>>!ovku?+<B^~An(Up5GNOB_u9RlrJ!Q=*}r;!xloo?[[!36{w{EI#2],;~niT\Y13Kl,
+    LOE,#7Z5pX-eA'T>-[THo!TY<[3=5EH73-az[_3<A1V?$rRA{],CHCA!$#G{YQ[v#CR$ZY<^rZX]
+    oW\BHXnDG(<_l#wG[p}suRxJ3=_XI*BOTWqy]>Ol*?=kBz'r9<aU#71OX;w$uvJZ-eG_aIXX+ZlH
+    O!r55#}A'?xoUe$p#pOvTOZoG?=CH1B_,8a}7i}i;K|[I[=+D^zaoY~E#wx37xsw$Kp"OO1UZY+!
+    }]3]x^w5?s\UanZ-K+R~)I^!wa]1K?=vJe$Uj_O<]5GunE?vHUa]a!n1p}TO<X{~5Y_15Uwl5&ar
+    ,H[nV!JHm-R@A+lI,wVnOV5I7<RsUI*ilAvZ~,j>Dr06<s7~NP<^UT%lvD3!DIYrHXZ=VZ'7v+-1
+    {}n$-w?'@1,H]mEYnEo$#}$j*JK('=H}ACRBnRrJA]Em}uesk*!zQYJ<}iz]=N7Ck??x$R|}E3+5
+    O}=xR1uxHzpmO?JT',wZxk{JXl2r7i'$B<=5zUXurY_;QiW_k7;jl;+0Z=C&[XVvuAT?rp,][1a\
+    851YlDHn-D31uS}'$-B32O_^3vD]Cv}}V-0QZTj=x*zb:AA>^Bka'2r{wtL\?e+e1RJOv{A+U;~>
+    ^r3sw<CFDRIAj1p~9CW'Ypk$'7<VQ{H^RY{7V*^2<oTG}_$~+F3sE{GoBnQs[]8lnG1L8D$vDE*O
+    @_(oGwJ~lR!:;C_xZ5D'EX-^m'jY_jK'T^?^,xjepa+kv$!A,\[O}$A_VYCO__*=e?J*\-~[6!QG
+    7#jj{F+-m=<^>C%*=2m8rK}+Z'!xT$V>G4Y<z2m_-$=U+oVxK+->m_>'Yp*D#<$YIYK=n#H\Y#!z
+    ,-Jnsu\MC'-1;jpaQw[DW'7Zw&VQ7{j[Io*Z'\VK-wxKA1;l##2{nrar~;eEKCKln{-ARrbxA5ER
+    5RDlu@Ci>XIH]7AQ;YplizOb2]+Wdm=^{_WE-!'Bw*oVms,#p++u'3ErOx'+[$~mv\U5^x_1-}7;
+    {'k1BDWp{)C}2?!VBXpOm_vO,#boT<7]#p5wHC^},AU~Q7oEI?_X}Q2QV{uqeL%,n{DrGm{$z<^B
+    $mEQ?w3eZ,CZQI-x3HGIUeX5m]v37EvC>'m_T{$,<w;ujm@7iRI^mI5VH;{Cr+7V#t'EATIn-wB5
+    !~,?Zw*T-'j_<r<nwWmBzYEHV?mh5!@_v2XW2B$Jx},^Nx}Y1;$_lp?DJI^<RY,x1<r,<\JOeB[D
+    n<Exz0ozT1E=!O.71z'ygr}srIsUXKw=YFGD[IB1e5TsROSV<@wEr@5f"WTv~TvlJ{}TH;oUKEe>
+    3knWscW_TnDCBm'$]<T^D]n_E?lC@eZlxzA{W=Q;U'K7sX.n-IpY-pGCW]=TxUJJr[HE'I[BoIWX
+    _e;x'YAr=mxjP+\'+IRl_el{{^XB_%_rUm<q>^*3;z_lXnVA_njnmE1>[}w[>A{[}ensu5iXrq$Y
+    n1J]?CRw<uV6UH5p3_w=1r=o,plV:ocKHK~#x3,prCeI;$+CC$Ju^]KO'+{i=x1GEk?X{T7xBr~I
+    {!u+&qY\vo*UHwBsIuIX~UZ}j3bl#_Jh5raz?ssn;'jl0YTG7wz'=1l;5zK]k<Aw']vrOl,A^Idt
+    ;UsxvlpOVm*<Q{ZDYR[_zYIYLQhAVR{l5_wB3U@YBUa>^sUpWrW&BiQ#,3\x!n3]02wV_p1R[I;$
+    Qmw$5-C'UU$oVX}}^R_@OQ+aUEU6->zu,xXDpQ1!k[k<@CwT4Zp<UaQ^J~AV2>o;]YeyKl}^lC>?
+    $a<=;YU#nHAv#j2vl+s{Z<@~\2,zH\2$D0:o+H^AT+vII'lGlW+DuDj5kou*=K3]@I_\vRG?jOGX
+    T]<YmC3ZIC;ZpkQos2GHD+Ka7j=][XH?eBWkaw?@C3aKs\}kz]D"H[{kw-YkeRJ*!^5i]U]-$15<
+    J-7xR*IV3nxT}Ww?JXJB{Q>}8'zBBkxERux5w[[{Rav}vDa!XBl~AGY>>vi!mzIj~]:EIRREQ}U!
+    j<EiUU-RQRnp@o2YjaKJ_;@<^2IzK[Bsk<AO7kk#7KslmsG^R<o{-]w$*HZl^Y^-jD$p<Gp]u<;>
+    EK!*<WV-$^X,pQEoBI?]\!a$>1p{R5+<x'k8@sBK:IR{1\7Kj[sw?}aIvfPpXXuKprnqA*UA?z{,
+    QyDv$TI7k$-$;\KE33[z<QN>'\iPzB=evr*-q[7=K?=\1c/W'][}^V~Cp=^szOr;-u{A{G@y1rJO
+    pG'$f*j!lY+uU;G@l$em$AHG\KUHODp;{]W2elBE~!RTIH^VK2H\u:CEQ1pZoD<[KC2[*l+YprXp
+    H,Evlw4G:GY*^DO1]'T>}!{[TI;!TKr<\;[$!r+l-9U<;!<EjO,5WlC_$[z^_RBe*z1(T$e6e5-H
+    'W*]$kx\B;sp{&%3Q<Dp#Z]]m_-eHn>+s]mI@G3)nv*G1@Kn7ejGkeoK},#JrxIo/u=E<zp\UXeA
+    uD~rnOwj17Z-<rjoK{O#wj2G\]E?XX*m1'7p-#XZCZHKWTGspC7GE>$rX1p{$vkaoXTB7u5~G+Vs
+    ~~=2<:x,>VT*;}e[-TEBwu\XAe5+uDWa{h'!OW3A\!WAlA][@DGlrWJsAoA,E]B]3oY+GGH=,>aj
+    3rU*s[Gm_!73YD[57[\TDs7i5D{<_~3Y5]"=eXo~=uQ>Xj2p>woB,\suBRIBY<kBCRp#}x7}#uoz
+    "LW[+?r2@{^A^RBDAB$WKB<_a=#$<]YY{ZVw^C*ZXr_R~TEBiAHa[@Dv<w!UO52,<ZEI>;sKTUY~
+    pU#=G?qw5pIB\{\lmZ[HT<H37nR(A5,luOapnQw#C2[C~E,\'A;ApjD*?zRTWEUCe1?E$1;m$H3Y
+    'EZ!UCvZm]@rHnABrV<p*m{DFY}-nNj<5r-RK<iU728pm$RX$CT@*-[_3;l'QT]z+x3leu2uxQ1n
+    -wRD?[k9Dp;YC~3aREJUS,gZ=3;K<![12jVm]{K;G-vp'r>{Tp;j#l#ll9N\]ml/o5T2',\oCU~\
+    laaA'J_avj*B5z\Q=B[WWUJ^}#R#'uIwCvz;t'OoT}W-~1C'{f[Q?<i>=Eh3V*Y~*jmOo_xn7#Q+
+    5iY1?mZ~1as;YJZel*}8lHYaI3*+,x,$*E5{o!Y;)&r_vUlu7OdOCj7-zIvweEIj}usKpa_M_],i
+    ol@Jl!TIU'~\4kYj?pW5TLlY}!ljx$&!A{I41AxWHV'p21nQUjk+Gi_Um,!G!Bi^7v$kU^iEI$V~
+    DC^B-T\,XxeAEh\?12T}#\\x}V#'wBPO@>~>'K<--2UCDZ[t]"nQ~a7X-?#_j*F[iT,7k2$gy$3V
+    5o5j!X=r3e?=RU7T[j^ku2e!_orU,+Rsue3\!X}x!c1\{^q'>2-fQ^AaNIJBVs=s+[4G+V+8E3*m
+    1-uYTn!T2Gsu#,l27K{jn=wjOQRi^Ins.]p~o+<Az677-=w_zuT=}{{a7Q+'i1G$wrG2n!zV]=[:
+    E]u^Tnj-?D>KpDD2EmZpR@Cm,m_U\vYmG,_e{*BsE?D}Sv7Wlb!e*Z<X2m(\k<VhYj~KEEB*?=[;
+    lXvQr;'I-Ue]sQAD$<V\+'{w{RaIp\j3xs$'+sZ'sYJ]4qXsAGx5XD$@>1{5,Z27v@#IvO,};AF@
+    <{EpZnHERj-TwaW>E?B8pTvml2xl~O^>0saR=xQ!jC~EUy?j#_HUR_B!BD,X<<u[uE4vW5O#v#*J
+    $kA#CQleE,,\-3~J<DTp5sXw\~]D[VE0Mz=5rDBJpT{pue;jZo-B]7\amveJ>1\A#\;7}^!peoz-
+    HDoU?NsXT$4HI?U^s#KPACw?b=Cou1',{ol+r~YKO'[vzY-DK{O=1#,~BxA*rA7zl81a25\+sU#Y
+    Y[n]DX}KpHzEKC4e^n;IVD[uw,Y{{}O}TQ#C;RJ7?-K27Y-c=e\s'ji1/aUp<~rpsTCun>Ow>=$k
+    rslrGr2*Vp_~\+Eo##G$e3n2E}wn\rr{xXj>RMGjA#_s'sa'#Z^uw^PAno-rWVU?VC*<UeVRszT$
+    WZ[olDl[@{W$5DHX^p}!^$ka>Ksr8Yji^aEzU_7l_D-T,B@O_BA!aI2_+W>x3L[Q'wwoYeuC]_t\
+    Q~^)}XBaW__nvY#awI-E$EiI'jz\jwo#YeaOV,a,-$x}EXT;vwZQT+os+UV2I;,oEY]va|GUa}E{
+    $n-wXn2{[Bo\CB(Y#Z!'HKz'u[Hj,iUsx}vBi]D[v-#?a~_rIg8EGNEQI>$O,vHAeTRv5?2$X-$O
+    r5,0apsU]?Zwji+ux-Ts1#wVGW{Aw(>5]Q7A_;iXnzA1~of~}YX3o7IieZ#rs?T@U{+_5^Kl1}\'
+    ^j?&\]tIKvU-eH,Q_=Zew,v'QK{ImW*2x'iRi;$A-3B[^3a1vZDJ_kAEa>1uA^;5ITBWr=r\nRH;
+    sziDk_{<_$vuL"l&h-*<IuUViUo@~Q3H5{Op~eo{,m}]H#j72o{<;avC[8}C\]5B[o-I3a1H{Dz2
+    [_j[!,"9*$_7'e>?a7D]ln*$j~'^-}!^/ol{Cr<5vfF}-Uj>7^(>5,X>zu>o7v_#-AB=]>RAYlOY
+    2un71Ks|EEXoh5m*afEHCl7K+Rr_o2h*nQ>I'ZCwGx~wsCXir,3_3mUc7T7xEBJYEe^u*1\^t#Un
+    e^DA~I_v^{p@GCV#>xW<n7T*Ep@jiBxV,_EX28H$!=TR<,2T1v}WCzS$W2?z&hEB^2'W=uTRWp+R
+    vU=,e+2H7=piwk2CBpdlY]T5T-B!D}=11?-N}Clo,jB{}7u[}3R=*A=ka=[xQm+mNK<GiZ1o=,XQ
+    3A{BHjlp?NvVp~!jk5<[kHYmY2]ZOixHs!sKaQT+uuGu_2k+EKo;<_>B7aEzok]A[\1EkGb6E!Dm
+    6=+*$NevX,!lou11X15BX$'H;#Aj^2;w1XYvmx^$aweE$kjH322TE'[_jn'=p?mXeB=lZ3x~=\;G
+    r*>lTD71Yx:=5QZZrJa3Vn[]rV=^wx3Ea_TiGZI=e<$**IzOBE@;\aG#HTuV+J'C^2Izk\T5ap}-
+    Ip>7*^+An>ZUI*UE*H\s]T#CoGHa*l]>+]$v?VnxQiG8uDJj*k@{e^nKm1<-K+DAuCj<#VvTODIB
+    I_^~oB--uT{3+^!vx!<,^urK__HJ$xR-|TR^ap\;l%D[#V0B>u~lijumRx}1Tn{Xh"Il_=H=$2[,
+    eekaxC=s2Qp~{[<{,lYA{$BB>?nnUYj\A~D=GX3DBp3qmYiW^QikOA_u<Y,vYiwK-zJeo*R]pVE7
+    N(*v;$$MCpYleq~pO<V.OzIQk-@n#C_x_EII+$;ns>a]J7kBeEIix<^#[3OvXSEw]Vf_s\!*IUp2
+    EB=HB7Emr'nx*nalrT$'oG$NmQ?^(^T;rXI1Xss,owXz}de272s\R@hy@s>-=K@Af1#BQNR+lW31
+    Z}$2Va2Xu<_s{#\~XC~C#'HIK{G7z+Q#[a#+;HX}<7<zGm.*r=@TzB+U\+OUe~IiB''(?jsm:3*}
+    1W_l]DaeWVRnmHeT1<nj,XzV~IKx>#{mu~ao>~AXRYEA~4xCuxOJex>IO]T[{$>U<WpTXx~,Qr~p
+    *~Wr>H~OBOk{lZEr*Ko3wK^aaT*+JZynUs=upJxZ}-]M,7?Kl1+v]W@*A]AGT1>=BOxKXns$NT^<
+    1fG,vAI9[m-ZJG!RL=UrI'npV-X21KE(0\@<l1'-'U^GYkTV@25K^oJsQ-A$n&jV^nvWX$rA2[P;
+    oZ^3Rao@{_ul1BYR^kuEmQ-P1]}emTne[+I(=+^@1BB;R_n*@R+k2Rl=j3Z@}k3+I<~\K_+2_5K=
+    \Ie7}Vk*%T,Hk'hABrBXY{J.|g,>OOWRGXYwXTETa7p\K#*3EQ-]Y3mQa@V*QkY,a!N~5Cv{{C[5
+    X]U;>@~<\jJ[-W;*?Ks$1G*~V;u=5~sW]?[9a[G^!5nD!EH=v$#nB{]rOvEU}n-\]\DkdRH$1uR>
+    *'Ra^Q~5'nH-}_ew-$JKA_JV!/;r\*rAAX^[B@j7<-3Yl,2T]*:wt5+Z]ox+v7Y<OTT72Dk~?{YD
+    ?zJap&LgjvYp5HR<OR#C-QR]S_5JuD7O#T{sAEKlB0$Yzw_=\TF[#-aLelT]=,pTKU=K<=<uw5ka
+    K1{<#s!]{X\*anKTk'K*'QEpzGJ+p5nOw^z$+GiAG,p~dDBV5Np@T!A\pRa]J!oq*z[uv_Ix?{Im
+    g[5VDY?}r>>~,xG]>*Qas?}xmY7Qi^Js5lA\!qijo!p^]!rjkEYV(@aKV_1+V?E]DweKK+x?OA}_
+    o*rr3;x[Y}J\+B-z#db_{a3@EW]H\mDjv7wx@RpE{5jp2Ro~EUDbQzG~B|$2lHNdEv>?K[wRQ_qa
+    YkRIK]#%Y,jpOK^!%;<pmToInW7<HuXI1}w_Dp[Hw<jwl!Q]5iIn]Di!-OAaz3_W_*2A[-G>5e|V
+    IoX|C\VJ5G5-VzOKB0FwA'*'D{K,W*l=E}J>>,Ek^C$xYY5aY-57>l_0zX>'>sVY}<+ABkuEV'nG
+    {E,H8H=T~e<}1+UauEEvwQo'H~e,#,aB~X[o_UGz$y$GAe3ne-[?{xQ^B!F[kEovHme{lD@vTa*^
+    J~?YJQB[eUO~XjzG@u]V?D{Z5=@WU+5sYuj/>LxJ<;!5<-^ujK!CWaR5AoUp[rVBK]wX'uq5O]mv
+    m~J{C!J<-CJKvmoCZXWE!;v}0S52p!Mi+^U{Cuzje7WH,}w$rl?Ors^lmQVE\]'c>r7Qis={x[Ou
+    1oEOoU$oCiaCp'jXXz{'A]-_jJ_j5wjuV[+x1ZBG{$RiG$U$oiAluGrE}',7$RH5x@;[#{'>1zUx
+    [O\{I*7$rOmzRvVp$7KXKleD([uOYDUKCX*5KX[1'[azAtKQTKpElz;jw@GBm<HIpk'1+3C5!27;
+    @z~V?QAT5]HA!7Lo3Tox~X_X*lR6m]JGY'R@}EO*lA,]Q;7ni<E'*xr3Q5$nv>rE?Xr$:Jr-<rz]
+    o?92wEiV@E[f13S#oJ{0IHvsN3]>H5lv\lxOR-l[!7D+*R3r$_)m$xjE5k+z,A~QZ{lw>GW},j,H
+    H!v,Y3zi6<C-1Fr'5RUp}JXrkl'HKk52X!V>r7p~}Z73zn{O_}wXRT?Ha@W^BHTzz;WrK^@5l+YU
+    7}^Ep'\mx7fK^]1<Gx1/DI3_+*![CKWAVOvE]X;hABRK\zGu$2=xE'CuekV^5>$au$]E<>C\W^XU
+    ->~U*]Y!Hj<@Dr@Q^jRE@_~-a7\kGU!pY4z,TE=?XUVnQ>rwQ>![*ePAUp*GB<7zYI>m{HTaXU,W
+    ]W<xWlD1{l'4CZs^=DQGeC1ZC+!-bwoR$F<'Zkm<X<,+D~$zksRBsnIQozaIBwxX+}B~$jO}Ajr<
+    @GAT=Yv,[CswzG+7{@gisXk-sD~zw<zpwGsCwopeDl*6Ko'^5+_]onWC<'[[vWza*{e_]E^;RJ@J
+    ,$?]KCajoG@vWQ<GeRsoDDnE~-!k#G$$6>olEp!zo[Ion5!-'I#w#C5WW$^,n\Y{I[RX'=i[*@OK
+    O+]lU\rUs5x@A}$ElzkE$zoUEqYmGnBWm~d[Q#RV=R+RkxVOj@O,1<sWEaQMrBUm}=sBrw{Kio[2
+    C~Zs^rTD$!GVCp}_\5CB_UVUp\VKoXxurD1G1~O?i*+1-BImC=-\pmw-P]!$a%{'w$O'[{4Kal<D
+    uOCa^?j;1V^UH^Jw5]]9525il${,.N{5_Vr\c#E]H@]]-zQp2s2ZoCskWoT1IEau${w\HzKz>Vz!
+    u_3ZE\D1aEA!}AHzv'u3-{{Jm\}22$uTjV@XE|p'W$o%s>jArJVrQoB*n{x*}1}'(#CXO5]}j1+a
+    mn*J[-}2zw+D*rr]WEDUwsWB2KerBQ@wsB'iUxj$[+O\R_OvsrO{kdYj3xDj!@}BoCBz,v0mA-}]
+    u=7BbL*JJuR>p?X{72QBTvE1U,lUDln-UJ-NAamw[CIjI7arDk@e])'~OseGYH;HOT]o$YGv{!$u
+    17BRlE6H*KE!7-zKQW4_XZ=?ll>YGlr~v,[euT+l~p,L-\2]'jue3UZ'xT*[p@^n}eZ$];Q~GHj#
+    :d*uYG2Y3B@C3eX${OlE?A}Eu=B3!+!'m17K\X#jHlNGn'3l8,UY^As_lVn~WqB^++*'oo&2[BEr
+    I}kgh^@zB5E[<K-n@?TZ,wClDkOQ#r[$]r*$]_kjTIZ'!<pn\*+p^$?[@[aEBN\z-}e~W'IYC*AX
+    p$9k,rWi{3-MH=-{<'-wzC{j^-{plJOp#[YD\}K+5XIxCZOnfpGE]rQu+6mT-IRH[mruKvQpT^^,
+    ]#pn3C*'Zl*3$zQj[Aw1xlgp6axAuQMK7o-X}QC<eI{ZsO#77?Rxm^2om*aCF5?Ar@Hv>*{U-}\Q
+    Q',k;UEp$$W_m![zz-'{-QEx$[^KG'G^mFXOoQ^,Ka'v_QM{D\^YW3CUU^!DS@z<CH}-\PH_\~Ek
+    ,@x3@7[ia;U1=xE7'R[VXQ\T[IcQ!>WX&0%/7U*jn5-J_r1Er53R9U>I#{sYECU{'g2D~jC+wafO
+    _XuACz?Bi;pVm@!vj_}yCIR7Zp_Relmk,^n*aa<aBi}kpO@2n<l]/2l,U~_l=vw1n3xrl'3G$$J]
+    !E?rBV^aXp;E\v+zUrw]$Z-{-pT~KO:G~'#+++ei>U\KO$i.>DHZAjrQlk]OfUp#=^J>\#jOUrB]
+    7B@3}U1m'Qe;,Y\}iT5VY!BHllsQ]iw;VC+=}_Y5U*1Bvij_#,-}RA1i>~p-jIjE#fTY#m7\BeQk
+    C2nD1WOR*E*2jmRCTIB1$IskY1UAsT1sH^3'R2RspetlYZ16i,iuj=#B+'[lV3vkDewwQnJ$Ikv-
+    aB,$1!mnm*QpiQ_+7pWuW<\$}zYp-5eBXjwxDY~Ak$1}0-OK?f~'}kn\s-Yi3r$ouJ*==-mr-Dv-
+    +!eeAl}1,RW1e$O{m-77VY>63_i~W{W}2BHep1n7Yv}5GAWe\g*2;3}mnX2B]Xi^=E]]5;=WBTQe
+    l!aXE@,+33&D]DUiAA;vepHtG;^ra9'u3rzyS]=p\IZbPxKe^DEET$;ejpaXOuR<$zn}$V*k[G*Q
+    x!Ts1f6xre+H,R-{<Dr]Y[m@VQ[,QvZ=zk{,\}\BDA\X]_=xX*vGv3BZ+WmW>H3$X*7=W<w[vYCK
+    ^I'k_!;p@w7iA*;1n}n\iXwWYHRH'ZzpCDGVR}'Ap6Dw+v0}^;1sY7J=>aKHzAaoeD#<=Rwm1Re<
+    H;VJ<G1\3@KICwv;qnnX<k\u^BD1zj]DnT>D2/+BjHRDOU!Y;]YVzB,z+-5!VU#aB=sDTIv2]^=;
+    QeOU]')a,Tx)x~FIe5v\JAudv[,e\<@VG]{ri-\H[<mu^~_iV5-p~]^nW8wU,apu*=GQZTojkW[A
+    W[r3EK;Q^@Gr^>BvOeRzR#YTa2MN_Q#]p5??^?+7>R<C0M4Y<Vu,AZpq-Okxz\K-jx#@?8,#@+C1
+    _=C>BAe5ZAs5[~lwQCznRo!^]_t[[Jm!s#k?w*HcB!H!==O1v>Z?.7aGwymrVUZ'DOyiA;pqiOv{
+    XX\J,'YmEGY@.;nrv.a[p@CrBVw}UXYxr1)=U{RmjoW[uD*In>X^Tl^#p@s)RwATHEVv5m~woerJ
+    P#[>n;}s#NAY{we{apej{HBE}#XRTJOI>R>x^[TpIx#e\2yT[o7~T-a^ET>,t\CZ^5D@Cq2rU@\l
+    Jo"R!E<~wY1Gdxx3<]7Xm'A-D]=T$(D+[]Rv}mU_B!sxxlKzXRs{pEg\mEx(y->>1IC;ru\v'C!'
+    ?BW7\[wTVjGmYriu}u_R,V276A\7~DEHwl<xUN@V{]I;\o7Xl2RX,a$2<wdT[ZTG!_wujkXIeT$H
+    Y~aoH{*ur<e*2YCE[RGJ'HCY=~~%a_w=W<@_xC_Hi'Vk#H]i5k{+JYHv7E2O%l35#'$w}*]3Z!G@
+    {?p\=QW1z!pV?G2JXTB-]Kw!,mGX~-sW_A<r]dlGze<Ozz#D2}^Qk~s7ujl=C<@UlJ\>+GZhI$Vr
+    N>>5VD;~*ZB@'sl1W=Goj'HnK2,ZGRwQuIZ;UTQ#jf>x,-ZOi<GV37+RzR(g!(HpC$,,p[o\z[0p
+    QvWN5r'nVp{pKO>I@RlR,Kz^7#nwN+>Q=T<B@-ho%zi'rO7$]*!^Y2eley(w.,'BlwL2pIuXx#vC
+    \}7f@-*!GK3~l*n'T[K?{$,@6po=]T7vaJrwHU=e{QCzIl#mVvY7'2T{!mC~k>pGTxx__'je>i=]
+    xK^s+5<E$vheQRmyghi\J{^'Qa>B'Xf/c$<D-'ZrZ}ewH4KQ}1>wsYpgTze@Ba=-Im@Qn'1o<DTs
+    p-Z~GA^1LtCWZ?H'?U''xZGGi7l^Y-dIXmWk5C^kwG\.z[lvjZ7O}'eZ+}{]Qx@Cs>I[%QOz;>s2
+    B=m$jGY=QkTHIC!a'?t_[YAD$HXrY,,EB[m*V5Jb[zJa*]#ZORVQzplO}ZQ55Vw~Lek3s,,HGO$2
+    YEs,?V]-vv\nYxsa,7zj5$]Y31^7;O;G>heYjH+<=>o]>XzsIVPJ_v-Tj3#&xeQB\K]1J-R3aR?v
+    pU!?o[41=,j]G;QS'7Z+d[#<mpp,2]H3Ca7mxlZ}}~sl-s$wp?YamnxlBE'H2}=,;UGW$GEDCBev
+    a#{_w2TejTG[xUHDA9r3In1r^r>'j\X>nkC*x1m\V22}UD=munWp1]>v^-^Dp'#]vv5jlDpp'Z's
+    ]]4v<nY*w{3^R'1Z*@1zm$vh~B\7*'5@,ro[@O[Gv*Zl\w}l{z[<@[]TB<DiGD<W*o3J;IB1]=HQ
+    6vl\s<5[jU.v;]xPT]OzH^+*+'\G+o_Z5CAIJ[$>Yzxaj1p+eaXUxR_G}T-^=kY3.[,x]%Va'z'r
+    ]utzzZasv2ULARlkw*~xWp+mQlA~V~$R{>~~aB>z=D~x/l~@1";=-7aY^{IRIVGxw'i,3;wp>TG-
+    n;<YEnCx;e$7eloTa^>+7J2$?Zwp<;Gbd;*W7yn[J]'^KCaxHj;G[jo{'vrT>*+nJGv\=U;D]';w
+    +Yln\k3XZ{jvkw383+9eHr_z>$Ybos#OuOnI[3UC$';*Qn2sV<Y*X7,1xvraDVD5[D}x=['2Un~7
+    mGNt@*QQ"k\^]jz~=}*O^}i5,-\n3z@_]RuII+w[35wU+1es}1lGe}}\kOu1s1\GksKUCy,TYnQ}
+    T-b!\,?EprCHG<C)[uCQK'^]#R=ip#J[{]H[031A@D~E{AV~!j+auKD1m-Yrn{v'5I,<[ZRAsW]*
+    J59$xXBe'e2*(])9[\AV+eIwXQ#1:l<EQAp^>~}uDZ-5>e;*rl_QJzm1r'Q=7_C=G;zj##V@@B]5
+    QJR^[2pGb7s>#U[HD3Q\>3*;uQH=3EQll14n<<rZ\@U1ipk'_<1UAJ-,oln/Z}}<Bj!<xVp_xAT}
+    \[~uvk<$?}e1^QV5#$U>Bj\'O+U,O^?1ksC'smw=Y~O[rC2Ono3El*v@xI<u]^XKk-l^-[=K+U<n
+    .JTUXdJp[\(p]$;v;lrwI7ZFVCO5Ej{_~X+!{$>wKx>*;}JwQu![n\'1slT\CBYDzr>o=<=JBpl;
+    *9_}Cp!xm7poDT]]#2m]X-mj97ne}UTxkexw+<7UDvAZB((=\=$~*?}\GXHx{R{UH2pI<s=[zV+Y
+    ^Qwn1!'e@_Cpl}3YXEK,jT5wE&l{2RTpRW]lspqN0w'+^LE,nOr=RY,s?#5xh^G,r!jQIz#<,W^T
+    mH[i!UjY-TGOI4i_@{~pKls;Uv^jOo,?R\Nkn<#,O71Lp3~I=]TaOvVkJrAnrI3-eu1Ji-O\HBY]
+    O5G_,zUl'>QrPOGX5Iw}^HsppusWZk-A]Rsz#H=]j_>jvs![2T[2'i1AQQi;UP5[w<$W!_pw~n5E
+    IUlK7ReH$HKaXRp_R2gT1'X@R=npwB30>-D}D#+7*!Ewl0j=WJE@uXfkXI'uTzo^VnBDxpKDElXy
+    EGvu9k|Jr3WgJv'l+5rI/D5?XSn+GAR,+,#URu=TY^4.{$O\#Cn+>1mp$WH!-LjXEnx~@xc6BI;,
+    _uD5lA,B=;>H_V3~6T\72b5AU<eVrvC3~?eBAD$V}'w}wsi,]xqCmQ^Mxes??rU-YV_{0}x;Cz;]
+    wGB@zuGU57Re1BE[eTUz#!$p#Nj;XI3e2}aOz_ZOeK2x#E<Y3IL"AUR=Fx&rKW~s]pjt>zVJ3v2I
+    o2vGPi'Q$Dw>Jul{R:mw[Djlw#={2z1h}r{n13x1|K<zQxE2p1r]ColsKW5m!/I+>w5~WQp^HdG[
+    RuR@1}R}\$.N[<>}\;r3U$=-+R3Wznj<{GXXCU@#BX]7pY!$o>IY-{e1#aoR5^!e*kr>W1}CrY1u
+    }IeEo>EX!epOPl*x>E,nnlw!J'$7;~>C+M7TyFm{*\~+oO7]=W@]$\{CKjYJGw=R5G#5_2I~D<A{
+    Ork<2~rHw?+eQpqtA<+]P;w7XO#u+[Mjan5n^WpBo[Ai--e_<IiZ7GU]Elu\7=TJCGpY][]6-,j]
+    O_VlC>o,-]Hjs=RaV^VGulxVJC\Ct\R^WKreeh;RCosa~UeQlEIHZurCX_\pzeq}+An'\m#e%Vj?
+    \\'pI0!7DHW[IU]oA5ze<R?Q!+HHHJ?T'O,RCZI{'KoeGieF3G7QEdO}AW[y5=G?12z@m{TD3n<l
+    vs;Q_2R*3C7C'AxxsUJ<1Go\RT\W*]RzvJ7mHTD5+GJ#~$!R]W{r]hB^!J+wJXK]l,!}5Z(7;^Uo
+    T{pmjlAv6sQXRspu>j[uD3=;$zlWKQ#]QG7eR@,Vn<,$pX\TGklBArHo=1P$15W\,X!qAY2*4RIW
+    s8#<@vsQu!j_;r\#jRD52UDlv,E5,]iB]<Ci$pW+@z{z5ZI,PvZ\<&}V{V3$KJ5m\UV}AG*~Y>Ls
+    TCrqEanvd1TG]#652UE?HIe-jZm,\j!Da_TK,TJI!OREDUrlkxZjnX?kExEe{-~HC{ks>YHz-^#l
+    }z!5RA5Uxxa*uBYY>B-pj$?w-^^Wz_x2zET7>]$}n}XG7!x~U}~d3ae{>nau;^Bijz+_i[}xVHuT
+    S$#=rT'X{D,}pEp{pGA!Emp=GduDe$C,prDQC\vI--POGu!l?$D\?GOYO\Wp-H{h-*O^-jRC]xle
+    p1'-XwOV2EXoil[KCVHp3TZ}_,\Io1D{n=QY:+l3+z5=zEjj-+}#<app~@_i*_K{_QY3@)GOszdX
+    ,#vK1Hs2*-5|.C'aW+B2+7wu-}7K2nwTWe5C[YO#j3pa@.bQ#X<Qxup#'7vZnAr%-5wnCE>3eCe?
+    DZ1zQ5^Y\Bs=uv@31uPx!EOyB~^=^HBKV^#nR^nj|![*E[\>j87m2o7l~u<Dm#8;YZ[ePllTCQ3]
+`endprotected
+// Checks block
+
+  assign preamble_violation = ((xg_start_detected && 
+           !(data[31:8] === 24'h55_55_55 && ctrl[3:1] === 3'b000)) || 
+           (GMII == 0 && present_state === ZI_PREAMBLE_STATE && 
+           !(data[23:0] === 24'h55_55_55 && ctrl [2:0] === 3'b000)) || 
+
+           (GMII == 1 && ((MII_MON == 1 && ((tx_en === 1'b1 && r_tx_en === 1'b0 && tx_er === 1'b0) || 
+           next_state === ZI_PREAMBLE_STATE)) || next_state === ZI_PREAMBLE_STATE) && 
+           data[7:0] !== ZI_PREAMBLE_FIELD));
+  
+  assign sfd_violation = ((GMII == 0 && present_state === ZI_PREAMBLE_STATE && 
+           !(data[31:24] === ZI_SFD_FIELD && ctrl[3] === 1'b0)) ||
+
+           (GMII == 1 && present_state === ZI_PREAMBLE_STATE && 
+           preamble_count === 4'd7 && data[7:0] !== ZI_SFD_FIELD));
+ 
+  assign source_addr_violation = ((GMII==0 && next_state === ZI_SRC_ADDR_STATE 
+           && present_state === ZI_DEST_ADDR_STATE && data[16] === 1'b1) || 
+
+           (GMII==1 && next_state === ZI_SRC_ADDR_STATE && present_state === 
+           ZI_DEST_ADDR_STATE && data[0] === 1'b1));
+
+  assign frame_len_type_field_violation = ((GMII == 0 && 
+          ( (next_state !== ZI_SRC_ADDR_STATE && present_state === ZI_SRC_ADDR_STATE) ||
+            (next_state !== ZI_TAG_CTRL_STATE && present_state === ZI_TAG_CTRL_STATE)) && 
+           ({data[7:0],data[15:8]} > ZI_MAX_DATA_SIZE && {data[7:0],data[15:8]}
+           < 16'd1536)) || 
+   
+           (GMII == 1 && present_state === ZI_LEN_TYPE_STATE &&
+           next_state === ZI_LEN_TYPE_STATE && ({len_type_high_byte,data[7:0]} 
+           > ZI_MAX_DATA_SIZE && {len_type_high_byte,data[7:0]} < 16'd1536)));
+
+`ifdef QVL_GBIT_USER_TYPES_COUNT 
+
+reg [`QVL_GBIT_USER_TYPES_COUNT-1:0] illegal_value_detected; 
+reg [15:0] user_type_data;
+integer k;
+
+initial begin
+  illegal_value_detected = 0;
+  user_type_data = 0;
+end
+
+always @(data or next_state or present_state or len_type_high_byte) begin
+
+  illegal_value_detected = 0;
+  user_type_data = 0;
+
+  for (k=0; k < `QVL_GBIT_USER_TYPES_COUNT; k=k+1) begin
+
+    user_type_data =  (`QVL_GBIT_USER_TYPES >> (k << 4) );
+
+      illegal_value_detected [k] = ( 
+        (GMII == 0 && next_state === ZI_DATA_STATE && present_state !== ZI_DATA_STATE && 
+         {data[7:0],data[15:8]} >= 16'd1536 && ({data[7:0],data[15:8]} ===  user_type_data) ) ||
+        (GMII == 1 && present_state === ZI_LEN_TYPE_STATE && next_state === ZI_LEN_TYPE_STATE && 
+         ({len_type_high_byte,data[7:0]} >= 16'd1536) && ({len_type_high_byte,data[7:0]} === user_type_data) ) 
+                                   );
+  end  //for (k=0; k < `QVL_GBIT_USER_TYPES_COUNT; k=k+1) begin
+
+end //always @(data or next_state
+
+   assign illegal_type_violation  = (
+        (GMII == 0 && next_state === ZI_DATA_STATE && present_state !== ZI_DATA_STATE && 
+         {data[7:0],data[15:8]} >= 16'd1536 && !(|illegal_value_detected) ) ||
+        (GMII == 1 && present_state === ZI_LEN_TYPE_STATE && next_state === ZI_LEN_TYPE_STATE && 
+         ({len_type_high_byte,data[7:0]} >= 16'd1536) && !(|illegal_value_detected) )  );
+
+`else //`ifdef QVL_GBIT_USER_TYPES_COUNT
+
+  assign illegal_type_violation = ((GMII == 0 && next_state === ZI_DATA_STATE 
+           && present_state !== ZI_DATA_STATE && {data[7:0],data[15:8]} >=
+           16'd1536 && !({data[7:0],data[15:8]} === 16'h81_00 || 
+           {data[7:0],data[15:8]} === 16'h88_08 || {data[7:0],data[15:8]} === 
+           16'h88_70)) || 
+  
+           ((GMII == 1 && present_state === ZI_LEN_TYPE_STATE && next_state
+           === ZI_LEN_TYPE_STATE && ({len_type_high_byte,data[7:0]} >= 
+           16'd1536) && (!({len_type_high_byte,data[7:0]} === 16'h81_00 || 
+           {len_type_high_byte,data[7:0]} === 16'h88_08 || 
+           {len_type_high_byte,data[7:0]} === 16'h88_70)))));
+
+`endif //`ifdef QVL_GBIT_USER_TYPES_COUNT
+
+  assign min_frame_size_violation = ((terminate_within_frame || 
+           start_before_end_of_current_frame || legal_end_of_frame) && 
+           (((GMII==1) && packet_col_check_gmii) || GMII ==0) &&
+           ((frame_type <= ZI_MAX_DATA_SIZE || frame_type === 16'h88_08 ||
+           frame_type === 16'h88_70) &&
+           (((MAC_MIN_TAGGED_FRAME_SIZE_68==0) &&(frame_size_count < ZI_MIN_FRAME_SIZE))||
+           ((MAC_MIN_TAGGED_FRAME_SIZE_68==1) &&(frame_size_count < ZI_MIN_FRAME_SIZE-4)))));
+
+  assign frame_length_mismatch_violation = (legal_end_of_frame === 1'b1 && 
+           (((requested_data_length < 16'd46 || frame_type === 16'h88_08) && 
+           (((MAC_MIN_TAGGED_FRAME_SIZE_68==0) &&(frame_size_count < ZI_MIN_FRAME_SIZE))||
+           ((MAC_MIN_TAGGED_FRAME_SIZE_68==1) &&(frame_size_count < ZI_MIN_FRAME_SIZE-4))))||
+           (requested_data_length >= 16'd46 && frame_type !== 16'h88_08 && 
+           (requested_data_length <= 16'd1500 || frame_type === 16'h88_70) && 
+           (frame_size_count !== (requested_data_length + 16'd18)))));
+
+  assign control_frame_length_violation = (((GMII == 0 && 
+           r_xg_terminate_detected === 1'b1) ||
+  
+           (GMII == 1 && g_ipg_idle_detected === 1'b1)) && frame_type === 
+           ZI_UNTAG_CTRL && frame_size_count !== ZI_MIN_FRAME_SIZE);
+
+  assign pause_ctrl_reserved_field_violation = ((GMII == 0 && next_state === 
+           ZI_CTRL_PARAM_STATE && xg_ctrl_opcode === ZI_PAUSE_OPCODE && ((present_state !== ZI_CTRL_PARAM_STATE && 
+           data[31:16] !== 16'h0 ) || (present_state === ZI_CTRL_PARAM_STATE && data !== 32'h0))) ||
+ 
+           (GMII==1 && HALF_DUPLEX == 0 && next_state === ZI_CTRL_PARAM_STATE && present_state === 
+           ZI_CTRL_PARAM_STATE && last_state === ZI_CTRL_PARAM_STATE && g_ctrl_opcode === ZI_PAUSE_OPCODE && 
+           data !== 32'h0 ));
+
+  assign packet_crc_violation = (((GMII==0 && (r_terminate_within_frame || 
+           legal_end_of_frame)) ||
+ 
+           (GMII==1 && packet_col_check_gmii && ((TX_INTERFACE == 1 && tx_en == 1'b0 && 
+           r_tx_en == 1'b1) || (TX_INTERFACE == 0 && rx_dv == 1'b0 && 
+           r_rx_dv == 1'b1)))) && current_fcs !== ZI_CRC_RESIDUAL);
+
+  assign max_frame_size_violation = (frame_type <= ZI_MAX_DATA_SIZE && 
+           ((GMII == 0 && (present_state === ZI_DATA_STATE || 
+           present_state === ZI_FCS_STATE || present_state === 
+           ZI_TERMINATE_STATE) && frame_size_count > 16'd1518) || 
+
+           (GMII == 1 && !(present_state === ZI_IDLE_STATE || 
+           present_state === ZI_PREAMBLE_STATE || present_state === 
+           ZI_LEN_TYPE_STATE || present_state === ZI_CAR_EXTN_STATE) && 
+           frame_size_count > 16'd1518)));
+
+
+  assign local_fault_on_tx_interface = (data[23:0] === 24'h00_00_9C && 
+           ctrl[2:0] === 3'b001 && data[31:24] === 8'h01 && TX_INTERFACE == 1 
+           && GMII == 0); 
+
+  assign min_ifg_violation_on_rx = (TX_INTERFACE == 0 && first_frame == 1'b1 &&
+           ((xg_start_detected && GMII==0 && inter_frame_gap < 64'd5) || 
+
+           (GMII==1 && g_rx_interface_valid && r_rx_dv === 1'b0 && (( MII_MON == 0 &&  inter_frame_gap < 64'd8)
+            || (MII_MON == 1 && inter_frame_gap < 64'd16)))));
+
+  assign min_ifg_violation_on_tx = (TX_INTERFACE == 1 && first_frame == 1'b1 &&
+           ((GMII==0 && xg_start_detected && ((inter_frame_gap < 64'd12 && !DIC_SUPPORTED)||
+            (inter_frame_gap < 64'd9 && DIC_SUPPORTED)))   || 
+
+           (GMII==1 && g_tx_interface_valid && r_tx_en === 1'b0 && ((MII_MON == 0  &&  inter_frame_gap < 64'd12) ||
+           (MII_MON == 1 && inter_frame_gap < 64'd24) ))));
+
+  wire pause_frame_dest_addr_violation_FIRE_CONDITION = (GMII == 0 && TX_INTERFACE == 1 &&
+           next_state === ZI_CTRL_OPCODE_STATE && present_state !==
+           ZI_CTRL_OPCODE_STATE && data[31:16] === ZI_PAUSE_OPCODE); 
+
+  assign pause_frame_dest_addr_violation = ((GMII == 0 && TX_INTERFACE == 1 && 
+           next_state === ZI_CTRL_OPCODE_STATE && present_state !== 
+           ZI_CTRL_OPCODE_STATE && data[31:16] === ZI_PAUSE_OPCODE && 
+            (destination_address[23:0] !== zi_pause_dest_addr_low || 
+             destination_address[47:24] !== zi_pause_dest_addr_high) ) ||
+           (GMII == 1 && TX_INTERFACE == 1 && HALF_DUPLEX == 0 && next_state === ZI_CTRL_PARAM_STATE && 
+            present_state === ZI_CTRL_OPCODE_STATE && g_ctrl_opcode === ZI_PAUSE_OPCODE && 
+            g_destination_address !== {zi_pause_dest_addr_high,zi_pause_dest_addr_low}));
+
+  assign reserved_ctrl_opcode_violation = (
+          (GMII == 0 && next_state === ZI_CTRL_OPCODE_STATE && present_state !== ZI_CTRL_OPCODE_STATE && 
+           (data[31:16] !== ZI_PAUSE_OPCODE && !RESERVED_CONTROL_FRAME_SUPPORTED)) ||
+          (GMII == 1 && next_state === ZI_CTRL_PARAM_STATE && present_state === ZI_CTRL_OPCODE_STATE && 
+           (g_ctrl_opcode !== ZI_PAUSE_OPCODE && !RESERVED_CONTROL_FRAME_SUPPORTED)) 
+          );
+
+  //burst_frame_extension_count*8 -8 is checked as it start counting from second preamble in octet and BURST_LIMIT is in bits.
+  assign gmii_burst_limit_exceed = (GMII == 1 && MII_MON == 0 && HALF_DUPLEX == 1 
+                                    && (burst_frame_extension_count*8 > (BURST_LIMIT + 8)));
+
+  //In Half Duplex Mode PAUSE_FRAME is not allowed
+  assign pause_frame_halfduplex_violation = (GMII == 1 && HALF_DUPLEX ==1 && 
+           next_state === ZI_CTRL_PARAM_STATE && present_state === ZI_CTRL_OPCODE_STATE 
+           && g_ctrl_opcode === ZI_PAUSE_OPCODE); 
+
+  //burst_frame_extension_count -19 is checked as it start counting from second preamble so 7 octetes and 12 interframe.
+  assign gmii_incorect_extension_length = (GMII == 1 && MII_MON == 0 && HALF_DUPLEX ==1 && 
+           burst_first_frame === 1'b1 && burst_continued_frame === 1'b0 &&
+           (  (r_burst_frame === 1'b1 && burst_frame === 1'b0 && (burst_frame_extension_count ) < SLOT_TIME +19)
+           || (burst_frame === 1'b1 && next_state == ZI_IDLE_STATE && present_state !== ZI_IDLE_STATE && 
+           (( TX_INTERFACE == 1 && tx_en === 1'b0 && tx_er === 1'b0) || (TX_INTERFACE == 0 && rx_er === 1'b0 && rx_dv === 1'b0))  
+           && (burst_frame_extension_count ) < SLOT_TIME +7)));
+
+  //Late collision occurs when either first frame is gone (with extension ) or slot time (counted from preamble) is passed .
+  assign late_collision = (GMII == 1 && HALF_DUPLEX ==1 && TX_INTERFACE == 1 && (col === 1'b1 &&
+                          (burst_frame_extension_count +1 >SLOT_TIME))); 
+
+  //Jam Size Violation when JAM sent after collision is less than JAM_SIZE.
+  assign jam_size_violation = (GMII ==1 && HALF_DUPLEX ==1 && TX_INTERFACE ==1 && r_packet_col_check_gmii === 1'b0 
+                               && packet_col_check_gmii === 1'b1 && jam_count < JAM_SIZE); 
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_gigabit_ethernet_mac_monitor_assertions.svh"
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_mac_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_mac_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_mac_monitor
+`include "zi_cw_gigabit_ethernet_mac_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_gigabit_ethernet_mac_monitor

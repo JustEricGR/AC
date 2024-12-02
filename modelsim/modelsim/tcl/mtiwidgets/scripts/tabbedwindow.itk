@@ -1,0 +1,891 @@
+###############################################################################
+#
+# Tabbed window pane.
+#
+# Combine a panedwindow with tabs (a.k.a. notebook)
+#  allows nesting of tabbed windows
+#
+# Author: Brian Griffin & Ron Wold
+#
+# Tabbedwindow COPYRIGHT © 2007 Mentor Graphics Corporation
+#
+###############################################################################
+#
+#  NOTE!!!!!!
+#	A tabbed window has a "panes" method which returns an ordered list of panes.
+#   This list will be in the order in which the tabs are displayed.  Hidden windows
+#   are attached to the end.  A call to 
+#		$itk_component(pw) panes
+#	is not the same!  This is the list of panes as stored in the panewindow subclass,
+#   and this list will be based on the order in which they were added, not the order
+#   in which they were displayed.
+#
+
+proc mtiwidgets::tabbedwindow {pathName args} {
+    uplevel mtiwidgets::Tabbedwindow $pathName $args
+}
+
+itcl::class mtiwidgets::Tabbedwindow {
+	inherit itk::Widget
+
+	constructor {args} {}
+	destructor {}
+
+	itk_option define -command command Command {}
+	itk_option define -mode mode Mode paned  ;# Enum: paned tabbed
+	itk_option define -panemanager panemanager Panemanager {}
+	
+	public method add {args}
+	public method normal {args}
+	public method forget {args}
+	public method identify {x y}
+	public method panecget {window option}
+	public method paneconfigure {window args}
+	public method windowhidden { window } 
+	public method windowhiddenmode { window}
+	public method panes {}
+	public method paneframe_count { } 
+	public method pane_count {} 
+	public method children_are_paneframes {}
+	public method _genPageSelected { } 
+
+	public method proxy {cmd args}
+	public method sash {cmd args}
+
+	public method bbox {}
+	public method next {}
+	public method tabcget {window option}
+	public method tabconfigure {window args}
+	public method prev {}
+	public method select {window}               
+	public method getSelected {}
+	public method ActivePanedWindow { } 
+	public method tab_count { } 
+	public method HasVisibleChildren { }
+	public method VisibleChildrenCount { }
+
+	public method DumpData { {mode 0 }} 
+	private method _getargs {optionList argListvar}
+	private method _select {active}
+	private method _tabselect {active}
+	public method updatetabs { } 
+	public method renametab { window } 
+	public method WindowHasTab { window } 
+	public method WindowPrevious { window } 
+	public method OrderedWindowList { } 
+	public method showtabs { } 
+	public method hidetabs { } 
+	private method updateidle { } 
+	private variable _initialized 0
+}
+
+itcl::body mtiwidgets::Tabbedwindow::constructor {args} {
+	itk_component add pw {
+		panedwindow $itk_component(hull).pw
+	} {
+		keep -background -borderwidth -cursor -handlepad
+		keep -handlesize -height -opaqueresize -orient 
+		keep -relief -sashcursor -sashpad -sashrelief
+		keep -sashwidth -showhandle -width
+	}
+
+	itk_component add ts {
+		mtiwidgets::draggabletabset $itk_component(hull).ts   
+	} {
+		keep -angle -backdrop -background -bevelamount -clientdata
+		keep -cursor -disabledforeground -equaltabs -font
+		keep -foreground -gap -margin -padx -pady -raiseselect
+		keep -start -state -tabborders
+		keep -tabpadx -tabpady -tabpos -menu   -alwaysselect
+		keep -panemanager
+		ignore -height -width -command
+		rename -selectbackground -tabselectbackground tabSelectBackground TabSelectBackground
+		rename -selectforeground -tabselectforeground tabSelectForeground TabSelectForeground
+	}
+
+
+	$itk_component(ts) configure -command [itcl::code $this _tabselect] -alwaysselect 1
+    bind $itk_component(ts) <<TabSelected>> [code $this _genPageSelected]
+	grid $itk_component(pw) -sticky nsew -row 0 -column 0
+	grid columnconfigure $itk_component(hull) 0 -weight 1
+	grid rowconfigure $itk_component(hull)    0 -weight 1
+	eval itk_initialize $args
+	set _initialized 0
+}
+
+proc mtiwidgets::class_is_paneframe { w } {
+	set win_class [winfo class $w]
+	if { $win_class eq "Paneframe" || $win_class eq "WindowObj"}  {
+		return 1
+	}
+	return 0
+}
+
+proc mtiwidgets::class_is_windowobj { w } {
+	set win_class [winfo class $w]
+	if { $win_class eq "WindowObj"}  {
+		return 1
+	}
+	return 0
+}
+
+proc mtiwidgets::class_is_tabbedwindow { w } {
+	set win_class [winfo class $w]
+
+	if { $win_class eq "Tabbedwindow" }  {
+		return 1
+	}
+	return 0
+}
+
+proc mtiwidgets::class_is_placeholder { w } {
+	if {[regexp {(.*),ph} $w dummy true_p]} {
+		return 1
+	}
+	return 0
+}
+
+
+itcl::body mtiwidgets::Tabbedwindow::_genPageSelected { } {
+	event generate [ActivePanedWindow] <<PageSelected>>
+}
+
+itcl::body mtiwidgets::Tabbedwindow::destructor {} {
+}
+
+itcl::body mtiwidgets::Tabbedwindow::DumpData {{ mode 0 }} {
+	set idx 0
+	foreach w [panes] {
+		if {[class_is_windowobj $w] } {
+			set windowlabel [$w cget -tab_label]
+
+			if { $mode ==1 } {
+				puts stdout "idx $idx  class [winfo class $w] name $windowlabel"
+			} else { 
+				echo idx $idx  class [winfo class $w] name $windowlabel
+			}
+		} else { 
+			if { $mode ==1 } {
+				puts stdout "idx $idx  class [winfo class $w]"
+			} else { 
+				echo idx $idx  class [winfo class $w] 
+			}
+		}
+		incr idx
+	}
+	$itk_component(ts)	dumptabs $mode
+}
+
+itcl::body mtiwidgets::Tabbedwindow::paneframe_count {} {
+	set i 0
+	foreach w [panes] {
+		if {[mtiwidgets::class_is_paneframe $w]} {
+			incr i
+		}
+	}
+	return $i
+}
+
+itcl::body mtiwidgets::Tabbedwindow::children_are_paneframes {} {
+	set i 0
+	foreach w [panes] {
+		if {[mtiwidgets::class_is_tabbedwindow $w] } {
+			return 0
+		}
+	}
+	return 1
+}
+
+
+itcl::body mtiwidgets::Tabbedwindow::pane_count {} {
+	set i 0
+	foreach w [panes] {
+		incr i
+	}
+	return $i
+}
+
+itcl::body mtiwidgets::Tabbedwindow::updatetabs {} {
+	if { $itk_option(-mode) == "tabbed" } {
+		set tab_count [$itk_component(ts) tab_count]
+		hidetabs
+		if { $tab_count > 1 } { 
+			showtabs
+		} 
+	} else { 
+		hidetabs
+	}
+}
+
+itcl::body mtiwidgets::Tabbedwindow::updateidle {} {
+	if { $_initialized } {
+		if { ($itk_option(-panemanager) ne "") && [$itk_option(-panemanager) initialized] } { 
+			update idletasks
+		}
+	}
+}
+
+
+itcl::body mtiwidgets::Tabbedwindow::tab_count {} {
+	if { $itk_option(-mode) == "tabbed" } {
+		return [$itk_component(ts) tab_count]
+	} else { 
+		return 0
+	}
+}
+
+
+itcl::body mtiwidgets::Tabbedwindow::showtabs {} {
+	grid $itk_component(ts) -row 1 -column 0 -sticky nsew
+	grid $itk_component(pw) -sticky nsew -row 0 -column 0
+	$itk_component(ts) UpdateTabs
+	updateidle
+}
+
+itcl::body mtiwidgets::Tabbedwindow::hidetabs {} {
+	grid forget $itk_component(ts) 
+	updateidle
+	grid $itk_component(pw) -sticky nsew -row 0 -column 0
+	updateidle
+}
+
+itcl::body mtiwidgets::Tabbedwindow::renametab { window }  {
+	$itk_component(ts) renametab $window
+}
+
+itcl::body mtiwidgets::Tabbedwindow::WindowHasTab { window }  {
+	if { $itk_option(-mode) == "tabbed" } {
+		return [$itk_component(ts) WindowHasTab $window]
+	}
+	return 0
+}
+
+itcl::body mtiwidgets::Tabbedwindow::WindowPrevious { window }  {
+	return [$itk_component(ts) WindowPrevious $window]
+}
+
+itcl::body mtiwidgets::Tabbedwindow::OrderedWindowList { }  {
+	return [$itk_component(ts) OrderedWindowList ]
+}
+
+itcl::configbody mtiwidgets::Tabbedwindow::mode {
+	if { $itk_option(-mode) == "tabbed" } {
+		set act [ActivePanedWindow]
+		if { $act ne "" } {
+			foreach w [panes] {
+				if {[mtiwidgets::class_is_paneframe $w] } {
+					if { $w != $act } {
+						$itk_component(pw) paneconfigure $w -hide 1
+					}
+				}
+			}
+			$itk_component(pw) paneconfigure $act -hide 0
+			select $act
+		}
+	} else {
+		set tabs [$itk_component(ts) gettabs]
+		foreach tab $tabs { 
+			set w [$itk_component(ts) windowTab $tab]
+			if {[winfo exists $w] } {
+				$itk_component(pw) paneconfigure $w -hide 0
+			}
+		}
+	}
+	updatetabs
+}
+
+itcl::body mtiwidgets::Tabbedwindow::ActivePanedWindow { } {
+	if { $itk_option(-mode) == "tabbed" } {
+		foreach w [panes] {
+			if {[mtiwidgets::class_is_paneframe $w]} {
+				if { [$itk_component(pw) panecget $w -hide ] == 0 }  {
+					return $w
+				}
+			}
+		}
+	}
+ 
+
+	return ""
+}
+
+set goo 0
+
+itcl::body mtiwidgets::Tabbedwindow::add { args} {
+	set tabname  ""
+	set sel_window ""
+	set window [lindex $args 0]
+
+	# this code is to detect an incorrect add
+	set win_class [winfo class $window]
+	if { $win_class eq "Frame" } {
+		set win_class WindowObj
+	}
+
+	foreach w [panes] {
+		set child_win_class [winfo class $w]
+		if { $child_win_class eq "Frame" } {
+			set child_win_class WindowObj
+		}
+
+		if {$win_class ne $child_win_class} {
+			echo Internal Error - attempting to add $window to tabbed pane $this 
+			echo window is type [winfo class $window] and tabbed pane already has child $w type [winfo class $w]			
+			CallTrace echo
+		} 
+	}
+	# end add failure detection
+
+	set hide_arg 0
+	if {[set ix [lsearch -exact $args -hide]] >= 0} {
+		set hide_arg [lindex $args [expr {$ix + 1}]]
+		set args [lreplace $args $ix [expr {$ix + 1}]]
+	}
+	set paneoptions [list -after -before -height -minsize -padx -pady -sticky -width -stretch]
+
+	set paneargs [_getargs $paneoptions args]
+	lappend paneargs -hide $hide_arg
+	eval [concat $itk_component(pw) add $args $paneargs] 
+	if { $hide_arg == 0} {
+		if {[mtiwidgets::class_is_paneframe $window] } {
+			$itk_component(ts) addWindowTab $window 
+			select $window 
+		}
+	} 
+	updatetabs
+}
+
+itcl::body mtiwidgets::Tabbedwindow::normal { args} {
+	set tabname  ""
+	set sel_window ""
+	set window [lindex $args 0]
+
+	if {[mtiwidgets::class_is_windowobj $window]} {
+		set tabname [$window cget -tab_label]
+	}
+	set hide_arg 0
+	if {[set ix [lsearch -exact $args -hide]] >= 0} {
+		set hide_arg [lindex $args [expr {$ix + 1}]]
+		set args [lreplace $args $ix [expr {$ix + 1}]]
+	}
+	set paneoptions [list -after -before -height -minsize -padx -pady \
+						 -sticky -width -stretch]
+	set paneargs [_getargs $paneoptions args]
+	if {$itk_option(-mode) ne "tabbed"} {
+		lappend paneargs -hide $hide_arg
+	}
+	
+	eval [concat $itk_component(pw) add $args $paneargs] 
+	if { $hide_arg == 0} {
+		if {[mtiwidgets::class_is_paneframe $window] } {
+			select $window 
+		}
+	} 
+	updatetabs
+
+}
+
+# forget window ?window ...?
+#
+# Remove the pane containing window from the panedwindow. All geometry
+# management options for window will be forgotten.
+
+itcl::body mtiwidgets::Tabbedwindow::forget {args} {
+	set active_forgotten 0
+	set aw [ActivePanedWindow]
+	foreach w $args {
+		if {[lsearch -exact [$itk_component(pw) panes] $w] < 0} {
+			error "Bad window: $w"
+		}
+		set selectidx -1
+		if { $w eq $aw } {
+			set active_forgotten 1
+			set sibling [$itk_option(-panemanager) windowprevious $w]
+			if { $sibling ne "" } {
+				set selectidx [$itk_component(ts) indexFromWindow $sibling]
+			}	
+		}
+
+		$itk_component(pw) forget $w
+
+		if {[mtiwidgets::class_is_windowobj $w]} {
+			$itk_component(ts) removeWindowTab $w 
+		}
+
+		if {$itk_option(-mode) eq "tabbed"} {
+			set tab_count [$itk_component(ts) tab_count]
+			if { $tab_count >= 1 && $active_forgotten} {
+				if { $tab_count > 1 && $selectidx > -1 && $selectidx < $tab_count} {	
+					$itk_component(ts) select $selectidx
+				} else { 
+					$itk_component(ts) select 0
+				}
+			}
+		}	
+	}
+	updatetabs
+}
+
+# identify x y 
+#
+# Identify the panedwindow component underneath the point given by x
+# and y, in window coordinates. If the point is over a sash or a sash
+# handle, the result is a two element list containing the index of the
+# sash or handle, and a word indicating whether it is over a sash or a
+# handle, such as {0 sash} or {2 handle}. If the point is over any
+# other part of the panedwindow, the result is an empty list.
+
+itcl::body mtiwidgets::Tabbedwindow::identify {x y} {
+	$itk_component(pw) identify $x $y
+}
+
+# panecget window option
+#
+# Query a management option for window. Option may be any value
+# allowed by the paneconfigure subcommand.
+
+itcl::body mtiwidgets::Tabbedwindow::panecget {window option} {
+	set hide_arg [lsearch -exact $option -hide]
+	if { [catch {$itk_component(pw) panecget $window $option} ret_val] } { 
+		return 0
+	}
+	if { $hide_arg != -1 && $itk_option(-mode) == "tabbed" && [mtiwidgets::class_is_windowobj $window]}  {
+		set tab_index [$itk_component(ts) indexFromWindow $window]
+		if { $tab_index != -1 } {
+			return 0
+		} 
+	} 
+	
+	return $ret_val
+	
+}
+
+# paneconfigure window ?option? ?value option value ...?
+#
+# Query or modify the management options for window. If no option is
+# specified, returns a list describing all of the available options
+# for pathName (see Tk_ConfigureInfo for information on the format of
+# this list). If option is specified with no value, then the command
+# returns a list describing the one named option (this list will be
+# identical to the corresponding sublist of the value returned if no
+# option is specified). If one or more option-value pairs are
+# specified, then the command modifies the given widget option(s) to
+# have the given value(s); in this case the command returns an empty
+# string. The following options are supported:
+#
+# -after window
+# 	Insert the window after the window specified. window should be the
+# 	name of a window already managed by pathName.
+#
+# -before window
+# 	Insert the window before the window specified. window should be the
+# 	name of a window already managed by pathName.
+#
+# -height size
+# 	Specify a height for the window. The height will be the outer
+# 	dimension of the window including its border, if any. If size is an
+# 	empty string, or if -height is not specified, then the height
+# 	requested internally by the window will be used initially; the
+# 	height may later be adjusted by the movement of sashes in the
+# 	panedwindow. Size may be any value accepted by Tk_GetPixels.
+#
+# -minsize n
+# 	Specifies that the size of the window cannot be made less than
+# 	n. This constraint only affects the size of the widget in the paned
+# 	dimension -- the x dimension for horizontal panedwindows, the y
+# 	dimension for vertical panedwindows. May be any value accepted by
+# 	Tk_GetPixels.
+#
+# -padx n
+# 	Specifies a non-negative value indicating how much extra space to
+# 	leave on each side of the window in the X-direction. The value may
+# 	have any of the forms accepted by Tk_GetPixels.
+#
+# -pady n
+# 	Specifies a non-negative value indicating how much extra space to
+# 	leave on each side of the window in the Y-direction. The value may
+# 	have any of the forms accepted by Tk_GetPixels.
+#
+# -sticky style
+# 	If a window's pane is larger than the requested dimensions of the
+# 	window, this option may be used to position (or stretch) the window
+# 	within its pane. Style is a string that contains zero or more of the
+# 	characters n, s, e or w. The string can optionally contains spaces
+# 	or commas, but they are ignored. Each letter refers to a side
+# 	(north, south, east, or west) that the window will "stick" to. If
+# 	both n and s (or e and w) are specified, the window will be
+# 	stretched to fill the entire height (or width) of its cavity.
+#
+# -width size
+# 	Specify a width for the window. The width will be the outer
+# 	dimension of the window including its border, if any. If size is an
+# 	empty string, or if -width is not specified, then the width
+# 	requested internally by the window will be used initially; the width
+# 	may later be adjusted by the movement of sashes in the
+# 	panedwindow. Size may be any value accepted by Tk_GetPixels.
+
+
+itcl::body mtiwidgets::Tabbedwindow::paneconfigure {window args} {
+	# note - the hide argument is special and this class must 
+	# manage the switch and not allow the caller to change things
+	# this is due to the difference between a real hidden window,
+	# one that is just a place holder, versus a window that is 
+	# in tabbed mode and is not in front.  In both of these cases 
+	# the window's hide flag is true
+	if { [llength $args] == 0 } {
+		return [eval [linsert $args 0 $itk_component(pw) paneconfigure $window]]
+	}
+
+
+	set hide_arg [lsearch -exact $args -hide]
+	#if they are configuring hide and this is a tabbed pane and the window we are talking about
+	#is a real window (not another tabbedwindow) then we need to process the hide carefully
+	if { $hide_arg != -1 && $itk_option(-mode) == "tabbed" && [mtiwidgets::class_is_windowobj $window]}  {
+		if {[set ix [lsearch -exact $args -hide]] >= 0} {
+			set hide_arg [lindex $args [expr {$ix + 1}]]
+			set args [lreplace $args $ix [expr {$ix + 1}]]
+		}
+		if { [llength $args] > 0 } {
+			#handle any other config options
+			eval [linsert $args 0 $itk_component(pw) paneconfigure $window]
+		}
+		set tab_count [$itk_component(ts) tab_count]
+		set current_tab_index [$itk_component(ts) indexFromWindow $window]
+		if { $hide_arg == 0 } {	# were showing something
+			if {$current_tab_index != -1 } { 
+				# this window is already in the tabset
+
+				if { $tab_count > 1} {
+					# multiple tabs and this is one of them, force it to the front
+					select $window
+				}
+				# if its the only one, its visible so do nothing
+				return
+			}
+			# were showing a window that was really hidden, not just in back of the tab group
+			$itk_component(ts) addWindowTab $window 
+			# make sure the tab group is visible
+			updatetabs
+			select $window
+			return
+		} else {				# were hiding something
+			if {$current_tab_index == -1 } {
+				# its already hidden
+#				return
+			}			
+			$itk_component(ts) removeWindowTab $window 
+			$itk_component(pw) paneconfigure $window -hide 1
+			set tab_count [$itk_component(ts) tab_count]
+			updatetabs
+			if { $tab_count > 0 } {	
+				$itk_component(ts) select 0
+			}
+		}
+	} else { 		
+		eval [linsert $args 0 $itk_component(pw) paneconfigure $window]
+	}
+
+}
+
+itcl::body mtiwidgets::Tabbedwindow::windowhidden { window }  { 
+	if {[wm toplevel $window]} {
+		return 0
+	}
+	if {[mtiwidgets::class_is_windowobj $window]} {
+		if { [$itk_component(pw) panecget $window -hide ] == 0 }  {
+			return 0
+		}
+		if 	{ $itk_option(-mode) == "tabbed" && [$itk_component(ts) indexFromWindow $window] >= 0 } {
+			return 0
+		}
+		return 1
+	} else { 
+		if { [$itk_component(pw) panecget $window -hide ] == 0 }  {
+			return 0
+		}
+		return 1
+	}
+}
+
+# Zips recursively through the pane structure looking for anything below
+# this level that is visible.  Used when creating the drag map
+
+itcl::body mtiwidgets::Tabbedwindow::HasVisibleChildren {  }  { 
+	foreach w [panes] {
+		if {[mtiwidgets::class_is_paneframe $w]} {
+			if { ![ windowhidden $w] } {
+				return 1
+			}
+		} else { 
+			if {[mtiwidgets::class_is_tabbedwindow $w] && [$w HasVisibleChildren ] } {
+				return 1
+			}
+		} 
+	}
+	return 0
+}
+
+
+itcl::body mtiwidgets::Tabbedwindow::VisibleChildrenCount {  }  { 
+	set cnt 0
+	foreach w [panes] {
+		if {[mtiwidgets::class_is_paneframe $w]} {
+			if { ![ windowhidden $w] } {
+				incr cnt
+			}
+		} 
+	}
+	return $cnt
+}
+
+
+itcl::body mtiwidgets::Tabbedwindow::windowhiddenmode { window }  { 
+	if {![mtiwidgets::class_is_paneframe $window]} {
+		return ""
+	}
+	
+	if { [$itk_component(pw) panecget $window -hide ] == 0 }  {
+		return visible
+	}
+
+	set tabname [$window cget -tab_label]
+	if 	{ $itk_option(-mode) == "tabbed" && [$itk_component(ts) indexFromWindow $window] >= 0 } {
+		return "in tab group"
+	}
+	return hidden
+}
+
+# panes
+#
+# Returns an ordered list of the widgets managed by pathName.
+
+itcl::body mtiwidgets::Tabbedwindow::panes {}	{
+	set pane_list [$itk_component(pw) panes]
+	set ordered_list [OrderedWindowList]
+	set return_list [list]
+	foreach windowobj $ordered_list {
+		set ix [lsearch -exact $pane_list $windowobj]
+		if { $ix < 0 } {
+			set ph ${windowobj},ph
+			set ix [lsearch -exact $pane_list $ph]
+			if { $ix < 0 } {
+				echo error here!
+				continue
+			} else { 
+				lappend return_list $ph
+				lremove pane_list $ix
+				continue
+			}
+		}
+		lappend return_list $windowobj
+		lremove pane_list $ix
+	}
+	return [concat $return_list $pane_list]
+}
+
+# proxy ?args?
+# 	This command is used to query and change the position of the sash
+# 	proxy, used for rubberband-style pane resizing. It can take any of
+# 	the following forms:
+#
+# 	proxy coord
+# 	  Return a list containing the x and y coordinates of the most recent
+# 	  proxy location.
+#
+# 	proxy forget
+# 	  Remove the proxy from the display.
+#
+#   proxy place x y
+#     Place the proxy at the given x and y coordinates.
+
+itcl::body mtiwidgets::Tabbedwindow::proxy {cmd args} {
+	eval [linsert $args 0 $itk_component(pw) proxy $cmd]
+}
+
+# sash ?args?
+#  This command is used to query and change the position of sashes in
+#  the panedwindow. It can take any of the following forms:
+#
+# 	sash coord index
+# 	  Return the current x and y coordinate pair for the sash given by
+# 	  index. Index must be an integer between 0 and 1 less than the number
+# 	  of panes in the panedwindow. The coordinates given are those of the
+# 	  top left corner of the region containing the sash. 
+#
+# 	sash
+# 	  dragto index x y This command computes the difference between the
+# 	  given coordinates and the coordinates given to the last sash coord
+# 	  command for the given sash. It then moves that sash the computed
+# 	  difference. The return value is the empty string.
+#
+# 	sash mark index x y
+# 	  Records x and y for the sash given by index; used in conjunction
+# 	  with later dragto commands to move the sash.
+#
+# 	sash place index x y
+#     Place the sash given by index at the given coordinates.
+
+itcl::body mtiwidgets::Tabbedwindow::sash {cmd args} {
+	eval [linsert $args 0 $itk_component(pw) sash $cmd]
+}
+                              
+# next
+# 	Advances the selected tab to the next tab (order is determined by
+# 	insertion order). If the currently selected tab is the last tab in
+# 	the tabset, the selection wraps around to the first tab. It behaves
+# 	as if the user selected the next tab.
+
+itcl::body mtiwidgets::Tabbedwindow::next {} {
+	$itk_component(ts) next
+}
+
+# tabconfigure index ?option? ?value?
+# 	This command is similar to the configure command, except that it
+# 	applies to the options for an individual tab, whereas configure
+# 	applies to the options for the tabset as a whole. Options may have
+# 	any of the values accepted by the add widget command. If options are
+# 	specified, options are modified as indicated in the command and the
+# 	command returns an empty string. If no options are specified,
+# 	returns a list describing the current options for tab index (see
+# 	Tk_ConfigureInfo for information on the format of this list).
+
+itcl::body mtiwidgets::Tabbedwindow::tabconfigure {window args} {
+	if {[string is integer $window]} {
+		set ix $window
+	} elseif {[winfo exists $window] && [wm toplevel $window]} {
+		# Skip undocked window.
+		return
+	} elseif {[winfo exists $window] && ![windowhidden $window]} {
+		set ix [$itk_component(ts) indexFromWindow $window]
+		if { $ix < 0 } {
+			return
+		}
+	} else {
+		error "Bad window index: $window"
+		return
+	}
+	eval [linsert $args 0 $itk_component(ts) tabconfigure $ix]
+}
+
+# tabcget index option
+# 	This command is similar to the configure command, except that it
+# 	applies to the options for an individual tab, whereas configure
+# 	applies to the options for the tabset as a whole. Options may have
+# 	any of the values accepted by the add widget command. If options are
+# 	specified, options are modified as indicated in the command and the
+# 	command returns an empty string. If no options are specified,
+# 	returns a list describing the current options for tab index (see
+# 	Tk_ConfigureInfo for information on the format of this list).
+
+itcl::body mtiwidgets::Tabbedwindow::tabcget {window option} {
+	if {[string is integer $window]} {
+		set ix $window
+	} elseif {[winfo exists $window]} {
+		set ix [lsearch -exact [$itk_component(pw) panes] $window]
+	} else {
+		#error "Bad window index: $window"
+		set ix $window
+	}
+	$itk_component(ts) tabcget $ix $option
+}
+
+# prev
+# 	Moves the selected tab to the previous tab (order is determined by
+# 	insertion order). If the currently selected tab is the first tab in
+# 	the tabset, the selection wraps around to the last tab in the
+# 	tabset. It behaves as if the user selected the previous tab.
+
+itcl::body mtiwidgets::Tabbedwindow::prev {} {
+	$itk_component(ts) prev
+}
+
+
+
+# getSelected
+# 	Returns the index of the currently selected tab
+# 	
+itcl::body mtiwidgets::Tabbedwindow::getSelected { } {
+	return [$itk_component(ts) getSelected]	
+}
+
+itcl::body mtiwidgets::Tabbedwindow::_getargs {optionList argListvar} {
+	upvar $argListvar argList
+	set args [list]
+	foreach opt $optionList {
+		set io [lsearch -exact $argList $opt]
+		if {$io >= 0} {
+			set iv [expr {$io + 1}]
+			lappend args [lindex $argList $io]
+			lappend args [lindex $argList $iv]
+			set argList [lreplace $argList $io $iv]
+		}
+	}
+	return $args
+}
+
+
+# Note - the window index and the tabbed index may not be in sync.
+# This is due to hidden (uncreated) windows in the tabbedwindow
+# These hidden windows are a placeholder location should the user 
+# open them.  However, they do not have a tab until they are created,
+# resulting in a disparity between indexes.
+
+itcl::body mtiwidgets::Tabbedwindow::_select {active} {
+	set i 0
+	if { $itk_option(-mode) == "tabbed" } {
+		foreach w [panes] {
+			if {$i eq $active} {
+				$itk_component(pw) paneconfigure $w -hide 0
+			} else {
+				$itk_component(pw) paneconfigure $w -hide 1
+			}
+			incr i
+		}
+	} else { 
+		foreach w [panes] {
+			if {$i eq $active} {
+				$itk_component(pw) paneconfigure $w -hide 0
+				return
+			} 
+			incr i
+		}
+	}
+	if {$itk_option(-command) ne ""} {
+		set cmd [concat $itk_option(-command) $active]
+		eval $cmd
+	}
+}
+
+itcl::body mtiwidgets::Tabbedwindow::_tabselect {activetab} {
+	set idx 0
+	set tabname [$itk_component(ts) TabLabel $activetab]
+	foreach w [panes] {
+		if {[mtiwidgets::class_is_windowobj $w] && [$w cget -tab_labelinit]} {
+			set windowlabel [$w cget -tab_label]
+			if { $windowlabel == $tabname } {
+				_select $idx
+				return
+			}
+		}
+		incr idx
+	}
+}
+
+# select window
+# 	Selects the tab specified by window path name as the currently selected tab. It
+# 	behaves as if the user selected the new tab.
+
+itcl::body mtiwidgets::Tabbedwindow::select {w} {
+	if { $itk_option(-mode) != "tabbed" } {
+		return
+	}
+	if {[mtiwidgets::class_is_windowobj $w]} {
+		set tab_idx [$itk_component(ts) indexFromWindow $w]
+		if { $tab_idx < 0 } {
+			return
+		}
+		$itk_component(ts) select $tab_idx
+	}
+}
+
+

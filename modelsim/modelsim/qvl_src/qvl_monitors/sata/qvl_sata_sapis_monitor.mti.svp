@@ -1,0 +1,430 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of 0-In CheckerWare.
+*
+* DESCRIPTION This monitor checks the Serial ATA interface for compliance with
+*             Serial ATA specification.
+*
+* REFERENCES  Serial ATA specification revision 2.5, 27th October 2005
+*             Serial ATA: High Speed Serialized AT Attachment Revision 1.0a,
+*             7-January-2003
+*             Serial ATA II: Extensions to Serial ATA 1.0a Revision 1.2,
+*             27-August-2004
+*             SATA PHY Interface Specification (SAPIS) Draft Rev 0.90, February
+*             8, 2002
+* INPUTS
+*             areset        - Asynchronous reset.
+*             reset         - Synchronous reset.
+*             tbc           - Transmit clock.
+*             tx_data       - Encoded 10b or 20b or 40b parallel data sent from 
+*                             the Link layer to the Phy layer for serialization 
+*                             and transmission.
+*             tx_enable     - This signal enables the SATA cable drivers in the 
+*                             transmitter portion of the PHY. When this signal 
+*                             is low it means the bus is in electrical idle. 
+*             rbc           - Receive clock. The rbc[1] clock signal of the 
+*                             implementation under test must be connected to 
+*                             this input.
+*             rx_data       - This bus is the recovered 10b or 20b or 40b data
+*                             from the phy to the link.
+*             rx_data_valid - This signal when high indicated the data on the
+*                             rx_data outputs are valid.
+*             k28_5_detect  - This signal goes high when the K28.5 control 
+*                             character is present (with either disparity) on 
+*                             the rx_data pins.
+*             rx_locked     - When high indicates the receiver is locked to the 
+*                             incoming signal
+*             comwake_detect- This signal idicates comwake is detected on the 
+*                             rx interface.
+*             comreset_cominit_detect - This signal idicates comreset/cominit is
+*                             detected on the rx lines.
+*             partial       - This signal indicates that the link is in partial
+*                             power down mode.
+*             slumber       - This signal indicates that the link is in slumber
+*                             power down mode.
+*             scrambling_off- This signal when high will switch off the 
+*                             descrambler 
+*             bypass_power_on_seq- This signal when high bypasses the power on
+*                             sequnence checking and the phy_ready is asserted 
+*                             when three non-alignp primitives are seen.
+*
+*
+* MONITOR INSTANTIATION
+*               The CheckerWare SATA monitor can be placed
+*               on the Device or Host side of SATA interface to provide 
+*               interface checks for 0-In Check.
+*
+*
+*         +-----------------+                +-----------------+
+*         |                 |                |                 |
+*         | SAPIS     +---+ |   SAPIS I/F    | +---+  SAPIS    |
+*         | Compliant | M |<|--------------->|>| M |  Compliant|
+*         | Phy       | W |<|<---------------|>| W |  Link     |
+*         |           +---+ |                | +---+           |
+*         |                 |                |                 |
+*         +-----------------+                +-----------------+
+*            
+*
+* Last Modified Date: 30th June 2006
+*
+**************************************************************************/
+`include "std_qvl_defines.h"
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_sata_sapis_monitor (areset,
+                                      reset,
+                                      tbc,
+                                      tx_data,
+                                      tx_enable,
+                                      rbc,
+                                      rx_data,
+                                      rx_data_valid,
+                                      k28_5_detect,
+                                      rx_locked,
+                                      comwake_detect,
+                                      comreset_cominit_detect,
+                                      partial,
+                                      slumber,
+                                      scrambling_off,
+                                      bypass_power_on_seq
+                                     );
+
+
+  //List of parameters
+
+  // This parameter configures the checks in the monitor as constraints
+  // during formal analysis
+
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // This parameter when set indicates that the monitor is instantiated on the
+  // Link side of the sapis interface
+
+  parameter LINK_SIDE = 1;
+  wire [31:0] pw_LINK_SIDE = LINK_SIDE;
+
+  // This parameter configures the type of the DUT the monitor is hooked to
+  // 0 => Host
+  // 1 => Device
+
+  parameter DEVICE_TYPE = 0; 
+  wire [31:0] pw_DEVICE_TYPE = DEVICE_TYPE;
+
+  // This parameter defines the width of the parallel interface
+  // 10 - 10Bits
+  // 20 - 20Bits
+  // 40 - 40Bits
+
+  parameter PARALLEL_DATA_WIDTH = 10;
+  wire [31:0] pw_PARALLEL_DATA_WIDTH = PARALLEL_DATA_WIDTH;
+
+  // This parameter configures whether data is available on both clock edges or
+  // on single edge of the clock.
+  // 0 => Single data rate
+  // 1 => Double data rate
+
+  parameter DOUBLE_DATA_RATE = 1;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // This parameter defines the speed of the SATA interface GEN1 or GEN2
+  // 0 => GEN1 speed
+  // 1 => GEN2 speed
+
+  parameter MAX_DEV_SPEED = 0;
+  wire [31:0] pw_MAX_DEV_SPEED = MAX_DEV_SPEED;
+
+  // This parameter when set enables Native queued commands
+
+  parameter NCQ_COMMAND_ENABLE = 0;
+  wire [31:0] pw_NCQ_COMMAND_ENABLE = NCQ_COMMAND_ENABLE;
+
+  // This parameter when set enables legacy queued commands
+
+  parameter LEGACY_QUEUED_COMMAND_ENABLE = 0;
+  wire [31:0] pw_LEGACY_QUEUED_COMMAND_ENABLE = LEGACY_QUEUED_COMMAND_ENABLE;
+
+  // When set this parameter indicates that the monitor sits on the host or 
+  // device side of the port selector or on the host or device interface
+  // connected to the port selector
+
+  parameter PORT_SELECTOR_ENABLE = 0;
+  wire [31:0] pw_PORT_SELECTOR_ENABLE = PORT_SELECTOR_ENABLE;
+
+  // When set this parameter indicates that the monitor sits on the host or 
+  // device side of the port multiplier or on the host or device interface
+  // connected to the port multiplier
+
+  parameter PORT_MULTIPLIER_ENABLE = 0;
+  wire [31:0] pw_PORT_MULTIPLIER_ENABLE = PORT_MULTIPLIER_ENABLE;
+
+  // This parameter when set enables packet command protocol.
+
+  parameter PACKET_COMMAND_ENABLE = 0;
+  wire [31:0] pw_PACKET_COMMAND_ENABLE = PACKET_COMMAND_ENABLE;
+
+  // This parameter when set enables the reserved field checking when set to "1"
+
+  parameter RESERVED_VALUE_CHECKING_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECKING_ENABLE = 
+				    RESERVED_VALUE_CHECKING_ENABLE;
+
+  // This parameter when set disables power management.
+  // 0 - Power management mode disabled
+  // 1 - Power management mode enabled
+  parameter POWER_MGMT_ENABLE = 1;
+  wire [31:0] pw_POWER_MGMT_ENABLE = POWER_MGMT_ENABLE;
+
+  // This parameter defines the maximum queue depth for ncq commands.
+
+  parameter MAX_QUEUE_DEPTH = 32;
+  wire [31:0] pw_MAX_QUEUE_DEPTH = MAX_QUEUE_DEPTH;
+
+  // This parameter when set enables Asynchronous signal recovery support.
+
+  parameter ASYNC_SIGNAL_RECOVERY = 0;
+  wire [31:0] pw_ASYNC_SIGNAL_RECOVERY = ASYNC_SIGNAL_RECOVERY;
+
+  // This parameter configures the retry interval time.
+  // minimum time is 10ms (i.e. 10ms/0.6667ns = 14999250GEN1 clocks)
+
+  parameter RETRY_INTERVAL =  ((PARALLEL_DATA_WIDTH == 10)
+                               ? 1499925
+                               : ((PARALLEL_DATA_WIDTH ==20)
+                                   ? 749912
+                                   : 374956
+                                 )
+                              );
+  wire [31:0] pw_RETRY_INTERVAL = RETRY_INTERVAL;
+
+  // This parameter when set enables the reserved fis type checking
+
+  parameter RESERVED_FIS_TYPE_ENABLE = 0;
+  wire pw_RESERVED_FIS_TYPE_ENABLE = RESERVED_FIS_TYPE_ENABLE;
+
+  // This parameter when set enables the Vendor specific fis type checking
+
+  parameter VENDOR_FIS_TYPE_ENABLE = 0;
+  wire pw_VENDOR_FIS_TYPE_ENABLE = VENDOR_FIS_TYPE_ENABLE;
+
+  // Internal parameters
+  // This parameter defines the pattern that indicates electrical IDLE condition
+  // in case of 10 B interface
+
+  parameter ZI_ELECTRICAL_IDLE_PATTERN = 0;
+  wire [31:0] pw_ZI_ELECTRICAL_IDLE_PATTERN = ZI_ELECTRICAL_IDLE_PATTERN;
+
+  // Configures the comreset/cominit idle time for tx interface.
+  // Default is 320ns
+  // i.e. 320ns/0.6667ns = 480GEN1 clocks for serial interface
+  // 480GEN1/10 = 48 for 10B interface.
+  parameter ZI_TX_COMRESET_COMINIT_IDLE_TIME = ((PARALLEL_DATA_WIDTH == 10)
+                                                   ? 48
+                                                   : ((PARALLEL_DATA_WIDTH ==20)
+                                                      ? 24
+                                                      : 12
+                                                     )
+                                                  );
+  // Configures the comwake idle time for tx interface. Default is 106.7
+  // i.e. 106.7ns/0.6667ns = 160GEN1 clocks for serial interface
+  // 160GEN1/10 = 16 for 10B interface.
+  parameter ZI_TX_COMWAKE_IDLE_TIME = ((PARALLEL_DATA_WIDTH == 10)
+                                          ? 16
+                                          : ((PARALLEL_DATA_WIDTH == 20)
+                                             ? 8
+                                             : 4
+                                            )
+                                         );
+  // Configures the comreset/cominit max idle time for rx interface.
+  // i.e. 525ns/0.6667ns = 788GEN1 clocks for serial interface
+  // 788GEN1/10 = 79 for 10B interface.
+  parameter ZI_RX_COMRESET_COMINIT_IDLE_MAX = ((PARALLEL_DATA_WIDTH == 10)
+                                                  ? 79
+                                                  : ((PARALLEL_DATA_WIDTH ==20)
+                                                     ? 39
+                                                     : 19
+                                                    )
+                                                 );//788; // for 525ns
+  // Configures the comreset/cominit min idle time for rx interface.
+  // i.e. 175ns/0.6667ns = 262GEN1 clocks for serial interface
+  // 262GEN1/10 = 26 for 10B interface.
+  parameter ZI_RX_COMRESET_COMINIT_IDLE_MIN = ((PARALLEL_DATA_WIDTH == 10)
+                                                  ? 26
+                                                  : ((PARALLEL_DATA_WIDTH ==20)
+                                                     ? 13
+                                                     : 6
+                                                    )
+                                                 );//262; // for 175ns
+  // Configures the comwake max idle time for rx interface.
+  // i.e. 175ns/0.6667ns = 262GEN1 clocks for serial interface
+  // 262GEN1/10 = 26 for 10B interface.
+  parameter ZI_RX_COMWAKE_IDLE_MAX = ((PARALLEL_DATA_WIDTH == 10)
+                                        ? 26
+                                        : ((PARALLEL_DATA_WIDTH ==20)
+                                           ? 13
+                                           : 6
+                                          )
+                                       );//262;// 175ns
+  // Configures the comwake min idle time for rx interface.
+  // i.e. 55ns/0.6667ns = 82GEN1 clocks for serial interface
+  // 82GEN1/10 = 8 for 10B interface.
+  parameter ZI_RX_COMWAKE_IDLE_MIN = ((PARALLEL_DATA_WIDTH == 10)
+                                        ? 8
+                                        : ((PARALLEL_DATA_WIDTH ==20)
+                                           ? 4
+                                           : 2
+                                          )
+                                       );//82;// 55ns
+
+  // Inputs
+  input areset;
+  input reset;
+  input tbc; // The tx interface clock
+  input [PARALLEL_DATA_WIDTH-1:0] tx_data;
+  input tx_enable;
+  input rbc; // The rx interface clock
+  input rx_data_valid;
+  input [PARALLEL_DATA_WIDTH-1:0] rx_data;
+  input k28_5_detect; // Specific to Sapis ifc
+  input rx_locked;    // Specific to Sapis ifc
+  input comwake_detect;
+  input comreset_cominit_detect;
+  input partial;
+  input slumber;
+  input scrambling_off;
+  input bypass_power_on_seq;
+  //----------------------------------------------------------------------------
+`protected
+
+    MTI!#lX^=[BGJkUn?dE$!-KCaDEaB\_VzO\lv[Q#[K|%B;EJJ[^[E#ce_1A:K{z~5sjeDP3,vY',
+    Z_}{;5rH,V_3+j|{omYQp@}K<V[CuUrRz{-n]^3D+ZodptwA>zl5Kk~<zE'Vw^ep,isIl[JVEao3
+    !oe+J>$aCV<E\nG7wOErxV7BB,^5DIuUB[Q[:73G*woxD!<ps[2{je{oYB]73.mrnwn5Z_Uo}!HT
+    3OgwXI7CNC/rV-oY+m\hm]C@I5-Z2EjHM?sVUuR\*sHzuV?u$I2X_:aT}wlWB1[J}#HA7*Jp[TID
+    Ri}m_#j*GW?r*''YH}#YEiuO\$"8m_=@Dj7mj[oKD[ei'ewW@HsT7HYR\=KH0[[1]@Y>*Y?R1QZV
+    k5v5z$_lYY@W=q\;oUtp=ewp;_GVDk5iYa;&N)}B#=mD3VAT>B==K+asAHVR7;w$A3G#1-hrC@}.
+    &Zzj{F{'X#_'r??[zHTjw{#B,=cE,]Q7OB*?U3vX1'xI'BQ<(oN2O<}5@oRhe!j,XsmVOz#}C2pI
+    [rXxo?-m:;1;vZ1$$}:fO<-;pi7A[ju]7sr,v=Yl$\@{$#J3_[E}:=#DC72[>A,D<3{UG/sQ#?mV
+    $3q^/oKzr'=*U&+ja7OBiWF7k-pK$ve|?\;7g,O!RIri'=QlD98vnWr=Hz*D=w^?z'2?,{@b\oX@
+    Z-;*Za7DYW-aKA]apR#uuxUkI!ueT7ikOzTBeWv71@B-[EDzz;RO'O1D=!7GI#-~~GB$lCiUNS}<
+    sKmp~E
+`endprotected
+
+  //----------------------------------------------------------------------------
+
+  wire `QVL_DUT2CHX_DELAY sampled_areset = areset;
+  wire `QVL_DUT2CHX_DELAY sampled_reset = reset;
+  wire `QVL_DUT2CHX_DELAY sampled_tbc = tbc;
+  wire `QVL_DUT2CHX_DELAY [PARALLEL_DATA_WIDTH-1:0] sampled_tx_data_plus = tx_data;
+  wire `QVL_DUT2CHX_DELAY [PARALLEL_DATA_WIDTH-1:0] sampled_tx_data_minus = {PARALLEL_DATA_WIDTH{1'b0}};
+  wire `QVL_DUT2CHX_DELAY sampled_tx_enable = tx_enable;
+  wire `QVL_DUT2CHX_DELAY sampled_rbc = rbc;
+  wire `QVL_DUT2CHX_DELAY [PARALLEL_DATA_WIDTH-1:0] sampled_rx_data_plus = rx_data;
+  wire `QVL_DUT2CHX_DELAY [PARALLEL_DATA_WIDTH-1:0] sampled_rx_data_minus = {PARALLEL_DATA_WIDTH{1'b0}};
+  wire `QVL_DUT2CHX_DELAY sampled_rx_data_valid = rx_data_valid;
+  wire `QVL_DUT2CHX_DELAY sampled_k28_5_detect = k28_5_detect;
+  wire `QVL_DUT2CHX_DELAY sampled_rx_locked = rx_locked;
+  wire `QVL_DUT2CHX_DELAY sampled_comwake_detect = comwake_detect;
+  wire `QVL_DUT2CHX_DELAY sampled_comreset_cominit_detect = comreset_cominit_detect;
+  wire `QVL_DUT2CHX_DELAY sampled_partial = partial;
+  wire `QVL_DUT2CHX_DELAY sampled_slumber = slumber;
+  wire `QVL_DUT2CHX_DELAY sampled_scrambling_off = scrambling_off;
+  wire `QVL_DUT2CHX_DELAY sampled_bypass_power_on_seq = bypass_power_on_seq;
+
+
+  qvl_sata_core_monitor #(Constraints_Mode,
+                            LINK_SIDE,
+                            2, //INTERFACE_TYPE
+                            DEVICE_TYPE,
+                            PARALLEL_DATA_WIDTH,
+                            DOUBLE_DATA_RATE,
+                            MAX_DEV_SPEED,
+                            NCQ_COMMAND_ENABLE,
+                            LEGACY_QUEUED_COMMAND_ENABLE,
+                            PORT_SELECTOR_ENABLE,
+                            PORT_MULTIPLIER_ENABLE,
+                            PACKET_COMMAND_ENABLE,
+                            RESERVED_VALUE_CHECKING_ENABLE,
+                            POWER_MGMT_ENABLE,
+                            MAX_QUEUE_DEPTH,
+                            ASYNC_SIGNAL_RECOVERY,
+                            RETRY_INTERVAL,
+                            RESERVED_FIS_TYPE_ENABLE,
+                            VENDOR_FIS_TYPE_ENABLE,
+                            ZI_ELECTRICAL_IDLE_PATTERN,
+                            ZI_TX_COMRESET_COMINIT_IDLE_TIME,
+                            ZI_TX_COMWAKE_IDLE_TIME,
+                            ZI_RX_COMRESET_COMINIT_IDLE_MAX,
+                            ZI_RX_COMRESET_COMINIT_IDLE_MIN,
+                            ZI_RX_COMWAKE_IDLE_MAX,
+                            ZI_RX_COMWAKE_IDLE_MIN
+                           )
+         SATA_CORE_MONITOR (.areset(sampled_areset),
+                            .reset(sampled_reset),
+                            .tbc(sampled_tbc),
+                            .tx_data_plus(sampled_tx_data), 
+                            .tx_data_minus({PARALLEL_DATA_WIDTH{1'b0}}),
+                            .tx_enable(sampled_tx_enable),
+                            .rbc(sampled_rbc),
+                            .rx_data_plus(sampled_rx_data),
+                            .rx_data_minus({PARALLEL_DATA_WIDTH{1'b0}}),
+                            .rx_data_valid(sampled_rx_data_valid),
+                            .k28_5_detect(sampled_k28_5_detect),
+                            .rx_locked(sampled_rx_locked),
+                            .comwake_detect(sampled_comwake_detect),
+                            .comreset_cominit_detect(sampled_comreset_cominit_detect),
+                            .partial(sampled_partial),
+                            .slumber(sampled_slumber),
+                            .scrambling_off(sampled_scrambling_off),
+                            .bypass_power_on_seq(sampled_bypass_power_on_seq)
+                           );
+
+  //----------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_sata_sapis_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sata_sapis_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sata_sapis_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sata_sapis_monitor
+`include "zi_cw_sata_sapis_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule  //qvl_sata_sapis_monitor

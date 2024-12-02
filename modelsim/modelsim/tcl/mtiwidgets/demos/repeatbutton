@@ -1,0 +1,58 @@
+#!/bin/sh
+# ----------------------------------------------------------------------
+#  DEMO: button in mtiwidgets
+# ----------------------------------------------------------------------
+#\
+exec itkwish "$0" ${1+"$@"}
+package require Mtiwidgets
+
+# itkwish interprets the rest...
+# ----------------------------------------------------------------------
+. configure -background white
+
+mtiwidgets::repeatbutton .lw -text "Repeat me!" -command doit
+pack .lw -padx 4 -pady 4
+
+iwidgets::spinint .delay -labeltext "Delay:" -step 10 \
+	-command {configDelay set} -increment {configDelay up} \
+	-decrement {configDelay down}
+pack .delay -padx 10 -pady 10
+
+iwidgets::spinint .period -labeltext "Period:" -step 10 \
+	-command {configPeriod set} -increment {configPeriod up} \
+	-decrement {configPeriod down}
+
+pack .period -padx 10 -pady 10
+
+.delay delete 0 end
+.delay insert end 500
+.period delete 0 end
+.period insert end 200
+
+text .tw -width 31 -height 15
+pack .tw -padx 5 -pady 5
+
+set count 0
+
+proc doit {} {
+    global count
+    .tw insert insert "Count is [incr count]\n"
+    if {$count == 10} {
+		set count 0
+		.tw delete 1.0 end
+	}
+}
+
+proc configDelay {dir} {
+	if {$dir != "set" && $dir != ""} {
+		.delay $dir
+	}
+    .lw configure -repeatdelay [.delay get]
+}
+
+proc configPeriod {dir} {
+	if {$dir != "set" && $dir != ""} {
+		.period $dir
+	}
+    .lw configure -repeatperiod [.period get]
+}

@@ -1,0 +1,1502 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of the Questa Verification Library (QVL) 
+*
+* DESCRIPTION This monitor checks the PCI Express interface for compliance
+*             with PCI Express Base specification - Transaction layer 
+*             specification.
+*
+* REFERENCES  PCI Express Base Specification, Revision 1.0, July 22, 2002.
+*             PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*             PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+* USAGE       This sub-module is instantiated in the top level PCI Express
+*             monitor module. This module tracks the flow control 
+*             initialization, buffer flow control for VC (Virtual channel).
+*             
+**************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_express_flow_control(
+
+                                       reset,
+                                       areset,
+
+                                       tx_level_select,
+                                       rx_level_select,
+
+                                       tx_clk,
+                                       rx_clk,
+
+                                       transaction_layer_checks_disable,
+                                       link_layer_checks_disable,
+                                       enable_vc_id,
+                                       tc_mapped_to_vc_id,
+
+                                       // Signals from the transaction layer 
+
+                                       xmtd_tlp,
+                                       xmtd_tlp_packet1,
+                                       xmtd_tlp_packet2,
+                                       xmtd_malformed_tlp,
+                                       tx_retry_progress,
+                                       xmtd_lcrc_error,
+
+                                       rcvd_tlp, 
+                                       rcvd_tlp_packet1, 
+                                       rcvd_tlp_packet2,
+                                       rcvd_malformed_tlp,
+                                       rx_retry_progress,
+                                       rcvd_lcrc_error,
+
+                                       // DLL interface Signals from TX
+
+                                       tx_detected_dllp_pkt,
+                                       tx_detected_dllp_pkt_valid,
+                                       tx_ended_dllp_pkt,
+                                       tx_ended_dllp_pkt_valid,
+
+                                       // DLL interface Signals from Rx
+
+                                       rx_detected_dllp_pkt,
+                                       rx_detected_dllp_pkt_valid,
+                                       rx_ended_dllp_pkt,
+                                       rx_ended_dllp_pkt_valid,
+
+                                       tx_valid_code,
+                                       rx_valid_code,
+  // Additional gen1 code start                                 
+                                       enable_ufc_counter,
+                                       extended_sync_enable,
+                                       tlp_detected_tx_rx,      
+  // Additional gen1 code end                                   
+                                       data_link_up,
+                                       phy_status,
+                                       fc_init1_done,
+                                       fc_init2_done
+                                       );
+
+  // Parameter declarations
+
+  parameter Constraints_Mode = 0;
+  // Parameter VC_ID specifies the VC_ID to be tracked by the module. Allowed values
+  // are VC_ID 0 to VC_ID 7.
+
+  parameter VC_ID = 0;
+  wire [31:0] pw_VC_ID = VC_ID;
+
+  parameter VC_ID_STRING = "0.";
+
+  parameter DOUBLE_DATA_RATE = 0;
+
+  // Additional gen1 code start                                 
+  parameter UPDATE_FC_30US_TIMER_CLK = 75000; // For 1-bit serial
+  // Additional gen1 code end
+
+  parameter MAC_LAYER_SIDE = 1;
+
+  
+   
+  // Input declarations
+
+  input reset;
+  input areset;
+  input tx_level_select;
+  input rx_level_select;
+  input tx_clk;
+  input rx_clk;
+  input transaction_layer_checks_disable;
+  input link_layer_checks_disable;
+  input enable_vc_id;
+  input [7:0] tc_mapped_to_vc_id; // Specifies the TCs mapped to this VC
+                                  // '1' indicates the TC corresponding to that bit position
+                                  // position is mapped to this VC
+  input [1:0] xmtd_tlp;
+  input [69:0] xmtd_tlp_packet1;
+  input [69:0] xmtd_tlp_packet2;
+  input [1:0] xmtd_malformed_tlp;
+  input [1:0] tx_retry_progress;
+  input [1:0] xmtd_lcrc_error;
+
+  input [1:0] rcvd_tlp; 
+  input [69:0] rcvd_tlp_packet1;
+  input [69:0] rcvd_tlp_packet2; 
+  input [1:0] rcvd_malformed_tlp;
+  input [1:0] rx_retry_progress;
+  input [1:0] rcvd_lcrc_error;
+
+  input [63:0] tx_detected_dllp_pkt;
+  input tx_detected_dllp_pkt_valid;
+  input [63:0] tx_ended_dllp_pkt;
+  input tx_ended_dllp_pkt_valid;
+
+  input [63:0] rx_detected_dllp_pkt;
+  input rx_detected_dllp_pkt_valid;
+  input [63:0] rx_ended_dllp_pkt;
+  input rx_ended_dllp_pkt_valid;
+
+  input tx_valid_code;
+  input rx_valid_code;
+// Additional gen1 code start
+  input enable_ufc_counter;
+  input extended_sync_enable;
+  input tlp_detected_tx_rx;
+// Additional gen1 code end
+  input data_link_up;
+  input phy_status;
+
+  output fc_init1_done;
+  output fc_init2_done;
+
+  parameter PHY_LAYER_CONSTRAINT = (Constraints_Mode == 1 && MAC_LAYER_SIDE == 0);
+  parameter MAC_LAYER_CONSTRAINT = (Constraints_Mode == 1 && MAC_LAYER_SIDE == 1);
+
+  // Internal parameter declarations
+
+  parameter ZI_MEM_REQ = 0; // Memory requests
+  parameter ZI_MEMLK_REQ = 1; // Locked requests
+  parameter ZI_IO_REQ = 2; // IO requests
+  parameter ZI_CFG0_REQ = 4; // Configuration type 0 requests
+  parameter ZI_CFG1_REQ = 5; // Configuration type 1 requests
+  parameter ZI_CPL = 10; // Completions
+  parameter ZI_CPL_LK = 11; // Completions for locked requests 
+  
+  parameter ZI_MSG_REQ = 2;
+  parameter ZI_MSGAS_REQ = 3;
+
+  // Flow Control Initialization State Machine
+
+  parameter ZI_TX_FC_INIT1_P_STATE = 0;
+  parameter ZI_TX_FC_INIT1_NP_STATE = 1;
+  parameter ZI_TX_FC_INIT1_Cpl_STATE = 2;
+  parameter ZI_TX_FC_INIT1_WAIT_STATE = 3;
+  parameter ZI_TX_FC_INIT2_P_STATE = 4;
+  parameter ZI_TX_FC_INIT2_NP_STATE = 5;
+  parameter ZI_TX_FC_INIT2_Cpl_STATE = 6;
+  parameter ZI_TX_FC_INIT2_WAIT_STATE = 7;
+  parameter ZI_TX_FC_INIT_DONE_STATE = 8;
+
+  // VCx Flow Control Encoding
+
+  parameter ZI_DLLP_TYPE_INITFC1_P      =   8; // 0100 0xxx
+  parameter ZI_DLLP_TYPE_INITFC1_NP     =  10; // 0101 0xxx
+  parameter ZI_DLLP_TYPE_INITFC1_CPL    =  12; // 0110 0xxx
+  parameter ZI_DLLP_TYPE_INITFC2_P      =  24; // 1100 0xxx
+  parameter ZI_DLLP_TYPE_INITFC2_NP     =  26; // 1101 0xxx
+  parameter ZI_DLLP_TYPE_INITFC2_CPL    =  28; // 1110 0xxx
+  parameter ZI_DLLP_TYPE_UPDATE_FC_P    =  16; // 1000 0xxx
+  parameter ZI_DLLP_TYPE_UPDATE_FC_NP   =  18; // 1001 0xxx
+  parameter ZI_DLLP_TYPE_UPDATE_FC_CPL  =  20; // 1010 0xxx
+
+  //----------------------------- Registers/Wires for flow control init------
+
+  reg [3:0] tx_fc_next_state;
+  wire [3:0] tx_fc_present_state;
+  reg [3:0] tx_fc_present_state_posedge;
+  reg [3:0] tx_fc_present_state_negedge;
+
+  reg [255:0] tx_fc_present_state_string;
+  reg [255:0] tx_fc_next_state_string;
+
+  reg fc_init1_done;
+  reg fc_init2_done;
+
+// Additional gen1 code start
+  wire [19:0] ufc_p_30us_counter_tx;
+  reg [19:0] ufc_p_30us_counter_tx_posedge;
+  reg [19:0] ufc_p_30us_counter_tx_negedge;
+
+  wire [19:0] ufc_np_30us_counter_tx;
+  reg [19:0] ufc_np_30us_counter_tx_posedge;
+  reg [19:0] ufc_np_30us_counter_tx_negedge;
+
+  wire [19:0] ufc_cpl_30us_counter_tx;
+  reg [19:0] ufc_cpl_30us_counter_tx_posedge;
+  reg [19:0] ufc_cpl_30us_counter_tx_negedge;
+
+  wire [19:0] ufc_p_30us_counter_rx;
+  reg [19:0] ufc_p_30us_counter_rx_posedge;
+  reg [19:0] ufc_p_30us_counter_rx_negedge;
+
+  wire [19:0] ufc_np_30us_counter_rx;
+  reg [19:0] ufc_np_30us_counter_rx_posedge;
+  reg [19:0] ufc_np_30us_counter_rx_negedge;
+
+  wire [19:0] ufc_cpl_30us_counter_rx;
+  reg [19:0] ufc_cpl_30us_counter_rx_posedge;
+  reg [19:0] ufc_cpl_30us_counter_rx_negedge;
+
+// Additional gen1 code end
+
+  wire r_data_link_up;
+  reg r_data_link_up_posedge;
+  reg r_data_link_up_negedge;
+
+  wire tx_repeated_fc_sequence;
+  reg tx_repeated_fc_sequence_temp;
+  reg tx_repeated_fc_sequence_posedge;
+  reg tx_repeated_fc_sequence_negedge;
+
+  wire rx_all_initfc1_flags_set;
+  reg rx_all_initfc1_flags_set_posedge;
+  reg rx_all_initfc1_flags_set_negedge;
+
+  wire rx_all_initfc2_flags_set;
+  reg rx_all_initfc2_flags_set_posedge;
+  reg rx_all_initfc2_flags_set_negedge;
+
+  wire rx_initfc1_p_received;
+  reg rx_initfc1_p_received_posedge;
+  reg rx_initfc1_p_received_negedge;
+
+  wire rx_initfc1_np_received;
+  reg rx_initfc1_np_received_posedge;
+  reg rx_initfc1_np_received_negedge;
+
+  wire rx_initfc1_cpl_received;
+  reg rx_initfc1_cpl_received_posedge;
+  reg rx_initfc1_cpl_received_negedge;
+
+  wire rx_initfc2_p_received;
+  reg rx_initfc2_p_received_posedge;
+  reg rx_initfc2_p_received_negedge;
+
+  wire rx_initfc2_np_received;
+  reg rx_initfc2_np_received_posedge;
+  reg rx_initfc2_np_received_negedge;
+
+  wire rx_initfc2_cpl_received;
+  reg rx_initfc2_cpl_received_posedge;
+  reg rx_initfc2_cpl_received_negedge;
+
+  wire rx_updatefc_p_received;
+  reg rx_updatefc_p_received_posedge;
+  reg rx_updatefc_p_received_negedge;
+
+  wire rx_updatefc_np_received;
+  reg rx_updatefc_np_received_posedge;
+  reg rx_updatefc_np_received_negedge;
+
+  wire rx_updatefc_cpl_received;
+  reg rx_updatefc_cpl_received_posedge;
+  reg rx_updatefc_cpl_received_negedge;
+
+  wire r_vc_tlp_received;
+  reg r_vc_tlp_received_posedge;
+  reg r_vc_tlp_received_negedge;
+
+  reg rx_initfc1_p_received_temp;
+  reg rx_initfc1_np_received_temp;
+  reg rx_initfc1_cpl_received_temp;
+
+  reg rx_initfc2_p_received_temp;
+  reg rx_initfc2_np_received_temp;
+  reg rx_initfc2_cpl_received_temp;
+
+  reg rx_updatefc_p_received_temp;
+  reg rx_updatefc_np_received_temp;
+  reg rx_updatefc_cpl_received_temp;
+
+  reg rx_all_initfc1_flags_set_temp;
+  reg rx_all_initfc2_flags_set_temp;
+
+  reg r_vc_tlp_xmtd_posedge;
+  reg r_vc_tlp_xmtd_negedge;
+  wire r_vc_tlp_xmtd;
+
+  reg r_vc_tlp_rcvd_posedge;
+  reg r_vc_tlp_rcvd_negedge;
+  wire r_vc_tlp_rcvd;
+
+  reg initfc2_dllps_xmtd;
+  reg r_initfc2_dllps_xmtd_posedge;
+  reg r_initfc2_dllps_xmtd_negedge;
+  wire r_initfc2_dllps_xmtd; 
+
+  //---- Wire declarations for  Transmit DLL packets -----------------------
+
+  wire tx_dllp_initfc1_p_detected; // Asserted on INITFC1 P DLL packet 
+  wire tx_dllp_initfc1_np_detected; // Asserted on INITFC1 NP DLL packet
+  wire tx_dllp_initfc1_cpl_detected; // Asserted on INITFC1 CPL DLL packet
+
+  wire tx_dllp_initfc2_p_detected; // Asserted on INITFC2 P DLL packet
+  wire tx_dllp_initfc2_np_detected; // Asserted on INITFC2 NP DLL packet
+  wire tx_dllp_initfc2_cpl_detected; // Asserted on INITFC2 CPL DLL packet
+
+  wire tx_dllp_updatefc_p_detected; // Asserted on UPDATEFC P DLL packet
+  wire tx_dllp_updatefc_np_detected; // Asserted on UPDATEFC NP DLL packet 
+  wire tx_dllp_updatefc_cpl_detected; // Asserted on UPDATEFC CPL DLL packet
+
+  // These signals are asserted when a DLL packet starts and ends in 
+  // the same symbol time.
+
+  wire tx_dllp_initfc1_p_ended; // Asserted on INITFC1 P DLL packet 
+  wire tx_dllp_initfc1_np_ended; // Asserted on INITFC1 NP DLL packet
+  wire tx_dllp_initfc1_cpl_ended; // Asserted on INITFC1 CPL DLL packet
+
+  wire tx_dllp_initfc2_p_ended; // Asserted on INITFC2 P DLL packet
+  wire tx_dllp_initfc2_np_ended; // Asserted on INITFC2 NP DLL packet
+  wire tx_dllp_initfc2_cpl_ended; // Asserted on INITFC2 CPL DLL packet
+
+  wire tx_dllp_updatefc_p_ended; // Asserted on UPDATEFC P DLL packet
+  wire tx_dllp_updatefc_np_ended; // Asserted on UPDATEFC NP DLL packet 
+  wire tx_dllp_updatefc_cpl_ended; // Asserted on UPDATEFC CPL DLL packet
+
+  wire tx_dllp_p_detected; // Asserted for InitFC1-p, InitFc2-p UpdateFC-p
+  wire tx_dllp_np_detected; // Asserted for InitFC1-np, InitFc2-np UpdateFC-np
+  wire tx_dllp_cpl_detected; // Asserted for InitFC1-cpl, InitFc2-cpl UpdateFC-cpl
+
+  wire tx_dllp_p_ended;
+  wire tx_dllp_np_ended;
+  wire tx_dllp_cpl_ended;
+
+  wire tx_init_fc1_detected; // Asserted for InitFC1-p, InitFC1-np, InitFC1-cpl
+  wire tx_init_fc1_ended;
+
+  wire [2:0] xmtd_tc1;
+  wire [2:0] xmtd_tc2;
+
+  wire [2:0] rcvd_tc1;
+  wire [2:0] rcvd_tc2;
+
+  //--- Wire declarations for Receive DLL packets ---------------------------
+
+  wire rx_dllp_initfc1_p_detected; // Asserted on INITFC1 P DLL packet 
+  wire rx_dllp_initfc1_np_detected; // Asserted on INITFC1 NP DLL packet
+  wire rx_dllp_initfc1_cpl_detected; // Asserted on INITFC1 CPL DLL packet
+
+  wire rx_dllp_initfc2_p_detected; // Asserted on INITFC2 P DLL packet
+  wire rx_dllp_initfc2_np_detected; // Asserted on INITFC2 NP DLL packet
+  wire rx_dllp_initfc2_cpl_detected; // Asserted on INITFC2 CPL DLL packet
+
+  wire rx_dllp_updatefc_p_detected; // Asserted on UPDATEFC P DLL packet
+  wire rx_dllp_updatefc_np_detected; // Asserted on UPDATEFC NP DLL packet 
+  wire rx_dllp_updatefc_cpl_detected; // Asserted on UPDATEFC CPL DLL packet
+
+  // These signals are asserted when a DLL packet starts and ends in 
+  // the same symbol time.
+
+  wire rx_dllp_initfc1_p_ended; // Asserted on INITFC1 P DLL packet 
+  wire rx_dllp_initfc1_np_ended; // Asserted on INITFC1 NP DLL packet
+  wire rx_dllp_initfc1_cpl_ended; // Asserted on INITFC1 CPL DLL packet
+
+  wire rx_dllp_initfc2_p_ended; // Asserted on INITFC2 P DLL packet
+  wire rx_dllp_initfc2_np_ended; // Asserted on INITFC2 NP DLL packet
+  wire rx_dllp_initfc2_cpl_ended; // Asserted on INITFC2 CPL DLL packet
+
+  wire rx_dllp_updatefc_p_ended; // Asserted on UPDATEFC P DLL packet
+  wire rx_dllp_updatefc_np_ended; // Asserted on UPDATEFC NP DLL packet 
+  wire rx_dllp_updatefc_cpl_ended; // Asserted on UPDATEFC CPL DLL packet
+
+  wire tx_dllp_vc_id_detected; // Asserted if vc_id = VC_ID
+  wire tx_dllp_vc_id_ended;
+  wire rx_dllp_vc_id_detected; // Asserted if vc_id = VC_ID
+  wire rx_dllp_vc_id_ended;    
+
+  wire rx_dllp_p_detected; // Asserted for InitFC1-p, InitFc2-p UpdateFC-p
+  wire rx_dllp_np_detected; // Asserted for InitFC1-np, InitFc2-np UpdateFC-np
+  wire rx_dllp_cpl_detected; // Asserted for InitFC1-cpl, InitFc2-cpl UpdateFC-cpl
+
+  wire rx_dllp_p_ended;
+  wire rx_dllp_np_ended;
+  wire rx_dllp_cpl_ended;
+
+  wire tx_detected_dllp_pkt_valid_real;
+  wire tx_ended_dllp_pkt_valid_real;
+  wire rx_detected_dllp_pkt_valid_real;
+  wire rx_ended_dllp_pkt_valid_real;
+
+  // Register declarations for credits limit and allocated
+
+  reg [7:0] ph_credits_limit_posedge;
+  reg [7:0] nph_credits_limit_posedge;
+  reg [7:0] cplh_credits_limit_posedge;
+  reg [11:0] pd_credits_limit_posedge;
+  reg [11:0] npd_credits_limit_posedge;
+  reg [11:0] cpld_credits_limit_posedge;
+  reg [7:0] ph_credits_limit_negedge;
+  reg [7:0] nph_credits_limit_negedge;
+  reg [7:0] cplh_credits_limit_negedge;
+  reg [11:0] pd_credits_limit_negedge;
+  reg [11:0] npd_credits_limit_negedge;
+  reg [11:0] cpld_credits_limit_negedge;
+  reg [7:0] next_ph_credits_limit;  
+  reg [11:0] next_pd_credits_limit;
+  reg [7:0] next_nph_credits_limit;
+  reg [11:0] next_npd_credits_limit;
+  reg [7:0] next_cplh_credits_limit;
+  reg [11:0] next_cpld_credits_limit;
+   
+  reg [7:0] ph_credits_allocated_posedge;
+  reg [7:0] nph_credits_allocated_posedge;
+  reg [7:0] cplh_credits_allocated_posedge;
+  reg [11:0] pd_credits_allocated_posedge;
+  reg [11:0] npd_credits_allocated_posedge;
+  reg [11:0] cpld_credits_allocated_posedge;
+  reg [7:0] ph_credits_allocated_negedge;
+  reg [7:0] nph_credits_allocated_negedge;
+  reg [7:0] cplh_credits_allocated_negedge;
+  reg [11:0] pd_credits_allocated_negedge;
+  reg [11:0] npd_credits_allocated_negedge;
+  reg [11:0] cpld_credits_allocated_negedge;
+  reg [7:0] next_ph_credits_allocated;
+  reg [11:0] next_pd_credits_allocated;
+  reg [7:0] next_nph_credits_allocated;
+  reg [11:0] next_npd_credits_allocated;
+  reg [7:0] next_cplh_credits_allocated;
+  reg [11:0] next_cpld_credits_allocated;
+
+  // Additional gen1 code start
+  reg ph_initial_credit_infinite_tx_posedge;
+  reg nph_initial_credit_infinite_tx_posedge;
+  reg cplh_initial_credit_infinite_tx_posedge;
+  reg pd_initial_credit_infinite_tx_posedge;
+  reg npd_initial_credit_infinite_tx_posedge;
+  reg cpld_initial_credit_infinite_tx_posedge;
+  reg ph_initial_credit_infinite_tx_negedge;
+  reg nph_initial_credit_infinite_tx_negedge;
+  reg cplh_initial_credit_infinite_tx_negedge;
+  reg pd_initial_credit_infinite_tx_negedge;
+  reg npd_initial_credit_infinite_tx_negedge;
+  reg cpld_initial_credit_infinite_tx_negedge;
+  reg next_ph_initial_credit_infinite_tx;
+  reg next_pd_initial_credit_infinite_tx;
+  reg next_nph_initial_credit_infinite_tx;
+  reg next_npd_initial_credit_infinite_tx;
+  reg next_cplh_initial_credit_infinite_tx;
+  reg next_cpld_initial_credit_infinite_tx;
+
+  reg ph_initial_credit_infinite_rx_posedge;
+  reg nph_initial_credit_infinite_rx_posedge;
+  reg cplh_initial_credit_infinite_rx_posedge;
+  reg pd_initial_credit_infinite_rx_posedge;
+  reg npd_initial_credit_infinite_rx_posedge;
+  reg cpld_initial_credit_infinite_rx_posedge;
+  reg ph_initial_credit_infinite_rx_negedge;
+  reg nph_initial_credit_infinite_rx_negedge;
+  reg cplh_initial_credit_infinite_rx_negedge;
+  reg pd_initial_credit_infinite_rx_negedge;
+  reg npd_initial_credit_infinite_rx_negedge;
+  reg cpld_initial_credit_infinite_rx_negedge;
+  reg next_ph_initial_credit_infinite_rx;
+  reg next_pd_initial_credit_infinite_rx;
+  reg next_nph_initial_credit_infinite_rx;
+  reg next_npd_initial_credit_infinite_rx;
+  reg next_cplh_initial_credit_infinite_rx;
+  reg next_cpld_initial_credit_infinite_rx;
+  // Additional gen1 code end
+
+  // Register declarations for buffer overflow
+
+  reg tx_ph_buffer_overflow;
+  reg tx_nph_buffer_overflow;
+  reg tx_cplh_buffer_overflow;
+  reg tx_pd_buffer_overflow;
+  reg tx_npd_buffer_overflow;
+  reg tx_cpld_buffer_overflow;
+  reg rx_ph_buffer_overflow;
+  reg rx_nph_buffer_overflow; 
+  reg rx_cplh_buffer_overflow; 
+  reg rx_pd_buffer_overflow;
+  reg rx_npd_buffer_overflow; 
+  reg rx_cpld_buffer_overflow;
+
+  // Register declarations for credits consumed
+
+  reg [7:0] ph_credits_consumed;
+  reg [7:0] nph_credits_consumed;
+  reg [7:0] cplh_credits_consumed;
+  reg [11:0] pd_credits_consumed;
+  reg [11:0] npd_credits_consumed;
+  reg [11:0] cpld_credits_consumed;
+  reg [7:0] r_ph_credits_consumed_posedge;
+  reg [7:0] r_nph_credits_consumed_posedge;
+  reg [7:0] r_cplh_credits_consumed_posedge;
+  reg [11:0] r_pd_credits_consumed_posedge;
+  reg [11:0] r_npd_credits_consumed_posedge;
+  reg [11:0] r_cpld_credits_consumed_posedge;
+  reg [7:0] r_ph_credits_consumed_negedge;
+  reg [7:0] r_nph_credits_consumed_negedge;
+  reg [7:0] r_cplh_credits_consumed_negedge;
+  reg [11:0] r_pd_credits_consumed_negedge;
+  reg [11:0] r_npd_credits_consumed_negedge;
+  reg [11:0] r_cpld_credits_consumed_negedge;
+
+  // Register declarations for credits received
+
+  reg [7:0] ph_credits_received;
+  reg [7:0] nph_credits_received;
+  reg [7:0] cplh_credits_received;
+  reg [11:0] pd_credits_received;
+  reg [11:0] npd_credits_received;
+  reg [11:0] cpld_credits_received;
+  reg [7:0] r_ph_credits_received_posedge;
+  reg [7:0] r_nph_credits_received_posedge;
+  reg [7:0] r_cplh_credits_received_posedge;
+  reg [11:0] r_pd_credits_received_posedge;
+  reg [11:0] r_npd_credits_received_posedge;
+  reg [11:0] r_cpld_credits_received_posedge;
+  reg [7:0] r_ph_credits_received_negedge;
+  reg [7:0] r_nph_credits_received_negedge;
+  reg [7:0] r_cplh_credits_received_negedge;
+  reg [11:0] r_pd_credits_received_negedge;
+  reg [11:0] r_npd_credits_received_negedge;
+  reg [11:0] r_cpld_credits_received_negedge;
+
+  // Fire signal
+// Additional gen1 code start
+  reg fire_tx_ufc_hdrfc1_p_error;
+  reg fire_tx_ufc_datafc1_p_error;
+  reg fire_tx_ufc_hdrfc1_np_error;
+  reg fire_tx_ufc_datafc1_np_error;
+  reg fire_tx_ufc_hdrfc1_cpl_error;
+  reg fire_tx_ufc_datafc1_cpl_error;
+  reg fire_rx_ufc_hdrfc1_p_error;
+  reg fire_rx_ufc_datafc1_p_error;
+  reg fire_rx_ufc_hdrfc1_np_error;
+  reg fire_rx_ufc_datafc1_np_error;
+  reg fire_rx_ufc_hdrfc1_cpl_error;
+  reg fire_rx_ufc_datafc1_cpl_error;
+// Additional gen1 code end
+  reg fire_tx_initfc1_error;
+  reg fire_tx_initfc2_error;
+  reg fire_tx_hdrfc1_p_error;
+  reg fire_tx_datafc1_p_error;
+  reg fire_tx_hdrfc1_np_error;
+  reg fire_tx_datafc1_np_error;
+  reg fire_tx_hdrfc1_cpl_error;
+  reg fire_tx_datafc1_cpl_error;
+
+  // Wire declarations
+
+  // Wire declarations for credits limit
+
+  wire [7:0] ph_credits_limit;
+  wire [7:0] nph_credits_limit;
+  wire [7:0] cplh_credits_limit;
+  wire [11:0] pd_credits_limit;
+  wire [11:0] npd_credits_limit;
+  wire [11:0] cpld_credits_limit;
+
+  // Wire declarations for credits allocated
+
+  wire [7:0] ph_credits_allocated;
+  wire [7:0] nph_credits_allocated;
+  wire [7:0] cplh_credits_allocated;
+  wire [11:0] pd_credits_allocated;
+  wire [11:0] npd_credits_allocated;
+  wire [11:0] cpld_credits_allocated;
+
+  // Additional gen1 code end
+  wire ph_initial_credit_infinite_tx;
+  wire pd_initial_credit_infinite_tx;
+  wire nph_initial_credit_infinite_tx;
+  wire npd_initial_credit_infinite_tx;
+  wire cplh_initial_credit_infinite_tx;
+  wire cpld_initial_credit_infinite_tx;
+
+  wire ph_initial_credit_infinite_rx;
+  wire pd_initial_credit_infinite_rx;
+  wire nph_initial_credit_infinite_rx;
+  wire npd_initial_credit_infinite_rx;
+  wire cplh_initial_credit_infinite_rx;
+  wire cpld_initial_credit_infinite_rx;
+  // Additional gen1 code end
+
+  // Wire declarations for muxed posedge and negedge signals
+
+  wire [7:0] r_ph_credits_consumed;
+  wire [7:0] r_nph_credits_consumed;
+  wire [7:0] r_cplh_credits_consumed;
+  wire [11:0] r_pd_credits_consumed;
+  wire [11:0] r_npd_credits_consumed;
+  wire [11:0] r_cpld_credits_consumed;
+  wire [7:0] r_ph_credits_received; 
+  wire [7:0] r_nph_credits_received;
+  wire [7:0] r_cplh_credits_received;
+  wire [11:0] r_pd_credits_received;
+  wire [11:0] r_npd_credits_received;
+  wire [11:0] r_cpld_credits_received;
+
+  // Wire declarations for the transmitted, received TLPs
+  // fmt, type, length fields
+
+
+  wire [1:0] xmtd_tlp1_fmt; // TLP info -- fmt, type, length
+  wire [1:0] rcvd_tlp1_fmt;
+  wire [1:0] xmtd_tlp2_fmt;
+  wire [1:0] rcvd_tlp2_fmt;
+
+  wire [4:0] xmtd_tlp1_type;
+  wire [4:0] rcvd_tlp1_type;
+  wire [4:0] xmtd_tlp2_type;
+  wire [4:0] rcvd_tlp2_type;
+ 
+  wire [12:0] xmtd_tlp1_length;
+  wire [12:0] rcvd_tlp1_length;
+  wire [12:0] xmtd_tlp2_length;
+  wire [12:0] rcvd_tlp2_length;
+
+  // Integer declarations
+
+  integer k,l;
+
+`protected
+
+    MTI!#@AZ]QIIv7@\^\\aC'sA}O~C\o^jCTol@}~A7Dr?=sxn[,;DTA'7T~<]r$+VBMKE32wjkO1Q
+    er_gt-'o*#5;j}~msD}5n]-V^8\lu?xkW\w_Q-UB'mzz-umAQ~TVsZ$R1?ElH[YnpZV>om]w!~V+
+    }Ww=zX7o{D_DH*Qm;]y'Uo{T+rDIlR7f1^Cw_?m+^m~QBxO,?vR[OJU@wG;Y-G\T=WVG2+37LRkT
+    5V@+T?E75^{BAisU?!7r@eaX{oimK~-+})o-AIyBpk?7~-v,KU_;o]z-}o[;Qneli\nH{Z}yJ-{T
+    jpTY5'Dsp:Y5;nZv*XApD\aYVT}#-G?sR$pn>;EAjQ\iT?,s@jvn,YxU}?uUpudGAQ-@A>X#'lnB
+    #EEV*^JwCpn}0/q?Q-rLvTa?Izm-$7_BRswu4EJJIY2T'+-'sQ:XO-EZ+-~roQ$=TD'J}5J*OpED
+    p<K-CIBQKu_2'*>@='sY,?{~s}=}!_Vxi=G~C}#}+1R0i{3r=rn<N^5^2>h_DA{Hsozm8C!+u*Ja
+    Q*'23S>o{Z@Y3CZ$\}mpA]'YuTuXvWz*2**X}ZzHSrRHZpCGl:7WTY=+mXp~!$~DaYxeU=QvriUn
+    U$+rRG'wU]1EJxpjB73+wD8jrAJ}Yw[xur5gsOu'|-zWjemeRC}~<QI!axaz+|4D!U5=WnW]{X3>
+    p2[UAC{H-VzCrxn^,mp~]+J{YGHUQXVNA=salJo!G'X5:AY[}.O5m1l_I5KTEp7XU3[YkO^aCs/*
+    #T?oBJoY{vkIT=~/nam}?=>Aa1$}y125kp=8nV5}aa72:iA1#1+*Vs7@lY!!1:wnV[!\vTR_AU!-
+    _{@CW;Br!\Xxl5j@'G}sJuCfCJaJj"C'T{}H]nn<Z##]e\^k+r}_O];1$+DGTskwoX(\jRp,nHA>
+    DVzBmZ?KYwlsDH3l?;JW^@G<>x3r27m]c;p7k7nxw_Ceje+r1'^5'}QrBo;jAKT^J;-$$Inns7k\
+    ?iR2n1R#mn1lBuB[I@zo-x*-?BCY7K'C>lGXmpOKANEa=pJl'Xiw;HGu1Z#I$l2Q27rxw]w\eIT1
+    <RS]+2E}13Q}U^Ggm[Q1QZYU^ZHD$ZY]NRHz>2_;JO5I#1\,D5-3\O<D#-\$riI<*({'vl]}]uvx
+    3*n*]+'IaRWHaY,C#V~8!s#zJ+2KnE~oUE+o#sB!*A\>z--R3V{'?=pwY-O,vGKl9Yrv;}WwYTTa
+    v^awoup#?DiBEV7$$mQ\w4VD'X;A5~,'OKB{;RC3mE1Upr-Y*K?V3}we;Jw'>AjsT3>-H#p-vvm>
+    ;5C~HO^\zQXx]CoO=*.gwXxuWj>x>[K7#aT?4'moamDR#yKw<IX]pz]3[<;Ue?>='X{A<rx;xuOa
+    zT2Ae_IHpEZ,"?[3@Gvj^pu3B_l-'5zJ,eB2!H+e=C/=HD_[Wn@l7zY$~xGpZo+5l>,O?s[mz=nm
+    5nE'KRGalT3DZznRsw{#T~2kBK$@nK!8-zEz'e+wC3T]QGWTk<\Ba7K3waaoijoO^uz<X9L\pJ$S
+    1GvDas-=Iw2T+H,RiHICVK]Vo_'B>V1W3,K=cl~EE,TJKe9Q1*Xo&oZs^[T!I&=U<Xilz]SYKOZB
+    }{7v~'H#lviQkp\_^[2gxHn7^a]vOzj\lH2ID[*@'ycs;V5D^?I+->7CJ}w1\V+YIV7+5UvD~Rv]
+    [p;Q$WnY,7rk<}C$jsn5<oQvWji7CH=IkZp+1+^(1'<j^E'Ai+=<plA=e}lw]v3QmpU?<lk^{[5+
+    $+'-DWrBl;A#j@Jnz}W]lv\]?wIV@A<KRmY3RvzizwsYr'V{A<D7#HK[HIn+,DjI<${_G3}e3HY@
+    5iXpXvEVgUxkrwDCWkAmEcbr7*2oaWeo'lEqlIU!Uz\_]:*xzuD}\Cm$BWJe;I=xA^^lji}ojI_w
+    {>Bk3DHTapXoia1*!wiYarQR*x1j#rKAoOn-<ow]'^\wW^*~x$a&WI,WpxR<V2lwzEImF*IiD<CC
+    EYE-@%&FL'YG1YzYT\>-_YToBilpj(|XD$[pEBaIE'Vx@{pEAB[iTx]^naDe,,Xo~mm-=+[x?R5^
+    BYlo=E;R'>e2RQEQ5UYo\a,<}e_1*<A-{E'Qv#5R7!mn*^_~YCGcLmp*[*>!Qv2_J}XXZ_}]~Ei2
+    a->Z{q@Do525uBoYQGfA*Z5<BUZ][7ACEWnajVW-zs#3}'jIeKIx3lv!1\petWBW2r2suOxjKo,>
+    l\nArMHETD~e^vsJ$zoe'OI,!!]#!AwDHG}{+$!^}O8Fk'*zO\viS7aUK\B>k
+`endprotected
+  //------------------------------ DLL related assignments -------------------
+  // TX SIDE
+
+  assign tx_dllp_vc_id_detected = (tx_detected_dllp_pkt[10:8] == VC_ID); 
+                             // Asserted when DLLP has this VC_ID
+
+  assign tx_dllp_vc_id_ended = (tx_ended_dllp_pkt[10:8] == VC_ID); 
+                             // Asserted when DLLP has this VC_ID
+
+  assign tx_detected_dllp_pkt_valid_real = (tx_detected_dllp_pkt_valid &&
+                                            tx_dllp_vc_id_detected);
+
+  assign tx_ended_dllp_pkt_valid_real = (tx_ended_dllp_pkt_valid &&
+                                         tx_dllp_vc_id_ended);
+
+  // InitFC1 Type
+
+  assign tx_dllp_initfc1_p_detected = 
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_P 
+                           && tx_dllp_vc_id_detected);
+  assign tx_dllp_initfc1_np_detected = 
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_NP
+                           && tx_dllp_vc_id_detected);
+  assign tx_dllp_initfc1_cpl_detected =
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_CPL
+                           && tx_dllp_vc_id_detected);
+
+  assign tx_dllp_initfc1_p_ended = 
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_P
+                           && tx_dllp_vc_id_ended);
+  assign tx_dllp_initfc1_np_ended = 
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_NP
+                           && tx_dllp_vc_id_ended);
+  assign tx_dllp_initfc1_cpl_ended = 
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_CPL
+                           && tx_dllp_vc_id_ended);
+  // InitFC2 Type
+
+  assign tx_dllp_initfc2_p_detected = 
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_P
+                           && tx_dllp_vc_id_detected);
+  assign tx_dllp_initfc2_np_detected = 
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_NP
+                           && tx_dllp_vc_id_detected);
+  assign tx_dllp_initfc2_cpl_detected = 
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_CPL
+                           && tx_dllp_vc_id_detected);
+
+  assign tx_dllp_initfc2_p_ended = 
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_P
+                           && tx_dllp_vc_id_ended);
+  assign tx_dllp_initfc2_np_ended = 
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_NP
+                           && tx_dllp_vc_id_ended);
+  assign tx_dllp_initfc2_cpl_ended = 
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_CPL
+                           && tx_dllp_vc_id_ended);
+  // Update FC type
+
+  assign tx_dllp_updatefc_p_detected =
+                           (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_P
+                           && tx_dllp_vc_id_detected);
+  assign tx_dllp_updatefc_np_detected = 
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_NP
+                           && tx_dllp_vc_id_detected);
+  assign tx_dllp_updatefc_cpl_detected = 
+                          (tx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_CPL
+                           && tx_dllp_vc_id_detected);
+
+  assign tx_dllp_updatefc_p_ended =
+                           (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_P
+                           && tx_dllp_vc_id_ended);
+  assign tx_dllp_updatefc_np_ended =
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_NP
+                           && tx_dllp_vc_id_ended);
+  assign tx_dllp_updatefc_cpl_ended =
+                          (tx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_CPL
+                           && tx_dllp_vc_id_ended);
+
+  assign tx_dllp_p_detected = (tx_dllp_initfc1_p_detected ||
+                               tx_dllp_initfc2_p_detected ||
+                               tx_dllp_updatefc_p_detected );
+
+  assign tx_dllp_np_detected = (tx_dllp_initfc1_np_detected ||
+                               tx_dllp_initfc2_np_detected ||
+                               tx_dllp_updatefc_np_detected );
+
+  assign tx_dllp_cpl_detected = (tx_dllp_initfc1_cpl_detected ||
+                               tx_dllp_initfc2_cpl_detected ||
+                               tx_dllp_updatefc_cpl_detected );
+
+  assign tx_dllp_p_ended = (tx_dllp_initfc1_p_ended ||
+                               tx_dllp_initfc2_p_ended ||
+                               tx_dllp_updatefc_p_ended );
+
+  assign tx_dllp_np_ended = (tx_dllp_initfc1_np_ended ||
+                               tx_dllp_initfc2_np_ended ||
+                               tx_dllp_updatefc_np_ended );
+
+  assign tx_dllp_cpl_ended = (tx_dllp_initfc1_cpl_ended ||
+                               tx_dllp_initfc2_cpl_ended ||
+                               tx_dllp_updatefc_cpl_ended );
+
+  assign tx_init_fc1_detected = (tx_dllp_initfc1_p_detected ||
+                                 tx_dllp_initfc1_np_detected ||
+                                 tx_dllp_initfc1_cpl_detected);
+
+  assign tx_init_fc1_ended = (tx_dllp_initfc1_p_ended ||
+                              tx_dllp_initfc1_np_ended ||
+                              tx_dllp_initfc1_cpl_ended);
+
+  //---------------------------------- RX SIDE -----------------------------------
+
+  assign rx_dllp_vc_id_detected = (rx_detected_dllp_pkt[10:8] == VC_ID);
+                             // Asserted when DLLP has this VC_ID
+
+  assign rx_detected_dllp_pkt_valid_real = (rx_detected_dllp_pkt_valid &&
+                                            rx_dllp_vc_id_detected);
+
+  assign rx_dllp_vc_id_ended = (rx_ended_dllp_pkt[10:8] == VC_ID);
+                             // Asserted when DLLP has this VC_ID
+
+  assign rx_ended_dllp_pkt_valid_real = (rx_ended_dllp_pkt_valid &&
+                                         rx_dllp_vc_id_ended);
+
+  // InitFC1 Type
+
+  assign rx_dllp_initfc1_p_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_P
+                           && rx_dllp_vc_id_detected);
+  assign rx_dllp_initfc1_np_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_NP
+                           && rx_dllp_vc_id_detected);
+  assign rx_dllp_initfc1_cpl_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_CPL
+                           && rx_dllp_vc_id_detected);
+
+  assign rx_dllp_initfc1_p_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_P
+                           && rx_dllp_vc_id_ended);
+  assign rx_dllp_initfc1_np_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_NP
+                           && rx_dllp_vc_id_ended);
+  assign rx_dllp_initfc1_cpl_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC1_CPL
+                           && rx_dllp_vc_id_ended);
+  // InitFC2 Type
+
+  assign rx_dllp_initfc2_p_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_P
+                           && rx_dllp_vc_id_detected);
+  assign rx_dllp_initfc2_np_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_NP
+                           && rx_dllp_vc_id_detected);
+  assign rx_dllp_initfc2_cpl_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_CPL
+                           && rx_dllp_vc_id_detected);
+
+  assign rx_dllp_initfc2_p_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_P
+                           && rx_dllp_vc_id_ended);
+  assign rx_dllp_initfc2_np_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_NP
+                           && rx_dllp_vc_id_ended);
+  assign rx_dllp_initfc2_cpl_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_INITFC2_CPL
+                           && rx_dllp_vc_id_ended);
+  // Update FC type
+
+  assign rx_dllp_updatefc_p_detected =
+                           (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_P
+                           && rx_dllp_vc_id_detected);
+  assign rx_dllp_updatefc_np_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_NP
+                           && rx_dllp_vc_id_detected);
+  assign rx_dllp_updatefc_cpl_detected =
+                          (rx_detected_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_CPL
+                           && rx_dllp_vc_id_detected); 
+
+  assign rx_dllp_updatefc_p_ended =
+                           (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_P
+                           && rx_dllp_vc_id_ended);
+  assign rx_dllp_updatefc_np_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_NP
+                           && rx_dllp_vc_id_ended);
+  assign rx_dllp_updatefc_cpl_ended =
+                          (rx_ended_dllp_pkt[15:11] == ZI_DLLP_TYPE_UPDATE_FC_CPL
+                           && rx_dllp_vc_id_ended);
+
+  assign rx_dllp_p_detected = (rx_dllp_initfc1_p_detected ||
+                               rx_dllp_initfc2_p_detected ||
+                               rx_dllp_updatefc_p_detected );
+
+  assign rx_dllp_np_detected = (rx_dllp_initfc1_np_detected ||
+                               rx_dllp_initfc2_np_detected ||
+                               rx_dllp_updatefc_np_detected );
+
+  assign rx_dllp_cpl_detected = (rx_dllp_initfc1_cpl_detected ||
+                               rx_dllp_initfc2_cpl_detected ||
+                               rx_dllp_updatefc_cpl_detected );
+
+  assign rx_dllp_p_ended = (rx_dllp_initfc1_p_ended ||
+                            rx_dllp_initfc2_p_ended ||
+                            rx_dllp_updatefc_p_ended );
+
+  assign rx_dllp_np_ended = (rx_dllp_initfc1_np_ended ||
+                             rx_dllp_initfc2_np_ended ||
+                             rx_dllp_updatefc_np_ended );
+
+  assign rx_dllp_cpl_ended = (rx_dllp_initfc1_cpl_ended ||
+                              rx_dllp_initfc2_cpl_ended ||
+                              rx_dllp_updatefc_cpl_ended );
+
+  //----------------------------------------------------------------------------
+
+  // ------------------ MUXes to take care of posedge and negedge ---------------
+
+  assign tx_fc_present_state = (tx_level_select) ?
+                                 tx_fc_present_state_posedge :
+                                 tx_fc_present_state_negedge;
+
+  // Additional gen1 code start
+  assign ufc_p_30us_counter_tx  = (tx_level_select) ?
+                                  ufc_p_30us_counter_tx_posedge :
+                                  ufc_p_30us_counter_tx_negedge;
+   
+  assign ufc_np_30us_counter_tx  = (tx_level_select) ?
+                                  ufc_np_30us_counter_tx_posedge :
+                                  ufc_np_30us_counter_tx_negedge;
+  assign ufc_cpl_30us_counter_tx  = (tx_level_select) ?
+                                  ufc_cpl_30us_counter_tx_posedge :
+                                  ufc_cpl_30us_counter_tx_negedge;
+  assign ufc_p_30us_counter_rx  = (rx_level_select) ?
+                                  ufc_p_30us_counter_rx_posedge :
+                                  ufc_p_30us_counter_rx_negedge;
+   
+  assign ufc_np_30us_counter_rx  = (rx_level_select) ?
+                                  ufc_np_30us_counter_rx_posedge :
+                                  ufc_np_30us_counter_rx_negedge;
+  assign ufc_cpl_30us_counter_rx  = (rx_level_select) ?
+                                  ufc_cpl_30us_counter_rx_posedge :
+                                  ufc_cpl_30us_counter_rx_negedge;  
+  // Additional gen1 code end   
+   
+  assign r_data_link_up = (tx_level_select) ? r_data_link_up_posedge :
+                                               r_data_link_up_negedge;
+
+  assign tx_repeated_fc_sequence = (tx_level_select) ?
+                                          tx_repeated_fc_sequence_posedge :
+                                          tx_repeated_fc_sequence_negedge;
+
+  assign rx_all_initfc1_flags_set = (rx_level_select) ?
+                                        rx_all_initfc1_flags_set_posedge :
+                                        rx_all_initfc1_flags_set_negedge;
+  assign rx_all_initfc2_flags_set = (rx_level_select) ?
+                                        rx_all_initfc2_flags_set_posedge :
+                                        rx_all_initfc2_flags_set_negedge;
+  assign rx_initfc1_p_received = (rx_level_select) ?
+                                      rx_initfc1_p_received_posedge :
+                                      rx_initfc1_p_received_negedge;
+  assign rx_initfc1_np_received = (rx_level_select) ?
+                                      rx_initfc1_np_received_posedge :
+                                      rx_initfc1_np_received_negedge;
+  assign rx_initfc1_cpl_received = (rx_level_select) ?
+                                       rx_initfc1_cpl_received_posedge :
+                                       rx_initfc1_cpl_received_negedge;
+  assign rx_initfc2_p_received = (rx_level_select) ?
+                                     rx_initfc2_p_received_posedge :
+                                     rx_initfc2_p_received_negedge;
+  assign rx_initfc2_np_received = (rx_level_select) ?
+                                     rx_initfc2_np_received_posedge :
+                                     rx_initfc2_np_received_negedge;
+  assign rx_initfc2_cpl_received = (rx_level_select) ?
+                                       rx_initfc2_cpl_received_posedge :
+                                       rx_initfc2_cpl_received_negedge;
+  assign rx_updatefc_p_received = (rx_level_select) ?
+                                       rx_updatefc_p_received_posedge :
+                                       rx_updatefc_p_received_negedge;
+  assign rx_updatefc_np_received = (rx_level_select) ?
+                                       rx_updatefc_np_received_posedge :
+                                       rx_updatefc_np_received_negedge;
+  assign rx_updatefc_cpl_received = (rx_level_select) ?
+                                       rx_updatefc_cpl_received_posedge :
+                                       rx_updatefc_cpl_received_negedge;
+  assign r_vc_tlp_received = (rx_level_select) ?
+                                    r_vc_tlp_received_posedge :
+                                    r_vc_tlp_received_negedge;
+  assign r_vc_tlp_xmtd = (tx_level_select) ?
+                                    r_vc_tlp_xmtd_posedge :
+                                    r_vc_tlp_xmtd_negedge;
+
+  assign r_vc_tlp_rcvd = (rx_level_select) ?
+                                    r_vc_tlp_rcvd_posedge :
+                                    r_vc_tlp_rcvd_negedge;
+
+  assign r_initfc2_dllps_xmtd = (tx_level_select) ?
+                                    r_initfc2_dllps_xmtd_posedge :
+                                    r_initfc2_dllps_xmtd_negedge;
+  
+  //--------------------------------------------------------------------------------
+  
+
+  assign xmtd_tlp1_fmt = xmtd_tlp_packet1[46:45];
+  assign xmtd_tlp2_fmt = xmtd_tlp_packet2[46:45];
+  assign rcvd_tlp1_fmt = rcvd_tlp_packet1[46:45];
+  assign rcvd_tlp2_fmt = rcvd_tlp_packet2[46:45];
+
+  assign xmtd_tlp1_type = xmtd_tlp_packet1[44:40];
+  assign xmtd_tlp2_type = xmtd_tlp_packet2[44:40];
+  assign rcvd_tlp1_type = rcvd_tlp_packet1[44:40];
+  assign rcvd_tlp2_type = rcvd_tlp_packet2[44:40];
+  assign xmtd_tlp1_length = xmtd_tlp_packet1[34:24];
+  assign xmtd_tlp2_length = xmtd_tlp_packet2[34:24];
+  assign rcvd_tlp1_length = rcvd_tlp_packet1[34:24];
+  assign rcvd_tlp2_length = rcvd_tlp_packet2[34:24];
+
+  // Credit limit assignments
+
+  assign ph_credits_limit = (rx_level_select) ?
+               ph_credits_limit_posedge : ph_credits_limit_negedge; 
+  assign nph_credits_limit = (rx_level_select) ? 
+               nph_credits_limit_posedge : nph_credits_limit_negedge;
+  assign cplh_credits_limit = (rx_level_select) ? 
+               cplh_credits_limit_posedge : cplh_credits_limit_negedge;
+  assign pd_credits_limit = (rx_level_select) ?
+               pd_credits_limit_posedge : pd_credits_limit_negedge; 
+  assign npd_credits_limit = (rx_level_select) ?
+               npd_credits_limit_posedge : npd_credits_limit_negedge; 
+  assign cpld_credits_limit = (rx_level_select) ? 
+               cpld_credits_limit_posedge : cpld_credits_limit_negedge;
+
+  // Credits allocated assignments
+
+  assign ph_credits_allocated = (tx_level_select) ?
+               ph_credits_allocated_posedge : ph_credits_allocated_negedge; 
+  assign nph_credits_allocated = (tx_level_select) ? 
+               nph_credits_allocated_posedge : nph_credits_allocated_negedge;
+  assign cplh_credits_allocated = (tx_level_select) ? 
+               cplh_credits_allocated_posedge : cplh_credits_allocated_negedge;
+  assign pd_credits_allocated = (tx_level_select) ?
+               pd_credits_allocated_posedge : pd_credits_allocated_negedge; 
+  assign npd_credits_allocated = (tx_level_select) ?
+               npd_credits_allocated_posedge : npd_credits_allocated_negedge; 
+  assign cpld_credits_allocated = (tx_level_select) ?
+               cpld_credits_allocated_posedge : cpld_credits_allocated_negedge; 
+
+  // Additional gen1 code start
+  assign ph_initial_credit_infinite_tx  = (tx_level_select) ?
+               ph_initial_credit_infinite_tx_posedge : ph_initial_credit_infinite_tx_negedge;                               
+  assign nph_initial_credit_infinite_tx  = (tx_level_select) ?
+               nph_initial_credit_infinite_tx_posedge : nph_initial_credit_infinite_tx_negedge;                                                      
+  assign cplh_initial_credit_infinite_tx  = (tx_level_select) ?
+               cplh_initial_credit_infinite_tx_posedge : cplh_initial_credit_infinite_tx_negedge;                                                     
+  assign pd_initial_credit_infinite_tx  = (tx_level_select) ?
+               pd_initial_credit_infinite_tx_posedge : pd_initial_credit_infinite_tx_negedge;                                       
+  assign npd_initial_credit_infinite_tx  = (tx_level_select) ?
+               npd_initial_credit_infinite_tx_posedge : npd_initial_credit_infinite_tx_negedge;                                      
+  assign cpld_initial_credit_infinite_tx  = (tx_level_select) ?
+               cpld_initial_credit_infinite_tx_posedge : cpld_initial_credit_infinite_tx_negedge;
+
+  assign ph_initial_credit_infinite_rx  = (rx_level_select) ?
+               ph_initial_credit_infinite_rx_posedge : ph_initial_credit_infinite_rx_negedge;                               
+  assign nph_initial_credit_infinite_rx  = (rx_level_select) ?
+               nph_initial_credit_infinite_rx_posedge : nph_initial_credit_infinite_rx_negedge;                                                      
+  assign cplh_initial_credit_infinite_rx  = (rx_level_select) ?
+               cplh_initial_credit_infinite_rx_posedge : cplh_initial_credit_infinite_rx_negedge;                                                     
+  assign pd_initial_credit_infinite_rx  = (rx_level_select) ?
+               pd_initial_credit_infinite_rx_posedge : pd_initial_credit_infinite_rx_negedge;                                       
+  assign npd_initial_credit_infinite_rx  = (rx_level_select) ?
+               npd_initial_credit_infinite_rx_posedge : npd_initial_credit_infinite_rx_negedge;                                      
+  assign cpld_initial_credit_infinite_rx  = (rx_level_select) ?
+               cpld_initial_credit_infinite_rx_posedge : cpld_initial_credit_infinite_rx_negedge;                                     
+  // Additional gen1 code end
+   
+  // Assignments to credits received and credits consumed
+
+
+  assign r_ph_credits_consumed = (tx_level_select) ?
+               r_ph_credits_consumed_posedge : r_ph_credits_consumed_negedge;
+  assign r_nph_credits_consumed = (tx_level_select) ?
+               r_nph_credits_consumed_posedge : r_nph_credits_consumed_negedge;
+  assign r_cplh_credits_consumed = (tx_level_select) ?
+               r_cplh_credits_consumed_posedge : r_cplh_credits_consumed_negedge;
+  assign r_pd_credits_consumed = (tx_level_select) ?
+               r_pd_credits_consumed_posedge : r_pd_credits_consumed_negedge;
+  assign r_npd_credits_consumed = (tx_level_select) ?
+               r_npd_credits_consumed_posedge : r_npd_credits_consumed_negedge;
+  assign r_cpld_credits_consumed = (tx_level_select) ?
+               r_cpld_credits_consumed_posedge : r_cpld_credits_consumed_negedge;
+
+  assign r_ph_credits_received = (rx_level_select) ?
+               r_ph_credits_received_posedge : r_ph_credits_received_negedge;
+  assign r_nph_credits_received = (rx_level_select) ?
+               r_nph_credits_received_posedge : r_nph_credits_received_negedge;
+  assign r_cplh_credits_received = (rx_level_select) ?
+               r_cplh_credits_received_posedge : r_cplh_credits_received_negedge;
+  assign r_pd_credits_received = (rx_level_select) ? 
+               r_pd_credits_received_posedge : r_pd_credits_received_negedge;
+  assign r_npd_credits_received = (rx_level_select) ?
+               r_npd_credits_received_posedge : r_npd_credits_received_negedge;
+  assign r_cpld_credits_received = (rx_level_select) ?
+               r_cpld_credits_received_posedge : r_cpld_credits_received_negedge;
+
+`protected
+
+    MTI!#5ZCns'1u+^*vA1z-zUnW+n@2x*]Il''$|,?z?=~o{@UoIU$x*kC>TCT~UH|I=ao}H_zB=xv
+    lh4#[/lx5OrVYenCA$-GYJ_Il!U}nU'inY3-CQ!<;[EL>X1Y+{x?1_=AkDi}}|aRu*e$tC*o_'#l
+    ?W]+R73[;oGx*W7+Zw8xHB_PuI^$H(w{J7*5B[(YJR[]VzJh4D\?[$#VQI^,iP-AQ#$lO?GVp7>_
+    J-Un\>IQ<BYo=E$?>XY@GA/*mWzvl5{x]?[?}n,[T-GIE\!j!x3Xe3V>{37z,<vxn7o3'UC"G!v@
+    '#eY1G@Yn>C*~X!nnDswZaKY6sH<1l*$o\'1a>*2^-5z1]j<pG*xnR}BZGY+}?$QnjJ~p}njW%BQ
+    +]nX\Gvk}X%k=!lY):{X*VnB*=\IpDw9\Vv?Q;=\tO{3_cKj?^ej's-o+\gDs!TK]xlM$'Ixn,sX
+    1El-z;'Br;>pZ1{;|G@2\CKZ=mRnuHE>I}BXx*vl2AATsyCIa;>=DKmUH>(:4GH'G8QsTsmI>m{w
+    pRW^^-CX7[fup*?*G\zm'v;i=[<[;}Oo-l2J^BJ)il=iHjGK}u-<A$7[ow$ikwp-1{I;@X][>Re!
+    |D7QiBH7UY~n-7sKo#'==#R-XWp}K!AmTppBi1Wj_Ywx>ea7'Y?zet-$*<R~aVm-YI@}?[3r1po~
+    !1~[{3OpC]YVm0_?n;9#na["}+H]N1Q-W!A^V};'#,o}#a];}n5C$HTm1uQ=[1{n#q/7R2$fiX+2
+    yTe;=_nu;=HmKNWEB+T=\v'l{=4Y'?=sIm!g4[1!73$HTjV}DuEYaU<z~P$ap5K>2DlH~<73}_}l
+    -*aTG}}OJ{,*j\PAY-a}3~Dp7o#sme*=iYDhTj-z9Aj}[Ajw[]Zrs}Xjp!,v5Z'2zxAuEa$2@!O{
+    {%TT]<[{K~!DA?\;~Xwl,!lK+Rk1Q;v_HV~T*e\YiW8<=ojdi}p#[GvUx?}aXB?2kYzIiDUDwa]#
+    Qoa+h52H[MHCnoOt,~vorkCz{p{uQj<Bf=mnz3Eia7H[R.[-,*tIwAzt9$eWj<sZ_@X!]elo},pQ
+    u$U;VKBxGbN,~j*r}n3B?YR~BYm'XRIo!X17~ppl!2'kT]OMH_[T^/\$#WU*CeIww[&R@R~Qs2@s
+    ]B=sz;^xW+aD*sT,31DaBvG-Y~5Fw}TaJTB+~OiW*+j_7B$+({=lY^=l<F&6#p*~#D!pxz}uT[3K
+    3{1vHE[Z1K3@FEmAT#Q@rQ#<!rYiXe?*j]Wo+LjVWE!BmE!A}wkGlKm5iel<2erA\i^nuaBuT[qB
+    !BDs<},u1Y?il_}Ks_^xo@'{vAY_=^5.FEu7[?'Q_J|D,D]DI5z/pxn*UU!WlZ<A9o\kuVK+~5ws
+    1=v,UsYl!YaEO]v7WQN}rka?QW52_*#?}7C#O<a2w2U+=?kE*ABl}a>%;^JD(eXUT8_=?Rja\pa<
+    ^i{E<,R+!2@Ae,tz;-<!CJr!+npji+CF?7*Jn];U|Je*YD;u@*s}2@T3EW$@{MUa5o$_KVml1*Rd
+    i,'JT7Za}o\z+=lT\[esH=*+e2-JV+'ey+AeaRTaYnxZEfgST^3VJUY[y1s22Hrv2IkAWIH;$n<O
+    '[7D{%Ze!-6T};2'E,~Vse]wEEkxOij||Dl@$Iav5us<aDV;[MPhBEpj8\^7spT+lQ+>X^~<nB#r
+    OpnG!}@Uuv{siWx+]4TsjJDXYvvnB@l2~?)79O5eRXsep$[BIu^rn2p+jUOe=osx,IBQC^}>!5[=
+    w^?=]Q@_e=IsY>}VZXw>![YjiZI?]UCk=F7}!]jEavDfJQGerHu\9_jplf)#avr6<zW]IB-eix^\
+    ~B2n@wBE<TT'KTX7;VCU|771^aA;$1<YOQ+\wPUeVXXH~Ve@w{Y7R-7vis]xX}3|(xq2=O+Zo@rD
+    CQ1e5Zo}}3ve_5<wOZC2E\l^VTOO'w,fV>s>HGW#!UlIY?eEaUR]I2Q{{|mrjmI;3UKsH+eV~1c{
+    E[}]X2rK{3#C2m'TIsCvuJ$OT77UA!7C\-C*;*+WH,-|_z*?ux<B-HV7(}=>1LRvXG2ju}a^]#^v
+    Ka{pezko,\JG{T~{A#i]+]27Rk?=pk]_$X#[!j,;YY[\I3,52}vZRwL2<RoG\;3<XYD[kv_MnB;,
+    Ke+l~HlvTXVJp]v!zlzOx#]$XD;j@w$\7;sk]^'E^seev#DR?RCH@xE{Se}Y-jl;,vkVB1'^D{Qr
+    wI~El_.-Y_w7I\1Jz--bf'w-??YY2x2ODJRQTJsr1mrY_H$23},IA$CO#,!en6{Q]\jRV~YTviW<
+    ~=z~5r/iTsp?RG'J^K]ACoA2_w?Im$*mIAxxT7vaHQ*o;VRt,AAp,OWUQn~^lue13Y{j}rHw_p7_
+    4\OzoGZ5ONUz1KK,7X-pn[TpXn\XDVU-[]2jJpe=,sj^+_#s{\U]A?R?,i^~U-^+T]*z};NtxTUG
+    v*Ylism!sDIxA}}wvK1v>$=Q{TIX]G]2^1z<QnE\w_XzVo'B:dOHHk*[_V;[V~W5G3LO5nV:xw}{
+    eP&?TUpI3<3$@Ak;}Z>y[I$EH]#@W{DTi<~GQ5RX}wmK${svP~s}uqnUE]5E'Ak+QCr!8X-wE.RO
+    7'io2s~aGn52D,RRZ#]}R>jrDDReZWW^XY'2+~O2<eDxHs#A5]*zw=E'w_w[\r,2I3$R$rRD]i'E
+    j+RuW{x,\\__^V1_<5Dz\p*s#WC_Z$a>[XKn<K]![<x$-uQBKC'e]2v>a[RX;K3YE1AeuT#'@;Iu
+    {BZCE{u[7r:+Qi#D5m;~7KxT.+$QY]}=YQ1_mm$NlPzo@r^sK${XjC3z<_8~C-JmCWehsjn_v1]-
+    -Hs7i[QE{'<A,2[@lI{a]@zQk=<w<Hpl#zn-{ResJETH+,]1p8;RklmC#Z[AUV]'xW;_v~MI!B7W
+    {~Cm51wnl^;-lIDu.17>X}r_?r_AsjEZ=zU'7-e7><>sE)Iwp'+_aC"RCxJ+^JQ0Y^5QFnn@{Y$@
+    r<X*eWI$[Tx,?+7Qi?<3[sCaa]Kz,a}?1BefzO;xv3{J<7JRJTzoEC}XZoBmj5riYAs_c~p@{ssm
+    xp^{$3n>3}t-5oUT}x[H>TI^IHC+jel$zQie+xUT'Q;QmuD$7#_tDwC5}pGXljO~a7u>ET\-pn^B
+    $iH}~\iEdj;'iA<TTnG,2jWVkh0G;}@PQH!u_Z\^>>+-tqED^uTD<*sw2u>R*^oYTXOJA]:_ep!C
+    =+Biz5ST*,T7Jukx*oE3zY#Vuc9UlinU^@U+Us=:#X^![U-zH=w]UEzOe@R~S,V,?YoGxr7~vOJe
+    +7W>UZpVl-pvn%9dnB>]kIx,<r_nQ+'n31*>3_7]jEX*KnHEp5Az?5-Xi>RY,@o@A\l!m5sG~ODC
+    9VE<-*+*eHO1wvDZ,'11B<U-KV<'VEE<I6j#{,OHoC<'WYQiAa'*V!GX>?Yijn^jWn[VBwK=<xu_
+    Q_7WIpE_x=W=2]3}D>[[{=mTpEE+Yz@p\2\[Vo~<vuc^{Yw=,rQOGnH-NB@,QEuIv_C1W#j1$5^K
+    3\]E7K<uA?>eUFO!\,SQ=\v*+OTR;uI'K>E2[]=2a+Tz-!u!wO^\=iw(#}[<zOp@!Ta#-U{x_-x#
+    ?s+XO>=m\\aU2Cgun+Y:V+VuZ<[ZZ$oz\QvDKCwowBa\B[#,RT_HFRnvB/1]DZl,CZL]l<_!p*^w
+    T$--GwxkwvY_pa\nn[>h%l+$@oY$;Y;;EnETxZ+<,el=3d[AsiOoQ}vl1_va~R;zD5ie#?{VenmO
+    QzEI!-#sr\W$Y!jQ}rm]l,LwBl#z<<o=!\1C-Va35BzkCE}B?};EIvi]'xJIwj*ZO@7YEvAC]33A
+    =]J81KRn2^*\>U=Aisa}~oC5pee_lD}nK*@-/*DpA[^\I^&[?T7xlwzs!om'@Hl_=Vwil!~13'-*
+    !{B#*eT+1{+!apK}}kr#XKJ*#}jEp6cQz'j%ORinwp#CW<]!a*np-CGCOx^1*NQspJYsroI5X{uV
+    >K$CT&xsuB.iz2s.si''nX<IA[$$iT_BO]i'ze^2v>~<];uZ<[2_[z*Bi,wk7~Aon>+rUxT3O-K^
+    EEzGZ^HzQIlQYauBTl+Tn+TWVEJTar\}L_J2=f=H=CWex~JEi^9UrVT;rTYr1Z#/1{K]nEOE,+U]
+    iCA+]TT[{]J+pxCazY{2;>3~j',+R'J3R>Ep\+pEQk@OzY7?p[#<A+5Z\vTD9H[KOIQ!VY3DE>G^
+    jR2Glbo#UsGV{nVnYXzxUEv{e^2n5$2z5UW$^-hY'mKs-_['W]H]<+_vKo!Y1IGjsU5sA15ksmDQ
+    x7;u*l[=RXJ/'<-}OmAo,{BIWauseJBUs<RnUUs-W>aG_x=C=r?E5U7x;Xn7O^jVB2r#^B*k(p#H
+    T;opQEuGrGr[iA{<Dv'I,D~AaO7^IRs{;Vk{]35zuupDYW,<a]<A'iQ[T?YB3D3EiIeU[s=BI3Iv
+    [GJQTp37oY5OYn{[<g4S6R+mQjzx}^}D*k\@V7wrx-IErsKVXzmX^[Zpp<IJx)YFC~e?*>s5u=*O
+    \>-\*'##jzVZWV+XwoA;K-Yu$2_Aras$EzAO%euV]+'+2!]#Y>*JOZYiD^2C5D<,s]k*3}eVrRTr
+    VKAooO?x~'7E'1np\Q-!R[^<~EQCVO}wx8jX{3{a>$wD[,kH$=D\xw1*,1QZA7H>7p3\Ouq~_$1g
+    @{CII^}z}T]r,@}ez'!X1{QaloonEE_^5kI,keRv*73{7Ev'^n{>7EHZrCTZRUjTo<Qe_AwlC]aD
+    ;vel#^J-TRQi+T^@o}C@_p@_=5_TvODxx=iDoiram=rH*BzmN>RiR};[;ZVGI2R5]ToEHjiA_3I}
+    UN@Rea->U,]@*uXCTkp[_-3]C3DR}KQXO@IIjzs?17oBZ;>]\j1zvZheZKKmaCQG[o;oL;G~VRw*
+    ',U*n's}r#+_BnsoZuTmz[iYJrH'Wj<Oa>H\ourYXzK2pjAXCQHuX*vJQp'>u6}^w[1Ol3uQ<$z?
+    r[@jR<.G<zV(uBl-vQZKi.SqAR^X^+5>-e=T6"{GB+uRi#G[[O}!A+<xED=}o{]Y7@JaUm=usmOQ
+    n?KVATje~p^AZ^"yE=Z++sZmzWE<V+2[T=?1HjQw=Q~$<5^~GBnH*J,W-I[K['#A0_sW2v$_HEHG
+    zmET7G;wZM13@Jiw3s|2,zKB+w*!YGz^$E_#,neC=T3k$mB"G^@#'l-C6#rCB:VQ2UaRT-]GJ_qA
+    =*Y)gb_[$!Bmes1UIQB5CQ\*KwA^+5,'jx-'vK<\A*CaOK&7}>kwYlA!Qk['QI7WUT>l-ojl}x'C
+    r1<ujJOY'Djz!KxlVVJ53XDE5O{[[Qoj!B15uWYmY<lp2-Ra}\AsVm[TR,3vRjV}Y>_nN,Ca~*,Y
+    2O5XK''wp{<{]01Az,H\kW'*,TX,\VeJ^{D\\veBl<lXlV0#\=KK+mB,5w@J],U\U!o1RaY!]Ivp
+    GYa-*xOD^DY$jT;HovxpZOGge1,Js'77+]zo~Upv~rRD-5<?r-+Oa1n;ep]Gv!B2VRDD'l-@|!aQ
+    JBp]C{UQi{\\Z51Qo)5iW=$Z!X*?Yr\57uR>}CCp\WQkXpYB@^nn*k\zW}[GWvgK$H-eWImp~uKl
+    [_?i\HY?A[Ga5V\a]7EV<A!B\U@>}5EtxCXCBjYT[^rsXrl^FOBu_\Tj<U^7UzD3zPsk_G2+zXD*
+    p#,~31o-B!xR^]W1'IRY31'QpIlXe2sX+3J}Z}7=-m8_nVsOdmnYnw}T@*}WURUHk~xB}\VleGTr
+    vCk>@Je@Ds@2Ko'T2ws7K@_uK71}X>Ii~r2Os(l1\,sp*V6)Y{so{H>AaxvrU}Z;=pgKwAemvNnw
+    Xo0HCju,=IOC=e-xEY;rBTU<o'QUe]Y5,T7gIb7W_#X_;ADDU\Ly-[**]J[}UTm};+1*^AYA,EJ{
+    Y}2DDjV7!<uocvR{Vksw@p_DHzH1}?T;U;rRi_-2^<}7zUCImCiE+=?1u?[[5PaL\7_zp=a7'k_u
+    J_$*L%7#mn*YiD[n~WvOE_X-3*]\olw[7Jp5szY{uwc5l~5GRr;ijCJb\H{Um]+nI]RU[?ww@wjX
+    j-Ak~x]#oX3},zQsHRRs{Av\vB2#;_xZW]iz0]R5GUzmwpXev\~nUKCkCeW1[f~\_Y>-5H*!+UGo
+    n^#<*RxxG!Xj]3zUzI@l'!~XWnn<X\TY'nWwxDe,[>1]s*WXxX^1WaTxaEvIK*KpH,4^}jA\~~;O
+    WH~)\DxDx@<\C?wplsX#H$]-_irYRU;VUEJO,}Oe]a7zY}<n.j]1Qz[5arzA]]\$aJT_E12o7CKT
+    \lun,lE_3,T\{K1jzGZY7Emv~e2Ax[kw]8<l'VVCCOAa@<H{2?HCNH5?24aQD=8o-+]]5!x5pAaT
+    \{,]?vKGDkBH}DI5=,'OzU[^2ee><=zBlkp-''a?r{O2{R\>QDKr5^=OT[*5$s$#5Re*@JvLj11C
+    ]e+a(ZE^u*iv}cT{w_KC<5*1>QD;m~++O5>G[r2r_{DrZZ%DU~x,Aj*QnExv1Ua9QGaE."_VuoET
+    CAo@lRG<4RZTsSo*j;B+QT!ImQ5-}~f8BKKml$<]5*QJ+<-*=5KOsEUlVJou<w2jRM^5rU?H5IPJ
+    <W,Z^$Qd5-=Io<aJVnIvje]u?E*JQ-+!cYO}i&*R>2gm\VOQU}RE>wlXQ,_D;OxE<1A~UWXIl[{h
+    7+O~-pO=B-YmsD+rW7\A;ewH#}zZ$xu*[WmDE2XYI2TO=KRVfp,nvOa{ojli\ws+5=CC!<p>A@$}
+    >wR>@@,@7Zrp#B}a{z?U;>T~I~ea}YI>3*EnJJ=CJ*u,QTl='v<,j@>!WiHE[J'ZKO5m_7%vO7Aw
+    V'YSBGr$BAWK-]^-oG<;_\G[-T-[*na@ID3RU}DYl,2'p1u{Q331:*jw2~rjj%%g.IKY2]\BGo6,
+    rX,c;aA>Bkep!}}Ek-\#lpjA5j?>YnQCDQB?1XTEwX7u+eeJrCW+*~]rwT@CR2@!QO\s1-+leY\3
+    e{$TDv?Oz=eGD-;G$wDoGUTkm\1kYQz3c\Jxa?*pOCHIeB2rpLrvr#?$}{IZ-rv32JnUe@RuaDjm
+    ]W[<5[{vIA]?'~,!-X=/-{$_<{^_I5T>v>'1?R@G5,Ys}*mn@VaJWl[3Bz5WYj~oDKV14ojXE2Im
+    oY{C2^[OeY#V#\?r?r,o!#v]X7!ve7Q{};,-*;{_K<7$w}<-GRl]lI=Im2x{o%si]>]l^I3Rpi~<
+    Wv_-2HBr^Gl~WO&1XzY+.bHs*r1e>5?B=l2pQZEJI'pw7uJU''Y>fmBuZO2R;r;r>{>,*F=sUmD%
+    ^'*-XUaV]@=XL!ro23slv?j^~#]^5j=xW1,7D_2E\KpAJomnT^_-E'mAQKIAXf\DHnk<KRYx?;!$
+    RsGuZAw1ADFiorRiO!vn>E3<7vr{D{G5,eBGXHOTx5zZQOk*Q?e{o*ZlTIn!5nwQl!+7A$Vnwu1S
+    7l+;]GA{]<e]sw+Q'+lB5~XH;xaI_u=Zv;m#2]H?Kv-eD=mxcnV*Q%{s<vC>s~~e^GO5zxkTE+-A
+    \wyq?_me%:N]-@pbez5_*j3Gdj$-R(smU!oT1,O{[xC^nD$52\m^T{BZe31+W;4^]\A?sIsTH^=@
+    }EZNe-zr>BY,rHz;I@p*m=V-w7RzRKlCZ+mQA=1e$oAnu}5ChO\5;a}rw]Z75U[lAz,sDr7mHQzk
+    5$a7l1eXpCpuRk1ukI~D@xrluC7iJ^nO-#wp-^Z3Xo}jJ<HO->*1G?UDUVK,3A\7AiweT=u_kHwY
+    rNAx3@=VBmOwW<maN7B7C^UETBQ7KQlrO0{r7VY"{o"vp+os+O#%1>XI>G7zsK2C,Y,2[VBj)?Lg
+    -U@\=GE{;<,C&Q'Qpb];}QOm5*azKz,?;xr{@ajV3sKoB#GJ'GkUAW~XW@hHw\XP-RRJynEr1}ME
+    _2{aIR2]\7]~SO2!\@Hj=G7
+`endprotected
+
+  wire  credits_allocated_fifo_empty;
+  wire [59:0] credits_allocated_fifo_in_data;
+  wire [59:0] credits_allocated_fifo_out_data;
+  wire [7:0] ph_credits_allocated_rx_clk;
+  wire [11:0] pd_credits_allocated_rx_clk;
+  wire [7:0] nph_credits_allocated_rx_clk;
+  wire [11:0] npd_credits_allocated_rx_clk;
+  wire [7:0] cplh_credits_allocated_rx_clk;
+  wire [11:0] cpld_credits_allocated_rx_clk;
+
+  qvl_pci_express_sync_fifo #(DOUBLE_DATA_RATE,4,60) credits_allocated_fifo
+                               (.reset(reset),
+                                .areset(areset),
+                                .read_clk(rx_clk),
+                                .rd_level_select(rx_level_select),
+                                .write_clk(tx_clk),
+                                .write_enable(1'b1),
+                                .read_enable(~credits_allocated_fifo_empty),
+                                .input_data(credits_allocated_fifo_in_data),
+                                .output_data(credits_allocated_fifo_out_data),
+                                .empty(credits_allocated_fifo_empty)
+                                );
+
+  wire credits_limit_fifo_empty;
+  wire [59:0] credits_limit_fifo_in_data;
+  wire [59:0] credits_limit_fifo_out_data;
+  wire [7:0] ph_credits_limit_tx_clk;
+  wire [11:0] pd_credits_limit_tx_clk;
+  wire [7:0] nph_credits_limit_tx_clk;
+  wire [11:0] npd_credits_limit_tx_clk;
+  wire [7:0] cplh_credits_limit_tx_clk;
+  wire [11:0] cpld_credits_limit_tx_clk;
+    
+  qvl_pci_express_sync_fifo #(DOUBLE_DATA_RATE,4,60) credits_limit_fifo   
+                               (.reset(reset),    
+                                .areset(areset),  
+                                .read_clk(tx_clk), 
+                                .rd_level_select(tx_level_select), 
+                                .write_clk(rx_clk),
+                                .write_enable(1'b1),
+                                .read_enable(~credits_limit_fifo_empty),
+                                .input_data(credits_limit_fifo_in_data),
+                                .output_data(credits_limit_fifo_out_data),
+                                .empty(credits_limit_fifo_empty)
+                                );
+
+
+  assign credits_allocated_fifo_in_data = {ph_credits_allocated,
+                                           pd_credits_allocated,
+                                           nph_credits_allocated,
+                                           npd_credits_allocated,
+                                           cplh_credits_allocated,
+                                           cpld_credits_allocated};
+
+  assign {ph_credits_allocated_rx_clk, pd_credits_allocated_rx_clk,
+          nph_credits_allocated_rx_clk, npd_credits_allocated_rx_clk,
+          cplh_credits_allocated_rx_clk,cpld_credits_allocated_rx_clk} =
+          credits_allocated_fifo_out_data;
+
+  //-----------------------------------------------------------------------
+  // Clock synchronisers for the following variables.
+  // ph_credits_limit, nph_credits_limit, cplh_credits_limit,
+  // pd_credits_limit, npd_credits_limit, cpld_credits_limit,
+  //-----------------------------------------------------------------------
+
+   
+  assign credits_limit_fifo_in_data = {ph_credits_limit, 
+                                           pd_credits_limit,
+                                           nph_credits_limit, 
+                                           npd_credits_limit, 
+                                           cplh_credits_limit, 
+                                           cpld_credits_limit}; 
+                                            
+  assign {ph_credits_limit_tx_clk, pd_credits_limit_tx_clk,
+          nph_credits_limit_tx_clk, npd_credits_limit_tx_clk, 
+          cplh_credits_limit_tx_clk,cpld_credits_limit_tx_clk} = 
+          credits_limit_fifo_out_data; 
+
+`protected
+
+    MTI!#IpYzxkA#K[,+~aAn;]<3A<W>YCz_WQ2o[:=ZYihO[!a@'?QG@I]Q@;@1B$EQ3;nBV1v\C@?
+    Y>VV]jks3a<?lv+#rmYoEkuU:a'UTBBxs=uQ_Oz'z0K1}U<eWp}V1ir_w]iATw>|x~a5rm_}vDY}
+    OOI]k5Vjf@s7U2<+Rx%3o$xk{-UL7%N}5CI%m}\7Ge!^mDuEWE{$$VVvXH,ZR?+1<7G@.[WEo$UZ
+    +5Vjz(,jx*r^Yj:~H$WzI_-v==O+}*@'K$1rz[*\]?rk$y1RmX~{}'?D<]T5EBa+K}0FY^i,LBm,
+    ["P%!XVD}JlZ,me<VEKxl.,Up]KB<=}DR_GJCK@omrv*~Dt<HX-C2zvmQT7Y_}2%vOOxInu~Hs[k
+    J{oi?[<mkjID,\52*kV}kwUW^?'3|o_XETrk7vi,$mI7@,#;R7@'!gIq#[_$rU[?x/;oxWx+$m{w
+    ]DuevZ1e-s^^\k#-3~s5{^,R^2]T!n@l$wY:7-XaoQ\_4fz?]pUH15fK'nAZoslVj3,oi\kIiO^%
+    em!;EYmlpBj_juRa$o7Xla2<i'k$Vw+Xz,VlY}*JQBD[eH=-?]*E=Fpj1-9xv=waUu1mDi@k^+]2
+    >Ia_jA7s[=\G[*<jCCQx?Vwo^!wY?\<uwokgCuEoJBi?KanQu_VevuOX*rB}@xB+Gz'zz3}@v#+D
+    ^2v<{+H1^;v^pFl?T*]QDWepXVeC'[]-pQr#v_~-]x$+a*Go\2:OeeaRaw!25-jiXK5#<a~R~UxN
+    {\k#Q;[kzUn=Kwu!P>BTpl?Jl~AZKn]Xl/%=W{OX*#rvw,E-^Is\>nJbZTTG;wrVzW^ozRi$Ev+7
+    Bp~>vCi^xe1~V'Gi)|7{DQu[}[W'@+}T!e'va}VxZlI#x;*G~RjT=<)[e!;C?TJ*\+rzj#U*Qe7!
+    U$2=#'\$ri_&35xnwlWaZvWOIOoB-*{-J*~A2lu~GIRa$rBx-'Er1R',GB=GEE@ZI_W'G^#{EZG}
+    Zv>aU]-$/N'^@rE>@O[oA-Xs+W>j$?]KrGl?<UeQl?BxAIy~vKk3\2E>Enz,jQsYnE3*?^$IauCI
+    mQ<$k[][OBBd[iYz_V=<IJJ+[2DTL^O+eY^p+,H'sD}1Kq,mR*6gAEB=@,o~d/[,@wi\{nCj-xDm
+    Rj{5YiYv}rx]ps}$UD?}QipsovjDmC,13n[ZKrTT<$Ol_5=as*3no@[kUI6?H2uTV3_v:{7v3$jx
+    ?*@3l{CQJ;YD{u7#1s>_TGWllA7-\GT;H2<B~ss#vpYTwu]>m;{2k*x<z'I5VZ-_~kEI'VV^wH'R
+    D_k>m7O2rACvaYi~2CG?]vn2w7a@H<QWDnVB{p~ZsZR$]Jw}k[Cv5;R-\Q]2p9*k@juG,;JrVTI$
+    lJ!$UnuN*7~mC~ClLO={>Do3Wo~Yp3_I1m7CO1]RI|;aoVC!_$J$H5g[Op?K_zDYn-=FkE+7"e'O
+    Z8IO$,E&TG}UcIv1+\Va[ZRZ\OX>[\=nX^aIO+A!,B*pXr~<#|GC[~RX<DJxW,jG+*,RBJBi<7\G
+    B-=~X>}kBTzeA<T}w'RJ;5lKW3lUu2^Ye@eJ+Z!'Y$rQa3k<V7ZaaV~+sWZ]1mB2YQVDsx-CWR(\
+    7<-xu'wTUOsUp,_@N'E=l_];w1XI_rEAJjl!pQnv1mBuD.G'C]}1X~H'Y#vAZz^^>7'_@IzOI@lp
+    <@T\'C6TB'5i+5r]~[K]{{J:Cp~]C@!+A--zTpJTkEx?1A2E,G@*;\KedvZUu3*$!(Dl!'~a1TGU
+    ,3'ZJr]ZnRL6Ly$*+X5H+ar#Bl!pL(^i'AG!eOoIEHRp<vJ-1*eR5*C7{W}5pw'yRIK_CJTr~T2;
+    OwH$7EBWITQm^s*BQ-WkdxUA^>w_'OG~7upWu#7#1U[;5K7\7rpE>E+RUVJn5AouRXrJaDZmXi+j
+    oBJUHBU+v\jYDjcp3Qk9SEsJQYn*psIxI1+uO,nKZ{aE'wr#U1wVQ-TE3TAGix+XoY-T=BWsDx\K
+    5^5K';[nBrpj{K=eoQBZmZ>>xE-vx]^{,x+Ged^Vk!'^kGRRjK$@are}e?x*kT7ApVA=!'Z};KvA
+    a#Di;{y$!GOupvEGVi<=sn+$;lzurie*2$L_B1Op?$i2X;zrA{T@oo*b-DOEIl-\O@TVb-B[Di7X
+    ]]~>HaOpCouxTWj\r@>\w0@1*<VYev7AYD6jm-$V+^Vip7$oRA>XUUXgBBn50!zV-ppuY>n{3~X1
+    2o'}XBZZJZ}~@j#^*aC*~pB1WvIjE<T}pA,vZ[nErU{~n+5Tokw~Kas?-XX72D__aVpBlIA0mCTI
+    |.CAevo~RV~=G}z35+B?{YW}DVe<T*![AVB$H}pGxIJxAV!v'o\RY_1s$Yq~o-{-o[jQx{Xcr5ek
+    !eHneQwVTeAn^7W#!BI]4x}inI,B2&NmRu~!{@j~G3=xBp]^K3}=e*>eW*UsW1z,GRH/'1lOzWa\
+    ]ZQ3-}Q#2OrUACY<v=_j2a>-\DJ5)pG~jW1uGp^^^Z{l[Wn+R]{~pv+^{O7-n/O5Gz_ouV8+eY*G
+    ]+}?5H_A*$@[^>v;_mR_Y@{Hzx$lixmx$iwK}eKv@lpf+]1AT$\soXmD}jjB]~!~<sCs\HZInpv]
+    _[>m<Bz<GHa>IgmDVizOmVnsoY~B'@E!5_73Y<G!l1:>nQWUvQ_IVuo_Wov$TBB/7@T@e3'INRp{
+    av\{!p*o,a}'<ErR<j<vl)9GeO_u7Hac7njatEu*GYs?G[J<U[rJQ^IWwYY3#=-l+]~lTrsA2$k7
+    iB#Y-TREX1R-77a}Z+leH1\,j+IKE82pErHr\myTX5TO*TA[CVDW{CjW$*]F#{p<g~re@jO+p_>E
+    x&1B{]713xyz-Zu}3}K?n&^DAu@UGBz?O;Ys2~x*BvG\_EIAX7R4j'2eG,?!pKCm&XsEkeDmep\,
+    \JeuZoW_pzCAu&sojjJ+w_#QZH_,jYf!B-m:}VwVQ]U!IEnpvAU7Nxaj+_la#7^wDvB-p9sxZ5sI
+    2jTU*K*&(^VKzz3OC!Di;A^5C_>mB1[-rle5U#xmHw{;;=AK@_BnTXt}'VOwU<OO;2~;{++TIJr2
+    1Dv#YR}+sY1@o2wDBHB[-YxQo-xI{auIs>QClC_;VTDsulm{jkmz!veF)!a+pT\'H1,ne=2!BY3-
+    A[J,3O+H*;ICZBDme5$*vr37G\n@IA\Br:+{ns>pI#;^@{kC~5%xc5_Rp3Dm'C;ExuT+#<G+Di[n
+    7}n*O;X]$avrQ;-A3?qCO<CDQX?k>p~sU7=?{\'U=Jw1a1O[u$7]j\5F[GeaJV'UR5vQ;<pwYww$
+    AxOm}.#$JZr\iK=5vX155wT[m;JsVO#R'-HYICC[a=A-Cri_YA;Q>R55?DOsG=UITxIWC+H\ms.-
+    Q~JI'ZR\I,Ap}5Of,'eQ2GIAJ>^V^lk5A1w7-C~jYkn{ElmzjVwz&'=x!D]$uBJ\,OKOm}VG~yzH
+    vHF^l=AYR*2@vZ7Z+$u~=w?hRJ+$1TnxjGZ+kjH''XQQ]1\'isU;lGr@B5<{u<}CI}l#[RT@7CC#
+    ]\<nU['1^Z$j^V$o~D$po2X~mwEx!pvW21#z{_@k]]~ZJsr*s^GY,!<VjT<*DaO5DBR\B?12+v>@
+    7ask@8xjw1q_?=\Gv*s]prIn*n3C_2mQ]+J>HeXoz?px#!u3l7'*~Jn][RKU{]ai^5U7lR_.+$}]
+    }E],;smIv*QGm$#Xero<a1X;o5XX=_>s<TZ?@]@;@Ce=ls@R$+JQu<\TaAH$:RB!O>=l;_ARW]Dl
+    <j'jGY3G>Vemv'l?;ZH-U#<{[{C]@R+X{zsO@=CZ-iEx;X]I*CrEa7~Iu<EOJ;woeHs]DV@Y@Ovu
+    l{\x\ariVhKr,iW}7G3^_lxa^]WB>Q\Av7+=KK2}}Xrvx;~BXuKr]#Oa<V^?TY!\=x3[>HsI3l(I
+    2ea7Ws,m]ax@D?\AeKQ5VVakEn>SCF7Gx7!^~kJw\_Fv\3lwE+BydmEX+sQTm,n^[vpVJLz<Up#7
+    w3jivue?BA{oCXLvwvxXQDrknWH]RV~Ek=m+^J#$g#RG#Vkoj^_a~@xWIUzoRkXRRCEWRR~Upv5>
+    Co[UZp-oYv'<_^AUIWB_$^$X[v{>$\}CB9dH+75#Q!ev]##oU7jOla-|ei'2jGj+D,AZEQ!~s;=k
+    dW-n]pD@T,3}vHY-WZ[HZ=@[XX5OOK,Yll?5u(vOz7a${j,$z'JlA$s+B{oJCJ^eaA2IXDV[H7ih
+    OpmOG4o^{->E+C]QA3ExvmXQv[e;BT,m\lBex>raspz\]AI$BJtp,GH,C^{)e$aO8vZ-<Zx,+?C7
+    rG}+aB2a?I]DDwE3?OX~n1ilYrRE@k-ZXr5Ba=5___-xV;=zQ^{nslx^RQC;~ve5*JA'HDvRR~[o
+    iK]Q!7*Y<pw}'e3;rS~VX+lJ}EO@]B39I_\]ZXZ5koaT:AV>k2OaCOK]2Q_^sJV#I1o2DnH2m[R}
+    arWUG{w<ZA=mmLo;lrXRX=oK_]^uR{n},W1]TWy?He5]!;2-=r1^VseQUODzUT!WT;;X{Z<l$2UD
+    mT@$'pvU-W7eE2a9I<jl^XA+}BC\ZvYY^_Z<oXa=DmOJri1u.,ZXJVT{C1Ju?Qm~@bVTwAA>{BuV
+    ;nQW1]L;+}W);aAv3[}]E*TE#apvs[pz*'D{D*[7,xjXvVVQ'2eoDe@T'jEVjE7'px>*3p@z,-eD
+    BHBaGe'>Y<U}wa1m7H2WFKHATY,[C]++*V5\5eDv<kD{~V-QBxw^zyxE\E=xJ#poej$Y='@x}O%I
+    Zw'G2YvI$Qm=r=O+^VK!AzDKT\+*GY<?>ua+GB,WDXe?Gn3;*zQ#';RsrDn-[nzZB_\WXz+(8_wO
+    ntAXK+QuX\Lk\KG5!sW'2n-uHC+6uOzB3s#{W1k!#wG??r?-,vzr3zQj"Oo7RN'>,]z'xA4a]W^^
+    j+*RYwpEp@sYZw}^e@u>>7Hrs=Y{5V\?vx5B5C^lR7\GQr[?EHQ-ez7HB7Cr]WG\\!eNH*#\pelA
+    o]xX@YU'pVT_szIUx=DjvE[,\G+A1Cja*vXY[Ez!_}Bwu[o'{aEJ2}r<=$iTlJDp[#DJTCB*&:yK
+    rX<^a-]}I1l?^pR^HeiH_O3%E5>;@Xr~R]Y'<H,3BHQo]r'-JX<eEx]Zk'a1jw*j[3Wursr2:sUG
+    3r-[EEpD2\#->I7rnkv5T\[#,#_v33Il7l>z+D3{??s2;KD=pjo${\;]k^@~Zv\\w$eT~)7X_sl1
+    !wiD^Bx]OYrrNZjuJw+a71IHkDXm,mwjOl+YW}>A,_OOX-7p;^+A#7u{om$<ORR7O1wlEJU7\_>J
+    *MoQ{>X{lv,$H+Y~H-ek;s?oB!mD!rJ+x7$AlQBoJ=.OEX*Hj5lmQeilm@^GLA+Tnzw5^[WJjJUl
+    Hrv-jpX^C\aYT_@p['-5k3=@xVVX,3vAn7QpWW_UxCT>,v'O^;1#'@I1Wjr!^*!KD>pZnXRK;,2e
+    D<Q1Q$;<I}!A@{^R=@<'l;}lCC5C-J>'ik]Xl_jE#W(>H3,CA]=7huQ,*E-J'wTDIz<>D_JKK4<{
+    ZYI;InXDWrX73jH$?2\e,Ukp;QG>Y-_DI'[+<k7eI2T'@UnDB'.Ups[RH_[]Dj'pJp?IMpz~Ro#_
+    ZI=li2<{p,=][.[i[IXHpYlep@0QN<1,KXru~}Gp}2lKT]GXzUw-UOkwE#1T,<A@RJ'URO;HWnH{
+    x_-pCrHJ<-,!X$TU,@eW#D2*#+T!W,-DXa-+<Z7z+Y#O}WI'Uf+CCK\j_,uo]OWe*HTO1GnsZAQ_
+    WakVkUKIVvC=+5_'aHZTeDCAXsr,^@&GQu^kr@I]#v?B@G[^wZsR5j>wa{oe>_Z_QQD*$H[w^W$>
+    ,Yrr-3r2GU+;_RIPEGm!<n_rvn*[<D#xNqcYG15XpBpvuUD|;[_A*YJ!]Uv+,W^ZK*{n~=@;.Bj@
+    Uq^^3ezjaI5}G35}JT~vW^7Ax?mBGsvyGiII{v^Gm'\7QXOwIAp^]_vQ5YuH;Iz^pv7Ox[*D)i-$
+    R!nH}^Hue>s$u?+^J}Yu[unDj-5A2x*An?z@;]i{Rs\vCo#G]oerDZ7!*vIo^I'+ou\H^e+_#U,-
+    ;/}@He=A=B_a[1>17UDZ~o\k>}?SYw,r7FZV?]uv?ZZVpXa1@lQ5Q<}~-#$-x>+7os5G{Ci5*E*$
+    CHxzD2KlX7Kvl+~$\zrETAH']U113n=1ou\w+*{,?XZV@]@wZZ\wZnWD57a^UsUvv;vmp$~}X]?x
+    _?MzlXjZDDvkXwDO}_xi{*zOmI;-w=}\OJG><vsa^}KR;s+X}aazvm_\7=w'('YTk+s'Rx5;Yv#-
+    A]sVQ(>wZQOlHjsT*$;_*DY#BI+7!+1@C_#1D5EV7Yi,<j5H2zVGAjJB;a7}p1g~GkBs3,lZ[mxJ
+    nl=NVQ>s}m_3}m*+QX*BH^-7w^W'oZ'wrOx;~e;KG]VJj?\Cjn;<Q*~rr\5k;\R2D2zZl+YQ[$pa
+    [URQNXapwAGem*1CVYj5]s*i{=@JGR4p<['7iwZn1zEOAb^_lp#AIxrTpVI+j=@<E#-O>]3{V$JG
+    5^]J_2D+oUsM@w_;inx\s5Qa^^I?=Is,H7r^*TU$kVv$f,JX>uAx?[Op7ve@zD'=JI]sI(K{3s_v
+    BRmwwu]]Te{wU\7m-v{o+]CU!Qa-G^e<uO"WQBkA\uE1->J>{1+2}V'=~<B31#}IAus~nEOG=UDv
+    -svreH-e2jQ}R{sD\+zV@jo}Z}@1_!<K9%}p=Rm'GXT7DajL>j77jXrZ*Cv=hOv=@Y#a}lw@r]$3
+    B?av'jD&~zQ<GaBx,p1--=x5[~wwEEo};U'QEaV]!Ci~VaAx+CeVQ>CCG33>iEal;7u?K]xr+'*i
+    [rDs51<[Va-5^^5Z^_ze'XV?@]m]AXriD\D2v?5;'m'ZBOsQ}uBl]?j](k,!A8$^]3qV>;7OZeJ=
+    IoiQKD2QC,7invlPXO$X}3[vKQ#}~+T,s~B{/mU{<Qe;XX=[ur!3[AE~5]I{W8uCn-dS5KY@7nUu
+    >7{_Q"'+5E7!JxYEJ!;^,C~_wzYp1@qks-1.+]\<C?}O;CVnu-^xzR!msQs!;BEJ7;BmZCVUkT'*
+    a6w{x@C<lp]>]srxpW=uAUZ<D;g?<]u$Al*Y<}76Wn}7}H{K=,ev>_p{?ek};V~CD>Jx=w}~e$Au
+    F="MI}GI<ng|Rtx<J_T<
+`endprotected
+  assign xmtd_tc1 = xmtd_tlp_packet1[39:37];
+  assign xmtd_tc2 = xmtd_tlp_packet2[39:37];
+
+`protected
+
+    MTI!#3=4YI^^@Q3!!\Q!3l#r5H=~G*]Ilxoj|.>RD["pTsw|&)HnC@_HP}%>sBi{O?]b\Ulr]Zl]
+    u[ouU[sGjAsJ2o;+Q_ZT?j#YBVu]q8+9oRiVyWpkw$~{<]R5kD7oAR}UQ=~[E\#-]D2QpxuzHTY,
+    TOTZoX<3Y[vW{e57XQuwaUzR_6[[Qs@,}lFNKXJo]w-<<a'slemZio.H$-jI+-eCZyVV3Om\G$F7
+    a!B+_~;eu<-KR}Tr7--}$Bep<8F"feWoAlHewzOv}9{>YifOa_<~U^xsiG@,C\Y?T[*Y_>2;'WDB
+    5iY?+EI[Zau~7,x!I[Ak1<+YOwGlej1KX*H5X$x?zn?X1j<aqMdH$G>}ZH*\v@],VAZiVVGG^mjC
+    =Z^AEkzwX<kB1o[1nU[=ZvT]zn$.|aaJ5w>Aa{aJ<1*U@;'op)i+ED.]5Ek)"w{5_*?QAU$Ql5K6
+    =VEu=\JJva@Zr<XX[3IERs_Yp,~r}Z1!?53?3pJRHAnnl-{$;>KTDK^u7UU]sRDnRDD^D_31J]Qr
+    'T!l*eO@#s=xQ7mei$w}n'W+MK\;B_!l5fjW]AR-$kq+=wTwR#=JYmkf#,3fi7VY@1>+kOBpR2+$
+    OrO]uDIC_R?oKX+^p[kK8VD@u~_l$"P"RTn],Wh<G!Co-}}B[1*+Y1uV53+2EXC1[=;,~@s7#m;*
+    nD~ogppHEiv[pRJmB6'{Ta^Dakw7?$K[sDD@A]bWj_ZnoW^dQnW[GZz+iz*#ZoAJZ_!Qx_J=,Ou$
+    \_jTTeCx!^^~Fl^wlQ2]We<JTnTr{*V7H+a!CK+RHuGre{E3E255~I4v[^OQx23r=oUPRk3V}W^o
+    ?=He~Q{1V[GkDAo;uX@J~C*z]xJ-jOLR-$][_#_,HQ<]Yje+>zTkU>RGeu$xoi[dZ'm2[}v!UQIH
+    iQi2}=@Qp=j\+XZ5Gk<!xrU_vv+uQXC?i_>K\K=r*]!Y;{u\L-,xO|eoX5DH~C==<@Hri+}wWv5O
+    -m+eG[B~r=sGR;7GA[O'KKk_$Tjr*D1s5mZozs[<@\H{wGwD'nWlXj]Y=O:}e{UDrOkN'x*R;O'#
+    OsT7QsB~3U2v]=pjV\njFuAIn@s\k<^>j*a^[Ap\YU$?uG#;2hE-vJ=Ya-BqVD7s[},=T$aVz_>X
+    l*53OHv{B-+_vi}l8A>uk5YV31inTUG$BV{<ebAXa)ITADGJ}k}O3I;GR=qR1GwL^'pU+U;3l;GR
+    ]Bm@rj@zd|NY?{_B2zYlrx@7,ZWHE!kYAKawV+RcWB\a}KIG(a$2$@<W,U5o[pJO}FZY'5j>lUCj
+    r]?_!'7CD-y0>>D}\RsHR3eUo<HBH[$[f2HK!}rl-l3moK-OGX$om_=rm)xiEZr$n;=D1J\R+TpR
+    Dag2[J^nt]RPinrYFF=}JA]OI[Z1+U^!EIJ1I2e~$*aBO@oC_uu]?W;\kW%,2<[e_v[(.H<-?Us5
+    T'*Z{R7urZv,@CZCi>OnCBuY;aAVTR?rX?sY!?o7ZOe<KF/E!BO|}W+-5[U[y)DE^E]p2
+`endprotected
+  assign rcvd_tc1 = rcvd_tlp_packet1[39:37];
+  assign rcvd_tc2 = rcvd_tlp_packet2[39:37];
+
+`protected
+
+    MTI!#lE?v1BXs8r-xmoRs?*nB5j-onKosp+vIig~$/]uJl7#B\EXl+#>+QPlGo[SMwpL:zVArFkY
+    zwG-3k<j((=*zY2rT<9v>!+}'{a}X!_9_1-TC^\*'!!5q#xI7'A2WCr}iavXQx2\k*E+'>Oj~W+w
+    ~l?ZkYQJzbw}IT=k-}-H]U^rC_S72^a]rX}nGe<_<v2z$AW1RWY5E=u-HZ;[uJ5RiT@W=lu^rmX\
+    Ia>R\XKA1$T&k'\iD#w}BJ\QseR5a7x@%}n~_[2]v"\I$<|e>n+?=x'3j]u2_Q'rIwGYzj?E,oXT
+    lAp~5]T,^X2DV^iNDsOH7'V$|5x5pe'D[mL_Ql7=C#Jr2\oMNuxxjzQ$#=<uXO;5l+1pB<IaCG;,
+    1Gs}\[HWvI/';G;Qmo2]IXa'5#U^^C~]3o~[X7Aj}+;$sH2kXUk1!>m;Ip}!YUOD!-#<+Ox'z^lj
+    ]5$$ZUokU[iBjX1Bw*Xor5'0WG~]6\mU52Bw>3rp#4]UDloIiT=jzY);R-$EgxI~[}fla+U;n=Je
+    ;;+2sYjQ<X5z_$2iQ^^K6[#+rVG@\C@X*^R;=^3\u_@KG]-2]juDpo-I=KaJw#1{I=iRO;7e<q$l
+    -K*W~kI?Kl_in[3}_$x>E'>]lGv^#^HGTx!+wv'HY-t,W*lu'Z3Wou#DI\j>,ko\RA{_5}E=XEYD
+    I;3=YWH$Dp>>$'}eosOn+Iil#>{GRn{]OA^V#mK!scKlC3^^nH7U+uM2$Ylc?j#m7Z[WNj~V@xJE
+    e[<'u01!TO#]7Y[iBipVEr?\[A<R7Idm+W=\+3OkBR^rB?}o{m#efo3n*Ne=3lu'5VIlw{-]->~,
+    ,H$U5Co5*s.C@o#s<WvoBr_I{X7^HO>IaKs,(#Uw'N*!{r_-ET-TpAO^Tu*[!up5Jvpoxp^*AYj1
+    OX'p~ZzRoGo@'J,Jaz1*E>CwQX]@R#&]e]RieXZixC,5Z@<[~w\pDaw_j}r^/b\W[~tZlWszB'kG
+    jAjGI=emswKz-+?1e{n_JQ~j217W[r}$Gi{-[#DllsZPYp!>\Znji>auee1'I$~$v!sTOT-7\HjB
+    G>xG>lGeSr-r{5;+\*XJ+iHjDD'JK'WAOLb9ozi$aeURBJ{BA^$TXtdm1v},1e7IKW=-VnV?zEYC
+    eu5,k1l2<]\[a*Yi<nB#+_,mX^vI^oXGnJko{2'T_]r'sAI'H7H,C7>YT+'^A1HD!zAkHzxs_iw,
+    +9"_F<RzY_weBzUvrieo>@5jrUTJ7UX7W)!-'kERmliX!oEJV~=kapW}UX1@A?\vkl%M'#7CI2WK
+    9V!{-J]Rp&?eRin<O^,]AD+\~]U=={O7WeX^*?X>+X<<_$3p7u<Es-[}7!{lj[;VI?Gm[AuT-O-w
+    7u-1r^x?uEe_n]#D'T}\>U7jl<~Ek<i<Xv5WE*Q~]n+Y\!M@jAs>=nap^)!5*-Xhp_Ez:;j\;r3]
+    OK]#$Hwu]|K5\~}r@m<+^_~eRv^n!}mU[-lwa7fIjEU'^+j7pW$nw;!m7A1urW+{'5}woruIC1'D
+    jAsXaRXmv5xFd?o*@te_j~v-ru~QQ-j<ORO7z@+jQ[z<nAo>C<.B7]$K$ZZv~l]}_VB+z-sf#zAr
+    wU{J$n<[}CU'Cj-^1X@}**D2[XxQ7rK<n$OQ'V?*m5DUT>K#r,GiB-a?ZTeYyF2}i\FNDsk=1nY-
+    ?aA]{T17C2;~ZU2m'^\Krsp2B'j1Lm}o[JjHDFh7f]en!@X[JR-W[:EI#J[v^=I?oI\KTI,^^[xG
+    x19m$sDfs=m>I_$Rwo5xG>1u+aWWr!5_s!n,ws}[ZAE#Axb*GKRUz[V,p+CI#D3VHvpgpKK-e-a7
+    YT7eB<Tk@7K7r*s?Ym5'mxB_ijAx({IuKWY<Is^ADpZp~/pJw3_[<E=VoAV]BxluH^Ci<2plJ3Ra
+    >J'Jm~ZU1n'IL1JQeopViu'(l~\Q55^2P"v*jnRZZCwsA'Xn,*--pRlie$FO#^r)FU\Yaa\@AY*$
+    W=Kn7VlI2\YET+'ia3I@#,*uZVWwj4Yl=-Z*B?KoA,@>2H_,Tj[#^Rt'D7*d+<-V8[_D\\5!T#x[
+    j5<730'Rx[F$~ROQIr@KTBr,]1xeZ~]Lz}Un+'HWjQn[,nUE^s_Due}sj^r1=[u3}!@_>>>eE+_I
+    jrEvEsEJ{VYK,\TzgV;K7ApvYGCZ+WQo<u^nljH^YH931keKp]^yCwr,XaV!qO'<,vIJ;sDAwoxp
+    psv1llmKH=W@sVE@[PsTak@zA{R\kEDk!2CF#Q;OF)m_kA1]Y<#Y_OFCBiYw[72*Gu^S4@$_\37(
+    SwOI}_A<3iGnjk{BujHBm}[mjH'r!s4L=Bkk>\*5_-[us]BsB^OU;CX_ow3anj~K#>!oQI~HCJpO
+    ;X-vJCk2^5=A31s;P;eiU$=J$}ynHD5O-aoQwlYjG51+r+@vJr[wE3}$Em[EOrjH]ioQ-mkT,YAJ
+    5ji=w<mR!Iw=Tu5/|!IXk!HK~i[_zJw~7OTZVaCZprfEAwxzV(352]-CCk'IBX*i+76^?[OG#oK1
+    v1{SBvpUZlW[+AYwk=JY;jn3Y*T+eCB:?EE3su<-5#2UL5G[;\xQ=an+{~CRvB5mJHjJKvkDpj,R
+    HR3KH1rGQx*pZ3^AZ56<CeieT*iAIZYYKapw_7m7+e3exWA;li^UsupAeQureB}Za>u7<;2+[A2_
+    wD[jm\@Ou1\K,~B|1mak+Q#@QHu@wa@$RV3~LsT}=Q^Y[mXI5dS~}$x<Es7h>]*P*uToz"@+D=Hj
+    v@t!o}}#AZ~I]D[n5'KKnlsl\Q,s_QiWevC?HeO^up@z3m<Ewa[}|+5N\13Vm=z$7ZXnNa\mBY!\
+    ~(}kHX,1,-+T+rH-sV:pl>w,W+U^-xumnAmi[p\<*KX*A\kV~s?,=RZ[+H!vGTC/_1kz<GKAC{1Z
+    mji3DAG@+R!\uoV~'xoW9V'x#g.>,~Yi1zQO*TJlKzE'5IJwG!=AB_A)U9jkmRJV;D4zDY}[7=@Q
+    @vVF*iUH7K=5Sw=aJlI@$2=A]irRa:aUx1kH$?fuD=-I^TIjAuH+HKU5XQBJ_'!!p[e/5>OGEGIY
+    'GnUIjXU^o]{EmQkv@5GB+Dk'>IIHHzIL=CECs}vU*?ZoHHHpv@x-J]XC^Qnae^Xl$M%7GJs7E>D
+    wS}<E37kBIrD#]X-jO{B=X\jnYD+uKeWuXU5a$sO7QW1@pa5G-JU\x;';vq!$T[5Y7XyoH'_(oKA
+    K5T-Q-R{vU>rvfoLt.^BJp$\AsJr}]+<72ruY^?V7ecw>s;Ox_kDE*K@a{R=~sKU_-o@nZrRQ>R8
+    Qo5-TTV\puU,,GuC}IZ3_tJ^lHx<s*-GUpWww!DY2X(_i5p8O2o5$O#I@$^Qrn$Jr#1'"revksrc
+    5r$@G)^p_BQmOl2O2k#Uo<p*l\{OU<r5r*tKG=7y]VX})sQaVCj~_7O'XeCQi07-w@maOI;T;n?H
+    ~n]aJ#+B']jU'px}}xAz1kR>j->Tto^]7Crs2'vnxG~=*>Ran;n$+px;5m\Ve2==a\C+$=aHpt-H
+    +rKBmx<HET^QWeoQ#ko?<;vG=J{$R2!1;mQ\ZCYG*H]j$xDeUjm+p@R$UV@ITOkxr\p<Yv}$[~?B
+    j~2-~xD>erf@CZ^7'{{+[+w=~pzCYrV<\EACG*~_AZxE$v7,nwQ_1,o!hmankH]]>v+RHaG{;D<x
+    [}O>eQTH]fTv!_KV?BOIA\m]kE<__?y$<2'D_*jJA;eeIioI\}Bv;$^s^Taxj,K2rC27@lkknA!V
+    n<[Zlu!=!l,h1]mGz<
+`endprotected
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_pci_express_flow_control_assertions.svh"
+
+/*Note : Ended = Packet started earlier and ended in current symbol
+         Detected = Packet started and ended in the currnt symbol.
+
+         Latest packet = Detected packet
+*/
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_flow_control.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_flow_control.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_flow_control
+`include "zi_cw_pci_express_flow_control.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // End of module qvl_pci_express_flow_control.v

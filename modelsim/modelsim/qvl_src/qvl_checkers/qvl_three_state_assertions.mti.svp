@@ -1,0 +1,167 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_three_state_assertions(clock,
+				              areset,
+				              reset,
+				              active,
+             				      enable,
+	             			      in,
+		             		      out,
+                                              three_state_check,
+				              three_state_fire,
+                                              cycles_checked,
+				              enable_transitions,
+				              support,
+				              fire_count
+                                );
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+
+
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+  // Parameter declarations
+
+  parameter IN_WIDTH = 1; 
+  parameter OUT_WIDTH = 1;  
+  parameter EN_WIDTH=1; 
+   
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input clock;    
+  input areset;   
+  input reset;    
+  input active;   
+  input [IN_WIDTH-1:0] in;
+  input [OUT_WIDTH-1:0] out;
+  input [EN_WIDTH-1:0] enable;
+
+  input three_state_check; 
+
+  output three_state_fire;
+  output [STAT_CNT_WIDTH-1:0] enable_transitions;
+  output [STAT_CNT_WIDTH-1:0] cycles_checked;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count;
+
+  // Register declarations
+
+  reg three_state_fire;
+  reg [STAT_CNT_WIDTH-1:0] enable_transitions;
+  reg [STAT_CNT_WIDTH-1:0] cycles_checked;
+
+  // Combinatorial fire signal
+
+  wire three_state_fire_combo;
+
+
+  // Internal registers
+
+  reg last_enable;
+
+  wire	xz_detected;
+
+wire qvl_three_state_fire_combo;
+
+  assign	xz_detected = ((^enable) === 1'bx);
+
+
+  // Signal assignments
+
+  assign three_state_fire_combo = (areset === 1'b0 && reset === 1'b0 &&
+                                   active === 1'b1 && xz_detected === 1'b0 &&
+                                   three_state_check === 1'b1 &&
+                                   enable === 1'b1 && (in !== out));
+`protected
+
+    MTI!#nQWIE^\XDi3HL@*;wBJ2ITO>-HDar-Y7i}mA+73*{@SIGVRB*[s,7i]pTI2;$RX_$p[='{1
+    CY}^-DoiCJDBC/is\jfmwaIm'{'tLzi~@IQYAz|;^TE-q'V>!6,V~m!+^5AXriBJX}$OoBko>^<7
+    H!,K!7HXooY!J@,;*eTDZG*nKWs#Z*!<l@[XwECqTeQi$ip;2rD\wTwr,%~,G$_=Zo=-mW@T+u[A
+    _-5j][fU1i<ix-az#ARr@<Q1"!7RYwryCj@_vZ@{_$;Wl@!_Z1?Ixm7pYpi'sJT?oEQl"^'@T*m\
+    }v'E]*CEWC#ep$pu*G7?A[?R$Z_iAoaI!7SZ+ZrVx3H21Ir}v$}h%siT@pX{Gr~\H=!r5\^+Hxqo
+    ,3A9[V5kJ<TBL3]@xFC1#<E]#OrV$*:wR<7a$u-uNwzK7#6Kwv{7+Qr1A_BsXDJMkjW+r_~BCXK7
+    2>Co{]J}saHXX\OB1,~K]R?anVi^1R!j~we2v=UaA]\#,w3_ZC}exw'TPX>n,sr?1\_Osvm}7V>x
+    1I=BZ!5a$}!Wm*'U!B7!3+7u]=*uUxTTjR\[}5>xWxr['sOZUr#xo#1$]}%S|[#vV][E<,u*^zsV
+    D.;GO#77sKj=}-poTJrRh-7?J?vEIrRmo_XmK'$@GC_A1Hs_kgl,onRnQ>&?U1#owK_wB\'*\,iF
+    vVX[_3mOzQiO;TX$-z?pC3$eZz<};_z#,v\^7n\i5?QYIwA[VX{$v{Uu7Ys2JjVAE}+>XTXQlxXW
+    QV>^\Xp[r+\2NrU}J9X_uB1_v]e~5pxoB~7J\s>avr^1~'jA{{9;H*R"\s}B\8bA-]aUCiH%{<];
+    71junG#*KHrp+EGr3sZ$s+7\=^Ez@RmQV$zTVA!vD1B\V2C^'e]ieR}{r[3]1=jaQrs[K[X;g'I=
+    _iV^D-|~-5+tPqKEir[3!o$<1,{lzm2]mT3]k;^YZA,kBYoZjjaC5WzjwR^?<-~z+HD[xndfZs#u
+    YiTRg-wZpETWJ3R3H2jssXzxJ-}nU2p]U*KqL{lB@]tBlI#[HZlVp'~I>A5Dv@YI^1_$oK@G1?7C
+    KC$Vu^2{T=JqQw-+=;vK#<5BU'UU-lk#Q1KJr+Z}IHzXwa,3NykDR?@pliSzY?v[AR\
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+  assign qvl_three_state_fire_combo = (areset === 1'b0) &&(reset === 1'b0) && 
+                                    (~xz_detected) && (~((active !== 1'b1) 
+                                    ||(xz_detected !== 1'b0))) && 
+                                    (three_state_fire_combo === 1'b1);
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_three_state_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_three_state_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_three_state_check"),
+                          .msg            ({msg,"Three-state buffer enable asserted when the buffer's output did not match its input."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_three_state_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (qvl_three_state_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif//QVL_ASSERT_ON
+
+`include "qvl_three_state_cover.svh"
+`qvlendmodule // qvl_three_state_assertions

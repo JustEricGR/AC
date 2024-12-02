@@ -1,0 +1,823 @@
+
+
+# ------------------------------------------------------------------
+#                            Paneframe
+#
+# This class is the  frame for a pane that can be inserted into
+# the main window grid.  It contains the header frame that adds
+# the close button and it fields the drag commands
+#
+# ------------------------------------------------------------------
+
+itk::usual ::mtiwidgets::Paneframe {
+    keep -background \
+	-cursor -font -foreground -highlightbackground \
+	-highlightcolor -highlightthickness -takefocus -text -textvariable \
+	-image -bitmap -justify -padx -pady -underline -wraplength \
+	-activeforeground -activebackground -menu
+}
+
+#
+# Provide a lowercased access method for the class.
+# 
+proc ::mtiwidgets::paneframe {pathName args} {
+    uplevel ::mtiwidgets::Paneframe $pathName $args
+}
+
+itcl::class ::mtiwidgets::Paneframe {
+	#inherit itk::Widget
+	inherit itk::Archetype
+
+    constructor {args} {}
+    destructor {}
+
+	itk_option define -activebackground activeBackground Foreground white
+	itk_option define -activeforeground activeForeground Background black
+	itk_option define -anchor anchor Anchor center
+	itk_option define -background background Background grey
+	itk_option define -bitmap bitmap Bitmap {}
+	itk_option define -borderwidth borderWidth BorderWidth 2 
+	itk_option define -childsiteclass childsiteClass ChildSiteClass Frame
+	itk_option define -cursor cursor Cursor {} 
+	itk_option define -expelcommand command Command {}
+	itk_option define -foreground foreground Foreground black
+	itk_option define -headervisible headerVisible HeaderVisible 1
+	itk_option define -height height Height 0 
+	itk_option define -hidecommand command Command {}
+	itk_option define -highlightbackground highlightBackground HighlightBackground lightgray
+	itk_option define -highlightcolor highlightColor HighlightColor white
+	itk_option define -highlightthickness highlightThickness HighlightThickness 0 
+	itk_option define -image image Image {} 
+	itk_option define -justify justify Justify center 
+	itk_option define -mark mark Mark {}
+	itk_option define -maximizecommand maximizeCommand Command {}
+	itk_option define -padx padX Pad 1 
+	itk_option define -pady padY Pad 1 
+	itk_option define -panemanager paneManager PaneManager {}
+	itk_option define -relief relief Relief groove
+	itk_option define -createcommand command Command {}
+	itk_option define -sortstate sortState SortState {}
+	itk_option define -state state State normal
+	itk_option define -takefocus takeFocus TakeFocus 0 
+	itk_option define -text text Text {} 
+	itk_option define -textvariable textVariable Variable {} 
+	itk_option define -underline underline Underline -1 
+	itk_option define -width width Width 0 
+	itk_option define -window	window Window {}
+	itk_option define -wraplength wrapLength WrapLength 0 
+
+	public method Activate {args} 
+	public method Deactivate {args} 
+	public method childsite {} { return $itk_component(cs) }
+	public method invoke {what}
+
+
+	private method _startdrag {w x y } 
+	private method _dragging {w x y}
+	private method _enddrag {w x y}
+
+	protected method _trigger_show_cmd {}
+	protected method _set_icon {i}
+	private method _prepost_icon_menu {pm}
+	public	method _hidecommand_ {}
+
+	private variable _in_dragging_ 0
+	private variable state normal
+	private variable itk_interior
+
+	common _currentActive_
+
+	common handle_image [image create photo -data "R0lGODlhFgAKAJEAANnZ2f///wAAAP///yH5BAEAAAAALAAAAAAWAAoAAAI/hI+pF0YBAiAA\nKEAQfBATEwJkYkLwMXXDKEAABAAFCIIPYmJCgExMCD6mZhgFCIAAoABB8EFMTAiQiQnBx1Qs\nADs="]
+
+}
+
+
+
+
+# ------------------------------------------------------------------
+#                   Paneframe CONSTRUCTOR
+# ------------------------------------------------------------------
+itcl::body ::mtiwidgets::Paneframe::constructor {args} {
+	#
+	#  Create a toplevel window with the same name as this object
+	#
+	set itk_hull [namespace tail $this]
+	set itk_interior $itk_hull
+	itk_component add hull {
+		::toplevel $itk_hull -class [namespace tail [info class]]
+	} {
+		keep -background -cursor -takefocus -menu
+		keep -height -width
+	}
+	bind itk-delete-$itk_hull <Destroy> "itcl::delete object $this"
+
+	set tags [bindtags $itk_hull]
+	bindtags $itk_hull [linsert $tags 0 itk-delete-$itk_hull]
+
+	# Turn it into a Frame straight away
+	wm toplevel $itk_hull 0
+
+	if {[set ix [lsearch $args -use]] >= 0} {
+		set use [lindex $args [expr {$ix + 1}]]
+		set args [lreplace $args $ix [expr {$ix+1}]]
+		set itk_interior [::toplevel $itk_component(hull).interior -use $use]
+	} else {
+		set use {}
+		set itk_interior [frame $itk_component(hull).interior]
+		pack $itk_interior -fill both -expand 1
+	}
+
+   #--------------------------------------------
+   # Main header frame
+   #--------------------------------------------
+    itk_component add header {
+		frame $itk_interior.header -borderwidth 0 -relief flat
+	} {
+		ignore -background
+		ignore -height -width -relief -borderwidth
+	}
+   pack $itk_component(header) -side top -fill x
+
+   #--------------------------------------------
+   # Frame to hold icon, title and "mark"
+   #--------------------------------------------
+	itk_component add pocket {
+		frame $itk_component(header).icon_pocket -borderwidth 0 -relief flat
+	} {
+		ignore -borderwidth -relief
+	}
+
+	itk_component add lf {
+		frame $itk_component(header).lf -borderwidth 0 -relief flat
+	} {
+		ignore -borderwidth -relief
+	}
+
+	# The label is "east" anchored which will give us the affect of the
+	# text being right justified, which for long pathnames means the user
+	# will see the end of a truncated path instead of the start.
+	itk_component add label {
+		label $itk_component(lf).label -anchor e -borderwidth 0 -relief flat
+	} {
+		keep -text -textvariable -activeforeground -activebackground
+		ignore -relief -borderwidth -height -width
+	}
+
+	itk_component add mark {
+		label $itk_component(lf).mark -borderwidth 0 -relief flat
+	} {
+		rename -text -mark mark Mark
+		keep -activeforeground -activebackground
+		ignore -relief -borderwidth -height -width -textvariable
+	}
+	pack $itk_component(label) $itk_component(mark) -side left -fill none
+
+   #--------------------------------------------
+   # Frame to hold the "drag bar"
+   #--------------------------------------------
+    itk_component add -private gf {
+		frame $itk_component(header).gf -borderwidth 0 -relief flat
+    } {
+		ignore -height -borderwidth -relief -width -background
+    }
+    itk_component add -private g1 {
+		frame $itk_component(gf).g1 -height 3 -borderwidth 1 -relief raised
+    } {
+		ignore -height -borderwidth -relief -width
+    }
+    itk_component add -private g2 {
+		frame $itk_component(gf).g2 -height 3 -borderwidth 1 -relief raised
+    } {
+		ignore -height -borderwidth -relief -width
+    }
+	itk_component add -private handle {
+		label $itk_component(gf).handle -image $handle_image -relief flat -bd 0 -cursor fleur
+	} {
+		ignore -height -borderwidth -relief -width -image -text -textvariable
+	}
+   pack $itk_component(g1) -side top -anchor center -expand 1 -fill x -pady 1
+   pack $itk_component(g2) -side top -anchor center -expand 1 -fill x -pady 1
+   place $itk_component(handle) -relx 0.5 -rely 0.5 -anchor center
+
+   # Define required bindings
+   set hndl $itk_component(handle)
+   set hdr  $itk_component(header)
+   bind $hndl <Button-1>        [itcl::code $this _startdrag $hdr %X %Y]
+   bind $hndl <B1-Motion>       [itcl::code $this _dragging  $hdr %X %Y]
+   bind $hndl <ButtonRelease-1> [itcl::code $this _enddrag   $hdr %X %Y]
+
+
+   #--------------------------------------------
+   # Frame for the action buttons
+   #--------------------------------------------
+   itk_component add -private btns {
+      frame $itk_component(header).btns -borderwidth 0 -relief flat
+   } {
+		ignore -height -borderwidth -relief -width -background
+   }
+
+   #============================================
+   # Lay out the widgets
+   #============================================
+
+   grid $itk_component(pocket) -column 0 -row 0 ;# this is repeated in _set_icon function
+   grid $itk_component(lf)     -column 1 -row 0 -sticky w  -padx {2 0}
+   grid $itk_component(gf)     -column 2 -row 0 -sticky ew -padx {2 2}
+   grid $itk_component(btns)   -column 3 -row 0 -sticky e ;# individual buttons have their own X padding
+
+   grid columnconfig $hdr 0 -weight 0
+   grid columnconfig $hdr 1 -weight 1
+   grid columnconfig $hdr 2 -weight 1000 -minsize [winfo reqwidth $hndl]
+   grid columnconfig $hdr 3 -weight 0
+
+   eval itk_initialize $args
+}
+
+# ------------------------------------------------------------------
+#                           DESTRUCTOR
+# ------------------------------------------------------------------
+itcl::body ::mtiwidgets::Paneframe::destructor {} {
+}
+ 
+
+# ------------------------------------------------------------------
+#                           Configure Options
+# ------------------------------------------------------------------
+itcl::configbody ::mtiwidgets::Paneframe::text {
+
+   if { $itk_option(-text) eq "" } return
+
+   # We will always have a tooltip with the full text; this allows us
+   # to handle times when the label text is clipped due to the header
+   # becoming so narrow that the grabber might become obscured.
+   #
+   mtiBalloon $itk_component(label) $itk_option(-text)
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::relief {
+	$itk_interior configure -relief $itk_option(-relief)
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::borderwidth {
+	$itk_interior configure -borderwidth $itk_option(-borderwidth)
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::activeforeground {
+    if {$state eq "active"} {
+		Activate
+    } else {
+		Deactivate
+    }
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::activebackground {
+    if {$state eq "active"} {
+		Activate
+    } else {
+		Deactivate
+    }
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::childsiteclass {
+	# Destroy the old frame as long as it's not being used
+	if {[info exists itk_component(cs)] &&
+		[winfo exists $itk_component(cs)]} {
+		if {$itk_option(-childsiteclass) eq [winfo class $itk_component(cs)]} {
+			# Already the right class!
+			return
+		}
+		if {[llength [winfo children $itk_component(cs)]] > 0} {
+			error "Cannot change class when childsite in use"
+		}
+		destroy $itk_component(cs)
+	}
+
+	# Create a new frame with the new class
+    itk_component add cs {
+		frame $itk_interior.cs \
+			-class $itk_option(-childsiteclass) \
+			-borderwidth 0 \
+			-height 8 \
+			-relief flat \
+			-background blue
+	} {
+		keep -background
+		ignore -relief -borderwidth -height -width 
+	}
+
+	bind $itk_component(cs) <Map> [itcl::code $this _trigger_show_cmd]
+	pack $itk_component(cs) -side top -fill both -expand yes
+
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::hidecommand {
+	if {[info exists itk_component(closebutton)] &&
+		[winfo exists $itk_component(closebutton)]} {
+		destroy $itk_component(closebutton)
+	}
+	if {$itk_option(-hidecommand) ne ""} {
+		itk_component add closebutton {
+			eval button $itk_component(btns).close [GetButtonIcon mdi_close] \
+				-borderwidth 1 \
+				-cursor left_ptr
+		} {
+			ignore -height -width
+			ignore -borderwidth -relief
+			ignore -command
+		}
+		$itk_component(closebutton) configure -command [itcl::code $this _hidecommand_]
+		mtiBalloon $itk_component(closebutton) "Close"
+		grid $itk_component(closebutton) -column 2 -row 0 -padx 2 -sticky ns
+	}
+}
+
+itcl::body mtiwidgets::Paneframe::_hidecommand_ {} {
+	if {$itk_option(-hidecommand) ne ""} {
+		$itk_option(-panemanager) normal
+		after 20 $itk_option(-hidecommand)
+	}
+	catch {[$itk_option(panemanager) FocusPrev $itk_component(hull)] Activate}
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::expelcommand {
+	if {[info exists itk_component(expelbutton)] &&
+		[winfo exists $itk_component(expelbutton)]} {
+		destroy $itk_component(expelbutton)
+	}
+	if {$itk_option(-expelcommand) ne ""} {
+		itk_component add expelbutton {
+			eval button $itk_component(btns).expel [GetButtonIcon expel] \
+				-borderwidth 1 \
+				-cursor left_ptr
+		} {
+			ignore -height -width
+			ignore -borderwidth -relief
+			ignore -command
+		}
+		$itk_component(expelbutton) configure -command $itk_option(-expelcommand)
+		mtiBalloon $itk_component(expelbutton) "Dock/Undock"
+		grid $itk_component(expelbutton) -column 1 -row 0 -padx 2 -sticky ns
+	}
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::maximizecommand {
+	if {[info exists itk_component(maxbutton)] &&
+		[winfo exists $itk_component(maxbutton)]} {
+		destroy $itk_component(maxbutton)
+	}
+	if {$itk_option(-maximizecommand) ne ""} {
+		itk_component add maxbutton {
+			eval button $itk_component(btns).max [GetButtonIcon plus] \
+				-borderwidth 1 \
+				-cursor left_ptr
+		} {
+			ignore -height -width
+			ignore -borderwidth -relief
+			ignore -command
+		}
+		$itk_component(maxbutton) configure -command $itk_option(-maximizecommand)
+		mtiBalloon $itk_component(maxbutton) "Zoom/Unzoom"
+		grid $itk_component(maxbutton) -column 0 -row 0 -padx 2 -sticky ns
+	}
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::headervisible {
+	if {$itk_option(-headervisible)} {
+		if {[info exists itk_component(cs)]} {
+			pack $itk_component(header) -before $itk_component(cs) -side top -fill x
+		} else {
+			pack $itk_component(header) -side top -fill x
+		}
+	} else {
+		pack forget $itk_component(header)
+	}
+}
+
+itcl::configbody ::mtiwidgets::Paneframe::mark {
+	if {$itk_option(-panemanager) ne ""} {
+		$itk_option(-panemanager) tabconfigure $itk_component(hull) -mark $itk_option(-mark)
+	}
+}
+
+# ------------------------------------------------------------------
+#                           Method body
+# ------------------------------------------------------------------
+
+itcl::body ::mtiwidgets::Paneframe::_startdrag {w x y } {
+	if {[$itk_option(-panemanager) state $itk_component(hull)] eq "zoomed"} {
+		return
+	}
+	set _in_dragging_ 1
+	if {[info exists itk_option(-window)] &&
+		[winfo exists $itk_option(-window)]} {
+		set focus_window [focus -displayof $itk_option(-window)]
+	} else {
+		set focus_window [focus]
+	}
+	# if this window is undocked - then treat it like a tab drag
+	if { [winfo toplevel $itk_component(hull)] eq $itk_component(hull) } {
+		$itk_option(-panemanager) _startdrag $itk_component(hull) $x $y 0
+	} else {
+		$itk_option(-panemanager) _startdrag $itk_component(hull) $x $y 1
+	}
+}
+
+itcl::body ::mtiwidgets::Paneframe::_dragging {w x y} {
+    if {$_in_dragging_} {
+		$itk_option(-panemanager) _dragging $itk_component(hull) $x $y
+    }
+}
+
+# 1 = top 
+# 2 = right
+# 3 = bottom
+# 4 = left
+
+
+itcl::body ::mtiwidgets::Paneframe::_enddrag {w x y} {
+    if {$_in_dragging_} {
+		$itk_option(-panemanager) _enddrag $itk_component(hull) $x $y
+	}
+	set _in_dragging_ 0
+}
+
+#bind Paneframe <FocusIn> {%W Activate}
+#bind Paneframe <FocusOut> {%W Deactivate}
+
+itcl::body ::mtiwidgets::Paneframe::Activate {args} {
+	if {[info exists _currentActive_] &&
+		$_currentActive_ ne ""} {
+		$_currentActive_ Deactivate
+	}
+	set _currentActive_ $this
+    set state active
+    if {[info exists itk_component(header)]} {
+		$itk_component(header) configure -background $itk_option(-activebackground)
+    }
+    if {[info exists itk_component(gf)]} {
+		$itk_component(gf) configure -background $itk_option(-activebackground)
+    }
+    if {[info exists itk_component(g1)]} {
+		$itk_component(g1) configure -background $itk_option(-activebackground)
+    }
+    if {[info exists itk_component(g2)]} {
+		$itk_component(g2) configure -background $itk_option(-activebackground)
+    }
+    if {[info exists itk_component(handle)]} {
+		$itk_component(handle) configure -background $itk_option(-activebackground)
+    }
+    if {[info exists itk_component(label)]} {
+		$itk_component(label) configure -state active
+    }
+    if {[info exists itk_component(mark)]} {
+		$itk_component(mark) configure -state active
+    }
+    if {[info exists itk_component(pocket)]} {
+		$itk_component(pocket) configure -background $itk_option(-activebackground)
+    }
+    if {[info exists itk_component(btns)]} {
+		$itk_component(btns) configure -background $itk_option(-activebackground)
+    }
+}
+
+itcl::body ::mtiwidgets::Paneframe::Deactivate {args} {
+    set state normal
+    if {[info exists itk_component(header)]} {
+		$itk_component(header) configure -background $itk_option(-background)
+    }
+    if {[info exists itk_component(gf)]} {
+		$itk_component(gf) configure -background $itk_option(-background)
+    }
+    if {[info exists itk_component(g1)]} {
+		$itk_component(g1) configure -background $itk_option(-background) -relief raised
+    }
+    if {[info exists itk_component(g2)]} {
+		$itk_component(g2) configure -background $itk_option(-background) -relief raised
+    }
+    if {[info exists itk_component(handle)]} {
+		$itk_component(handle) configure -background $itk_option(-background) -relief ridge -height 10
+    }
+    if {[info exists itk_component(label)]} {
+		$itk_component(label) configure -state normal
+    }
+    if {[info exists itk_component(mark)]} {
+		$itk_component(mark) configure -state normal
+    }
+    if {[info exists itk_component(pocket)]} {
+		$itk_component(pocket) configure -background $itk_option(-background)
+    }
+    if {[info exists itk_component(btns)]} {
+		$itk_component(btns) configure -background $itk_option(-background)
+    }
+}
+
+# protected
+itcl::body ::mtiwidgets::Paneframe::_trigger_show_cmd {} {
+	if {$itk_option(-createcommand) ne ""} {
+		if {[catch {uplevel "#0" $itk_option(-createcommand)} msg]} {
+			puts stderr "error: $this $itk_option(-createcommand)\n$msg"
+		}
+	}
+}
+
+# protected
+itcl::body ::mtiwidgets::Paneframe::_set_icon {i} {
+
+   # create the label
+   set l [label $itk_component(pocket).icon -image $i -borderwidth 0 -relief flat]
+   pack $l
+   bind $l <Destroy> \
+       "grid forget $itk_component(pocket)"
+
+   # add popup
+   set pm [menu $l.menu -postcommand [itcl::code $this _prepost_icon_menu $l.menu]]
+
+   bind $l <Button-1> "mti_popup $pm %X %Y" ;# mimic WinXP behavior
+   bind $l <Button-3> "mti_popup $pm %X %Y"
+
+   # Manually grid because this was the only way I get the layout
+   # behaving correctly when doing a show icon/hide icon sequence.
+   # Without this, the real estate of the icon wasn't being reclaimed.
+   #
+   grid $itk_component(pocket) -column 0 -row 0 -padx 1 -pady 1
+
+   return $l
+}
+
+# private
+itcl::body ::mtiwidgets::Paneframe::_prepost_icon_menu {pm} {
+
+   $pm delete 0 end
+
+   set added 0
+   if { $itk_option(-maximizecommand) ne "" } {
+      $pm add command -label "Zoom/Unzoom" \
+               -command $itk_option(-maximizecommand) \
+               -state [$itk_component(maxbutton) cget -state]
+      incr added
+   }
+   if { $itk_option(-expelcommand) ne "" } {
+      $pm add command -label "Dock/Undock" \
+          -command $itk_option(-expelcommand) \
+          -state [$itk_component(expelbutton) cget -state]
+      incr added
+   }
+   if { $added } {
+      $pm add separator
+   }
+   # Safe to assume there will always be Close button
+   #
+   $pm add command -label "Close Window" \
+       -command $itk_option(-hidecommand) \
+       -state [$itk_component(closebutton) cget -state]
+}
+
+itcl::body ::mtiwidgets::Paneframe::invoke {what} {
+	switch $what {
+		expel {
+			if {$itk_option(-expelcommand) ne ""} {
+				uplevel "#0" $itk_option(-expelcommand)
+			}
+		}
+		hide {
+			_hidecommand_
+		}
+		maximize {
+			if {$itk_option(-maximizecommand) ne ""} {
+				uplevel "#0" $itk_option(-maximizecommand)
+			}
+		}
+		show {
+			_trigger_show_cmd
+		}
+	}
+}
+
+
+proc ::mtiwidgets::FindPaneframe { w } { 
+ 	if {[string index $w 0] != "."} {
+		return -code error "Error: Illegal widget path for paneFrame: $w"
+	}
+	
+	if {[winfo exists $w]} {
+		set top [winfo parent [winfo toplevel $w]]
+		for {set p $w} {$p ne $top} {set p $parent} {
+			if {[class_is_paneframe $p] } {
+				return $p
+			}
+	
+			if {[catch {winfo parent $p} parent]} {
+				return ""
+			}
+		}
+	}
+	return ""
+}
+
+#
+# Reverse the order of a list
+#
+# from: http://wiki.tcl.tk/43
+# author: KPV
+#
+proc lreverse {l} {
+    set start -1
+    set end [llength $l]
+	
+    while {[incr start] < [incr end -1]} {
+        set tmp [lindex $l $start]
+        lset l $start [lindex $l $end]
+        lset l $end $tmp
+    }
+    return $l
+}
+
+#
+# Load button icon images.  
+# Searches certain library areas for images.
+# Written such that this routine can be provided by the application.
+#
+if {[info commands GetButtonIcon] eq ""} {
+proc GetButtonIcon {icon {prefix -image}} {
+
+	if { $icon eq "_undobm" || \
+		 $icon eq "_redobm" } {
+		lappend prefix $icon
+		return $prefix
+	}
+
+
+	set icon_name _${icon}_icon
+	if {[lsearch -exact [image names] _${icon_name}] != -1} {
+		lappend prefix _${icon_name}
+		return $prefix
+	}
+	foreach dir [list [file join $::mtiwidgets::library bitmaps] \
+					 [file join $::mtiwidgets::library .. bitmaps] \
+					 . \
+					 bitmaps] {
+		set f [file join $dir ${icon}.gif]
+		if {[file exists $f]} {
+			set img [image create photo _${icon_name} -file $f]
+			lappend prefix $img
+			return $prefix
+		}
+	}
+	return ""
+}
+}
+
+#
+# Provide corner dragging
+#
+#  Override the sash drag operations to recognize and perform 2D resize on a T or + corner.
+#
+proc ::tk::panedwindow::2DSash {W x y X Y opaque} {
+	set off [$W cget -sashwidth]
+	set wlist [list $W 0 0]
+	set mark($W) 1
+	::tk::panedwindow::MarkSash $W $x $y $opaque
+	foreach {xx yy} [list [expr {$X + $off}] $Y \
+						 [expr {$X - $off}] $Y \
+						 $X [expr {$Y + $off}] $X \
+						 [expr {$Y - $off}]] {
+		set w [winfo containing $xx $yy]
+		if {$w ne "" && ![info exists mark($w)] && 
+			[mtiwidgets::class_is_tabbedwindow $w]} {
+			set mark($w) 1
+			lappend wlist $w [expr {$xx - $X}] [expr {$yy - $Y}]
+			set _x [expr {$xx - $X + $x}]
+			set _y [expr {$yy - $Y + $y}]
+			::tk::panedwindow::MarkSash $w $_x $_y $opaque 
+		}
+	}
+	set ::tk::panedwindow::2DWList $wlist
+}
+
+proc ::tk::panedwindow::2DDragSash {W x y X Y opaque} {
+	if {[info exists ::tk::panedwindow::2DWList]} {
+		set wlist $::tk::panedwindow::2DWList
+	} else {
+		set wlist [list $W 0 0]
+	}
+	foreach {w ox oy} $wlist {
+		set _x [expr {$x + $ox}]
+		set _y [expr {$y + $oy}]
+		::tk::panedwindow::DragSash $w $_x $_y $opaque
+	}
+}
+
+proc ::tk::panedwindow::2DReleaseSash {W x y X Y opaque} {
+	if {[info exists ::tk::panedwindow::2DWList]} {
+		set wlist $::tk::panedwindow::2DWList
+	} else {
+		set wlist [list $W]
+	}
+	foreach {w ox oy} $wlist {
+		::tk::panedwindow::ReleaseSash $w $opaque
+	}
+}
+bind Panedwindow <Button-1> { 
+	::tk::panedwindow::2DSash %W %x %y %X %Y 0
+}
+bind Panedwindow <B1-Motion> { 
+	::tk::panedwindow::2DDragSash %W %x %y %X %Y 0
+}
+bind Panedwindow <ButtonRelease-1> {
+	::tk::panedwindow::2DReleaseSash %W %x %y %X %Y 0
+}
+
+bind Panedwindow <Button-2> { 
+	::tk::panedwindow::2DSash %W %x %y %X %Y 1
+}
+bind Panedwindow <B2-Motion> { 
+	::tk::panedwindow::2DDragSash %W %x %y %X %Y 1
+}
+bind Panedwindow <ButtonRelease-2> {
+	::tk::panedwindow::2DReleaseSash %W %x %y %X %Y 1
+}
+
+proc ::tk::panedwindow::ReleaseSash {w proxy} {
+    if {[$w cget -opaqueresize]} { set proxy 0 }
+    if { [info exists ::tk::Priv($w,sash)] } {
+		if {$proxy} {
+			foreach {x y} [$w proxy coord] break
+			$w sash place $::tk::Priv($w,sash) $x $y
+			$w proxy forget
+		}
+		unset ::tk::Priv($w,sash) ::tk::Priv($w,dx) ::tk::Priv($w,dy)
+    }
+}
+
+proc ::tk::panedwindow::MarkSash {w x y proxy} {
+    if {[$w cget -opaqueresize]} { set proxy 0 }
+    set what [$w identify $x $y]
+    if { [llength $what] == 2 } {
+		foreach {index which} $what break
+		if { !$::tk_strictMotif || [string equal $which "handle"] } {
+			if {!$proxy} { $w sash mark $index $x $y }
+			set ::tk::Priv($w,sash) $index
+			foreach {sx sy} [$w sash coord $index] break
+			set ::tk::Priv($w,dx) [expr {$sx-$x}]
+			set ::tk::Priv($w,dy) [expr {$sy-$y}]
+			# Do this to init the proxy location
+			DragSash $w $x $y $proxy
+		}
+    }
+}
+
+proc ::tk::panedwindow::DragSash {w x y proxy} {
+    if {[$w cget -opaqueresize]} { set proxy 0 }
+    if { [info exists ::tk::Priv($w,sash)] } {
+		if {$proxy} {
+			$w proxy place  [expr {$x+$::tk::Priv($w,dx)}] [expr {$y+$::tk::Priv($w,dy)}]
+		} else {
+			$w sash place $::tk::Priv($w,sash)  [expr {$x+$::tk::Priv($w,dx)}] [expr {$y+$::tk::Priv($w,dy)}]
+		}
+    }
+}
+
+proc ::tk::panedwindow::Motion {w x y} {
+    variable ::tk::Priv
+    set id [$w identify $x $y]
+    if {([llength $id] == 2) &&  (!$::tk_strictMotif || [string equal [lindex $id 1] "handle"])} {
+		set off [expr {[$w cget -sashwidth] - 1}]
+		set mark 0
+		set X [expr {[winfo rootx $w] + $x}]
+		set Y [expr {[winfo rooty $w] + $y}]
+	    if {[info exists Priv($w,panecursor)]} {$w configure -cursor $Priv($w,panecursor)}
+		foreach {xx yy} [list [expr {$X + $off}] $Y [expr {$X - $off}] $Y $X [expr {$Y + $off}] $X [expr {$Y - $off}]] {
+			set xw [winfo containing $xx $yy]
+			if {$xw ne "" && 
+				$xw ne $w &&
+				[mtiwidgets::class_is_tabbedwindow $xw]} {
+				set mark 1
+				break
+			}
+		}
+		
+		if { 1 || ![info exists Priv($w,panecursor)]} {
+			set Priv($w,panecursor) [$w cget -cursor]
+			if { [string equal [$w cget -sashcursor] ""] } {
+				if {$mark} {
+					$w configure -cursor fleur
+				} elseif { [string equal [$w cget -orient] "horizontal"] } {
+					$w configure -cursor sb_h_double_arrow
+				} else {
+					$w configure -cursor sb_v_double_arrow
+				}
+			} else {
+				$w configure -cursor [$w cget -sashcursor]
+			}
+			if {[info exists Priv($w,pwAfterId)]} {
+				after cancel $Priv($w,pwAfterId)
+			}
+			set Priv($w,pwAfterId) [after 150  [list ::tk::panedwindow::Cursor $w]]
+		}
+		return
+    }
+    if { [info exists Priv($w,panecursor)] } {
+		$w configure -cursor $Priv($w,panecursor)
+		unset Priv($w,panecursor)
+    }
+}

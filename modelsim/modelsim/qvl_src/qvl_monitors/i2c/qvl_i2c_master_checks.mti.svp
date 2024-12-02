@@ -1,0 +1,550 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+/***********************************************************************
+ *
+ * DESCRIPTION  This file is part of 0-In CheckerWare.
+ *              It describes the bus monitor for the I2C bus standard.
+ *
+ * PURPOSE      This monitor checks the I2C bus protocol.
+ *
+ * REFERENCE    The I2C-Bus Specification Ver 2.1, Jan. 2000, Philips
+ *
+ * INPUTS       clock         - Clock signal. This clock is used to sample
+ *                              both SDA and SCL. This should be atleast
+ *                              2X faster than the SCL frequency.
+ *              clock_prescale_count - This is used to generate the internal
+ *                                     sampling clock to sample SCL and SDA.
+ *              areset        - Asynchonous Reset signal (active high)
+ *              sda_out       - SDA output to PAD
+ *              sda_in        - SDA input from PAD
+ *              scl_out       - SCL output to PAD
+ *              scl_in        - SCL input from PAD
+ *              slave_addr    - 10 Bits wide. Append 3'b00, if you are connecting
+ *                              a 7-bit address.
+ *
+ * NOTES        This monitor can be connected to both of the following
+ *              bus signals:
+ *
+ *              a) SDA and SCL as Open Collector signals. In this cenario,
+ *                 sda_out_en_n and scl_en_n signals should be connected to 1'b0.
+ *                 sda_in and sda_out should be connected to SDA.
+ *                 scl_in and scl_out should be connected to SCL.
+ *
+ *              b) SDA and SCL as Tristate buffer outputs.
+ *                 SDA Tristate signals: sda_out, sda_out_en_n, sda_in
+ *                 SCL Tristate signals: scl_out, scl_out_en_n, scl_in
+ *
+ * NOTES        While the I2C-Bus Specification specifies three modes,
+ *              the current monitor supports standard-mode (100 Kbps)
+ *              and fast-mode (400 Kbps), and high-speed mode (3.4 Mbps).
+ *
+ *
+ * USAGE        The monitor should be instantiated within the target design.
+ *
+ *                             +-----------------------------+
+ *                             |  I2C Device                 |
+ *                             |            +-------------+  |
+ *          <---sda_out_en_n --|            |   Master    |  |
+ *          <---sda_out -------|            |   Device    |  |
+ *          ----sda_in  ------>|  +------+  |             |  |
+ *                             |  |      |  |             |  |
+ *                             |  | I2C  |  |             |  |
+ *                             |  |      |  |             |  |
+ *                             |  | MON  |  +-------------+  |
+ *                             |  |      |                   |
+ *                             |  |      |  +-------------+  |
+ *          <---sda_out_en_n --|  |      |  |   Slave     |  |
+ *          <---sda_out -------|  |      |  |   Device    |  |
+ *          ----sda_in  ------>|  +------+  |             |  |
+ *                             |            |             |  |
+ *                             |            |             |  |
+ *                             |            +-------------+  |
+ *                             |                             |
+ *                             +-----------------------------+
+ *
+ * Last Update: 6th April 2006
+ ***********************************************************************/
+
+`include "std_qvl_defines.h"
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`qvlmodule qvl_i2c_master_checks (
+                          clock, 
+                          reset, 
+                          areset, 
+                          sda_out, 
+                          sda_in,
+                          sda_out_en_n, 
+                          scl_out, 
+                          scl_in, 
+                          scl_out_en_n, 
+                          slave_addr, 
+                          clock_prescale_count,
+				
+//Internal signals for Master/Slave monitor.
+                          next_state,
+                          present_state,
+                          r_present_state,
+                          serial_bit_count,
+                          arbitration_lost,
+                          eff_bus_address,
+                          eff_input_address,
+                          slave_wait,
+                          start_or_repeated_start,
+                          stop_state,
+                          dataphase_expected,
+                          gcall_received,
+                          start_byte_flag,
+                          next_state_string,
+                          present_state_string,
+                          hs_mode_flag,
+                          r_master_active,
+                          master_active,
+                          master_active_continue,
+                          sampling_enable,
+                          clock_enable,
+                          slave_active,
+                          r_w_n_bit, 
+                          dut_as_master, 
+                          dut_as_slave);
+   
+  parameter Constraints_Mode = 0; 
+              //Common Enable/Disable for all assertions as Constraints to Formal tools, 
+              // #0-In Search, Confirm and Prove. To use a group of assertions of this 
+              //monitor as Constraints with Formal tools, Pass value 1 to this parameter. 
+  parameter DEVICE_TYPE	     = 1; 
+              //This parameter Configures this monitor for Master ONLY I2C Device, or 
+              //Slave ONLY I2C device or Both the devices. Pass value 1 to Connect this 
+              //monitor to track an I2C Master ONLY DUT. Pass '2' to connect this monitor 
+              //to track an I2C Slave ONLY DUT. Pass '0' to configure this monitor for an 
+              //I2C DUT that contains both Master and Slave are active functions.
+  parameter MAX_TXN_LENGTH   = 0; 
+              //Maximum Transaction Length Limit. A Check will fire, if this monitor finds 
+              //an I2C Transaction that is longer than the length specified to this 
+              //parameter. The check is disabled, if this parameter is passed with 0. To 
+              //activate this check, pass any non-zero positive number.  
+  parameter CLOCK_PRESCALE_EN = 0;  
+              //Clock Prescaler Enable. If set to 1, you should pass a non-zero positive 
+              //value to clock_prescale_count signal. If set to 0. You should connect an 
+              //external Sampling Enable to the 0th bit of clock_prescale_count signal.   
+  parameter OUTPUT_ENABLES_ON = 0; 
+              //Output Enables ON. If the I2C design has tristate compatible signals, 
+              //pass 1 to this parameter, and connect the coresponding enable signals to 
+              //sda_out_en_n, and scl_out_en_n. If the I2C design does not have output 
+              //enable signals, connect 1'b0 to both sda_out_en_n, and scl_out_en_n signals 
+
+  parameter ZI_ADDR_WIDTH = 10;
+  parameter ZI_DISABLE_CHECKS = 0;
+
+  input	clock;		
+  input reset;
+  input areset;
+  input	sda_out;
+  input sda_in;	
+  input sda_out_en_n;
+  input	scl_out;
+  input scl_out_en_n;
+  input scl_in;	
+  input [ZI_ADDR_WIDTH-1:0] slave_addr; 
+  input [15:0] clock_prescale_count; 
+                //Clock Prescaler value/Sampling Enable signal. 16 Bit wide. 
+                //When the configurable parameter, CLOCK_PRESCALE_EN is set to 1, 
+                //pass a non-zero positive integer to this signal. If the configurable 
+                //parameter, CLOCK_PRESCALE_EN is set to 0, Connect the Sampling Enable 
+                //signal to 0th bit of this signal, by appending leading 15'b0. Otherwise, 
+                //connect an external Sampling enable to sample SDA and SCL. When the 
+                //CLOCK_PRESCALE_EN parameter is set to 1, This Monitor internally 
+                //generates a slower Sampling signal using this prescale value.  
+                //Recommendation: If the 'clock' signal speed is equal, or just twice 
+                //the speed of SCL, it is recommended that you directly connect 
+                //the 'clock' signal or external Sampling enable signal.
+
+//Outputs for Slave/Master Monitor.
+
+  input [4:0] next_state, present_state, r_present_state;
+  input [4:0] serial_bit_count;
+  input r_w_n_bit;
+  input dataphase_expected, gcall_received;
+  input [9:0] eff_bus_address;
+  input hs_mode_flag;
+  output r_master_active;
+  output arbitration_lost;
+  input start_byte_flag;
+
+  input [(4*8)-1:0] next_state_string;
+  input [(4*8)-1:0] present_state_string;
+
+  input clock_enable;
+  input sampling_enable;
+  input slave_wait;
+  output master_active; 
+  input slave_active;
+  input master_active_continue;
+
+  input start_or_repeated_start;
+  input stop_state;
+
+  input [9:0] eff_input_address;
+  input dut_as_master, dut_as_slave;
+
+`protected
+
+    MTI!#WE;5!n~I2]RV<*lAI]i?+,1_xEk[v3Y=|,;$Q=;l,^z7<*homG_|*Bv2%=;1pK{wWz|B~RG
+    [-uKj9$wA~|Do$Wi=lhs>BZ-sia$0={{O5n<XLl2;z$,x#5r$7uEUUxI~Q<IlO7lrY=#!!7!}7HH
+    5[RH~{%e-V#=uQ5V)ozO,}k',*;~[aUYB[U$_RZ[[A[?+lm5o)1vV*DxiAYwB{T=xo~A,;YGm++V
+    ~GvR?D]o1p5FuU<A[>vz=Bj;f_EY,f7vsT|,HZwr^jr&w5VQ7R^=:HOWvYDXkeuw--R\n$aX-}a\
+    }4KQzzr-RJz>YDKT^@*^@oi-rrUO!Ua=AZpj!}xnDII+HJEwQzHs<uxv$}J_o=%z+[#uE{7uB37v
+    x;,cpIZQKwrvBE]#Hz!=^S5a;=+]'rTvKr<C>7YIxjE!;{!jw0kwH^#X<zp=@T[;]CqZ5GBb'H{!
+    mj}$I[+VzTsexp*]{x<!Kl=#TnE3[RpiRaKAYv1?E\R^jM^;Z_b=uX3^Y1Qh!Y;ZO=v{5ir]g_~<
+    $^[I2*,K]'_<=EY'a1+mxRXe<2a+s-a{tmozDzR5;6iouwn&Cw1W[aKz+E<*+RnB$#J55+^@><I>
+    Ik;{DX1kI*}Y$9[\*n75jH]<=\^TesK=w2y65wR1{p>$FU<^\,pzlTDIHk>n@u<zOjOD^+ax17>u
+    +pBJpye+$IB;V#D73!)rOAG^pO[-aI-&L@=SOu2o3xs3Vk\!CvUA$voGf>5kxDU@V1v}2>+j\TEa
+    CY*?w8A}#rJIv^a{3$HTA0b3x\nHT3!
+`endprotected
+
+wire sda, scl;
+reg r_scl, r_sda, rr_sda, rr_scl, r_sda_out, rr_sda_out, 
+    r_scl_out, rr_scl_out, r_scl_in, r_sda_in;
+
+reg clock_sync_detected;
+reg r_master_active;
+wire clock_no_low_sync_observed, clock_no_high_sync_observed;
+reg r_arbitration_lost;
+wire ok_to_get_restart_or_stop;
+
+`protected
+
+    MTI!#5WEiB2D!Ri=_Q$av@,QIl-1H=,s,C=ICFlZ[?=?lDC}i<QIe^^#2W*mo+6^>zoVXerDmG[Q
+    jv7|K1+JV,$,j#A~vw[_k<1HoU!Amsk@p$_\s*x5P>'k=BnRkjUZ7<U2{'=HI$;T=3exQC}^$#vn
+    Epk3^IEEUj,{*p2Kz&BTCnH\ekx\mWJ}W;VzCn\=GD*<;Ap>1p*;}<cEnvk3lIkGs~I=}*o]<eJ*
+    x!!=YlZGBo5N1+xuAs[-fQ;B*A$57R1?ue{EvEwe+
+`endprotected
+
+assign clock_no_high_sync_observed = 
+          ( (next_state == ADDR || next_state == ADDR_2ND_BYTE) &&
+             master_active && (r_scl_out && r_scl_in) && scl_out && !scl_in); 
+             //CLOCK Sync.: During HIGH to LOW transition in SCL, when any of the I2C device
+             //is pulling the SCL line LOW, all other device should also pull the SCL line LOW 
+             //immediately. This signal tracks, if this I2C device is not pullin it scl_out signal
+             //low when other devices do. 
+ 
+assign clock_no_low_sync_observed = ( (next_state == ADDR || next_state == ADDR_2ND_BYTE) &&
+             master_active && r_scl_in && scl_out && !scl_in); 
+
+assign sda = !sda_out_en_n? sda_out : sda_in;
+assign scl = !scl_out_en_n? scl_out : scl_in;
+
+assign master_active = (r_master_active || (next_state == START &&
+           (!r_sda_out && rr_sda_out && r_scl_out && ok_to_get_restart_or_stop) ) );
+
+assign arbitration_lost = (dut_as_master && master_active && sda_out != sda_in && 
+                                present_state != READ_DATA && present_state != ACK &&
+        (OUTPUT_ENABLES_ON == 1? (!sda_out_en_n && sda_out) : sda_out) ) || 
+                                                                  r_arbitration_lost;
+
+assign ok_to_get_restart_or_stop =  present_state == IDLE ||
+                                      present_state == ADDR_2ND_BYTE ||
+                                      present_state == STOP ||
+                                      present_state == START ||
+           ( (present_state == READ_DATA || present_state == WRITE_DATA) &&
+                            serial_bit_count == 3'd7 && scl);
+
+`protected
+
+    MTI!#m'{3TU*_1Q=}K<!?J<Uj;On~I2\~DH@\NoZD?="Y]k5}-<=gXn5uc[ZBwoG;lGO$p9,A^2k
+    $xs[ZrJuYk@}~5oO+GUBU[Rg|E;2Y~wx7>SkoJ[Fw{a!g}72Y|E{lkUwzA^p@Hv~][I@O!Le_*r\
+    7G;*TZ,DRs$S'v]Cq(+'p+xCN~{e'-jkBpJ@]BT,Bo7='=pW\[Yr@.IpzA}@jrzTCKL}2Ha'<JZk
+    1<]p'-?4oT_]u_WB'*,X\5+YCYx!^VaW@aQ!p2Espi^HY*ouOz[XDE+>[7Ep41BK$l3~};j7i%$'
+    #Av~zIUz]$i>s'fnXKr$*<uB_Akp1E^@$xAzIBltCHa{[\O}QSNYn3?'s]?3o7,Q2_w-OOHG'V*1
+    ]p1pK~W6D(BKHmo3*+@TMoZOmmsRW;o=}(-'Ql2*xEkCT#mr@AQVj<}H+Dm,eZ57p;YKBO?$[G\Q
+    CwCZZGxpO@v2+!2[nO%[aX*7u,DAE'uz~5ivo5Zf\5'p^>X^RY}z(wsxH@AR[zn!]*#EKE>XjdAr
+    {3)TEO+BtYW;lKz?;>+@m1Z_2NWx+Gw$WYsv3rYTzXVm+;4VX!o;o7a99wX5}#-1^oHG#k.o5@oy
+    2}~O4NeU@?O1xO}B<3UlAAIZ\X=Z@?U7av,k@{vmw@TOkDol3jx;aTXUeAJ_H2ven7@TRiur?1lZ
+    -Jco#$[BP@D?!UEnIl_,o-VFQxz^Gm5u\JY~Yh}i],1%n*?+>o#RO/AIAn}3pmiT]zzB<ZIeD?o'
+    @u$NB~swk\jD)zx_IV?&r;TnU{1_lH,}V7Tx3+Zp|O'_Evm'>eRo?BSJOD*#p?j;Y7w9ll>w#>eD
+    a<l=@^?aUs#Vfg35j>kl-\\5lvMmnYi7EE}_lQ+==iuz~I*n1,v|zK}KG{DO@<
+`endprotected
+// Assertions.
+
+wire ms_no_scl_low_when_sda_high_bus_idle; //Rule 1; Spec. Page:
+wire m_serial_data_length_always_8_bits_wide; //Rule 2; Spec. Page:
+wire m_mas_to_stop_or_restart_if_slv_issues_slave_nack; //Rule 4; Spec. Page:  
+wire m_cbus_transaction_ends_with_stop; //Rule 6; Spec. Page:   
+wire ms_if_scl_in_inequal_to_scl_out_should_make_scl_out_inactive; //Rule 8;   
+wire ms_if_sda_in_inequal_to_sda_out_should_make_sda_out_inactive; //Rule 11; 
+wire ms_after_clock_sync_low_width_to_be_equal_that_of_device_had_longest_low; //Rule 9 
+wire ms_after_clock_sync_high_width_to_be_equal_that_of_device_had_shortest_high; //Rule 10.
+wire m_during_arbitration_scl_out_should_be_toggled_upto_completion_of_cycle; //Rule 12    
+wire m_during_arbitration_write_txn_can_contiue_only_upto_data_bits_transfer; //Rule 13. 
+wire m_during_arbitration_read_txn_can_contiue_only_upto_data_bits_transfer; //Rule 14.
+wire m_during_arbitration_if_own_address_master_to_switch_role_as_slave; //Rule 15  
+wire m_during_arbitration_stop_or_repeated_start_on_the_bus_to_be_mirrored; //Rule 16.
+wire m_sda_to_be_stable_as_long_as_slave_asserts_scl_low_towards_slave_wait; //Rule 17.
+wire m_for_read_txn_mas_should_assert_ack_or_nack; //Rule 19. 
+wire m_for_write_txn_mas_should_deassert_sda_out_during_ack_or_nack; //Rule 20A.
+wire m_during_write_data_master_should_drive_sda_during_data_txn;   
+wire m_during_write_data_master_should_drive_scl_during_data_txn;  
+wire m_during_address_phase_master_should_drive_sda_and_scl; 
+wire m_except_start_byte_start_to_follow_at_least_one_data_phase; //Rule 21.
+wire m_reserved_addresses_not_allowed; //Rule 22 ,25  & 26 
+wire m_gcall_address_2nd_byte_8b00_not_allowed; //Rule 29.
+wire m_master_to_issue_gcall_address_first_before_any_valid_txn; //Rule 30 
+wire m_start_byte_to_follow_repeated_start; //Rule 32    
+wire m_cbus_not_needed_in_fast_or_hs_mode; //Rule 35 
+wire ms_no_arb_and_clk_sync_allowed_in_hs_mode; //Rule 36 
+wire m_reseved_addresses_not_allowed_in_hs_mode; //Rule 37.
+wire m_why_same_address_of_slave_which_is_part_of_same_device; //Rule 40
+wire m_bk_2_bk_10_bit_address_to_same_slave_2nd_address_byte_not_issued; //Rule 41. 
+
+//Custom Assertions.
+wire m_max_txn_len_to_equal_length_parameter_value; //Rule 5; Spec. Page:
+
+reg [31:0] transaction_length_count; //Used in a cusotom Check and in Stats. block.
+
+//Assertion Expressions
+
+//Master and Slave common assertions.
+assign ms_no_scl_low_when_sda_high_bus_idle = 
+         (next_state == IDLE) && (sda_out && !scl_out); 
+
+assign m_serial_data_length_always_8_bits_wide = 
+         (present_state == WRITE_DATA && (serial_bit_count > 0 && serial_bit_count < 7) &&      
+           ( (!r_sda_out && rr_sda_out && r_scl_out ) || //Start or Repeated Start
+              (r_sda_out && !rr_sda_out && r_scl_out) ) ); //Stop state
+
+//Clock Sync.
+assign ms_if_scl_in_inequal_to_scl_out_should_make_scl_out_inactive = 1'b0; 
+         //(r_scl_in && !scl_in && scl_out); 
+
+//Arbitration.
+assign ms_if_sda_in_inequal_to_sda_out_should_make_sda_out_inactive = 1'b0;
+   //( (OUTPUT_ENABLES_ON == 0)? r_sda_out : (r_sda_out && !sda_out_en_n) ) && !r_sda_in && 
+    //  ( (OUTPUT_ENABLES_ON == 0)? sda_out : sda_out_en_n);
+
+assign ms_after_clock_sync_low_width_to_be_equal_that_of_device_had_longest_low =  1'b0;
+               //clock_sync_detected && clock_no_low_sync_observed;
+
+assign ms_after_clock_sync_high_width_to_be_equal_that_of_device_had_shortest_high = 
+               clock_sync_detected && clock_no_high_sync_observed;
+
+assign m_max_txn_len_to_equal_length_parameter_value = MAX_TXN_LENGTH != 0 && 
+           transaction_length_count == MAX_TXN_LENGTH && !r_scl_out && !scl_out; 
+
+//Master Assertions
+assign m_mas_to_stop_or_restart_if_slv_issues_slave_nack =
+         (r_present_state == NACK && next_state !== START && next_state !== STOP);
+
+assign m_cbus_transaction_ends_with_stop = 
+         (r_present_state == CBUS && sda && !r_scl && scl && serial_bit_count == 0);     
+
+assign m_during_arbitration_scl_out_should_be_toggled_upto_completion_of_cycle = 1'b0;
+assign m_during_arbitration_write_txn_can_contiue_only_upto_data_bits_transfer = 1'b0;
+assign m_during_arbitration_read_txn_can_contiue_only_upto_data_bits_transfer = 1'b0;
+
+assign m_during_arbitration_if_own_address_master_to_switch_role_as_slave = 
+         (DEVICE_TYPE == 0 && 
+  ( (present_state == RW_BIT || present_state == ADDR_2ND_BYTE) && serial_bit_count == 0 ) && 
+           arbitration_lost && (eff_bus_address == eff_input_address) && !sda_out);         
+
+assign m_during_arbitration_stop_or_repeated_start_on_the_bus_to_be_mirrored = 1'b0;
+
+assign m_sda_to_be_stable_as_long_as_slave_asserts_scl_low_towards_slave_wait = 
+         slave_wait && sda_out != r_sda_out;
+
+assign m_for_read_txn_mas_should_assert_ack_or_nack = 
+         (present_state == READ_DATA && (next_state == ACK || next_state == NACK) ) &&
+          ( (OUTPUT_ENABLES_ON == 0)? 0 : (sda_out_en_n && dut_as_master) );
+
+assign m_for_write_txn_mas_should_deassert_sda_out_during_ack_or_nack = 
+         (present_state == WRITE_DATA && (next_state == ACK || next_state == NACK) ) &&
+          ( (OUTPUT_ENABLES_ON == 0)? 0 : (!sda_out_en_n && dut_as_master));
+
+assign m_during_write_data_master_should_drive_sda_during_data_txn = 
+         ( (OUTPUT_ENABLES_ON == 0? 0 : (sda_out_en_n != 1'b0 && dut_as_master) ) && 
+           next_state == WRITE_DATA &&
+                present_state == WRITE_DATA && (!start_or_repeated_start && !stop_state) );
+
+assign m_during_write_data_master_should_drive_scl_during_data_txn =
+         ( ( !(!r_scl_out && scl_out) ) && next_state == WRITE_DATA &&
+              present_state == WRITE_DATA && (!start_or_repeated_start && !stop_state) );
+
+assign m_during_address_phase_master_should_drive_sda_and_scl = master_active &&   
+         ( OUTPUT_ENABLES_ON == 0? sda_out != sda : 
+                                 (sda_out_en_n != 1'b0 || scl_out_en_n != 1'b0) ) 
+                       && scl && //Master should drive SDA & SCL, 
+         (next_state == ADDR || next_state == ADDR_2ND_BYTE); 
+                                         //when ADDR and ADDR_2ND_BYTE 
+
+assign m_except_start_byte_start_to_follow_at_least_one_data_phase =
+         dataphase_expected == 1'b1 && scl && 
+            ( (present_state == ACK && 
+               next_state != READ_DATA && next_state != WRITE_DATA &&
+                               next_state != ADDR_2ND_BYTE) ||
+              (serial_bit_count == 7 && next_state != READ_DATA && 
+                        next_state != WRITE_DATA && next_state != ADDR_2ND_BYTE) );
+assign m_reserved_addresses_not_allowed = next_state == RESERVED_ADDR; 
+assign m_gcall_address_2nd_byte_8b00_not_allowed = (next_state == ADDR_2ND_BYTE &&
+         eff_bus_address == 8'b0 && serial_bit_count == 1);    
+
+assign m_master_to_issue_gcall_address_first_before_any_valid_txn = 
+         (gcall_received == 1'b0 && serial_bit_count == 1 && 
+                          present_state == ADDR && next_state != GCALL_ADDR); 
+
+assign m_start_byte_to_follow_repeated_start = 
+         (start_byte_flag && present_state == NACK && 
+                  (next_state != START && next_state != NACK) ); 
+
+assign m_cbus_not_needed_in_fast_or_hs_mode =
+                  (hs_mode_flag == 1'b1 && next_state == CBUS);
+
+assign ms_no_arb_and_clk_sync_allowed_in_hs_mode = hs_mode_flag && 
+         (arbitration_lost || clock_no_low_sync_observed || clock_no_high_sync_observed);   
+
+assign m_reseved_addresses_not_allowed_in_hs_mode = 
+         (present_state == HS_MODE && serial_bit_count == 1 && 
+            eff_bus_address == 10'b00_0000_1000);   
+
+assign m_why_same_address_of_slave_which_is_part_of_same_device = 
+         (DEVICE_TYPE == 0) && (present_state == ADDR || present_state == ADDR_2ND_BYTE) &&
+            (r_master_active == 1'b1 && next_state == ACK && 
+                                       eff_input_address == eff_bus_address); 
+
+//FIRE Signals.
+
+wire FIRE_I2C_ms_no_scl_low_when_sda_high_bus_idle;
+wire FIRE_I2C_m_serial_data_length_always_8_bits_wide;
+wire FIRE_I2C_m_mas_to_stop_or_restart_if_slv_issues_slave_nack;
+wire FIRE_I2C_m_cbus_transaction_ends_with_stop;
+wire FIRE_I2C_ms_if_scl_in_inequal_to_scl_out_should_make_scl_out_inactive;
+wire FIRE_I2C_ms_if_sda_in_inequal_to_sda_out_should_make_sda_out_inactive;
+wire FIRE_I2C_ms_after_clock_sync_low_width_to_be_equal_that_of_device_had_longest_low;
+wire FIRE_I2C_ms_after_clock_sync_high_width_to_be_equal_that_of_device_had_shortest_high;
+wire FIRE_I2C_m_during_arbitration_scl_out_should_be_toggled_upto_completion_of_cycle;
+wire FIRE_I2C_m_during_arbitration_write_txn_can_contiue_only_upto_data_bits_transfer;
+wire FIRE_I2C_m_during_arbitration_read_txn_can_contiue_only_upto_data_bits_transfer;
+wire FIRE_I2C_m_during_arbitration_if_own_address_master_to_switch_role_as_slave;
+wire FIRE_I2C_m_during_arbitration_stop_or_repeated_start_on_the_bus_to_be_mirrored;
+wire FIRE_I2C_m_sda_to_be_stable_as_long_as_slave_asserts_scl_low_towards_slave_wait;
+wire FIRE_I2C_m_for_read_txn_mas_should_assert_ack_or_nack;
+wire FIRE_I2C_m_for_write_txn_mas_should_deassert_sda_out_during_ack_or_nack;
+wire FIRE_I2C_m_during_write_data_master_should_drive_sda_during_data_txn;
+wire FIRE_I2C_m_during_write_data_master_should_drive_scl_during_data_txn;
+wire FIRE_I2C_m_during_address_phase_master_should_drive_sda_and_scl;
+wire FIRE_I2C_m_except_start_byte_start_to_follow_at_least_one_data_phase;
+wire FIRE_I2C_m_reserved_addresses_not_allowed;
+wire FIRE_I2C_m_gcall_address_2nd_byte_8b00_not_allowed;
+wire FIRE_I2C_m_master_to_issue_gcall_address_first_before_any_valid_txn;
+wire FIRE_I2C_m_address_should_match_when_the_slave_device_responds_for_a_txn;
+wire FIRE_I2C_m_start_byte_to_follow_repeated_start;
+wire FIRE_I2C_m_cbus_not_needed_in_fast_or_hs_mode;
+wire FIRE_I2C_ms_no_arb_and_clk_sync_allowed_in_hs_mode;
+wire FIRE_I2C_m_reseved_addresses_not_allowed_in_hs_mode;
+wire FIRE_I2C_m_why_same_address_of_slave_which_is_part_of_same_device;
+wire FIRE_I2C_m_bk_2_bk_10_bit_address_to_same_slave_2nd_address_byte_not_issued;
+wire FIRE_I2C_m_max_txn_len_to_equal_length_parameter_value;
+
+// Statistics block.
+reg [63:0] total_reads;
+reg [63:0] total_writes;
+reg [63:0] total_starts;
+reg [63:0] total_stops;
+reg [63:0] total_repeated_starts;
+wire [63:0] total_transactions;
+reg [63:0] total_7bits_address_phases;
+reg [63:0] total_10bit_address_phases;
+reg [63:0] total_data_phases;
+reg [63:0] min_transaction_length;
+reg [63:0] max_transaction_length;
+reg [63:0] total_arbitration_cycles;  
+reg [63:0] total_gcall_addresses;
+reg [63:0] total_gcall_slave_rst_cycles;
+reg [63:0] total_gcall_slve_no_rst_cycles;
+reg [63:0] total_hw_gcalls;
+reg [63:0] total_hs_mode_cycles;
+reg [63:0] total_start_bytes;
+reg [63:0] total_acks;
+reg [63:0] total_nacks;
+reg [63:0] min_hs_mode_transactions_per_hs_mode_entry;
+reg [63:0] max_hs_mode_transactions_per_hs_mode_entry;
+reg [63:0] min_hs_mode_transaction_length;
+reg [63:0] max_hs_mode_transaction_length; 
+reg [63:0] total_cbus_transactions;
+
+reg first_time, hs_mode_first_time, 
+      min_hs_mode_transactions_per_hs_mode_entry_comparison_enable;
+
+reg [31:0] hs_mode_transactions_per_hs_mode_entry;
+
+reg read_flag, write_flag;
+
+wire collect_stats;
+`protected
+
+    MTI!#~x[EV>vB?+}w_Kzv8c?n$i;+jp^>AVb7;B_~jkrB;AXXYDJ6U=px>'i[a}+,1-,uRX@],m1
+    <A$IsFvpZZ^2UvI]#~!r[x[2TI}\D3!p5j'XU@<aR@-Y$1wn;<E'E^pA^!{{<T->v=$aA_;XnpFm
+    7A'JsjHRE1\R^RT*e,>?B'2>G-C1-=[rRC\B{131&}->>]rX!s{x}"+UZJz$uO^Gp2#{~}<$o@'x
+    #kvB$kv3+oR^xH,v}[$pQTC!l<\CaEQA=]U$jw6la>EV+Qan[ETDKn[Oelm#aV^x[<D@]7+f]Q>^
+    fX+e#'!~j2YV1uH$rFtT1JU*O#xXUjJ2$;kI@JjEWuOZreYHszV*@3surl-&=z-=QQQo*_VmJ^;_
+    W]@\J&T[<3h'eJQVeRz!p'?N7HfBVzY%|q[\Epy<*3]=!Hp\z@~DOE+;l0+5$W<jWp*p[l5pRYaa
+    I=<n-r#<$Io!IaO*,I:E^z*3TDWe#'V|lY,rC!G+;pTE*3KV->j@#-,@Ese]aV6E-DlIW2oO*-Ab
+    fr<TJQHBuE;pZG[\#i5ZT1e_>Mjvm1I#T_<\A};$q![X[]2~uev?Op[;TIxn[_?}axXJQ6
+`endprotected
+assign total_transactions = total_reads + total_writes;
+`protected
+
+    MTI!#*-mTO#9f^J;!jWRkj**Jm-Y2Y}E-y$'ia!7Y"Z{s!aToQ5+]Ae~u[.D#mA]C}<BC7>f*Zy>
+    1]7i]iK}fpKXzuYjWO:<D?Bnj>[r@~T^5OjI]#}12<Cl2V=[Gl_ACQ!@E;-$_}=ws7ebN%iANUru
+    1'QZ~aUpTICxzE?$p#v[pe3xQ?A\sq#r{'ma~OrjmlPwRAp?pO!iER@'e_=P*-Jm]v\@mT<pRp+^
+    @R'Ex!vE<suUR_io|QBskv#eK+<]};|7*]UIi$!Qc!Xa'}~;lO77^kEVT1oTR!nQX6]C{3BsJXGp
+    r#Zz\TT^GHCk*w]@z<5GZpzzuUQ1mTrrB^awDT=@xkA&MOAcOW=\;oVwYE3G7e{rtAoO3oji*)n,
+    J@'O!>m*51Ii!*UXmrH+3#o5viO*+?#1I-lAHzHD-B,MaADHCC--#]Wm]Uez7w-UoJYsHRO+V#]C
+    G;uV%oH;BxU&p=$WAR^p-a$wm=ATuo;^s!['QGi{b?]{K!oBi%zCV-CUV]8l3{D<js^Y~-2Y]+r<
+    <3[5xZzt$nJWH,AX~7@[GuO@,~_J<]}J:']impaVxa[<kTol]>QkJuo+ZBVBiLrVXDJ5T@^n;D-'
+    X]W]a#RZ<J{X+=uYp>'sU=mV-Ow-p#opKOO/{O*xo2Oo]V2Z,xiw$;H_Ia<uRu5XxTpv{5arIT$~
+    TVY1B?3!Bl[[,UQ'karu.mV1;*^8NW$XuvOJGQkYmE'-V$I\'bO\WoI{_1+s?<kD3xQ,3E[U,XA-
+    !>\Azj<U}1~nj{Gal*ezC}C~vVAj]+mYUjG#<Co7!=hoG'R8Z=\m@x;?]p1spz=?Os2n'RjZ~_5[
+    }DR}r@7^^JmJa7lvM>z'I'#e_t<\~zon'D#ab;'+-xHI]EHIsDTo!mIu7sD#B'[{-}]JA!*sRGKZ
+    o&Qmv]SV,3z^\A{yw5m-}i3sp@;>($-{j)6ll2>[K$J,]#?<p+QWaXwQ+O^HHV!L!>]lCRiu\zC_
+    v,!mCK_^7ur^72^}2Hxj_ij7*H5DlCoaT_kRV3wuA}A-g6DHKD~pxQC,Dl%sU'GkpBApo^]JlvHH
+    ^+?<z-+,$<jrxR;5;*X'jAakOQ!vl!?Rm\z~>_wdV-W}}>r1or7ZBw+<e{!Aa{UkEsgK>7?Ws$zs
+    =JnJ<a{W}k1U,e=\~I3<U=nos$E!w,Cv1e[G-ja_BAB1'B'ZAm#3a$E\o**]#1@^pOWj=[n&z!Qv
+    ch='rRtr\]irC^rf*UVoCv;_)2E+^@wn5]@[i,a2G7~!#7pip2-Z],%Se^]e@+!^JE,#}!]!?El$
+    ^RI!?UTJY=kxxiE;TG;HKsk2\zXUv?HpVr2,Tnu*w}n,{'\vJrxi{eZ+B7x]TG_rG2jzA=UOx?Wu
+    |I#<[,Y*?RW',"~QV*}oXeL!,?lO<WDB_km_u75>BxEd<E=TJr'Q~]aB~nzm2aDuwU[~K5;e2$pa
+    }u+O;eOGOkv,}=l{j,jCv(.p?rn]bC=@,<{;Blp,aRyU^$O~Vo$OjGB~Oommr{DrauI_x\~j>;j]
+    {w'vX}!zT}an^R[cawA]^}pvenQ}xxk]lWwu;{3!wCAv*^+3G{m;P[sk2-C?l6{wj''k*I\$>w{O
+    ep.?UbaHv-olkXGnC>a17B{--U\<!m*^vK1n5{I{H^d@[Xrl<mzdt4X=7fr33wx2v#Q-!XM[Ju*i
+    $Gs_7<5+QD\*,T]S*~AQBk~+x,Fm}zARuWVPI>,o_U3uT5!bXw@T*Sk-RYlsAYG!A2_\V=THzJsj
+    Hk=+3J=HsU:Wvp!O]omoGQusHI_,<+pZ^5vGuT_ftpx==W>RK0s1j[-QCB\TTa5kDJ/v!~ZoC,>H
+    vwoFiaGK{zX2~[+74EG*n[YD;.Il*U#_'xfv{@Wa1^x!wT'pzE7B;v7#ooIune7_zIug?I'e=K\V
+    ^l!v-H>sFv\<]k{;e%O$**!{XEF'5DsGv+\jYw!1OE>En7~LR{rox+{'Y1-}>E{$o\pK_kQ\QWVi
+    vXU?2s@kmEzj.O57Dp?s51^QK^^>px1u+To!pi1p<lAaK$#mu7/eV-#Kv!eD>xZiX=Ka$@UBH5$p
+    =pR_?zWO%ITmkrlnzxz?DTTJuizwnXH'{$O@sBn=$res_SjJ$z!{Q~]Ev;7v-$-QI*_wInzD{@YA
+    HvU7A#A}n-O?E3I;$=)6o[]3VX>Z{CVv$b,>VQ9oGWDBjR]HaG#:+1vIrlm7Yru1(WUp+n<XoP}_
+    2KwY7#J,-u6eRlQY{n]\An[zmT~oY>-J[
+`endprotected
+
+`include "qvl_i2c_master_checks_monitor_assertions.svh"
+generate 
+   if (DEVICE_TYPE != 2) begin:MASTER_STATS
+
+`include "qvl_i2c_master_monitor_cover.svh"
+
+end
+endgenerate
+
+`qvlendmodule

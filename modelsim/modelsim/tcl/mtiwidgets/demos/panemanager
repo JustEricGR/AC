@@ -1,0 +1,53 @@
+package require Itcl
+package require Mtiwidgets
+
+# Create the pane manager
+mtiwidgets::panemanager .mp
+
+# Create a pane frame and place a text widget inside
+mtiwidgets::paneframe .mp.t1 -activeforeground white -activebackground blue \
+	-text "Text Widget 1"
+set cs [.mp.t1 childsite]
+text $cs.t
+# Let the paneframe know where focus belongs
+.mp.t1 configure -window $cs.t
+pack $cs.t -side top -fill both -expand 1
+
+# Put the paneframe into the manager
+.mp add .mp.t1 {} w
+
+# Create a second pane frame and place a text widget inside
+mtiwidgets::paneframe .mp.t2 -activeforeground white -activebackground blue \
+	-text "Text Widget 2"
+set cs2 [.mp.t2 childsite]
+text $cs2.t
+# Let the paneframe know where focus belongs
+.mp.t2 configure -window $cs2.t
+pack $cs2.t -side top -fill both -expand 1
+# Put the second frame into the manager to the left of the first pane
+.mp add .mp.t2 .mp.t1 left
+
+# Map the whole thing to the screen
+pack .mp -side top -fill both -expand 1
+
+$cs.t insert end "This is text widget $cs.t"
+$cs2.t insert end "This is text widget $cs2.t"
+
+update
+.mp unserialize [list horizontal [list .mp.t1 {-minsize 40} 50% na .mp.t2 {-minsize 40} 50% na]]
+
+bind .mp.t1 <FocusIn> {
+	.mp.t1 Activate
+}
+
+bind .mp.t1 <FocusOut> {
+	.mp.t1 Deactivate
+}
+
+bind .mp.t2 <FocusIn> {
+	.mp.t2 Activate
+}
+
+bind .mp.t2 <FocusOut> {
+	.mp.t2 Deactivate
+}

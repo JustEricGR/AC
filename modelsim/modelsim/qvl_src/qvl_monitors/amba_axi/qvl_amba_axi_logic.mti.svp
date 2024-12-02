@@ -1,0 +1,2133 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+ * PURPOSE      This file is part of the 0-In CheckerWare.
+ *
+ * DESCRIPTION  This monitor checks the AMBA AXI interface for 
+ *              compliance with AMBA AXI protocol specification. 
+ *
+ * REFERENCE    AMBA AXI protocol specification, ARM IHI 0022B, 
+ *              v1.0, 19 March 2004
+ *
+ * INPUTS
+ *   aclk     - Global clock signal
+ *   areset_n - Global asynchronous reset signal (active low)
+ *   reset_n  - Synchronous reset (active low)
+ *
+ *   awid     - Write address ID (tag of the write transaction)
+ *   awaddr   - Write address bus (indicates starting address of bursts)
+ *   awlen    - Write burst length (number of transfers)
+ *   awsize   - Write burst size (data width of each transfer)
+ *   awburst  - Write burst type (incrementing / wrapping / fixed).
+ *   awlock   - Write lock type (normal / exclusive / locked)
+ *   awcache  - Write cache type (bufferable / cacheable)
+ *   awprot   - Write protection level (normal / privileged / secure)
+ *   awvalid  - Write address valid (indicates that addr / cntrl is valid)
+ *   awready  - Write address ready (slave ready to accept an address)
+ *
+ *   wid      - Write ID (tag of the write data transaction)
+ *   wdata    - Write data (write data bus - 8, 16, 32,.... 1024)
+ *   wstrb    - Write strobe (1 bit for each 8 bits of write data)
+ *   wlast    - Write last (last data transfer of the burst)
+ *   wvalid   - Write valid (indicates that write data is valid)
+ *   wready   - Write ready (slave ready to accept write data)
+ *
+ *   bid      - Response ID (tag of the write response)
+ *   bresp    - Write response (OKAY / EXOKAY / SLVERR / DECERR)
+ *   bvalid   - Write response valid (write response is valid)
+ *   bready   - Response ready (master ready to accept write resp)
+ *
+ *   arid     - Read address ID (tag of the read transaction)
+ *   araddr   - Read address bus (indicates starting address of bursts)
+ *   arlen    - Read burst length (number of transfers)
+ *   arsize   - Read burst size (data width of each transfer)
+ *   arburst  - Read burst type (incrementing / wrapping / fixed).
+ *   arlock   - Read lock type (normal / exclusive / locked)
+ *   arcache  - Read cache type (bufferable / cacheable)
+ *   arprot   - Read protection level (normal / privileged / secure)
+ *   arvalid  - Read address valid (indicates that addr / cntrl is valid)
+ *   arready  - Read address ready (slave ready to accept an address)
+ *
+ *   rid      - Read ID (tag of the read data transaction)
+ *   rdata    - Read data (read data bus - 8, 16, 32,.... 1024)
+ *   rresp    - Read response (OKAY / EXOKAY / SLVERR / DECERR)
+ *   rlast    - Read last (last data transfer of the read burst)
+ *   rvalid   - Read valid (indicates that read data is valid)
+ *   rready   - Read ready (master ready to accept read data)
+ *
+ *   csysreq  - Low-power request (clock controller to peripheral)
+ *   csysack  - Low-power acknowledge (peripheral to controller)
+ *   cactive  - Clock active (peripheral device requires clock)
+ *
+ *
+ * INSTANTIATION
+ *               The CheckerWare AMBA AXI monitor can be placed 
+ *               on the master or slave side to provide interface 
+ *               checks for 0-In Check.
+ *              
+ *                           +---------+
+ *                           |   AXI   |
+ *                           |   I/C   |  AXI   +---------------+
+ *                           |         |  I/F   | +---+         |
+ *                           |         |------->| | M |         |
+ *  +---------------+  AXI   |         |<-------| | W |     AXI |
+ *  |         +---+ |  I/F   | +---+   |        | +---+   SLAVE |
+ *  |         | M | |------->| | M |   |        +---------------+
+ *  | AXI     | W | |<-------| | W |   | 
+ *  | MASTER  +---+ |        | +---+   | 
+ *  +---------------+        |         |  AXI   +---------------+
+ *                           |   +---+ |  I/F   |               |
+ *                           |   | M | |------->|               |
+ *                           |   | W | |<-------|           AXI |
+ *                           |   +---+ |        |         SLAVE |
+ *                           |         |        +---------------+
+ *                           |         |
+ *                           |         |
+ *                           +---------+
+ *
+ *
+ * LAST MODIFIED 10th July 2006
+ *
+***********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_SVA_INTERFACE
+`define qvlmodule interface
+`define qvlendmodule endinterface
+`else
+`define qvlmodule module
+`define qvlendmodule endmodule
+`endif
+
+`ifdef QVL_ASSERT_ON
+`define OVL_ASSERT_ON
+`define OVL_SVA
+`endif
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_amba_axi_logic (aclk,
+                               areset_n,
+                               reset_n,
+                               awid,
+                               awaddr,
+                               awlen,
+                               awsize,
+                               awburst,
+                               awlock,
+                               awcache,
+                               awprot,
+                               awvalid,
+                               awready,
+                               wid,
+                               wdata,
+                               wstrb,
+                               wlast,
+                               wvalid,
+                               wready,
+                               bid,
+                               bresp,
+                               bvalid,
+                               bready,
+                               arid,
+                               araddr,
+                               arlen,
+                               arsize,
+                               arburst,
+                               arlock,
+                               arcache,
+                               arprot,
+                               arvalid,
+                               arready,
+                               rid,
+                               rdata,
+                               rresp,
+                               rlast,
+                               rvalid,
+                               rready,
+                               csysreq,
+                               csysack,
+                               cactive
+                              );
+
+  // This parameter configures the checks in the monitor as constraints
+  // during formal analysis
+
+
+  parameter Constraints_Mode = 0;
+
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Interface type (Location of monitor instance)
+  // 0 => Master interface
+  // 1 => Slave interface
+  // 2 => Master interface of an interconnect
+  // 3 => Slave interface of an interconnect
+
+  parameter INTERFACE_TYPE = 0; 
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // This parameter defines the width of the write data bus of the
+  // write channel of the AXI interface. This is specified in bits.
+
+  parameter WRITE_DATA_BUS_WIDTH = 32; 
+  wire [31:0] pw_WRITE_DATA_BUS_WIDTH = WRITE_DATA_BUS_WIDTH;
+
+  // This parameter defines the width of the read data bus of the 
+  // read channel of the AXI interface. This is specified in bits.
+
+  parameter READ_DATA_BUS_WIDTH = 32;
+  wire [31:0] pw_READ_DATA_BUS_WIDTH = READ_DATA_BUS_WIDTH;
+
+  // This parameter defines the width of the various IDs (AID, RID,
+  // WID and BID). A single parameter is used since all the transaction
+  // IDs are required to be of the same width.
+
+  parameter TRAN_ID_WIDTH = 4;
+  wire [31:0] pw_TRAN_ID_WIDTH = TRAN_ID_WIDTH;
+
+  // This defines the Read reorder depth declared by the slave device.
+
+  parameter READ_REORDER_DEPTH = 8;
+  wire [31:0] pw_READ_REORDER_DEPTH = READ_REORDER_DEPTH;
+ 
+  // This indicates the read interleaving depth of the device
+
+  parameter READ_INTERLEAVING_DEPTH = 8;
+  wire [31:0] pw_READ_INTERLEAVING_DEPTH = READ_INTERLEAVING_DEPTH;
+
+  // This indicates the write interleaving depth of the device.
+
+  parameter WRITE_INTERLEAVING_DEPTH = 8;
+  wire [31:0] pw_WRITE_INTERLEAVING_DEPTH = WRITE_INTERLEAVING_DEPTH;
+
+  // This parameter can be used to turn ON/OFF exclusive access support
+  // by the slave device.
+
+  parameter EXCLUSIVE_ACCESS_ENABLE = 1;
+  wire [31:0] pw_EXCLUSIVE_ACCESS_ENABLE = EXCLUSIVE_ACCESS_ENABLE;
+ 
+  // This parameter can be used to turn ON/OFF the LPI support in the 
+  // monitor. Set this to 1 to enable LPI related checks.
+
+  parameter LPI_ENABLE = 0;
+  wire [31:0] pw_LPI_ENABLE = LPI_ENABLE; 
+
+  // This parameter defines the maximum number of outstanding requests
+  // supported by the device. This defines the depths of the various 
+  // address queues within the monitor.
+
+  parameter MAX_OUTSTANDING_READ_ADDR = 16;
+  wire [31:0] pw_MAX_OUTSTANDING_READ_ADDR = MAX_OUTSTANDING_READ_ADDR;
+ 
+  parameter MAX_OUTSTANDING_WRITE_ADDR = 16;
+  wire [31:0] pw_MAX_OUTSTANDING_WRITE_ADDR = MAX_OUTSTANDING_WRITE_ADDR;
+
+  // This parameter turns ON/OFF the check on write data coming before write
+  // address. Although this is not a violation, in most simple systems data
+  // will follow address. Set the following to 0 to disable this check.
+
+  parameter CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE = 0;
+  wire [31:0] pw_CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE = 
+                                  CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE;
+
+  // This parameter can be used to turn ON/OFF checking against reserved values
+
+  parameter ENABLE_RESERVED_VALUE_CHECKING = 1;
+  wire [31:0] pw_ENABLE_RESERVED_VALUE_CHECKING = 
+                                  ENABLE_RESERVED_VALUE_CHECKING;
+
+  // This parameter can be used to turn ON/OFF checking of some recommendations
+
+  parameter ENABLE_RECOMMENDATION_CHECKING = 0; 
+  wire [31:0] pw_ENABLE_RECOMMENDATION_CHECKING = 
+                                 ENABLE_RECOMMENDATION_CHECKING;
+
+  parameter LENGTH_WIDTH = 4;
+  wire [31:0] pw_LENGTH_WIDTH = LENGTH_WIDTH;
+  
+  parameter ADDR_WIDTH = 32;
+  wire [31:0] pw_ADDR_WIDTH = ADDR_WIDTH;
+
+  parameter MAX_UNIQUE_EXCLUSIVE_ACCESSES = MAX_OUTSTANDING_READ_ADDR;
+  wire [31:0] pw_MAX_UNIQUE_EXCLUSIVE_ACCESSES = MAX_UNIQUE_EXCLUSIVE_ACCESSES;
+
+  parameter EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE = 1;
+  wire [31:0] pw_EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE =
+                 EXCLUSIVE_READ_RESPONSE_CHECKING_ENABLE;
+
+  parameter ZI_DATA_BUS_IN_BYTES = WRITE_DATA_BUS_WIDTH >> 3;
+  wire [31:0] pw_ZI_DATA_BUS_IN_BYTES = ZI_DATA_BUS_IN_BYTES;
+
+  // Global clock and reset signals
+  input aclk;
+  input areset_n;
+  input reset_n;
+
+  // Write address channel signals
+  input awvalid;
+  input [ADDR_WIDTH-1:0] awaddr;
+  input [LENGTH_WIDTH-1:0] awlen;
+  input [2:0] awsize;
+  input [1:0] awburst;
+  input [1:0] awlock;
+  input [3:0] awcache;
+  input [2:0] awprot;
+  input [TRAN_ID_WIDTH-1:0] awid;
+  input awready;
+
+  // Read address channel signals
+  input arvalid;
+  input [ADDR_WIDTH-1:0] araddr;
+  input [LENGTH_WIDTH-1:0] arlen;
+  input [2:0] arsize;
+  input [1:0] arburst;
+  input [1:0] arlock;
+  input [3:0] arcache;
+  input [2:0] arprot;
+  input [TRAN_ID_WIDTH-1:0] arid;
+  input arready;
+
+  // Write channel signals
+  input wvalid;
+  input wlast;
+  input [WRITE_DATA_BUS_WIDTH-1:0] wdata;
+  input [ZI_DATA_BUS_IN_BYTES-1:0] wstrb;
+  input [TRAN_ID_WIDTH-1:0] wid;
+  input wready;
+
+  // Read channel signals
+  input rvalid;
+  input rlast;
+  input [READ_DATA_BUS_WIDTH-1:0] rdata;
+  input [1:0] rresp;
+  input [TRAN_ID_WIDTH-1:0] rid;
+  input rready;
+
+  // Write response channel signals
+  input bvalid;
+  input [1:0] bresp;
+  input [TRAN_ID_WIDTH-1:0] bid;
+  input bready;
+
+  // Low power interface signals
+  input cactive;
+  input csysreq;
+  input csysack;
+
+  // Internal parameters 
+
+  parameter ZI_BITS_ADDRESSING_BUS_BYTES = (ZI_DATA_BUS_IN_BYTES == 1)   ? 1 :
+                                         (ZI_DATA_BUS_IN_BYTES == 2)   ? 1 :
+                                         (ZI_DATA_BUS_IN_BYTES == 4)   ? 2 :
+                                         (ZI_DATA_BUS_IN_BYTES == 8)   ? 3 :
+                                         (ZI_DATA_BUS_IN_BYTES == 16)  ? 4 :
+                                         (ZI_DATA_BUS_IN_BYTES == 32)  ? 5 :
+                                         (ZI_DATA_BUS_IN_BYTES == 64)  ? 6 :
+                                         (ZI_DATA_BUS_IN_BYTES == 128) ? 7 : 1;
+  wire [31:0] pw_ZI_BITS_ADDRESSING_BUS_BYTES = ZI_BITS_ADDRESSING_BUS_BYTES;
+
+  parameter ZI_CACHE_ADDR_WIDTH = (MAX_UNIQUE_EXCLUSIVE_ACCESSES < 9) ? 3 :
+                              (8 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 17) ? 4 :
+                             (16 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 33) ? 5 :
+                             (32 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 65) ? 6 :
+                             (64 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 129) ? 7 :
+                            (128 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 257) ? 8 :
+                            (256 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 513) ? 9 :
+                            (512 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 1025) ? 10 :
+                           (1024 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                   MAX_UNIQUE_EXCLUSIVE_ACCESSES < 2049) ? 11 :
+                           (2048 < MAX_UNIQUE_EXCLUSIVE_ACCESSES && 
+                                MAX_UNIQUE_EXCLUSIVE_ACCESSES < 4097) ? 12 : 4;
+  wire [31:0] pw_ZI_CACHE_ADDR_WIDTH = ZI_CACHE_ADDR_WIDTH;
+
+  parameter ZI_READ_ADDR_QUEUE_PTR_WIDTH = (MAX_OUTSTANDING_READ_ADDR<9) ? 3 :
+                              (8 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 17) ? 4 :
+                             (16 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 33) ? 5 :
+                             (32 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 65) ? 6 :
+                             (64 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 129) ? 7 :
+                            (128 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 257) ? 8 :
+                            (256 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 513) ? 9 :
+                            (512 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 1025) ? 10 :
+                           (1024 < MAX_OUTSTANDING_READ_ADDR &&
+                                   MAX_OUTSTANDING_READ_ADDR < 2049) ? 11 :
+                           (2048 < MAX_OUTSTANDING_READ_ADDR &&
+                                MAX_OUTSTANDING_READ_ADDR < 4097) ? 12 : 4;
+  wire [31:0] pw_ZI_READ_ADDR_QUEUE_PTR_WIDTH = ZI_READ_ADDR_QUEUE_PTR_WIDTH;
+
+  parameter ZI_WRITE_ADDR_QUEUE_PTR_WIDTH = (MAX_OUTSTANDING_WRITE_ADDR<9)? 3 :
+                              (8 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 17) ? 4 :
+                             (16 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 33) ? 5 :
+                             (32 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 65) ? 6 :
+                             (64 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 129) ? 7 :
+                            (128 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 257) ? 8 :
+                            (256 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 513) ? 9 :
+                            (512 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 1025) ? 10 :
+                           (1024 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                   MAX_OUTSTANDING_WRITE_ADDR < 2049) ? 11 :
+                           (2048 < MAX_OUTSTANDING_WRITE_ADDR &&
+                                MAX_OUTSTANDING_WRITE_ADDR < 4097) ? 12 : 4;
+  wire [31:0] pw_ZI_WRITE_ADDR_QUEUE_PTR_WIDTH = ZI_WRITE_ADDR_QUEUE_PTR_WIDTH;
+
+  parameter ZI_NUM_IDS = 1 << TRAN_ID_WIDTH;
+  wire [31:0] pw_ZI_NUM_IDS = ZI_NUM_IDS;
+
+`protected
+
+    MTI!#$**#![<ReX{7iIwm-53rQO,X}[u#NYmT[qEq}3-wpDkDpC>OxxsmYZ{Je}#$.VCK$sa7^*~
+    [>7~}zg]*l@$_ApFKYX!=KupH]pu}@EDL9~w*{nU{E1<TkW<pX7-A72jJsnYk;5D~YDrKD^AOZM}
+    ,V^i<D=8I'?=]rEBjKvR|iVR@-_wHb^z]RZaIQnRAQb@,Q7+l-aIC{5\d7G\?b*C$^i<Z!7UXDR*
+    r1^T!T2]+vT|?v*]>xwTOlm}y7wC*[xv<yQKbDnA_x}3VYG?;zOmK]Vp'$<w+w9}WjH;'^~]sT\_
+    k[KEp<?eO7Q!G#rBpRiC-A!=!o>(wemQO[
+`endprotected
+
+  // These parameters are used to configure the appropriate set of checks 
+  // as constraints on either master or target side.
+
+  parameter ZI_CONSTRAINT_MASTER_SIDE = (Constraints_Mode == 1 &&
+                     (INTERFACE_TYPE == 0 || INTERFACE_TYPE == 2));
+  wire [31:0] pw_ZI_CONSTRAINT_MASTER_SIDE = ZI_CONSTRAINT_MASTER_SIDE;
+
+  parameter ZI_CONSTRAINT_SLAVE_SIDE = (Constraints_Mode == 1 &&
+                     (INTERFACE_TYPE == 1 || INTERFACE_TYPE == 3));
+  wire [31:0] pw_ZI_CONSTRAINT_SLAVE_SIDE = ZI_CONSTRAINT_SLAVE_SIDE;
+
+
+  // Parameters used for state names
+
+  parameter ZI_ADDR_IDLE = 0;
+  parameter ZI_ADDR_TRANSFER = 1;
+  parameter ZI_ADDR_VALID = 2;
+
+  parameter ZI_READ_IDLE = 0;
+  parameter ZI_READ_DATA = 1;
+  parameter ZI_READ_VALID = 2;
+  parameter ZI_READ_LAST_DATA = 3;
+
+  parameter ZI_WRITE_IDLE = 0;
+  parameter ZI_WRITE_DATA = 1;
+  parameter ZI_WRITE_VALID = 2;
+  parameter ZI_WRITE_LAST_DATA = 3;
+
+  parameter ZI_WRITE_RESPONSE_IDLE = 0;
+  parameter ZI_WRITE_RESPONSE_VALID = 1;
+  parameter ZI_WRITE_RESPONSE_TRANSFER = 2;
+
+  // Internal variables 
+
+  // Address channel related
+
+  reg [1:0] read_addr_present_state;
+  reg [1:0] read_addr_next_state;
+  reg [1:0] write_addr_present_state;
+  reg [1:0] write_addr_next_state;
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] r_araddr_control;
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] r_awaddr_control;
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] prev_araddr_control;
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] prev_awaddr_control;
+  reg [TRAN_ID_WIDTH-1:0] locked_arid;
+  reg [TRAN_ID_WIDTH-1:0] locked_awid;
+  reg read_locked_sequence;
+  reg write_locked_sequence;
+  reg prev_read_locked_sequence;
+  reg prev_write_locked_sequence;
+  reg [TRAN_ID_WIDTH-1:0] prev_arid;
+  reg [TRAN_ID_WIDTH-1:0] prev_awid;
+  reg [6:0] prev_arprot_arcache;
+  reg [6:0] prev_awprot_awcache;
+  reg [2:0] num_locked_read_commands;
+  reg [2:0] num_locked_write_commands;
+  reg [ADDR_WIDTH-1:0] prev_araddr;
+  reg [ADDR_WIDTH-1:0] prev_awaddr;
+
+  // Read address related queues - 
+  // 1. read_addr_queue holds the outstanding read address IDs and the entries
+  //    are removed on receipt of read responses. All the entries after the 
+  //    AID for which the response is received will be pushed down by one
+  //    so that the order in this queue always reflect the order in which the
+  //    addresses are issued
+  // 2. read_addr_len_queue always operates (written/deleted) hand-in-hand
+  //    with the read_addr_queue. This queue holds the lengths of the read
+  //    requests in the corresponding location of the read_addr_queue.
+  // 3. read_addr_queue_entry_active indicates validity of the corresponding
+  //    request in the read_addr_queue.
+  // 4. read_addr_queue_write_ptr is used to navigate through these queues.
+
+  reg [TRAN_ID_WIDTH-1:0] read_addr_queue [MAX_OUTSTANDING_READ_ADDR:0];
+  reg [MAX_OUTSTANDING_READ_ADDR:0] read_addr_queue_entry_active;
+  reg [LENGTH_WIDTH-1:0] read_addr_len_queue [MAX_OUTSTANDING_READ_ADDR:0];
+  reg [ZI_READ_ADDR_QUEUE_PTR_WIDTH:0] read_addr_queue_write_ptr;
+  reg read_address_queue_full;
+
+  // Write address related queues - 
+  // 1. write_addr_queue holds the outstanding write address ID and the entries
+  //    are removed on receipt of write responses. All the entries after the 
+  //    AID for which the response is received will be pushed down by one
+  //    so that the order in this queue always reflect the order in which the 
+  //    addresses are issued
+  // 2. write_addr_len_size_queue always operates (written/deleted) 
+  //    hand-in-hand with the write_addr_queue. This queue holds information 
+  //    regarding the addr and other burst parameters. This holds the lower 
+  //    order address bits required to identify the starting byte lane of the 
+  //    data transfer etc and the length of burst for data length tracking and 
+  //    also the asize to validate that the data transfer occurs only on valid 
+  //    byte lanes. All these are held in every location, and maps to the write
+  //    requests in the corresponding location of the write_addr_queue. 
+  //    Each entry holds ZI_BITS_ADDRESSING_BUS_BYTES of addr, 4 bits alen,
+  //    3 bits asize and 1 bit indicating fixed burst or not.
+  // 3. write_addr_queue_entry_active indicates validity of the corresponding
+  //    request in the write_addr_queue. 
+  // 4. write_addr_queue_write_ptr is used to navigate through these queues. 
+
+  reg [TRAN_ID_WIDTH-1:0] write_addr_queue [0:MAX_OUTSTANDING_WRITE_ADDR];
+  reg [MAX_OUTSTANDING_WRITE_ADDR:0] write_addr_queue_entry_active;
+  reg [MAX_OUTSTANDING_WRITE_ADDR:0] write_addr_queue_entry_active_mirror;
+  reg [MAX_OUTSTANDING_WRITE_ADDR:0] write_addr_queue_entry_active_temp;
+  reg [ZI_BITS_ADDRESSING_BUS_BYTES+LENGTH_WIDTH+4:0] write_addr_len_size_queue
+                                           [0:MAX_OUTSTANDING_WRITE_ADDR];
+  reg [ZI_WRITE_ADDR_QUEUE_PTR_WIDTH:0] write_addr_queue_write_ptr;
+  reg write_address_queue_full;
+  reg temp_active_content;
+  reg valid_write_data_before_address_detected;
+  reg outstanding_data_before_addr_hit;
+  reg [ZI_WRITE_ADDR_QUEUE_PTR_WIDTH:0] oldest_outstanding_data_index;
+  reg [LENGTH_WIDTH:0] received_write_burst_data_length;
+
+  // Completed read burst related information - These hold the information 
+  // like RID, number of data received etc about each read completion.
+
+  reg [TRAN_ID_WIDTH-1:0] completed_read_burst_rid;
+  reg [1:0] completed_read_burst_response;
+  reg [LENGTH_WIDTH:0] completed_read_burst_count;
+
+  // Completed write burst related information -
+  // 1. completed_write_burst_queue holds the WID of the write data burst
+  //    that has been completed.
+  // 2. completed_write_burst_count holds the number of data beats received
+  //    for each corresponding WID in the completed_write_burst_queue.
+  // 3. completed_write_burst_entry_active indicates the validity of the 
+  //    contents of the above queues.
+  // 4. completed_write_burst_queue_write_ptr is used to navigate through 
+  //    the above queues.
+
+  reg [TRAN_ID_WIDTH-1:0] completed_write_burst_queue 
+        [MAX_OUTSTANDING_WRITE_ADDR:0];
+  reg [LENGTH_WIDTH:0] completed_write_burst_count 
+        [MAX_OUTSTANDING_WRITE_ADDR:0];
+  reg [MAX_OUTSTANDING_WRITE_ADDR:0] 
+        completed_write_burst_entry_active;
+  reg [MAX_OUTSTANDING_WRITE_ADDR:0] 
+        completed_write_burst_entry_active_temp;
+  reg [ZI_WRITE_ADDR_QUEUE_PTR_WIDTH:0] completed_write_burst_queue_write_ptr;
+  reg completed_write_burst_queue_full;
+  reg temp_completed_wr_burst_active_content;
+
+  // Read channel related variables -
+  // The intermediate_read_burst_* queues hold the status, RID, number of data
+  // transfers so far for the given RID etc. These values are held in these 
+  // queues until the last data for that burst is received. Once the burst 
+  // is completed, they are moved to the completed_read_* signals and these 
+  // queues are freed up to accept new/more bursts/responses. 
+
+  reg [1:0] read_present_state; // Read channel current state
+  reg [1:0] read_next_state; // Read channel next state
+  reg [ZI_READ_ADDR_QUEUE_PTR_WIDTH:0] intermediate_read_mem_index; 
+  reg [ZI_READ_ADDR_QUEUE_PTR_WIDTH:0] r_intermediate_read_mem_index;
+  reg [LENGTH_WIDTH:0] intermediate_read_burst_data_count_mem 
+        [READ_INTERLEAVING_DEPTH-1:0];
+  reg intermediate_read_burst_status_mem 
+        [READ_INTERLEAVING_DEPTH-1:0];
+  reg [TRAN_ID_WIDTH-1:0] intermediate_read_burst_rid_mem 
+        [READ_INTERLEAVING_DEPTH-1:0];
+  reg [LENGTH_WIDTH-1:0] requested_read_burst_length;
+  reg [TRAN_ID_WIDTH-1:0] r_rid;
+  reg r_rdlast;
+  reg [READ_DATA_BUS_WIDTH+1:0] r_read_data_resp; // {rdata,rresp}
+  reg corresponding_read_addr_found;
+  reg ex_read_resp_does_not_match_expected_resp;
+  reg [1:0] expected_read_response;
+  reg [LENGTH_WIDTH-1:0] received_read_burst_length;
+  reg [ZI_READ_ADDR_QUEUE_PTR_WIDTH:0] index_of_intermediate_rd_mem;
+  reg valid_outstanding_read_addr_hit;
+  reg read_burst_progress_toggle;
+  reg read_burst_progress_dummy_var;
+
+  // Write related internal signals -
+  // These queues have very similar functionalities as their counterparts in 
+  // the read channel. Queues that map to one another have similar names. These
+  // are used to temporarily hold the write burst contents as they progress.
+  // These are moved to the completed_write_burst memories on completion of 
+  // the write bursts and are freed up for newer bursts. 
+
+  reg [1:0] write_present_state; // Write channel current state
+  reg [1:0] write_next_state; // Write channel next state
+  reg [TRAN_ID_WIDTH-1:0] intermediate_write_burst_wid_mem 
+        [MAX_OUTSTANDING_WRITE_ADDR-1:0];
+  reg [LENGTH_WIDTH:0] intermediate_write_burst_data_count_mem
+        [WRITE_INTERLEAVING_DEPTH-1:0];
+  reg intermediate_write_burst_status_mem
+        [WRITE_INTERLEAVING_DEPTH-1:0];
+  reg [ZI_WRITE_ADDR_QUEUE_PTR_WIDTH:0] intermediate_write_mem_index;
+  reg intermediate_write_burst_all_data_mask 
+        [MAX_OUTSTANDING_WRITE_ADDR-1:0];
+  reg [LENGTH_WIDTH-1:0] requested_write_burst_length;
+  reg valid_outstanding_write_address_hit;
+  reg [TRAN_ID_WIDTH-1:0] r_wid;
+  reg r_wdlast;
+  reg [LENGTH_WIDTH-1:0] received_write_burst_length;
+  reg [TRAN_ID_WIDTH-1:0] prev_wid;
+  reg [ZI_DATA_BUS_IN_BYTES-1:0] prev_wstrb;
+  reg [ZI_WRITE_ADDR_QUEUE_PTR_WIDTH:0] index_of_intermediate_wr_mem;
+  reg [WRITE_DATA_BUS_WIDTH+ZI_DATA_BUS_IN_BYTES-1:0] r_write_data_wstrb;
+  reg [ZI_WRITE_ADDR_QUEUE_PTR_WIDTH:0] r_intermediate_write_mem_index;
+  reg write_burst_progress_toggle;
+  reg write_burst_progress_dummy_var;
+  reg write_addr_queue_update_dummy_var;
+  reg [2*(TRAN_ID_WIDTH+ZI_DATA_BUS_IN_BYTES)-1:0] write_control_dummy_var;
+
+  // Write response channel related internal signals -
+  // These internal signals hold the state information of this channel and 
+  // also indicate whether the response received has a corresponding write
+  // addr and a completed write data burst.
+
+  reg [1:0] wresp_present_state;
+  reg [1:0] wresp_next_state;
+  reg corresponding_write_addr_found;
+  reg corresponding_write_data_found;
+  reg corresponding_write_addr_and_data_found;
+  reg [TRAN_ID_WIDTH-1:0] r_bid;
+  reg [1:0] r_bresp;
+
+  // Exclusive operation related signals - 
+  // These are used only to track exclusive accesses. The expected_response_*
+  // queues holds the expected response from every exclusive read/write addr
+  // issued. This is arrived at on receipt of an address, with the help of
+  // information from monitoring_status, addr_control_being_monitored and
+  // addr_control_being_monitored queues. The monitoring_status queue indicates
+  // whether any address with the given AID is being monitored for exclusivity.
+  // addr_control_being_monitored this holds the address & control values 
+  // being monitored for the corresponding AID. unresponded_ex_read_count 
+  // indicates the number of exclusive read requests for a given AID for 
+  // which response is pending. The master is not supposed to issue an ex
+  // write until it has received responses for all the exclusive reads that
+  // it has issued before the exclusive write.
+
+  reg [2:0] expected_ex_read_response_queue [MAX_OUTSTANDING_READ_ADDR-1:0];
+  reg [2:0] expected_ex_write_response_queue [MAX_OUTSTANDING_WRITE_ADDR-1:0];
+  reg monitoring_status [ZI_NUM_IDS-1:0];
+
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] 
+        addr_control_being_monitored [MAX_UNIQUE_EXCLUSIVE_ACCESSES-1:0];
+  reg [ZI_READ_ADDR_QUEUE_PTR_WIDTH:0] unresponded_ex_read_count 
+                                         [MAX_UNIQUE_EXCLUSIVE_ACCESSES-1:0];
+
+  reg ex_write_resp_does_not_match_expected_resp;
+  reg [1:0] expected_write_response;
+  reg exclusive_write_failure;
+  reg exclusive_write_success;
+
+  reg [ZI_CACHE_ADDR_WIDTH:0] next_read_id_cache_pointer;
+  reg [ADDR_WIDTH-1:0] sabm_r; // start_address being monitored
+  reg [02:0] asbm_r; // asize being monitored
+  reg [LENGTH_WIDTH-1:0] albm_r; // alen being monitored
+  reg [ADDR_WIDTH-1:0] eabm_r; // end_address being monitored
+  reg [ADDR_WIDTH-1:0] sawa_r; // start address of write access
+  reg [ADDR_WIDTH-1:0] eawa_r; // end address of write access
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] acbm_r;
+  reg [ADDR_WIDTH-1:0] r_sabm_r; 
+  reg [02:0] r_asbm_r;
+  reg [LENGTH_WIDTH-1:0] r_albm_r; 
+  reg [ADDR_WIDTH-1:0] r_eabm_r; 
+  reg [ADDR_WIDTH-1:0] r_sawa_r; 
+  reg [ADDR_WIDTH-1:0] r_eawa_r; 
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] r_acbm_r;
+
+  reg decrement_next_id_cache_pointer;
+  reg read_id_cache_hit_reg;
+  reg [ZI_CACHE_ADDR_WIDTH-1:0] read_id_cache_hit_addr_reg;
+  reg write_id_cache_hit_reg;
+  reg [ZI_CACHE_ADDR_WIDTH-1:0] write_id_cache_hit_addr_reg;
+  reg rresp_id_cache_hit_reg;
+  reg [ZI_CACHE_ADDR_WIDTH-1:0] rresp_id_cache_hit_addr_reg;
+
+  // Three caches are implemented - one for the ID and the other for
+  // addr and control. An additional 1-bit wide memory indicates the
+  // validity of each location in these cache memories. The third
+  // cache is to store the number of unresponded exclusive read addr
+  // for the given ID. This is required to cater to the scenario of
+  // multiple ex_read requests before the exclusive write. That addr
+  // is monitored for exclusivity only when the last read request is
+  // responded with an EXOKAY. The three caches are always in sync.
+
+  reg [TRAN_ID_WIDTH-1:0] tran_id_cache [MAX_UNIQUE_EXCLUSIVE_ACCESSES-1:0];
+  reg [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] addr_ctrl_cache
+                                     [MAX_UNIQUE_EXCLUSIVE_ACCESSES-1:0];
+  reg mon_status_cache [MAX_UNIQUE_EXCLUSIVE_ACCESSES-1:0];
+  reg [MAX_UNIQUE_EXCLUSIVE_ACCESSES-1:0] cache_entry_valid;
+
+  // LPI related signals
+
+  reg r_csysreq;
+  reg r_csysack;
+  reg r_cactive;
+  reg active_acknowledge_interval;
+
+  // Register declaration for checks
+
+  reg araddr_valid_deasserted_before_arready;
+  reg awaddr_valid_deasserted_before_awready;
+  reg wresp_valid_deasserted_before_bready;
+  reg read_valid_deasserted_before_rready;
+  reg write_valid_deasserted_before_wready;
+  reg exokay_response_for_non_exclusive_read;
+  reg response_other_than_okay_and_exokay_for_ex_read;
+  reg response_other_than_okay_and_exokay_for_ex_write;
+  reg exokay_response_for_non_exclusive_write;
+  reg write_data_strobe_asserted_for_invalid_byte_lanes; 
+  reg data_on_different_byte_lanes_for_fixed_burst;
+  reg read_data_reordering_depth_exceeded;
+  reg write_data_burst_before_corresponding_address;
+  reg data_phase_completed_before_address_phase;
+
+  // Wires used for check enables
+
+  wire read_addr_issued_for_burst_crossing_4k_boundary;
+  wire illegal_length_for_wrapping_read_bursts;
+  wire read_addr_issued_has_burst_size_larger_than_bus_width;
+  wire read_burst_type_field_with_reserved_value;
+  wire unaligned_starting_addr_for_wrapping_read_bursts;
+  wire read_allocate_attribute_set_for_non_cacheable_read_access;
+  wire cacheable_exclusive_read_access;
+  wire read_addr_within_locked_seq_across_4k_boundary;
+  wire arid_changed_within_locked_read_sequence;
+  wire arprot_or_arcache_changed_within_locked_read_sequence;
+  wire read_addr_cntrl_changed_before_arready;
+  wire num_commands_in_locked_read_sequence_exceeds_2;
+  wire locked_read_sequence_when_unresponded_reads;
+  wire unlocking_read_sequence_when_unresponded_reads;
+  wire unlocking_read_sequence_when_unresponded_reads_different_id;
+  wire unaligned_starting_addr_for_exclusive_read_access;
+  wire exclusive_read_access_size_violation;
+  wire exclusive_read_access_max_violation;
+  wire read_addr_before_completion_of_unlocking_read_transaction;
+  wire read_burst_length_violation;
+  wire rlast_not_asserted_on_last_data_phase;
+  wire write_address_phase_while_maximum_outstanding_writes_already_reached;
+  wire write_data_phase_while_maximum_outstanding_writes_already_reached;
+  wire read_data_interleaving_depth_exceeded;
+  wire read_data_resp_changed_before_rready;
+  wire rid_changed_before_rready;
+  wire rlast_changed_before_rready;
+  wire read_response_without_corresponding_read_address;
+  wire read_lock_field_with_reserved_encoding;
+ 
+  wire write_addr_issued_for_burst_crossing_4k_boundary;
+  wire illegal_length_for_wrapping_write_bursts;
+  wire write_addr_issued_has_burst_size_larger_than_bus_width;
+  wire write_burst_type_field_with_reserved_value;
+  wire unaligned_starting_addr_for_wrapping_write_bursts;
+  wire write_allocate_attribute_set_for_non_cacheable_write_access;
+  wire cacheable_exclusive_write_access;
+  wire write_addr_within_locked_seq_across_4k_boundary;
+  wire awid_changed_within_locked_write_sequence;
+  wire awprot_or_awcache_changed_within_locked_write_sequence;
+  wire write_addr_cntrl_changed_before_awready;
+  wire num_commands_in_locked_write_sequence_exceeds_2;
+  wire locked_write_sequence_when_unresponded_writes;
+  wire unlocking_write_sequence_when_unresponded_writes;
+  wire unlocking_write_sequence_when_unresponded_writes_different_id;
+  wire unaligned_starting_addr_for_exclusive_write_access;
+  wire exclusive_write_access_size_violation;
+  wire exclusive_write_access_max_violation;
+  wire write_addr_before_completion_of_unlocking_write_transaction;
+  wire write_burst_length_violation;
+  wire wlast_not_asserted_on_last_data_phase;
+  wire write_data_interleaving_depth_exceeded;
+  wire write_resp_changed_before_bready;
+  wire bid_changed_before_bready;
+  wire write_response_before_corresponding_write_addr_and_data;
+  wire write_response_before_corresponding_write_data;
+  wire write_data_strobe_changed_before_wready;
+  wire wid_changed_before_wready;
+  wire wlast_changed_before_wready;
+  wire ex_write_with_no_addr_being_monitored_for_given_awid;
+  wire ex_write_before_response_for_corresponding_ex_read;
+  wire write_lock_field_with_reserved_encoding;
+  wire requested_write_burst_length_violation;
+  wire decode_error_response_on_slave_interface;
+  wire valid_on_first_clock_violation;
+  wire illegal_write_data_bus_width;
+  wire illegal_read_data_bus_width;
+ 
+  wire ack_low_before_req;
+  wire req_high_before_ack;
+  wire ack_high_before_req;
+  wire req_low_before_ack;
+
+  // General
+  reg first_clock_edge;
+
+  // Wire declarations
+  wire [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] araddr_control; 
+  wire [TRAN_ID_WIDTH+LENGTH_WIDTH+ADDR_WIDTH+13:0] awaddr_control; 
+  wire [6:0] arprot_arcache;
+  wire [6:0] awprot_awcache;
+  wire low_power_mode;
+  wire all_data_masked_for_write_burst;
+  wire [LENGTH_WIDTH-1:0] arlen_exponent_of_2;
+  wire [LENGTH_WIDTH-1:0] awlen_exponent_of_2;
+  wire [16*8:1] read_addr_next_state_string;
+  wire [16*8:1] read_addr_present_state_string;
+  wire [16*8:1] write_addr_next_state_string;
+  wire [16*8:1] write_addr_present_state_string;
+  wire [17*8:1] read_next_state_string; 
+  wire [17*8:1] read_present_state_string;
+  wire [19*8:1] write_next_state_string; 
+  wire [19*8:1] write_present_state_string;
+  wire [23*8:1] wresp_next_state_string; 
+  wire [23*8:1] wresp_present_state_string;
+
+  wire read_id_cache_full;
+  wire read_id_cache_hit;
+  wire [ZI_CACHE_ADDR_WIDTH-1:0] read_id_cache_hit_addr;
+  wire [ZI_CACHE_ADDR_WIDTH-1:0] read_id_cache_addr;
+  wire write_id_cache_hit;
+  wire [ZI_CACHE_ADDR_WIDTH-1:0] write_id_cache_hit_addr;
+  wire rresp_id_cache_hit;
+  wire [ZI_CACHE_ADDR_WIDTH-1:0] rresp_id_cache_hit_addr;
+
+  // Wire declarations
+  wire valid_read_response;
+  wire [TRAN_ID_WIDTH-1:0] valid_read_response_id;
+
+  wire valid_ex_read_command;
+  wire [TRAN_ID_WIDTH-1:0] valid_ex_read_id;
+
+  wire valid_ex_write_command;
+  wire [TRAN_ID_WIDTH-1:0] valid_ex_write_id;
+
+  wire lock_clear_trigger;
+
+  integer loop_ind;
+
+`protected
+
+    MTI!#gn=#eUp!1rxn{x'R1^5+Jypu\ul?[E^}k<u7CiY%J<<YF[msx>Tl~_YK]q7D?}D?1D\Z}pN
+    nDB,[3HChZxOTTl~roe]YVZpY7Zm}_DnskU7iL#9'vnpW}J$~e2Xlk=O7WO]2IK2IZYsVB@*Rz,T
+    uHOaYk>w.nY@{aa[]2+r}o2\I2*wOwGC$}B-1~5DITh|,[N73G?>1xj!7ps[2{je{oYB]73.mrnw
+    n5Z_Uo}!HT3OgwXI7CNC/rV-oY+m\hm]C@I5-Z2EjHM?sVUuR\*sDD}z~sHH$YmGC_3V'B7al33T
+    Yu#$K\iis^]=V_;7*]p:I_,XrEDR'x85G<'}\XR)Ex2@~\ep\;Bi<E#V{qHh(l4/~UzUdo?GQIyc
+    j:IZZ3I\R~@1]]^rUWh7_GYZ,GU]RsG@r1oH7^*I@Xsr[i1~Y^+{UHv'$#O<7o]P1eWUD*Mh\KXH
+    vZYp"@\QwyEurD=ma!Rk1Cj,DR<v-lh[le[[_+-]hmqo]iRB\7CevxzYHj?I*m=*WABQ2z5]+a_*
+    K{_;Y#um]\lio;VYEV',u,oQn5AvWo@vpO1>BoY\w1K];[,'rXp5FGA$W%L}Z$-PIczR[1<RvGJr
+    Az,=Xoj7-2}vHTli,ige3IDaU7Wv'i}B#>@DB1J,DUz}E!$#oj[]ZKr&'ZX;1WpIqz-[V2^GZ^jA
+    Tp_w<lHXk2v-@ZV[iq1Y<oxJQ,W$wEJQ$$m7uDX=pwJG-z'V1nw]pGZX>1}[~Yr'nV@Xr<o+_?75
+    r_v5'-ozDDj~nsPA^{;]_XKRu-UEeY^w=iai=l_q1O2Y-r;3#^vIBB\BS[R@7FurDJ$;VXp5#UQo
+    RZ@*,q@r^Ww\O]^<,TR?<eeX<pw<sY]{~lADGYa_7A^!W,xj_uElWj!jeV'Gp+7Zus*vGu~Tzu#T
+    v7M[-*u0vms~=]Xrxk+~!_I{^$u*7GZu@R\Qq{r,<T}uGBa'xc^jE?+'kDk+rYlC~,O~^aH}<I#l
+    7i};pCh_}zY$Bo*,TnY>Xo3ra+$xG;3?}Aal_w_E1x1ck<$u'*nXe,z{$[C@Eu>?Mio~5s@~O<5-
+    J!\x~l@l\&m>{vZUD3EDJ2$uuA9Y?K$Nvi<w:6$]@Wu=,THA>eOs~QkUA1p[<#:=@unT,+A:t,KZ
+    uyK1x#TaY}B$>*&,*x5,jzA\^<QAxWAcB>*ju'oTV-+[{7>e&;=okYh|5WsH3Q~'bskx'|X]nBN*
+    +[^$9#<m@bSHw7-L*@p+!NRIn<L1#*IH.#zxXvD#_=BQ@IXJ^epD]n1*p^<=~<wEmA<Ck\e'B\o$
+    oI?GvlR}1Sw'mYWT_ZIs^@77<-xa2uDRKs1Sa7'G\'}<cX^{?ATl~JYXEiT=nYns^cxnAEI_OZ1N
+    *1-]tjo-^a^Dp7^k5m$-1?jl~[]lZ#{RwUI7H_+,*1+AAIx[~Gi,7RUB?,a@BJr2C=DGR$l#;snC
+    KVjuIr7YY!HJk1DkZyy\wrWo,-Ip^rRx^KCg\1xoG+RWH-uW$}_]=Rs$$AAJGZ>kkHYRaxomoQ*!
+    s[7j>-rBJDD{V]lnA{us^JT-*kDKSsAXr[UQ;Ax,BaO*Z\''AIQ@*$CTQDevle<zE$AwBp;Ww3wD
+    mza1Uxj{~W7s\9xIp#f2R_KWQw~+1K!o;Q{~$r^>$BmlRO;<p']*zBm~+SITvj[n}krXaG#CxJOr
+    Ka]Bks\n2ZlHB2{VR#YQE1sEe>]To}pvAVD_w='O3^inz;G|Aou$fkE>*V;1+-r{B}{I\IRO>;oj
+    >Vl!+iwVWNG@Cr=)Bls]12I=yVa<V~{]H1#zEclHICvo[!QAu1@lzTTA*p-_OlR^sx\{Z17m<}mo
+    Q-3l}?;}V3{RjeXEAmv>O3IrpX#CA>Ha+TVR7*4'E^ln}>Ua}IG]\;[Cu@]_ff{R}-3YD^w'}uBH
+    v5A53eaI!vQ!rxxx{>~T!w\n5jN}o_-\Q@}sDpeus;@~rE,RBe}TxZT@Qo3+AjB0*>u_<OsJu{x'
+    .UovZR-pZ>R\3*XuZ*YxGo^r1{jUwrnAvG>B}72*^Y*RG1CoTp{]E"n=TaAa4*k'HO_VQ}mz-^?X
+    #Z*!,IOXBm[uO]aGO~sa'_~=eu7\^W7o]>*~!>nTa/'sCuIW}n^=?<N?eax'O$w?O5<vmZ+P=+@2
+    ^z=*v}xxE1E]u}3UUVso=KnQr$IRkaT,x*uJ,U\<EHEpDaQr1#Dx?A[\+s~]5EliH7J5yu,Q\jxA
+    G!pVvDpI]v7uDtx1Xj7E1<*\Kz|R#O,:=QxGmT\ml?wBkp?>uwQ$/~$Gz6B+U{{UWBD}rA[rj]i,
+    Qp}nI=KjYnVYJUMCJnzB$ZVo@A?qsA[eY1^~2Y']>-Ze@DzsuO#Tm\>=GH7z,rkzY-mex@B{cma1
+    $xk[7+T\I1A>_SoX~Ql~+Y1'plO,rBwr3C#'a'rr[G*>\ouwQ~u7w~5T=K$In2iTe1!rR{OEO$E3
+    R^:;B~~b!DVi'pw~pkDiQ$Ro4vI*We~pE7rXnw=@{*vv@EO'Z/^{[1V?vJ<ImUs<j{<$3oL.aH3$
+    *s_Z7k,J*~~E#IBY-5!nA}A+UVnDo7zQzEUv'K'jj1Wp<pA]7K=Y}]T1HCH1(Un~RrR2Td5sRm*#
+    2K'TW*[B]eRw7]27*Z_[7D(T+-\p{\\<eu{CJnK<1A;O'JZ>,]~G}U*-V$_i<@}_7EJ<E;,H_Z]}
+    u-\dvKHWe#*aDxXXDCQ3V+3k}KUKz"l<zkkD'={'$UC>2=x5kJHxGW'v-aLeUexmzlA}O#K]+ABZ
+    ^l5!]Kav"5{7*K}napY+73-O{=ujsRR_#Ek<3\v<rb;s?<|EGpv#<-}l@J!W7\uZjrrV'+j\Q7uo
+    3W$xi}$C'Yvx?3e+=Aue2Qkl?I~+QpA!,s7uB#@;_Ywn-,ZOo5J:kl'>^3*D#+>!\>ADunHADCTE
+    $s'[Y?>D^}ZnlVp,}aj+^vD>3n2>O?HZ7ur~zKDVkG+5uR3[ww1v5A'w(Yn'oaUKO,HK+E[Ok-HJ
+    ;]2+wE,YeY,;Wv\-^CEGou'[Keq3Un/Aope*Ru@][Y<e@nozK<uje3E$!*Ur)ZUBB$C>WuDZ7-jR
+    5$nOJon!*mGWA=l{G*D+~_^I^+T'QJX$Ai+GpQvpV]Yj\wxlvAIe!@Xoe)lvRI#oG=VwGIYzaAo[
+    J!x{{V5]'El?@Ew^T+02*Gi[Gp!l2IK|]JpW~RD!TpRr0_J;}>DXAa\DI*uViDOW?PUD_{U_Z+'u
+    -K?BO~*;CZ6QB]lv#+BOQ-KAABZ&/%C3H,R]K+pu1'UGADFBoe1lkRoa,rnB+moQs*^kUHap+X'i
+    D[W7eUvI+Oir#^WVjR$rDnww'TW:<-BJ+seoZxuX}e7RAn[><x3*r^R^x1zo1ll5Z<-l:u_?<lXK
+    p#$jJUY?[;jX=HO@KYYZJp!-,\Z}z'5n$_E5{low>+C_XlpU3/uBo7ka@Ao7$[Ue1kQ\pnD{lkA'
+    lm1#x'E#ox#p\7K{{7om32*r^uEsT?'VmD@j\a}1,_kXZ*Qir*C^EoonnQ5VsV]cHY-{ARVB1=+p
+    5*!V*zEwa,IAGJJ_,-D~OA}[!{^r{B;I)e[jo1~ACA=O{5,oG[IC7[o\]U+E-+z;;x+AGt$ll,}]
+    2a<nVZ=DKKv,<k_Ez;$s-*#oj,<{lwh7#Y$OG23\Aj2-[$]!DpiY@YEi};$1l}^vQ1C3s2*}p7^]
+    3XkhHY=rC$op)aosH{]VWHs3@Q\@x1E=R:fer-*'~z+WT'v;l++6DH}*fgr*'kar*!8Ixv*]eDjT
+    nnu\=e7j]U$$T^V[_157>e*{*]slU__l;}OkUA3J5OVvpj2^>xm~A37B^TZ_oTn#=~vrkW3G!]^Z
+    -G}kY#Ee27T{eoXzc>-mQJCmn=m{=*om]CUD\Xj*+s>2w@C_3k{la5J{o\uuXjH'wkXz>s@>od{U
+    J$5~xssj!uYQE2x5Cu,mo{D}v-Gm',}puul![>BAC}{sLj#x[9w,Y{5i!!a[XZI'u!<B^}B;KU=e
+    l=$xV2^#HEq3{@7oE+U*-*u,W>OATHp'#vWGB,\=o+s[\-TEW@O{}ZUGJ-Vsv\{m9'?\ao9^C)jl
+    $#WI#oD1_Yj7TvGOOD&lR$QJ^Do3x!]|$^1x1azVGTnr+G#\'nWKW[k;<Q^es<$iAv#^<VjexCZ7
+    k==zwAvOQWX5=<D5UH$*,VmJin$j"@oml'YW'{RszmB;U?5rw6ze\1G,AEXx*^CH1$lK2^B{raH,
+    >jhK^]<&7CCnEDQJHB!^6TT>UQJB#7>|G!Y~zu+!=O3zx#Q3~5Ia2$*+a++u$W{QG*V7HXQ<){EA
+    GRB}^VAaQ(%$s!'p''Qn*rl=\<nEQ[3DV~kT>>ko<@a2VVTc@{{~gkV}W]xTeUHw$3SOa_Uza57E
+    5U]~VA]'U{2ZaeOK5JUOoX'E+_@HE~T4JOezs]2*aGHlW-D5v?W!yRkY@7J3e6}#>Ow5rsiVT{Bm
+    7liUCXzl^7N.lvav77RGpE7_aT,WTAvY~rGC?5A26_/vQs5+x3#Y{}pb*GT~<1aOe;{rxj\o/5s>
+    EI;w-[UrEYs!A.ZU[jC<H33]?CWQV?@v#Y'{YQ}<1^ks}-R#+l37UY1u~}ix^~F[XXsRO{#u5#rj
+    !-vu5\x
+`endprotected
+  assign read_addr_next_state_string = 
+    addr_state_string (read_addr_next_state);
+  assign read_addr_present_state_string = 
+    addr_state_string (read_addr_present_state);
+  assign write_addr_next_state_string = 
+    addr_state_string (write_addr_next_state);
+  assign write_addr_present_state_string = 
+    addr_state_string (write_addr_present_state);
+  assign read_next_state_string = read_state_string (read_next_state);
+  assign read_present_state_string = read_state_string (read_present_state);
+  assign write_next_state_string = write_state_string (write_next_state);
+  assign write_present_state_string = write_state_string (write_present_state);
+  assign wresp_next_state_string = bresp_state_string (wresp_next_state);
+  assign wresp_present_state_string = bresp_state_string (wresp_present_state);
+
+  assign low_power_mode = (cactive === 1'b0 || (csysack === 1'b0 &&
+                           active_acknowledge_interval === 1'b1));
+  
+  assign arlen_exponent_of_2 = (arlen === 5'h00) ? 5'b00000 : 
+                               (arlen === 5'h01) ? 5'b00001 : 
+                               (arlen === 5'h03) ? 5'b00010 : 
+                               (arlen === 5'h07) ? 5'b00011 : 
+                               (arlen === 5'h0F) ? 5'b00100 : 
+                               (arlen === 5'h10) ? 5'b00100 : 5'b00000;
+                            
+  assign awlen_exponent_of_2 = (awlen === 5'h00) ? 5'b00000 : 
+                               (awlen === 5'h01) ? 5'b00001 : 
+                               (awlen === 5'h03) ? 5'b00010 : 
+                               (awlen === 5'h07) ? 5'b00011 : 
+                               (awlen === 5'h0F) ? 5'b00100 : 
+                               (awlen === 5'h10) ? 5'b00100 : 5'b00000;
+
+  // Burst crossing 4K boundary is detected by comparing the 4K boundaries
+  // in which the starting address and the ending address fall into. The
+  // nearest aligned value of the start address is taken as the starting 
+  // address, to which ((length x size) - 1) is added to determine the 
+  // ending address. This check is applicable only for incrementing & fixed
+  // burst types.
+
+  assign read_addr_issued_for_burst_crossing_4k_boundary = 
+    (read_addr_next_state == ZI_ADDR_TRANSFER && ((arburst === 2'b01 && 
+    ((((((araddr >> arsize) << arsize) + ((arlen+1) << arsize))-1) >> 12) 
+    !== (araddr >> 12))) || (arburst === 2'b00 && (( ((((araddr >> arsize) 
+    << arsize) + (1 << arsize))-1) >> 12) !== (araddr >> 12)))));
+
+  assign illegal_length_for_wrapping_read_bursts =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arburst === 2'b10 &&
+     arlen !== 5'd1 && arlen !== 5'd3 && arlen !== 5'd7 && arlen !== 5'd15 && 
+     arlen !== 5'd31);
+                
+  assign read_addr_issued_has_burst_size_larger_than_bus_width =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && (
+    ((1 << arsize) > (READ_DATA_BUS_WIDTH >> 3))));
+
+  assign read_burst_type_field_with_reserved_value =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arburst === 2'b11);
+
+  assign unaligned_starting_addr_for_wrapping_read_bursts =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arburst === 2'b10 &&
+    (((araddr >> arsize) << arsize) !== araddr));
+
+  assign read_allocate_attribute_set_for_non_cacheable_read_access =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arcache[2:1] === 2'b10);
+
+  assign cacheable_exclusive_read_access =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock === 2'b01 &&
+     arcache[1] === 1'b1);
+
+  assign read_addr_within_locked_seq_across_4k_boundary =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && read_locked_sequence == 1'b1 &&
+     arlock === 2'b10 && ((prev_araddr >> 12) !== (araddr >> 12)));
+
+  assign arid_changed_within_locked_read_sequence = 
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock === 2'b10 &&
+     read_locked_sequence == 1'b1 && arid !== prev_arid);
+
+  assign arprot_or_arcache_changed_within_locked_read_sequence = 
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock === 2'b10 &&
+     read_locked_sequence == 1'b1 && arprot_arcache !== prev_arprot_arcache);
+
+  assign read_addr_cntrl_changed_before_arready =
+    (read_addr_present_state == ZI_ADDR_VALID && arvalid === 1'b1 &&
+    (araddr_control !== r_araddr_control));
+
+  assign num_commands_in_locked_read_sequence_exceeds_2 =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock === 2'b10 &&
+     num_locked_read_commands >= 3'b010);
+
+  assign locked_read_sequence_when_unresponded_reads = 
+    (((read_addr_next_state == ZI_ADDR_VALID) ||
+      (read_addr_next_state == ZI_ADDR_TRANSFER)) && arlock === 2'b10 &&
+     prev_araddr_control[TRAN_ID_WIDTH+8:TRAN_ID_WIDTH+7] !== 2'b10 &&
+     read_addr_queue_write_ptr > 0);
+
+  assign unlocking_read_sequence_when_unresponded_reads =
+    (((read_addr_next_state == ZI_ADDR_VALID) ||
+      (read_addr_next_state == ZI_ADDR_TRANSFER)) && arlock !== 2'b10 &&
+     arid === locked_arid && read_locked_sequence === 1'b1 && 
+     read_addr_queue_write_ptr > 0); 
+
+  assign unlocking_read_sequence_when_unresponded_reads_different_id =
+    (((read_addr_next_state == ZI_ADDR_VALID) ||
+      (read_addr_next_state == ZI_ADDR_TRANSFER)) && arlock !== 2'b10 &&
+     arid !== locked_arid && read_locked_sequence === 1'b1 && 
+     read_addr_queue_write_ptr > 0);
+ 
+  assign unaligned_starting_addr_for_exclusive_read_access =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock === 2'b01 &&
+    ((((araddr >> (arlen_exponent_of_2 + arsize)) << 
+    (arlen_exponent_of_2 + arsize))) !== araddr));
+
+  assign exclusive_read_access_size_violation =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock === 2'b01 &&
+    arlen !== 5'd0 && arlen !== 5'd1 && arlen !== 5'd3 && 
+    arlen !== 5'd7 && arlen !== 5'hf);
+
+  assign exclusive_read_access_max_violation =
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock === 2'b01 &&
+    ((arlen_exponent_of_2 + arsize) > 4'd7));
+
+  assign read_addr_before_completion_of_unlocking_read_transaction = 
+    (read_addr_next_state == ZI_ADDR_TRANSFER && arlock !== 2'b10 &&
+     prev_araddr_control[TRAN_ID_WIDTH+8:TRAN_ID_WIDTH+7] !== 2'b10 &&
+     read_locked_sequence === 1'b0 && prev_read_locked_sequence === 1'b1
+     && read_addr_queue_write_ptr > 0);
+
+  assign read_burst_length_violation = 
+    (valid_outstanding_read_addr_hit === 1'b1 &&
+     rvalid === 1'b1 && rready === 1'b1 && rlast === 1'b1 &&
+    (((intermediate_read_burst_data_count_mem
+       [index_of_intermediate_rd_mem] > 0) &&
+      (intermediate_read_burst_data_count_mem
+       [index_of_intermediate_rd_mem] !==
+       requested_read_burst_length)) ||
+    (!(intermediate_read_burst_data_count_mem
+       [index_of_intermediate_rd_mem] > 0) &&
+      (requested_read_burst_length !== 0))) &&
+       read_address_queue_full == 1'b0);
+
+  assign rlast_not_asserted_on_last_data_phase = 
+    (valid_outstanding_read_addr_hit == 1'b1 &&
+     rvalid === 1'b1 && rready === 1'b1 && rlast === 1'b0 &&
+    (((intermediate_read_burst_data_count_mem
+       [index_of_intermediate_rd_mem] > 0) &&
+      (intermediate_read_burst_data_count_mem
+       [index_of_intermediate_rd_mem] ===
+       requested_read_burst_length)) ||
+    (!(intermediate_read_burst_data_count_mem
+       [index_of_intermediate_rd_mem] > 0) &&
+      (requested_read_burst_length === 0))) &&
+       read_address_queue_full == 1'b0);
+
+  assign read_data_interleaving_depth_exceeded =
+    (rvalid === 1'b1 && rready === 1'b1 && 
+     intermediate_read_mem_index > READ_INTERLEAVING_DEPTH-1);
+
+  assign read_data_resp_changed_before_rready =
+    (read_present_state == ZI_READ_VALID && rvalid === 1'b1 &&
+    (r_read_data_resp !== {rdata,rresp}));
+
+  assign rid_changed_before_rready =
+    (read_present_state == ZI_READ_VALID && rvalid === 1'b1 &&
+     r_rid !== rid);
+
+  assign rlast_changed_before_rready =
+    (read_present_state == ZI_READ_VALID && rvalid === 1'b1 &&
+     r_rdlast !== rlast);
+
+  assign read_response_without_corresponding_read_address =
+    (rvalid === 1'b1 && rready === 1'b1 &&
+     corresponding_read_addr_found !== 1'b1 &&
+     read_address_queue_full == 1'b0);
+
+  assign read_lock_field_with_reserved_encoding = 
+    (read_addr_next_state === ZI_ADDR_TRANSFER && arlock === 2'b11); 
+ 
+  assign all_data_masked_for_write_burst = 
+    (wvalid === 1'b1 && wready === 1'b1 && wlast === 1'b1 &&
+     valid_outstanding_write_address_hit === 1'b1 &&
+     intermediate_write_burst_all_data_mask
+    [index_of_intermediate_wr_mem] === 1'b1 &&
+     wstrb === {ZI_DATA_BUS_IN_BYTES{1'b0}});
+
+  assign write_addr_issued_for_burst_crossing_4k_boundary =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && ((awburst === 2'b01 &&
+    ((((((awaddr >> awsize) << awsize) + ((awlen+1) << awsize))-1) >> 12)
+    !== (awaddr >> 12))) || (awburst === 2'b00 &&
+    ((((((awaddr >> awsize) << awsize) + (1 << awsize))-1) >> 12) !==
+    (awaddr >> 12)))));
+
+  assign illegal_length_for_wrapping_write_bursts =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awburst === 2'b10 &&
+     awlen !== 5'd1 && awlen !== 5'd3 && awlen !== 5'd7 && awlen !== 5'd15 &&
+     awlen !== 5'd31);
+
+  assign write_addr_issued_has_burst_size_larger_than_bus_width =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && (((1 << awsize) > 
+     ZI_DATA_BUS_IN_BYTES)));
+
+  assign write_burst_type_field_with_reserved_value =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awburst === 2'b11);
+
+  assign unaligned_starting_addr_for_wrapping_write_bursts =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awburst === 2'b10 &&
+    (((awaddr >> awsize) << awsize) !== awaddr));
+
+  assign write_allocate_attribute_set_for_non_cacheable_write_access =
+    (write_addr_next_state == ZI_ADDR_TRANSFER &&
+     awcache[3] === 1'b1 && awcache[1] === 1'b0);
+
+  assign cacheable_exclusive_write_access =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b01 &&
+     awcache[1] === 1'b1);
+
+  assign write_addr_within_locked_seq_across_4k_boundary =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && write_locked_sequence == 1'b1
+     && ((prev_awaddr >> 12) !== (awaddr >> 12)));
+
+  assign awid_changed_within_locked_write_sequence =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b10 &&
+     write_locked_sequence == 1'b1 && awid !== prev_awid);
+
+  assign awprot_or_awcache_changed_within_locked_write_sequence =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b10 &&
+     write_locked_sequence == 1'b1 && awprot_awcache !== prev_awprot_awcache);
+
+  assign write_addr_cntrl_changed_before_awready =
+    (write_addr_present_state == ZI_ADDR_VALID && awvalid === 1'b1 &&
+    (awaddr_control !== r_awaddr_control));
+
+  assign num_commands_in_locked_write_sequence_exceeds_2 =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b10 &&
+     num_locked_write_commands >= 3'b010);
+ 
+  assign locked_write_sequence_when_unresponded_writes = 
+    (((write_addr_next_state == ZI_ADDR_VALID) ||
+      (write_addr_next_state == ZI_ADDR_TRANSFER)) && awlock === 2'b10 &&
+     prev_awaddr_control[TRAN_ID_WIDTH+8:TRAN_ID_WIDTH+7] !== 2'b10 &&
+     write_addr_queue_write_ptr > 0);
+
+  assign unlocking_write_sequence_when_unresponded_writes =
+    (((write_addr_next_state == ZI_ADDR_VALID) ||
+      (write_addr_next_state == ZI_ADDR_TRANSFER)) && awlock !== 2'b10 &&
+     awid === locked_awid && write_locked_sequence === 1'b1 && 
+     write_addr_queue_write_ptr > 0);
+
+  assign unlocking_write_sequence_when_unresponded_writes_different_id =
+    (((write_addr_next_state == ZI_ADDR_VALID) ||
+      (write_addr_next_state == ZI_ADDR_TRANSFER)) && awlock !== 2'b10 &&
+     awid !== locked_awid && write_locked_sequence === 1'b1 && 
+     write_addr_queue_write_ptr > 0);
+
+  assign unaligned_starting_addr_for_exclusive_write_access =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b01 &&
+    (((awaddr >> (awlen_exponent_of_2 + awsize)) << 
+    (awlen_exponent_of_2 + awsize)) !== awaddr));
+
+  assign exclusive_write_access_size_violation =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b01 &&
+     awlen !== 5'd0 && awlen !== 5'd1 && awlen !== 5'd3 && 
+     awlen !== 5'd7 && awlen !== 5'hf);
+
+  assign exclusive_write_access_max_violation =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b01 &&
+    ((awlen_exponent_of_2 + awsize) > 4'd7));
+
+  assign write_addr_before_completion_of_unlocking_write_transaction = 
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock !== 2'b10 &&
+     prev_awaddr_control[TRAN_ID_WIDTH+8:TRAN_ID_WIDTH+7] !== 2'b10 &&
+     write_locked_sequence === 1'b0 && prev_write_locked_sequence === 1'b1
+     && write_addr_queue_write_ptr > 0);
+
+  assign write_burst_length_violation = 
+    (((wvalid === 1'b1 && wready === 1'b1 && wlast === 1'b1 &&
+     valid_outstanding_write_address_hit === 1'b1 &&
+    (((intermediate_write_burst_data_count_mem
+      [index_of_intermediate_wr_mem] > 0) &&
+      (intermediate_write_burst_data_count_mem
+      [index_of_intermediate_wr_mem] !==
+       requested_write_burst_length)) ||
+    (!(intermediate_write_burst_data_count_mem
+     [index_of_intermediate_wr_mem] > 0) && 
+     (requested_write_burst_length !== 0)))) ||
+     (valid_outstanding_write_address_hit === 1'b0 &&
+      wvalid === 1'b1 && wready === 1'b1 && wlast === 1'b1 &&
+      awvalid === 1'b1 && awready === 1'b1 && awid === wid &&
+      (((intermediate_write_burst_data_count_mem
+      [index_of_intermediate_wr_mem] > 0) &&
+      (intermediate_write_burst_data_count_mem
+      [index_of_intermediate_wr_mem] !== awlen)) || 
+      (!(intermediate_write_burst_data_count_mem
+     [index_of_intermediate_wr_mem] > 0) && awlen !== 0))))
+      && write_address_queue_full == 1'b0);
+
+  assign wlast_not_asserted_on_last_data_phase =  
+    (((valid_outstanding_write_address_hit === 1'b1 &&
+     wvalid === 1'b1 && wready === 1'b1 && wlast === 1'b0 &&
+    (((intermediate_write_burst_data_count_mem
+      [index_of_intermediate_wr_mem] > 0) &&
+      (intermediate_write_burst_data_count_mem
+      [index_of_intermediate_wr_mem] ===
+       requested_write_burst_length)) ||
+    (!(intermediate_write_burst_data_count_mem
+      [index_of_intermediate_wr_mem] > 0) &&
+      (requested_write_burst_length === 0)))) ||
+    (valid_outstanding_write_address_hit === 1'b0 &&
+     awvalid === 1'b1 && awready === 1'b1 && awid === wid &&
+     wvalid === 1'b1 && wready === 1'b1 && wlast === 1'b0 &&
+     ((awlen > 0 && (intermediate_write_burst_data_count_mem
+     [index_of_intermediate_wr_mem] === awlen)) || 
+     (awlen === {LENGTH_WIDTH{1'b0}})))) &&
+      write_address_queue_full == 1'b0);
+
+  assign write_data_interleaving_depth_exceeded =
+    (wvalid === 1'b1 && wready === 1'b1 &&
+     index_of_intermediate_wr_mem > WRITE_INTERLEAVING_DEPTH-1);
+
+  assign write_resp_changed_before_bready =
+    (wresp_present_state == ZI_WRITE_RESPONSE_VALID && bvalid === 1'b1
+     && r_bresp !== bresp);
+
+  assign bid_changed_before_bready =
+    (wresp_present_state == ZI_WRITE_RESPONSE_VALID && bvalid === 1'b1
+     && r_bid !== bid);
+
+  assign write_response_before_corresponding_write_addr_and_data =
+    (CHECK_WRITE_DATA_FOLLOWS_ADDR_ENABLE == 1 &&
+     wresp_next_state == ZI_WRITE_RESPONSE_TRANSFER &&
+     corresponding_write_addr_and_data_found !== 1'b1 &&
+     write_address_queue_full == 1'b0 &&
+     completed_write_burst_queue_full == 1'b0);
+
+  assign write_response_before_corresponding_write_data =
+     (wresp_next_state == ZI_WRITE_RESPONSE_TRANSFER &&
+     corresponding_write_data_found !== 1'b1 &&
+     write_address_queue_full == 1'b0 &&
+     completed_write_burst_queue_full == 1'b0);
+
+  assign write_data_strobe_changed_before_wready =
+    (write_present_state == ZI_WRITE_VALID && wvalid === 1'b1 &&
+    (r_write_data_wstrb !== {wdata,wstrb}));
+
+  assign wid_changed_before_wready =
+    (write_present_state == ZI_WRITE_VALID && wvalid === 1'b1 &&
+     r_wid !== wid);
+
+  assign wlast_changed_before_wready =
+    (write_present_state == ZI_WRITE_VALID && wvalid === 1'b1 &&
+     r_wdlast !== wlast);
+
+  assign ex_write_with_no_addr_being_monitored_for_given_awid =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b01 &&
+    ((monitoring_status[awid] === 1'b1 && write_id_cache_hit &&
+    awaddr_control !== addr_ctrl_cache[write_id_cache_hit_addr]) ||
+    (monitoring_status[awid] !== 1'b1)) && read_address_queue_full
+     == 1'b0 && write_address_queue_full == 1'b0);
+
+  assign ex_write_before_response_for_corresponding_ex_read =
+    (write_addr_next_state == ZI_ADDR_TRANSFER && awlock === 2'b01 &&
+     monitoring_status[awid] !== 1'b1 && read_address_queue_full == 1'b0
+     && write_id_cache_hit && unresponded_ex_read_count
+     [write_id_cache_hit_addr] >= 1);
+
+  assign decode_error_response_on_slave_interface = 
+    ((rvalid === 1'b1 && rready === 1'b1 && rresp === 2'b11) ||
+     (bvalid === 1'b1 && bready === 1'b1 && bresp === 2'b11));
+
+  assign valid_on_first_clock_violation =
+    (first_clock_edge === 1'b1 && (arvalid === 1'b1 || 
+     awvalid === 1'b1 || wvalid === 1'b1));
+
+  assign write_lock_field_with_reserved_encoding = 
+    (write_addr_next_state === ZI_ADDR_TRANSFER && awlock === 2'b11); 
+
+  assign requested_write_burst_length_violation = 
+    (write_addr_next_state == ZI_ADDR_TRANSFER && 
+     completed_write_burst_queue_full === 1'b0 &&
+     outstanding_data_before_addr_hit === 1'b1 &&
+     received_write_burst_data_length > 0 &&
+     awlen !== received_write_burst_data_length - 1);
+
+  assign ack_low_before_req = 
+    (csysack === 1'b0 && r_csysack === 1'b1 &&               
+    !(csysreq === 1'b0 && r_csysreq === 1'b0));           
+          
+  assign req_high_before_ack =
+    (csysreq === 1'b1 && r_csysreq === 1'b0 && 
+    !(csysack === 1'b0 && r_csysack === 1'b0)); 
+           
+  assign ack_high_before_req =
+    (csysack === 1'b1 && r_csysack === 1'b0 &&
+    !(csysreq === 1'b1 && r_csysreq === 1'b1)); 
+           
+  assign req_low_before_ack = 
+    (csysreq === 1'b0 && r_csysreq === 1'b1 &&
+    !(csysack === 1'b1 && r_csysack === 1'b1)); 
+
+  assign write_address_phase_while_maximum_outstanding_writes_already_reached =
+    ((awvalid === 1'b1 && awready === 1'b1) &&
+    (write_addr_queue_write_ptr == MAX_OUTSTANDING_WRITE_ADDR) &&
+    (!(bvalid && bready)));
+
+  assign write_data_phase_while_maximum_outstanding_writes_already_reached =
+    ((wvalid === 1'b1 && wready === 1'b1) &&
+    (completed_write_burst_queue_write_ptr == MAX_OUTSTANDING_WRITE_ADDR) &&
+    (!(bvalid && bready)));
+
+  assign illegal_write_data_bus_width = 
+    ((first_clock_edge === 1'b1) &&
+     !((WRITE_DATA_BUS_WIDTH == 8) || (WRITE_DATA_BUS_WIDTH == 16) ||
+       (WRITE_DATA_BUS_WIDTH == 32) || (WRITE_DATA_BUS_WIDTH == 64) ||
+       (WRITE_DATA_BUS_WIDTH == 128) || (WRITE_DATA_BUS_WIDTH == 256) ||
+       (WRITE_DATA_BUS_WIDTH == 512) || (WRITE_DATA_BUS_WIDTH == 1024)));
+
+  assign illegal_read_data_bus_width =
+    ((first_clock_edge === 1'b1) &&
+     !((READ_DATA_BUS_WIDTH == 8) || (READ_DATA_BUS_WIDTH == 16) ||
+       (READ_DATA_BUS_WIDTH == 32) || (READ_DATA_BUS_WIDTH == 64) ||
+       (READ_DATA_BUS_WIDTH == 128) || (READ_DATA_BUS_WIDTH == 256) ||
+       (READ_DATA_BUS_WIDTH == 512) || (READ_DATA_BUS_WIDTH == 1024)));
+
+
+  /* --------------- Address channel tracking block ----------------
+     
+     This block tracks the address channel and saves all the address IDs
+     seen on the address channel. This block also performs the task of
+     mapping and deleting entries from the address queues on receipt 
+     of their corresponding responses. This block checks for illegal 
+     operations on the locked sequences and certain other violations 
+     w.r.t. address. 
+
+     There are separate queues for read and write addresses. Every 
+     address is pushed into its corresponding queue and the write_ptr
+     for that queue is incremented by one. For every read and write 
+     address, its ID and length fields are saved to enable burst len
+     related checks. For writes, additional info regarding its size,
+     type and low-order address bits are saved to enable perform 
+     checks w.r.t. byte lanes. On receipt of a response, these queues
+     are searched from the oldest entry onwards for a matching Id and
+     if found, that entry in all the related queues are deleted and 
+     all entries newer than that are pushed by one. This is done so 
+     that the next new address gets saved at the top and will be the 
+     latest entry by order.
+
+     ------------------------------------------------------------ */
+
+  // awrite is intentionally excluded as this is used for exclusive accesses
+  // where the requirement is that all address and control signals except
+  // awrite must be the same between write and read.
+
+  assign araddr_control = 
+    {araddr,arlen,arsize,arburst,arlock,arcache,arprot,arid};
+  assign awaddr_control = 
+    {awaddr,awlen,awsize,awburst,awlock,awcache,awprot,awid};
+
+  assign arprot_arcache = {arprot,arcache};
+  assign awprot_awcache = {awprot,awcache};
+
+`protected
+
+    MTI!#UQ?,UBTjJ>3CR}p'X'un6mOmX_Vz;-l#[em<Q7@BUzYQO\g]w$!karx{h'ZlBKv_Y]J7pK-
+    Gz$2w_7mRUj^mU=\G!.*_V#~B7rQ@jjN}ma$7$r~l?o[Qw;QTDO~_I#u^x[[$w]O}Ho-'GZ[5UV[
+    iR;=y=-1;BnYaJ+K~SAEY'Q'e#[v=AUvs@gKHK=r\Om*#~BRQ^3G=HA7BCWaE2{2wEGOm@#;]uX*
+    Ea@7}?o$!vIj3rjBvjOtlEm#mH\x=@AW3C!->'ZG:B?*omx1\l{CE12IiJ-G$7hxEn=BuRiR{OKa
+    [H[ozDHC=A}XYmOwT,3C?m\[BD@\]2kjou*lnTp|$2J12wro{X{Cie^Yaw{C@lIi1{35&zn6~5IR
+    P~N_Hwk_T}Q2<@2K*rEoi><i1vE-Xu'hk5{+d7~l}s[I*u-Ri9Crkvx?'n<[Upc=5~AEElxw}R3;
+    E@o{9{$2u(Tlx~q"Sl8P[{-n#_I!F4/vzEKBr3U{,7-BmK,&vV$~IK=@=njxO-_ZD\OKn{3OXaj,
+    W$Q[oKJ_*Yr^E;~CRIeubQ'*W$23X#7jB$S*sBl{U->-jG1B:(E>YaK{,-Q2OeTO?lB*$re*TO!H
+    +1s'Yl;==v}J{YiQW$z[l!UGlEywIas-oru]jkWdcvT7K!sJZ#Auep*Anh*X}Gu1BU;Gj2K7*l3C
+    aX$t]EslL=CsXuE?~u5ZkwVm<;7^zj@A_LCU;wG!K3V++$lAe}'[3Rz!Rx=J\kB(+QD>%6kYWk|I
+    !mVIUD,\vjYhaD~[7?W\{v]{P1}QKHE-XCes*;ACCvz<G=>K#7CnAa5RpYGW5~a1Uw^<<R$5'>e$
+    X3HW=;QjwZOUa}C-_pT^jgWw]if[W,+o<^HFEu2]*@+sp>I\?j7~3n~p7QR[f7\+@C3$\o-QDCWu
+    IV1{A_!BCo#+[V$X}DwGu*_2j=O1~GkE's\Q{e3xXa[sDo!^!<r7u+=p['G@G%e^[$K\2uQDr2(e
+    7{;t#$=@J1X2^Ar~|*z7QO'+zlz-eo_awG5,JVRw\QeATE,}sIxuX^!Uv5V1wC7z\sp5\?X{Yl-\
+    -5r!sp-;o<wT@GB^KYbpEDTUx3p<V3Xmo^OMnvVxrAeZAOHX1ksTB,~,x}v$ja\uxriHaw;@sDa2
+    -]oD,wx3]O\HaQ'Dl=^ZrX_<vEUKs7AQ7z$x'weV6uEE\l2w727D!o1I@7n5krwD;,R?+wp]}SXe
+    Z;7]_'!_<zX{+2UY!pEyGw7Q5r]7JsOj!$GHc[f!R@V,D;Q_,BWwNMlm$WEGO;C,]H\e7G<YB[5s
+    $AC7-3^UmB3X=plZA>xm\l,*;r1WX{*!j3oroppj1T*p5;]3x>j$]e_xGJaDkQG?1M@1JHx?Q@T5
+    +]7mH$*;oQUYp>oZUCTU+koj'#OaT(1H-@[}w[cX$K*DzO[,va+G_VCCw+@*QW,erl?v\aDq~z*K
+    YrK!5m2,BT,$Q-GV4'Gzkn]E,]BUj0p}jVr\=12X!QTr[],EOK\<'D^!K*>xsZ[13OV]GE/nXuzE
+    uBkV=?Zr*]$iCOl4UjRz=_Jj^^RVEGR$m,sU,*k\rRkQ}5jpOHs-Nq3G~$Q$XaEQO;s6b_EVV~j[
+    ZHX\elXj_,/a^=z{jz35-!BH[+_pK2ZwTnA>U;~IY@5RZ5ZD1X{-U=DurklREB!3I'EEaC_1RCjT
+    SRzRD]3rT]O*5RppW}<=]?UY@'>_oxYiAWwH~{B?rj^EA?7e=Z++oFU.%{Q-z6C]as\IQJ8k-pUB
+    /Xo+$7z7?W<D}a7W_XS#'n?w\_@7=<oIK_mYU5G'e}TA[#GUU=Q{Y$}$3sOEeK5uv@HEv*'C=!rE
+    mevP3o<ZqD_iDRv$#;N5^kRnaV!zeWG[X2xlw{_#O*pBa=Cx<ZOr@eJ}[[3E$!^]V*QElG-;-+JD
+    BjjnjK1G>uQvO3X]*E3]la@vBjD7RIa$7o~>o\Q:^>+wzKj=l3+!u+>^[lk@:_7n@H'D'H_Y;$$K
+    w~AO<JR>\T$4%G_VrZ'-k]Z-H]-*U=wr+**!Bp,5?cKECGU53Wl2*v[!I*R[2Tz^Y})@D;C!r,_{
+    Y<7YJ>GVp#~G_>\;$>}rU1laGx1s#1K;Dka*{pUso[>Iv#]nv~xeVD^wGw5e@\YEIz7uj$B0>}ZG
+    oOa;$p_se#uX=n^s_#+Je}@=?A_}{swVz<JleCUAwRWl_{]Q!1I-~Dj<q)?8Q#T3_xj_~^Q'DEu{
+    ;_7CY#[?k}<j~-zXou-~uvAvy+=m~z<7\*HnUB$s@;IQp3za~!*~!>*nACG>71TrI~DmJ4YErlw+
+    \ezYO'LW>,o%\nC}d+UY*YkmO}Z1O!$Y#sW}1,i1jmn3uRAoW5H3pj[jiG!1>}m}'spBm2\7wlWD
+    32T[\X7'K=RR[Enwa'_3e9hl=!XxTEkVv_]&IX<U1Zn^m<1;3<8GU>V5<7V$eiTi+1lnT3l&[-Ya
+    OkHD*BkCb!BjHpKB2WH1T1:'QYEZ]2uD@VeeU*u/O7wYDW5]OJ}_@AvI7ET+\}lTk\?K_ilE}l1Y
+    D0Rrn="aI<X6,-2RGCAj7@\Qs3rT#TKe[Z$-v42'RwIziQ1os]HozDD?a{!'(-wD!>a}Tx+{YtQH
+    ]1&^w^z!^v5,VYi=HmO[^WR*?+5/^<,>lgzRm+2rsoC\Q2~Aj7=#E;Gmxzwhu+OfxQ@\~A[pKT{[
+    F!R#!4^2la>DOQY33Y=3]C|eR'7?{w!F*EZrn*!~PasD<erY_,Bv\(/HOG-emO7r}[,_i!oLHn~<
+    u[RpB_l>k\]*,k3DQT\CM[#mm}.*}27[,Rl#T{{>-2vOum@hXX~WcJw~QYw,R--*'^exw5wwve>J
+    AZ+s3[DU'pR^}5=uM,$AJzE+,_Gkw]ez^j[+GHXeB47D[R@[Z3D_+Ix#sOB-Gv*Yk]lIx@7-Y}~a
+    DUir5T;aHn2]dT{!wa-'i?Q]!#<{#ux*He?}@(,x*woez!.\7.WU$DyHI3?K>5G=m1J;BJY,d\5Z
+    ]ZC3J(GA*Z:nO{ED<GB7#*Q_FJaOQ2EeT6$"N^EBxe-vjRD=kz+OG3+_-kr9^qp#,TBx-=$~jZ*3
+    Q!IOovzjlW_OsHa7'i}2ToCz,Bp@}O1Q5TrOpO1jKWcAj=*Jlk^>BY{Iw-<K+ulfxTjI1$=_sA@v
+    ;sK_~[>!z+;Gjs\@EKnm~=~k[rk{.]l2V+^oVuoQlenXH8O#~nB:_2Tu\oi^oVUzwQ}5W7m@V4!n
+    Jp5T~XrJVGm}3T[k}Zs>j15=jH}?7@M~RvjX]u7jsuY=_oJG$-]^*#<~$YnpRirE<Enp/]zpB]I+
+    l7uOGk}#rSO^53Bu!DhIl;?H+2DoED$'*Tj,\-xR{^R-{B;e<R'&~T\HCi,]xr\mxEuk6-D1?]{l
+    YmwD;8C~Bv$lQxMh<'pe<'p}Yw!o5e{$>C<[ZCCn>sXR}=n7BrB3:z\${io$_i,Em?rjnwIn@7\o
+    ~bv+Xjq6DRJ]\)\=^I[AHssZW@2>,ro@{'r]^7UEvXEv5V3|aqiGACkRZD#YCl7xUzPe#\VkrI[_
+    w@[=m{BvZ\@FD~,~X=}e?j$w}$K_E}+1JDXzyOi{_C7>Gs;vjEvCGI,x#UIHzGzZJVhR~12+XH<q
+    7O_=5sQO{U]Z?nIB:{B-;][<;};{X%^CY5rGKJg;Uza'QpE72X_=?,2CrTxRD7=$]?;iTzCR,KI@
+    Y+QI;G9n\]5^W1o_rIlz7XX\X;_!XEGZ&l@*v}BI#ka,3:oK]aDD\php7X[BzQ>@=$;;a,C}+^Ue
+    EvQiQF^,ZExnuu}lepzW$+s[{oCpmz)?+3On=$AFe<y?,G]Ym{@5;u=z}>71j*3kl*m?1e=uj7@}
+    *3{YeI<V33T}<+mujTG,'[DD_i~jWm*n}@@xW<C{,mul]W+YWGzC1\{VP3w2om-zRD@@{QeoQE[]
+    O&=8GEi;Kv<}rp>jBEpX=u_r$RvEJr]<+Gs#,>[$k=-jRVjDWGkl*Eizhj'CB[l_JL8t}BKOXQ{K
+    RWzO-Hn~wY@ml1z_9@XUR7{WTuB-{'E$\W5[$"V=ROK$A{oG$7DB7eHU;#x'5>@>DXN']o'Hr7I=
+    zlsBO'lf_!n]2'?2QGK}uw,lZC'{1ZCni-!;J_7Xk}#[)]H~x2$K;YOkum=KY-a,mOCn\.ZQA]Jv
+    CZ?QBx5~DQU6*eiXjK[=uGVQf}ixkZ,e<EeuxuH<[Q+Ip5T*1WzJ{cDD,<5\X-Tv#eNIB^72>ACX
+    ]Y7$Jxu?-$$_Z,a>[po']kRwTlo6~}^pHXZ$}vkxu$2]XRYR_W^Qpa_CpeO_EJr_uAQkBr[2==Wj
+    o'$KQB27s>@Z#l,[+jij4Ozvi'PDl\3GWrVOJ\;+xE{=OQI5QRr!>>@Q'Q]PUTnkROH}'\Q@7x\-
+    x_,~Ap^H<Ir${1Zr'vRTk1@BMf]iG?}WDjva21|}EnmB*WI@7Jv\1Y-OVG\i]-!XaBG_Hw>.o'\Y
+    D#Ix,K{IJRs#!QzB}#m+Yi]3Cw\UO+J>B<K!f>=nwH}~WmrC^}-T-DmEj\OWaJ+YamO1aTe[>>[^
+    7DJ7_@GRm@5>phlmsxkz?AAp[p~Ie>['Hj,p$uUz~,\>D*_]#1jG]1YR5p*O#=@oEjAvKRB5e~uA
+    ~>:%1]{lkA'a5aGokEUOBK*xn'+xVK=p3vE#]a2xvnen!=UorsrH;7YU?=_Av-OkjHD=*^'Xjv1k
+    .rCj@>w'2*$VjwHe]GzV1g>L$<J~2I[,3<BEx/>7AwxBaUC2nUiO2;}3{@mUo!E!3^i^V@I*5li+
+    IQ8mlu2:,w2}r+A,~$QHH,,=mvE$*z@3m>~$5D^$G1V^rqnD^o}ziXO3T*TI>-TxmKwwT_*YB~D;
+    WoWs^szH_$2^w+[U;r_}=1mDn@-=Zr=~}[QH!R#TWGwl7?!GE-$[,AI3_Uslm[GQXlkR*2,kA1mX
+    75xjoD_{Op!H,,]^-j<X_'VkYOQ2;D?7D<+_oa*Z73<>z#VHp7@H7JiIkICY17/pRD?@l@O,v5np
+    >{\\Y+7^U]r=--5WQXTj01A_[pMB$oA5U{{Qh.Gj?;5zC,#>^xxf*s$C2p!?e_\W-ew@%r[RuE><
+    }'[Esk}-;B^?lUn\-v;X>w]A_vOA]kX>,ZpwKVp$zB=T4T*m3YKH-rBuCup5Uk1>[pBvsKAA*Irz
+    #=_@Qmlk#zU-]Vlv'+}woiDWkbknB;_x!j2Yz][V}avpITee{Hr'H'bzvCCj$JuIVX}K}k!a<@]_
+    w;{=C'sWOIIn,aXFUn12II/Qam2}ZWDDnO@Fgj_Bv^7xzOIX]vCs1ziH]]1;zux52BrQ#j$IY2-!
+    e;]vvpi'IxJW?1n$ab^\OUp@~OK<l#?7U!!aQ5+Uaaj#z-B3ue?*sCEEAXTl,BskTv<T}xVnOu$@
+    1$BY,zU<KpZ]Qw_7aO]71a8~[<o]\Y>z'}i^*XGB7T^Z$VO$vQkix-\repmD;~2I@lWVCnB,E}U@
+    sTu3UvXKG?^;_}k[Y@YA-lvLHG,,l[[;3$>C#-[rHEUzo#}m3>nn'w2l73]=G2IJzKrrlQG~ju'[
+    *wH*CHZ^GVu?7Tepa_5i^<-<Ms1uHX7}[]=~rGICrGv37KCm}F2ww5vK=m\5$p_-$m7E1ZGB,uXQ
+    -$\i<VZ7K'v7#JWIww<>{}{zWzXv!1T\zE$muu/>'K{r,O[l15zY#Q,nEH=]{z>xGmOS^IrxRuR]
+    _,a#Z=;Go;[{ro$uAI1GBs*TQk7aAYHAR,eYX1cY,mo}KZ#$kzYxKwOx3_At\zV2n-{2qI]aj!nu
+    x[BJENX$CAP;B_?',TY.]T'7[ZjA1TQR'}~2sv=~s;RTdzCW'zB-<e*J}QsExUv3Ouo;u7[=?B-[
+    $2skQ[_iRGGpQGm_,HnHs+'+AG[][_lWvzA-*GIA$0J*H[JHno3xGHBAx2mETlz$3!:=$@A-=\CB
+    ]VuKoD>!{=7g1W2vG?um:>}OkABAYj}5i}eIXv,G=aTECC!Oa0VZ{I#1EC};H'$!CiGJA]I*V=^p
+    oT:uTV@Dk^VE\~5;x~$>zm;=]V~n\s>rFm*'zermT};OxQ{G'z1U>~}UAVqY-ZE$!Y*3z2oR}\2z
+    ;G[7}23,?RvI>@Tv<$?=BXm]l@]eO?xx,Q?w\TJRwD\'-lY=8N4-e]zTaRJ=uC<uj~w4+DwW|z=x
+    #P%=rE*ZCK-_im@{QiUJjkA;>=X[\j?Av;YE*J-'u7X[B^#mGKO1-~3iBJ$EUR}r<1Z<exYQW<X5
+    =*-%QO*EG';uUEAQ=;<'>o$xm}_lpB>H,#!m>,A'2$oeT1J7'vn?lpQ2!z-'+aA5@jOk[DD3C?BT
+    @C>zODH?~{;v^wO7^E@7#}xB2[=_1YX<j!XA$W^aj~-@p$YHwIirIW'lB\o<J^]aR1$]w1HT%UDi
+    l=>1rpsro!lZI}m]>EH<o_^}ZiA*-7Vv~#Vk7v1$azpvi2[!pi5'oED+\G~[IAHpBEu7<MkX[j^#
+    *]aD}]AnX'eGIm'_Y*=3;?x-$>EWAs@pnu^?WuVKu!knO<RxJ!vm-Iwv'*{qs=j2*C^i^Z,?8B=*
+    !5TB{o]B[>GsH$ejQcz3\CI1w[WRr\7[UuH-Ap~TT*J>5isj3ns{l{Aw<O+D[vYAQ7wBvvB{B3#A
+    25opeaojG@}*{TOv_@okoworr@5uPlWw;I47Z<>_2j@xkV_V=j;DE,7+*C'V@3A0x+;KsBB{D@~]
+    Crw]P})usH7xsW+VBCEY7G~Pzn75TR5'Q}iHKXoaO=]]!Ar!K_k!Q+S^O3$K<1R@j!Thn}#_uwBk
+    xl<\f!ru!!AJZK,mZV,*B.\UD~,;pE9HwI'Ev+sHx#*>oC$[KG7UYXYiU{o}t777~:XxYv;1=}V[
+    duD@_*Yr!;IRD>el~wo]n*y*ek>=!3Ri_X-},xX*~X>xa$CkaQQ2R;^7RopO3G~CZ,jhm\^X#\&T
+    IR~RaOBe$~2kj7m>AG;?auv]1w^BLW>U$$\~~v+m7,[x2*r\Yg!ARA#$B^vr*i,[+HiG2{fY+GAk
+    'usZrT#{<*G"_YZsB5e,tWz,oC;@2jj$]?}^7clZ1-rXQ\1-W#J>4!73!BwZx"-+G~1o53ro1iC=
+    *}/^pvk5Zp*,vk@Om1-*\nx#\I7Vp{l*um3_]se)rj@~]u+rCl=Ve~>URKV]$Q^Q,iVDoZr_+,TZ
+    vG=w$X[A=uQDlj#x}KlWCW^o{7Kvwjwu[w',o}*}p8m*71<O,E{zi{Dix@*rVpm1[vpkDVE-T,;I
+    *xArpT2Ik!pJ-u$<7IXaDY~j_~^=EHq_5!R{>-YUlr<v7XI=EDZEi3\DQrv7>{EP@w2oX<-j"r5;
+    TI!5ecvw12!+Y#6_3rjXH~'1KQJ=YQWaoU^\}*[!RWEIOe5H='7c^Tp75+{Vr|0En!GFdH*sC*XJ
+    1IC@*rWpDKYW~G*xr>D][7{~!Z=R{<THzIiujpA'_"v5_ahn-zR2lOZ=*JR5lu+>r*1R~;AF\7{J
+    8+wU1KeC~-wx=#To2!=D$oY[?(&(-Avrm*Bx;EH@kE~E_RY1ApGv3GCTtGJswPBjk\{7^$6L={o\
+    q?'J$mCYAxGYexK\D!D#$CsD-lrnkl*JJVB[mIunA-[}p3XI'e-leI+@DwpW@^wErrE<\kO]sv#x
+    we\=R7Er\iOWp@V15,-Jj>G[psRlu7~}Ud{RKXuz*x}LDDYO9aD]I9FI$@3X^zKBYWvel}O!v+e1
+    ^Y3'AUKW_u$v!H1e-+5:}o-!eViB2wuI\U$5TD]o%7=[2jrsv4Ci+_ETKCD7*wCR!XsE|@5l=Gi\
+    ~E}]Uo]Ko^k@7$T]R'4A,vl;p3U~_]jm}_~1a^{.2{*5xX7Ro3~,]+xRSi{*v+R_}5K+++*=ZRwa
+    =Vw-=f:;HVmdnxQ;F=jU^WB\Y9pV]@jlK>3+163>O>AeT,#l;GV_ZU!BwespWGBV?xV1T<[@~leI
+    $T4RCp'AVCx*+ar'w>K#17]u=mJHUKE5a5UZ]i!>'KCm'*j\A=;?l<X<nl?;QQ!'^UZ@^5G*-z+^
+    ]I^^a@-!jx5nE/ZxvYx?moK{*2coW3~h=2a[cOYn-a[=*{^]#=]poGmIrW}$_}$wj_BT!i='X[.2
+    jVZvJv1An^I{t}VU\s]DGT=x\Ex;J}$,*ll;~\H{'E_7w+R#+ITJU^<OWw-U5E~@{\>E]^ZR7UYH
+    EpAx@-<~e-Xsl1lU{T$KnCT>Yns^<GXr_QIsXrT3112TJmR3BTC1]jysHW3_,#BDBxD@Q^*>^pOK
+    O2AQ+B7$u}i\wru_>Cj_\]*u^,';]J[avROxzQ_[*QG^lKG<s$?wG?Gkv@Uv=?aVzQ!>V7R_p<XD
+    TnuQRi=$uj\6:ju,~$(D=+^UAoevm17lA1BZR+-q-7Jz'{KH[B5a2eQ}N[}DQ=w17]{x]"_RD~Jw
+    =#~H!{v}H>]V=GR7BBs1-I!w[lrvUk].'B'mh<,^33weX!5;@J<+\_s>oz-AeQT}AqhR73B.'n~5
+    u}GXzWapnI{^w{VimD!eQ[R~R@QJR@_EbxOK!69'iH;*_l!p*->ml[,/7%e{[27uv;~1_K2wpvcj
+    eDVnr#^]wH>'Cv!w}>7gv}k$vAw^{-[!xUEUC,GvT[J@cUj=I"xJT2J<BUa-E7aV>>|*Tno;*uj&
+    Rz\3wxp1!V"oJ3<gsAa@@p=*wDw\V-U7rOUTr#~roDXofMY@au},kHAIg;]GA>vH^W,u5|weUrzR
+    uV&!-}CQw+x<U'X\_]OiXmJUUaB,il'{rV!:^$2GreK]G,=ONz>C<;OBGm}akh@n*sY_ue|}Y1WL
+    VVw@l?2>UXITeDGO?CzI}UI2Z]p#U=VkQ*w^9u[iJ5GUlw,kCE_eu*s5R{[=pgh\Qm=,-\T>,}$d
+    aEZwx?eC5AK\enGx3R,lQHU-BT[I2pXJq*;A{lo,K[DKELeokHDeHXk}<17VEp;*Qzu-Y^J[IJ]-
+    @CV~ruZ7<lCIG7G1YBXvo}<x{lE@pBGAeeO]wERDs_1@uoC-,C.C\{w{l'w=#VI+ono3eQ]W$KY%
+    BC[z;*i}&lj!O2<^R\#x?r=,}=el;*n!x^|7\,G7omUpils[HmET=o>Ra_I{(as~;e\eI\3*1n\r
+    RC1+5^@$#}z;Z53U=pnw2a<aBguz+<e'V2U,=OX+7W,~<XsjBu5Y#v=IxZH}u;o}\^I@a^p-[Bjr
+    Qz^#l$;OQG=Te1WpARJ_-VDriH+l^kD^-D^CxX^ZO*I'2XroDV-*O{*{[_lK_5@Tsp_kC3s?2G[X
+    x>IQE}6*1CQ'#AkD\KJKr#zeZB~$A]v,*osCwzY^k1lxi>+n*-T-RJp,B1WsOH';O~z^{wo'Vpno
+    l\Z1IDr#'@7=JjbPx5\B{7;5ux5-i<_Y'G=?pv$XODUBLR*,~+<[@1HJ2}nrad@{^5='WV#GJ,VD
+    nV7IaR$BC}vzs']w!]OWlonBm+,wxKU1+~TwpXI,jHmQ+k>'I,ZE*ihT*EC4rB~v*zm11,#TY>Ks
+    ,9ezVG_mwa&U]}i}$p+aR,7i=V@w>$xp372'H!]7@x!>Bp}Iv#lar3s&'';=<QV'#YEV\iX_-^1=
+    sl[C<z~kuv#JpGz~xr-m1_I_?U;Uxo$#fx*^}l_]^{}uUHew'+UEIsk{m]suRF;$HB!5HT<r]@9\
+    x$!}Ep2,*Y?a51]'zz#rp+V"p^!H%[Kz{%\xH=Ramji^Ax{[riSt3v5$,zXJ^:l;XauO_s_mDvkx
+    {p\k]i*AID{-QBoE},'^euOxETnEXz?>Z7@}=_~o3{a>vCw1iX]5{C>AVTrs?uZ($m*;p>uDRH$+
+    hG}[X'3KGs!o^k}B5;BU[Kl<j[$GO?r1>>pa*0Oa>=IWs{7~YIc\#w2U5_7XzTxPnAE\kEEY[GEx
+    UAsCm]]Hl5j'5DkXC+si[RA!aRC~}JjD{X!7ro\npU\ZR{m@5W=r\^\jiU+\/,<a]JO{~E]1n*H!
+    aV\TK5[WXbC7jW^'s?K*Z$\le~hv_amIpCT1CYx3=@-Ts--Y*J7Rn;*\]v2k'iW$;H<HRvpr-BWR
+    +]#v}w7eO*_TpQ3[:RQQ;?o7@we7}3U]a=Zavox,uVsx1K<p]777Q-GQ^I?<Vyv1=!rIDu11[zBD
+    -3K-&p2*22Uj;AG^^_Um=O72YQ!-Era3'jV}vo#Zl~\_piXVve#@;^Ypv#Uu+r!!usQ1D'WZl$a[
+    [jF8w==T;q55DrUS=u,v=I\~~,C#veAj_jHnjCz^V}'^mB^xv#$^HnOvw$s<zMl"}*#XBM~re!P}
+    JAjsoW]J{!Wh!Bpuv?~2r-=7=AZ#T-e~Lxz>C6VKB]Om_r5AXrq,JvuCG>X!DJ$sL5xplXXWl?1_
+    3t+DXDgmT+=@EHss;}H-zzAP[B2Yu^<roGY3Z5IK1k]\J-JU-^DB@^*i&\WlvrTpe
+`endprotected
+  assign read_id_cache_full =
+    (next_read_id_cache_pointer == MAX_UNIQUE_EXCLUSIVE_ACCESSES);
+  assign valid_ex_read_id = arid;
+  assign valid_ex_read_command =
+    (read_addr_next_state === ZI_ADDR_TRANSFER && arlock === 2'b01 &&
+    EXCLUSIVE_ACCESS_ENABLE == 1);
+
+  assign valid_read_response_id = rid;
+  assign valid_read_response =
+    (rvalid === 1'b1 && rready === 1'b1 && rlast === 1'b1 &&
+    corresponding_read_addr_found === 1'b1);
+
+  assign valid_ex_write_id = awid;
+  assign valid_ex_write_command =
+    (write_addr_next_state === ZI_ADDR_TRANSFER && awlock === 2'b01 &&
+    EXCLUSIVE_ACCESS_ENABLE == 1);
+
+  assign {read_id_cache_hit,read_id_cache_hit_addr} =
+    {read_id_cache_hit_reg,read_id_cache_hit_addr_reg};
+  assign read_id_cache_addr = read_id_cache_hit ? read_id_cache_hit_addr :
+    next_read_id_cache_pointer;
+
+  assign {rresp_id_cache_hit,rresp_id_cache_hit_addr} =
+    {rresp_id_cache_hit_reg,rresp_id_cache_hit_addr_reg};
+
+  assign {write_id_cache_hit,write_id_cache_hit_addr} =
+    {write_id_cache_hit_reg,write_id_cache_hit_addr_reg};
+
+`protected
+
+    MTI!#zSUj^wB,Qx\ZYp3<=3Frm;k5R>D_3A7};{_GDi#[%~sk=M,S+=pH[~I,n<+RrH2so3]wD~x
+    Au^;v2xkpskJ;!UQn+Eu>(}33\7G+k[v1@i$p@\[#u1;B$/Y-V[OCEQio$E1{Y$\wVK5YoR}@UZ[
+    s,n]p1Dzy^5~'DH*-I!O1]7*;1J\]0}hCwJa9YC1;axwAs^CU_$Qu$JA*@Rpl|^#*]Zj1$oOW;rm
+    *lY>m>sjk#45=pAw<u#Cm2r>lKrC,kxCKuQ,xTn2s[!x=xo<Rl^AY3!.Qv_Z7,'Uo2m~ZD=AEzK{
+    D#Z!u{~\8X]k#C)u7x\o!-<W<Vo\V_}7Z$,MF<C!n1_#XB}m7pp}72wD?}>>Q@U~=R#=]iQ]#vDv
+    Vien~iRr#^?XUIHQm]$JoV*Tzo]z*AEo7re2+^B'~C$e]|#I~+G3YAHjk1j;s~0p?G@,@'1N_xn'
+    =wA;z]E,]e,}BEvT?ap<m=zs{DH-pfIE+rTvEODK>X>]mE#5a#Fo$WG\<VKA>HnpvARDrG<?zz*B
+    ~;</@x{CLo3ve7iIsa]GV*'D~l2A[<wp}15{1+>Xw'+_-[V]uN-+z@'u{uE[kV35rB[~7i3,$'[x
+    B#7GV!*?3KeJ<_Hws[r@,{P;H$CR1?2rouk@D#]^,DX>_paBdV\n]Z$@Bs7BZ7U$D<=O-,_[kZj-
+    XzQ-Zvw2ez'<]Q2waI[1u?l*oUUUJ{zJX2G~!.^*'<DU+lKv{aW}Un<T_W4[e;a'Z^*+a7p}XR3l
+    uB#KTD':Qn_Dq]5TV^p[Zi<[$[}$xz_[E-71'$7pi$v]i=3xu7@leC~K$Z}zxE2*R7#ZAh=wQ#HY
+    ,2t]*n~;[\aU7w!vTWeo}[$Q]^*aC5*-H3=A$k#VBVu]Azo+UE$5s@Oea}^QXA2xo3x*[?O;xCu^
+    @UH<DnKso+W$p~J~Qj]1-5uK<V^B^@\j<<}#rlE#RWKb}i[sjXx]=<XW0!Tn!#7*3_J*!~xZznRE
+    {lH^2_j=1YJ=DnV1-e7>3<*>s?Dve,,-;=\A'SV5Uams;;2lzXROJUGrw+X+l=XH7~B;C1HYJ!0B
+    #*j+<e^;{elB=lH\noG}G#<-Xp$-e?,~^+WH5C<qskB<xO75"xEUE(wT<mpC<Ww1Aa;{5a'+XzxG
+    ?XVUZ5;H-BuVaV#ow7\B6}]<$-_Z7x~GkG1[xX^7T,#+W[IrVvrQ~rE?$J'\Tp?Ha[O5p{'Jaf7X
+    ;esn,j{D!3G|CoO})<<!!a=GU=N_un~wRi2,zk^+7Jw_@O_<IK{@_e*$p@]!R@$q4>R@$aR-Dl*y
+    >o#B?Y{}+7D$D+ok[mukp[a$2$rz{rknolk\G]=3eV}oV?_aU]oD[Tn}e?@$Nv_+nW[1uV>-J1Wp
+    XFA+KaV1HEvD!*5^+p_WORJCa]O*!Ee;@sXe\=<\E'R;lkB{{,;TTZl{-e.%Crnn%S#p?\_sJ3ZY
+    HAeA~kG+a;[o@}sI\=RGeREZaE~--[H,W#@r~\{TYi5?AkhV'W*A[+a_{x~'Vwm8l\{J4^k-=l/'
+    *]@3CGH;Rk~^5o^TIwpTGHU%JYQzh>$#lA<;Rx?x!{,]<ly(aEBoYxYe@r02Y#O'<DV5DEY'*5ig
+    Il[p~nO\*aDOsc.XwrU!C[\vT1ry[xj27+rk^1*J,pJ1@1G$#rpTIU;REz[Wz},Hg#xWvr-Qu<*Z
+    D*U=X>[@rI\Y=1sr-\;(@eHr';o*p@ee?7X*ATXXX7e$D?+1[wlni<UeZe^@lTXKG{^O}tvR!E]w
+    ODYWz3G2ooI;J?PnouxLvvzUCKCrD@*\;n^W]IYpl,,@rw++BENXnK'OxXZFga_!ID$[THO5vl7l
+    ]dECps1TR}._{1p#REQarv#w^/@5CT~BZ'Ru-]8_7aY__]5$@m,\R<}K^rI,ln23si11x_D#QT,G
+    #v3$#=n-wB!5IEnsauo?Re!5Ywl!^~m,~5p?lGD>OC-zTZ<LJ<rBaR![oIUTi{eBPEmJ{3,<G^\_
+    x=CU@OVB~J5lV7HY[rI$iY!K;$2X$Y{j,ob7vo>h,=pmpj{^sRYQfEAGR#jB[%"=T\+=W;#Ww~UO
+    =uolI?@-5#<TE=pGv,smnK$5*DuSz_$Wuo{{pJXOWX}$ixVJ3[\33$BR}wWX[4,}V@?BmuHTlVHX
+    ]XA>aaoCsZCvKazo+r3l*m{V3HJV3x;*<IKlj=K{l;Bzj\5R?<^V#o7r_GBO?r,j$~CV5uS=Rs'P
+    {HR_,+Y=mCsXIUopoe,7enY^o{@Y.H$I7WX=+@_I$@XIu}f!V7^'wpp^H1D2.I;7_-X>VjW_7_{_
+    Ui(Hwj]?ss+<{}{[}A<R3e3_aEHHrz<#T*U6R1Vo8Xs=##G}!avpT$_3Hhb$[n$iek2v$aV1\3{5
+    '?!Q=O3|wwYu[@;uvG$OGfEUY1G5?3RaH')iR]~C[J{T<+$?.QHw2{_A,m=@2CRl^avm3qmX{Vss
+    ~W2lO!3A]$iw,-BArwUjiO]w@WZ5sDVTUs<z>z^VjkV4e1YlYs2^ID\Z^]1Q^'T#Cj7j[+!m1[*w
+    U=:ZX3Q@Ew[ZrzAosz{s{m\C]W{3AV27DnK5Q*=UoTlCu5wD7^WlOBAQ<u2{a*CTa=ep2^_Hs<nB
+    *mY$YDE\^;H]a'<K^;;E<Y@o#WEHlo'e'WOKO{!o,@pi7*AoYYw+a7+UjC@!UV{VlI;5[jQX[>WL
+    }_-[Il75e3$@l=D}{9rgRCBVYUBz8karXTsVuTRXzo_'A\Y2I01{*^G;XU\2dm'?lbD_,/jeGj27
+    ?Ks^R_sIuxI~X>eC>pWsYQz7'W><h=CAsk\7IIlpe^~G^TCmABZZT?]@DCu@sIxp}9&\+m<?E_v}
+    -Z}='nziD[]C8s.a^p5I]A*H[7G>oDBvep}1A{^eqYuQk^y"YI-@mHGr*l<'pT1YUE+_;V'}G<~Y
+    HY;x?*mXAr]H_75x}u12ZAjBz>}{{eR[qrC7G+riU=Z^$=vB[Rk+kH\jKO_A]*Hnsp@Hklm<pr]~
+    GJ_Wm_H,K]]v=TDEHCPoo=}QK<GJBBkY,n;J1T$W<jzYZXQb#pBu>B]iQej;pzj1$kJWeJ'5U[?G
+    =%?Hs~xC#[a-T2+,oxm\U$|{HBxY:U^V+Z<}<os>$-r*'z22U'3uXovwovo3oQB!!AO'5y-DO'!V
+    EzR,\u+^j{7XBOBsT}_5Rv*!Rno]Y<61~smIi+,^Y1}[2<3r#<p-]YW_wIz#=anRB'xja>T3Be2J
+    7o#1{xBCApDv^Xp>R2uzQX$2rQ=~OkzPzwJup3BGjE?$|&OUG;]u{!Ka7UBnax@O*1ix$QY-JR%&
+    ~or1-\{v8@H,ZluE$uX3[.L^DJ!@Nx#ZlBv?*_v@ro{YI!{-o3[vsWwJu5;]!LC7iu'R+vnw2\/^
+    'vzjXG^!r^+lmOTO*QR$oKTf?j~?{QH_e_$+ro1YG{\!C*;#0>1g[paJ\m@D{D[u\UwQvW_OU=^'
+    E_IkArYI=\zOzYJu?skYAp1*a[+'v=-lgZ[WZl#I@]W{up_#Qos1=DvTVs-{BARX-ZXZlVCO5,2\
+    -<r,k^4>{!pXQ$\C!w7~}xlsJ35|s-x3,2sInpmH~G?]ZH1'LKzjWj1j\YkY!CwW]+[+;#B'^~wT
+    z:^ROe2ao^o~<Gpe#mJ]]-72AJ4>z]z~[$e>V#@1r[7r-{}[R<?I?jK5G_x;\[r"xjVvh8zU-3^T
+    y?]+K,R#vOi[e3B2}BWIE,Q5mrU<nlz>uXaBkOQ_-N_a{H,e{WjV^a3j+YzimjHxElr<m?\2Jv}2
+    ~Q''*p1ZUW;,rzrnl1Ea''#C\o}WC52pO<B^;nX*I^o5Z_]E,}7=ZUza,]Y=[nO$w$U'$aw>v_pk
+    BHJ[1=-E3$IB@o\@KG*3m?Ep~>0@x#D#Ov@^JjUu'7'l}QEtHeK!Nw-7eT'][#}aUX'2>xpDI"T-
+    3vDk5#Oy^!ETz_wp{^U-CzK,V!;Cl'YWCJ{#?_~RQZvBRaVWUBe]zl_\xWx1e=Bv9U-HjinuHpJj
+    +3{Di-RVGi,!@EG[{GuUBOpJ3AlQzz[l;AvuZy'k_l\[CxvJ!p-o^2p*O5m}Z1+U+U~R$'x,WmzA
+    ~[2'YeGH;rx}v}UVZEMZO]$5;2H*TmD7M{-2Tx]U2p;\EJ,-pneww1]l}enCpDwR[Pq>>jHAv7#?
+    a-#sK,Ux<RzRw+azCzkv,eTz]B_YIWnC5*R/7m\OIY}-6-^<CJLs#o,epQr8Qn,+Dawed['QKxr$
+    D_>cBb<nX]k=v[!a^Q{R7-O+j34H{^Z=#V2IOUeA>2H}r[^^r-DIwX!$I3Hy;Q>uJ,I*CTaKvkIG
+    RuDo\\EoHRHQ]k~p+p!3YBim9RzTep^{11V@V2lKQBXOD,#2Jiar#pwZU:A'+7'O-mRO\e52GxH}
+    \CN@w]Ko<p-jU]m=Kl]@jQpVEJAQpz5+A=@}&;nl>k5sz=+YW8(lD#r[EK@2]#K?>]xBZ',Q5WDT
+    _$lIP>}Way,25^Wr7~Wv>36}sZGBD*GMI2eJxEv>6~=\1jmxj^]?szw\KJG+D$UB@3Q}*'Wlv&Bz
+    +7D'>}{oK<h7^BI6\+AamDR{T'oHXw=-{xr}kpu[:.=J'=v-Ia<,+m?jHW&G1]5({Im3U7onD1lR
+    aX7rJo[<Dm5oTX~C}?!]_TB{CVN?[@-][kn$*)IAsIB=xv:mUlY1ujx-DQ@1TZmJwB_]lpr7,>UV
+    Re1~]w}w^@lpZ72w_l_\rER'zn~1<JUd>wpT'1{m|Rja=o}$Iv3pO;+>aT1Ww^3zl[<BmERWY{H~
+    }NlH\OCJZ,!oCnQxoi3a,@r\7KC#K=r\+-XeZ=Cri$m5j5Q{p<ORpvnY!;:QrT2l+$}=JED}DZ[R
+    A'5R^r}Hw{5/o$#lz}J@?1$YRp@vI+WO;T^[5KImHa{24h>w!Tw'u#YUU'H1Q;R5x=~no1Rm~nO3
+    <~'K;Q\D[GYEeovoJnz]TrB2{'@'k\&Bx>!1*OiGH@{Ur2os;+rE#3>svxH:J}jrGnQkppWkI^{!
+    srX>D\i^ze-X})Q\o>Ro>[?ApCTekey}pKHpC\,ZoA5oe,<n''n6}W>vj+_\3weRzQXZ^'\B$5##
+    *>-3rBO+i\<#lGnI?po3$tk>o<]I!\Y,Z<D5j,,nl~?V!V~j~@~p5Dq{<rH#_j_7;['}kzJ^-}Ca
+    p[<<RVJQ_uuapG$1p;15w=COjmOm-xjIlQj\U]Jm]pOYEm,G#W~e-TjmszYGE~l*COoVaJ-uCpVi
+    oZ]Cp,*5$>uH}ap;IRDj]pl(lV,\*'pjE\uO1G*{I_7I;1X$HED=0}-z!{HJGE;'spRQ~D|<R'#G
+    uns<}5;O]REN|@GCZ!C'a=JlOur\s}B<vT<Bv}_K~$^uK[o~*YZn7i9BY#$>UUm7;{<[iUr/(tX7
+    ,jiCvoXpK!I@muEGaV-*25)Do_XOskn?&]^>sU][iio'{c:B'DD^~;wMGl<7#=uR5vA5ur[#@j}H
+    _|W$Dn?]X^#s,{Kji7-D*AZe[<ow,}Ek;_weiXG-,ez@\Ra=o'VK!a_5RvGQ<3m}JO/UEYV&4Tr]
+    Gr\+?a{2]P]"V]=m7_YwC_#xADV5[GK=<pV<Z=T=7sXW~VY,F+B\>j#jCm_QvQ?RAX5K<CR<7>rE
+    7O3loF},}ijoBoTXXo^iD?L+RDaIlaBsOsX|BVG~eJ2uso=B\AQufupik:s[xr7w=3BWI*j5u}lD
+    lBFHeu=2VB#K12G^I}<*o@uJ<}n!s$*TT-DJIe?#vA7<aE=Wj'p+UvB#nwJ,O7pzioJ7@3<esiC1
+    -~-UDBHb~]e^pH_^;*xD7=ITDjV=_i\1evsnEJ3lZrGCJOVrNmDzYlo_rj,Cz)]srQWn>aeX,x1=
+    1U2TAro5*+DBz2a[RsE#H3QluvlSuBBO8Aj*T/lZp}&$JUnE7;*]A1DsU]edVn5vOT3UTa~xsHJe
+    bfgl;m?#pn;TU+p0Uz2Te(^l;p/]pJ\91jwzQX\5&sJ@!mv1l{Ixl=Y_~M$wJAi,aWz;j+VO[J~w
+    @**$B1FrDrYou=D=EvkOUVw!I2#CHuUYwn'J<OI9UeJH;7J##C-Ts[];@aDZl{Y#x$<XoiE*\$rO
+    m,\72nB_Ka>?![a_j?n}QJ\=RQBQ~7moCvnQsn\oDu1[?O}{xsU{%(f{O{$QEn;}?m*kY_BZeVKe
+    \X}*2A,JXYkiEQYR<~>FBG-rxn>[e7w+i\oUlaY[\;JpoXv,,[Iii]Zef7![2^vkzX$YJ{1!5[uX
+    DO@>^^^sVE_GAk,i$a*UA\W~OnliE}Om<,:rDom<zJG=ZC{]BaY$j_lO5m'mXv-XDp)lm=<TTV>5
+    JXIDeY*x2uG-w7Z!nDGKDG>>TTe?5Q7v*pR,Xxe3vjJqdv=_\,\A?|&I;1Q[>JTb\vnR]]X<75CX
+    '#Ris73$,3QAVzVm^1-<G_l$W*@^J<YupkVDS}eXUzKD+q[pQYW*j~CkYlCiuk[?GQ~HlVp{+W^?
+    j1sBJO7OQ^51=\~Rm]*>E@G@Y5$k@Cl^xE1X1wZV7?/UV#,}2Z2^*'Cs+{#Dg*z2u,w[>erYUrsT
+    oU73m73!5XU[xIT{GOXBeR-1k>-7-1-}W1$;Vl{U~mo*7Gu,{M*'7#GEzn*75e%=U'1QD]krkm{O
+    '@\'c7#!<1r>eCHY*0Bpz=<]XvsvQ2*=_TjlQaCm~EjXwIx7e>Hep}OmlI_!1m=35!'G$7n-[IvK
+    uEYU,v^6wxlQ3GQWDWGAYDpi^?=ag-l}IpTn+E<C#3VaDJ><^zVx[jr=uROC*e]15pHUK'{QGBV;
+    UHDl\f1\Wv2$j2@B+nC,pR-,I1rBEE_ZG#Y+nWJ5e-@]o$Vj-a\QXjoH^^zo3$v3mwz~R_[;p>{+
+    ~+EA}2[K-YeD3*nRDnpJ!^<B?vYHHY[XGu*]XTYbm<AwWX*=\oJza,ATWEQ+E:D^3ZrrUr]np_el
+    IIr5j1Qr?32G[m?R$!IX{r17V5}sUG\CX7SlJ\!njCij-V?3nH+owX[%LZz<;Xl>~&AIY]>o$rao
+    @]!<I}sis*TXzwB#Rk3O5j]j!?YJ77lJT#lri>)aY-nx{ra#{UJK*;+'gYn!B\__'OG~Ok[?VN6G
+    <lTlG=?_2xpLJ{BTxOAlWA;=?sGD}<7@3GlAQ1GZ263]sA*~W#q31;zj+$kka!35J1]yj{7'E-D7
+    wvzj3R*_'^W7AQ}X6{';rI,Q_ROpE$vV{&?6Z1{x)Cl<D2,~#sr~u$G?KAN{XQOzo~>U>[?^}TwN
+    c]Inw3[+w<wE@jwT\$O[e9'0+BpJ}z+Vwnl<GJw74RwOlxmeK,e+,^!;e8W1D#RJ!C:#1n#rDWzT
+    C!$2w*{8k^n$'vU{{jA\e'TpW'DW>si~TE{<wUwrHU};[e\ICzR=}Ku\x2@!#nEi}EiDka=~BlmG
+    21euda$>R7GUn)ewcO~+!O=7+]3u5~C2lr~eH=]UoJ}v-Y<\C6W{=XKOUJ>a+]*2Y}p-Z!aAwxTY
+    C^#]HpzU@z-<[RZ=xwraAVG>e]^[#>s*VV3Y-KxAv1a'v5y7KBO\*p,O7_~@BU\S~_QUX{1e[:?'
+    I'~pHBmYkmJ5arBn7OkDv};s{BCW]OvB~[QY3-I}HOyPu[,uowZC^;'r_Ea2leCWln*<1{--T,!j
+    a=+GY_jW~s*\QXa~)^DiDYE1O#lXoyDE<1K<<CJ=YTIeR<@w$^K_JI3+UvNY\!z^;5T}_U^CV-JY
+    W$!@1,uETA!t'i@$5EA<5-{XOm7ZjpY\ww{ewlzxuQQ-?]pYZ}'R^[DnEuA7_5CKh-r{Vn{r?^GU
+    BG,7~pag/p}v71Tr<X_~G\WX_EvQXTvnJ1su-xmvA61XmB-Y*v_m{{j;Bk;jwpzi'sX++zuzG[oA
+    v=J<HujpmCJzik,2+Q.UCSDzr'eKBVYjl2ppJ[C''[YTDxG>D1o\zG#[<V]*1Az'QsJHC{E~xz5[
+    Em>r1mb_!m[wV~eQV}C=?B$5u^ew5{?*mD^RWj!^TB7ozGTT^Or<==}3szDM<E~<_znWY*ZsY{un
+    %OJrrEvK3]u1Y*=V2u[kOvB$]>nJ<1"^mY*\>ex::NA[x+r+@JQ,wYRUrCa<l=Op1#HO1W[$'xMi
+    GjaAjH+r;ZR1\jG\n{'rjDAzl!/t&W<Gkj+nUJjA,_cUQ1=z1aAOU'I<O}\;]zYBG#oO3~~Nva~H
+    WT$xi*[xv1v[G!l2,B_Gu>m?7\IOCDUX^{ghxAvD%X{7;aemXiasz}2GkY5~,peHCi$Q-oJj{^?m
+    mhwo_!J\IC*Ew@bj;KT+'^u4p!1[.QsGwW+jv_>;EK7@Tk5#{]<x+Y}>s#9iG<-lE+>O!nH~]C<C
+    I@*G#&pE*W*#2VqpR3@,E'Z2{]TXGE}Zxu$H1Oj1Tz~@r5sjTlEr]JDLKU\Ov[@C@wu#j7?oOZD1
+    pd3^*oQa1;,{B\Qk-Iw{1BV-[GxxAOTE-~I-D;5lIRgUprXBCJQjDrr#XlORm<7Y3s1\#~O4~eas
+    ]Z>C=aE]T'Y=F5lWX#^_;#HIHU,kCG{-3_elofaCV;{==295a[oeYCzu1i_UIBG*wCR}35sl5WD@
+    ]V?A1e2<D+1P[3oDn['k/IwA$?Hx_={*eK*7;ss$?CZmoqVZ}@/7U*js@R{,R{=T7J}sAr~eV#ov
+    Ypzn&VG]l_p[T~+<#lI+['7=BpJvz,WKa@_op=-d#V~eva+\?'OneZQ=BJ2155W7\vKTfB$_H_Or
+    \0WpVwI2pWE~E+^Xej]R$#2Hu*AA;!]#A{[>UzeIs;+5ir$u2{p<}+WUwzje;kHrseB\;,lziQtB
+    1K}[zesCee}#_x;0v=E!$7wX\=viZxx[^w2sG[Z*W}T#Orp{HTIijlBQiQFjk_U#l+RjJGUX=ku\
+    u,C>_-<GBO!LaG+EVpw3O=+G?$Es.Y^535*z~,\~!j!aI?VEl]OOua<1aF7]vZE}D=U7^,<V}uD;
+    XD:Hpi\>1,>QH3H;},D\?~WIOA??l+?dvrHQ@lxlo!nH@C!'H+^Cr"Zxoj8aTB~.1=;'UAwB9I}W
+    *#tn,O'RrE+~+{,Wsp1,m5nYIl<gZo#HZvOaneH=YOR=s#7\O}\w]D!Yx<Zvg\1am2][IljC!v>3
+    u}?r;^UspgA5ExaC@BipX!3l3TmUaxmYvZO]JBCo[~ekG#<a12VUV2^e2UQsw=BpV$\GGH-G\!sC
+    >'ZR\ZVpC,Y,a$rE}Z\s*~oQ'aIAa+ma=#ZAo_"]"73[5sY=]}!T!+HRRGx*^\S$xU$7vR2vo=>?
+    {1W&(V7K3wHv\}<z^Ez*OGo5J_XYGr'D=7Vz&<xz'oX1]?XA3']vE?]_*ipnJ\zi<_mwZ3RuoQsZ
+    ?jZKp<N%,Q#o:}BrTUQH@QG[=Z<RA_U[TSG~_Qz+QOD#7]!}*'xxD#,rUo\aez>p#e9a]w>$kZ<K
+    o$G,!ro$2zHVO[I;xIx;+WJ7~<Bw[A3m5lk7<}G\T6_<wBm7[vYn*IT1CxIlowX<JeoB7*monJyP
+    'BeXQl$p]A]_vHls~TE{+X=w|HvT7pI1DGK5?xia1"pu{Z,*#B;}'e?p^*B~T;eHl5$O2{#Qr?y?
+    o@vY!-?*>[=Wv;]=kaIZQ3>[IRK/Zl1s5%ltz7O##'a[$rVmAV,7mUplCT=1"QRzQ1@Wwj7#wGC{
+    5j,5$kT3l$ERJZn{Rw<2;'_DBVj\@Z+Tat^\}5=Z,_SQHD7p_ksp;IXj2xEMgaro]J+!>_X_5;5H
+    D[RV?N$DlGpGl~OW+]VDvQ/;^$I=<De2eH^RY5-zn;#7jx!Q?w\aH~Y1#V~Xn=a_-+Z?pJX}C,Uw
+    BHBEWRGW[7R+-oo+U_Zaj^3U-R1HLAzl3)]aB]fea*rCaj7l5J<s'QYxC3TI++swIY2_}mr_]W[X
+    QxI,,\AAoKH!}v+#+womVI1Z=urB,=<}n{1A<^!eH^\QR]{vj]DWUY#x[<T)GRJYT5'5q!^\]Ho~
+    vK_XpKp*[-C=>i^onY@^=^Cre}'75jz#BavC,UoHlOzn^mDV~71TpR5vx#B}GzU'>#7\G;^w;svv
+    iZ_]pvk>!D\rGRxQ#_v$~X[uss53[=1eYVkrGWIIT*1;j]x*p$=_]T1QUH}_*X=$O.npGC*ZDumn
+    Gu[p[p5o#=B}QusJj*}ax?i,JsoiZ[w5@o?H[+l3HrpUHwZ<v4a>WWGI;l1rnnD+_G@-VGxlro'W
+    T@WzvYQVweo~QQU*\>Dwa5-\T;Z\2;_GR{_[@eH-u@}1'HX=vYf=xsA!VnR"xn\<:A-W+}pDnz(D
+    np$YHmveJ+\d\wlTvEk2^^SmorK5eZ$T9rIel/zVixPk>x[\+Ua{r'2^oJ$4;{O=lG+'Q<ljtcz5
+    ]#vx^i^-JkUG{{#A=^OXv{phnO5#ZR\G*oazklom^n]w?$u]a^x]GDYm^,7uu^BrQo<<^To72Qp+
+    <Ow[#nXxuU!Dp{B\G*sT-1\Kcl[3Ol}YxET\r6F'r?KI>Uu1Dx}dRu[;^zOnYi'u>v}}YzB2Rr\^
+    #^kHT5rB~YG$lx*AI*Vlsl@mZXso{C?ons1[Eo5T]1oz?*z\GxXr-v#@78?E{-*@Xr*>Q\!$2zL1
+    sH7/}VVrcWTr]TpK#2ej;_<Yr?ErEWL1||!]-xcx^'*cn[{#VUO{Vr@*]TzZD==ev#uD_O7[%}up
+    K{'k,v?[3_wE<X{Z*%(OW33Yn2YN2o2<?B?Uv<1]1$K}jJvrZ5l!Dzi=BZK5FQ'H\mV71yR5CkuG
+    'iizp*ao{OXC#*R'@<;>+A{pQ7w>l?XrKw]vap5O+*~]wmEs~\BHoz,OI;IV5Z{=k!_Z{Bs!l2Ei
+    BDav7$lQpaB{>XC$;I1a,oso>QaUI,X1,W+z1vXlZO*w}-rWBo-zaw1}E!TaKIQ~-[n}kvu[}!ZA
+    D_f6K>j>@+>rzz'QR<_vMdUzxCOKCeE'k?_QJ?'izoR+,_X^<+r=ps1=5l7enTOiR,*nGDRH-D<}
+    X!^TX?+o^#q5v!Dl>Gr[#$kRBouwn=ps*InE}'eUE{-JjV}RARWp^sv%<5;^TUr{1Q!{azuZaCnI
+    irDk^rzvYYU{<n!l,O!n;C~,i5jAE1e#e1UWvaB7z~,u{-z#ZV1K#n]3kYR$>aw-KU';]OU+s+;[
+    CYnRv*R]G^i-;Q@^IpED>I],0-5x>=T]VAvk!Je{AjpZuWYOz+<n\v[[QiAawYIj;lBrW]JwG2Op
+    QaA!wv\2OKR-!\Uz}zT{?:Zx]uo#E+LlKJ~n'1OJBD_kIl=*U*C2e!_#T[nvAJ7=X+CZ>~$jKpE(
+    A<1Ds[VkAs;]k]]!!z5vmGk;xZE*W-C]UY1jkC'*${xaiB~!Cs_Q@G@Ak*CI<C~?Ye2>B+v$pu@n
+    ,ODine+V'>nE\W}7X5EOu5i_xn11#li;Lx(+va{pk7YA-@}3H-'e+<$Jjlm{,aeVHQ'GE$rGD-\V
+    np7Hr$}\Dz{}xJ\j{{#!_XJuA~U3HTUbj7C{'jyIW-zZToC*5k;$O<5RmXop_V]\$=a5ipjJ'-5v
+    ]^e@+p~IOu*BwA,OrZn[}oAe[o'O?<GZzz$?DoZ\Gp[WD>u\\7R>1X~HjUJ__p-YD?eCkn}=msKK
+    I!52^-m4!XA\gU+n7B~n\CZ^j[kpkZrE75LVnW]ueVZ][XB(JQ71oQC*[;\TH=KE!C2WY;'Qc*s?
+    GMKRRQlXo7^n{JBAVip2o@Os*CsZ*!ujvULNn_'{FE~a$,YVrm1oxw\}Ode}{Z,_5wX,lDk>~1eH
+    r,TVixs5iv#DKA9_EZBs#H7n>R1s~IkeiQ353;n5CbVj{#@QJ_>''u~7xTJrs-4e}$nB~U,1mlzY
+    x#=,Cv2V!I[{oI=A^X>]C[nW_^o1wa+ZrX3j2~{ziD_sez<Z>7O#*7+oB}<3q!z?CsUx!7CCXL|A
+    elZ}#T-r'AV{pJm,>}+HG7,D~Im+<\uV?3*'Bx3W\o-L=xsxBY@CG+[eQ\pBxD+[jw_5EQm;H_A<
+    $Xr\nx}E#-Y-U\lnHzTD)5Rp7DRBDIrEKplV?bbAUzj~GUQeID2_D1Jpj]H@rYYKX~D'!1p=JBRO
+    uO3'#2TXAJ9qUsCzAYU~TzW]'lQR!Iw]3rG*-QOW^_aYo@+?5mD{%m}XBRpiKK-Bih,X>jCDV5;,
+    O#'[na2*2x^2=GXsJU\[j_l>Kp\7iG8$eEj<B1OAD[e3-J1BHH<KEJo[1pDWre{<GW1=UGme@T2x
+    AUWJQkbn<2GmY2lYQ*YY,oZZ[_TiQ1EpK>Zn<-Xl1=2pk1kJ$3}EmA3iC5'%wHU;x_H3GQr\R=vu
+    Cp#^y*mV~]@^~x_x~HXD-U[Zz5GY1zKDJ)b|KUexKsjjn,w["F|"}Te,k[?lB{elOaj~VDJ=CWU#
+    Q'K{VR@JJ^G'jKsmo<mn'vZup@!2sBp*vv^Z{IZoUQ55,X'A'^a#x;\v*,j>Gvs=n>mpz)KwE2+X
+    AWn5}io5J2}-X3XHuZeIopaXplw>vI$'7OwXvuVOO$H{EXI};$I*w{Y5oR$k[\txuoO-<wKX_C=T
+    lwu,X7vD]=V\'w,xzjVtxmDX9yzzOmXBYz1[->>5CD{IDEHR1Vrzx{,zs'4?$oD%Z$>U#+TGDDm_
+    iIvOK'2}7?$DV;E'*?^lY1<3?BAG}Yv]0O\\O&\j\T,;<];>$2H=Tsc(7BH[Ks'Jo3*A^_]Q'I*B
+    [uBOTvDYzD'YTaX}I{'k.gBTO@&xzmDVul{=7{@BJ7U)Kl=_,l{n{^vpE+Y<HT2mREkv~js?AR!]
+    n+]U{eUz<55~lX\i_&!w'O?w{e]O<@w5=v%8'I>A,Qwj72@RwsA{B\o#u'msOpII!_7;r+UzaAU$
+    pK=-+zjD4IiYVv=VrI12v$j2?<wQIkI'Q.,+2{~>'GV^-aaXZEA[Dr7B#IWU!A51<!1KJ~}oJ$VG
+    EoHoO3_W3oKI=peRJwD#]>1'13jxYZnr@lx{;s*mT=;[aE\nm<M_mKH<OT7aCG^Z>oX_xWGX}=B'
+    (}l}rdnrv7MnA}VpB$uuHmRZ1n$4.*w|@GA<uRR$kB1WUYix=}aZZ*2]3>*A:Pu-uDzuCO=K2a}T
+    ;#Q]'#B!<;szo_x}-ZODQ*ul{EX}xUvYB$K[7Z'mpp4tu>xI6SM'?3'?=3}=#_2jCXJA';OEL9tQ
+    ~-<HX,}M}XWzJH{7QwI#Uv5pY'*-\{T~J+V2(ir=YlW~'eA7Bd5k[z5A\<aIWGKs3u!+K3PgCDpx
+    piQKepZ3Y>>DJj{zn1v^IGsk!>7>i{ZUr\3-olmvjYCsVW+KOW,Zx>Es~eB5BDW=zOBCp;NR~~$Q
+    $5J2v[nJr$x.\>QjunEW,Ql2sKz*z%D+<K_3_p'[QR^\5I>X'53xmAYs]7j<{H(t6Fua+2,*JB*o
+    ?X5l$umCp,Qkx7_K\irWYr1VY>I~O#zJ;wm^5Cu8p[R^)rsWm\8T$zKvKIUU<lR~>a\zuW+rX_p?
+    >@Yn_GY_!Baioxim<;+a7jAY^XBnv?B/DmX1[sA$r$~Hu>;l^'?v!5#j(I^pwXQ!a5o!n'XW'K<W
+    D,vVE=Uom;OC==RrZ!Q?Rq{1HTll=l|~OT_1CzT\xUofDEka=<W5Ir'jGlw@8d2lnJ>[CZDla~uo
+    @#UDUV'~!aA,3p*3w:[\AG\uC*H_jrRz$ZW>JkCe!J~}o!1Xx7B~G={p[<Gi^mAU;H$gHz5GI*w^
+    S_YC<]Tv!,E,_iU=,7lV1<l<lK1@v.Zvkwh,{lR#j*pD3>\{9A5+#=\3HG2Q?T^=*vC?\z;jrw\B
+    3IJIv;_Z'\#[oGD+Uu=YDDK-5-+eQ[{JV]V~-[>,?sxWrm\G~X$G7BH^u$$~2WC]z*kvma$<\bX$
+    _?r2{J<1HC70'-D*?}r@go7[O!_7nL#r@^PBw[C&7j=ig5EBDsWD=rsvOT\ElJTI2DB]u6!]m7<a
+    pnv'vYp}QH_W[^V_BB{B+2R6@+,~3T2oYER~pmXZHE7s|eQ$sIx-,=,U1JNHQKC?n=TrD?o}~2Rr
+    W\@V~sj~^J}2VJ~7r}mYWUmBo[CrQn_E~-Okr,B|GOUWp\!~]l'H=!;n==T$$!l'+n,Y=T1~w7wZ
+    +V_Te]Q~>xuUbnG+={*VvsU\pDrG;OR7lu,,2eU~'&5^jz$5BYgXU>'!v=v$rrR2suu'Rm{=-E@Q
+    zJlH=-7E=u;l+-KuxVa3Y-X,j[o.7asQb5l[mkGe#ds'7AD_vJ_>Zkh[,nCr"hj#Er*2<'UH!*HD
+    z=+=Be5WHorX2uz(iCQ@;OWDmBkG+\~s^;Q\CKXOIRaAqUs5B_YJ<IQ#O5+3xl>-+Pr*V!j#xrOG
+    $25Vsk27!r-xz_as]T4is!-;R[Ul}O+Vk}<!1oiHE_$Nu}!@u+;uZ1~#@7uO{RZHHRC^~eH'iQz1
+    Z'}m,Rr!ILE7Wnzu_'Z]5#(qQ#2kca$YBD!QWa1]s}z?'q*r^7#7u~3T]DsoJ$B1jkv,2WCVp!?_
+    *m+sGI5nYZQTVoE]i]Xj[]?$>I3rpkdC:vp!3+vZ<=]-X$XnJ.hMvRK?{}2A~]2pyUB#\uG~DrjO
+    ~$l~k$@V}I;oa!=QG52Hl3_2#mC[po\4Z$UGl7J5YAA->a1~^+QK=aRQ)$[Gk$5w@]snRr+*Z%n_
+    nAo,eUBkZ,-QbcRRXQE3]AhP'<}s(REz_XzR{1$;Be2W}IO3ZY5+3,mEDQK'^=~2[431?lw\[X$o
+    $<Tw,+5XRxov=v^AXrv#l}#E+wO}m7:obR},i\aH=MV=Xs3A]3M$pOjWa=wGpG-$U5G}>Ys[!@s@
+    jr^T9TC>{G-PpX@}r\;Hx3T*$<};~z~u7315,Go\l~<3iDGD;ll>=ZvvR3v[^^J^\ms#XTBpg?o'
+    U-$~o?D-V,,[D)E1Oi]KuIzX;}o;{w#'pG,{w<4)aou;Mrou#x]+BX7Bp~1ZQ}R[vHOkG7}OV'sz
+    !u*1DlpH+s22,Y{j}D;>k{r3IQIW=lko^Z,vx^Dif/YQI>E;m{-UG[s-x}AR;H$Vml2*R2D$rn>a
+    rT,aUV*!~@\^C~5gR9Z[~1QJA$WYR^Wj!Ej5^WB;rxle-@cZ,#vG+;}|SwrRE1$uain5pu5[O@n1
+    ezs$_E\;+r*%BOwY/]=@-_@zI>-A,TX[mzElZAlfuR3Oz~+7K5YDA_p2[Q'U=B+;[C2!npHI[Oro
+    iV+>n<w>Rk3j;liU-IYlYjTx&B@}#*[R-9ziAT1U$Cr@]e~aRu4QXD]~*5]uavV#,DCR;O'RT'H\
+    ;Br7pEuv\$,iaz#B4wTos}j]iKpCI{EE+'Z;o;nlI:pxakV!}Q_1HI,sjx1H]H{7^@U>>]zx~'G~
+    E[3BUA]wz+D$wEaokIxeu;$ttoj{o2='R81{vIPuRZB/+CxR8kvl5~EC#m>7aK}-\WBeDV@!m=jQ
+    <_->r5K<\7*]JlEXu-\]jxj><1r*Jon{WCwW[G5^#eTW*Q_W{7Y^@xJ-vkY}!Tt}'2{Xzp*{=_=_
+    >a+Z[+pQDJ;x='mz<+7v!o=X[a\i{AKeQCHY{>alF\lTUsQ3@i1eDE=o>RI{5r^>wSjrYJ_,@oU$
+    DvX1<WCCjHC#um9}ExVI~JK1}@#vm\jS?QHr]eBlDB~?YVJejprJ$1\ZYr;BwCJ2uAs~#Q\^a$}H
+    gRA@}S^Y7]$EGz[j-BOEsr\;mY8s7psGFVwuwXC;T!H7KziIJ8G}H=\zxp:z*l7G~K~1<UDAs2kR
+    wpGup']OnrG,_=\&5\Gp<1Z7IH$I%0+77@s-wuQ'v!^7^i&/>IXkACsjv5W~G!$!Js[<7z>\JzOQ
+    \BW@d'Xa\n{_Gu'wavoEUv,ZH!*7[eC=oXTV!mDQ2p7UE(Z]_upU~7=C\[7u\!BUAu\^ax*QH?'j
+    QKIiUmO*X[pCwWju@,R{AC5[G1?13xg=O$jlrG>lU}_ir1~-[QQy*j3u{HYuzH*Gk'HQxtBaQC+h
+    k<Zuj~x_a>_KUO}?@o*$Z\,3;\\eCz5#;za>EX=;;rwZGxpYKV#Z,}!lsZXK[Cx1Xse*NRkUOp[w
+    $n{5CXr\vYkT>zE_uKYp?u\ksK=V@MZ*?#^s\r_n-]7-mmTpa<eJ$I[E>vTv]Ke;X!v1e!C$BCCK
+    Ku;<@z}<XuG@Rr-pKA5u{w=Rx,YvpGp{_]_zpn5^iasV#D!HWo=i3m5Y@nLlUC~1}5pX]~H']@jB
+    V}$Q]DGv[+aGZ~Ku>X-QOY':A1Ys7zl{o&YA~A_7+wZ>6Q5+GV\QjCf1Dnx+A<GB?e7sv\5bcIi>
+    VCo>;\sesCepv&'?s@3zz]ZGBm^0pT!j^'V_X_Cl.$^kCvUU,_?!{7pJBXUC[\7VB|VDlUmBTA7u
+    !pBA<a!rABpUe]^YD$SG-V>mI;,Y3ukDHJ[EX;JDTTxlQ{a|K$#>T'e$=Z{1k+;5kn>weI!V3w{e
+    kI1zln2rnr-;@Rz3C*-[Uv}!^O#GT\_A_'s++OiWOYa=U=C#lK<U8SYOnDeEp;jr?orZ5enLR]VB
+    X-->~vD}Bj\z}UlTZ,i3.wH]^pi>+p}{JlkI\q8THE!EvD_.!'A$;DlA5}G-1,[ewG!REEzu(b!1
+    ~AzH~e>leoxe^U+Gm22,G*#HE-m_j-x\QY9_B?o2s$;~[uDOpAOlTUnDzpsG]jvf-rh[WB*,l?vJ
+    ]!T/]{;<pXo[geABC+[2k<>z!TvUxl+GrllC2C<2vj?]Q>jEjpls}flk5Y]x@eED\#a{=_Sux$2f
+    zAl+R{~\ZVAuO7B1}5;;5D?3C^uE~RwEfVC>KinTD,VI~TAr;\Zo^pxi'k,],V77KG\R@h-YnJD~
+    2OV'm\>=]>ps<Wl]pnB1,}p+r=R'{OD2BuX*I>KoYaJTXr0K[Wr0H{sr45,\#ns_CEuJrGaDIIkO
+    Wv@A7#.W=?YUHKsII*QxKs]$T$O;o3p*RDzpO'-u]$I]@,xHBQ]J}n#j~=^[!p~CjpBBW{!2<J?T
+    v}V*ZpH'@wW$?R\V1nKZaJUs^?TEsR,knsE,2wKo35^}3=DjH'^B$7jBBE#8'T<UVn\?OxUa.|ek
+    >apB!xBW_!EE$Kw{s?+7>XKxwCDYCHC;KE{UG7<BwH{{Al)V,v@!5VXXa$BVi8RROI;e_Go#rAeO
+    T+V=?=vkHAE*p}AR+D>GKJG323'+D[1sU!+5WOj'_3GU[sMeKRJOOk,-7}Tk7}=@T3->*p^yj@Bl
+    l3$riGI{z#{nxupa\rOiV$a\.5#V$\\#,;>U@XY@+.As,XW7,Y(5/s[<zz?zp11B+:YU$,UHHqr_
+    i,zu]v$-Y~{e?Ub>oewxOKIQ}Ck#Yk_KC>^^OTT${QJFlmR^QRIID;VdGV'5u*u3<Rw;o*!]nnOs
+    2E\zF^k$rr[X2,epl-rG2DG\1Vo<!G#BU9%/BDTD;v>'$$=^{D<rw}UYI@X*~DII'\'Z_!AU<DpY
+    Wp}\4o{VoZ=T5j;_EB]$ART!$C-}W1u{@J_1Hls#ADE?$]}WzYu!UrC=$B{5CV7\Is[I~EW_wD\Q
+    X[vko$vuo+$eY>X}KOpAR,pua!r*ul_mE=#QABpU=|2E=uQVpXOmG2^#]xw{[Hj>@RRG;rK_1U@V
+    l-l@B1WV'}\[J2b]@vO5i}T1}k-T5oB^TCxH_]7luz\4W-E!nAo,AvUp<jx?,WxG]@JmXz3~1+m[
+    QI_WjOR\vwGx3\[CfVDB#Jes{9O;mG;-BxO7Q-;_oxiY+UHUnkD>x7t!,J,5On2&5H!X7GAn>7?z
+    a[^+B,~Zi=Vlkr?Ou*,5*EppW^R'G'KIQGH$GmZ@h_[={:4^u];XQuDYn!OiXCnB;-T@l[x#x5Vy
+    =sI^S3UjV'I!#U*;x{,a3!rJXpW_5uXZXc3O{Xp*+;j_lQa,@VeQD1(AA=V}lJIxxUI{lBo5J$Wx
+    aXEnO,,C]\BKzrms@mY3,?m0=E}2OB;R[~][uXpJwsGuuC'ps$}\BeI3\T]3qCJW2?oaDww@^R*!
+    DWr2sK<+59AIBv]*DDkIoi_ri=e*Bi$2$T#p!vrIi\YzDT;<Z-Y'wOQn\E>VO[N.l$*pje_2Q-RW
+    f+AQ'}@1>,jW>f@en^1WeEp@Ce#'G>o1B>\{+Quz~G[oQa\TKY=pX#83AQ[[J+G}vOKCQmQao@Jp
+    k5Bz<[_ZX,-Z<vp!O,3qkx~@?paJRA[xrDW#O?Z-=~nVOB*BT,;C3CI1_$n^z3{C''s+-]G*QepZ
+    K'vpHRp?s!~QQer~xE+p2jIQ"^+]u?L'ED>o2r[%}^~-Avk;;1zm+v,],I-Dy,kovo<;aJ7]5U^A
+    s\{CHe35}#*jxDm!wo~HuxGHu<{rKAxHvirkn1T+=iVGl"YzXQz[[33r15%z#xvykenX1,[$f_A*
+    aw[=2Cke@}Z=Gp~jz^,*$*<OK<Te~Yo[>_@Ea;Epm(Nz'@rnn,lvRBor2RClpWuQm@;r@J<:]3sZ
+    qB{KU@ol7?]8*~vrKOH!*Uu3A^ZKP8&zsvm~1z{]|?[@2lI-R=Bv#KrQ$uz'?~EOzK}?CJp'}{{}
+    $+Bnjp!7@B3Il*2vnIDQ@AHD2^B#mmUTu=lZR'#CCRZ]s[~sO^27A-vWrMu6G@AD'CZAz5@^Qs{2
+    @j^;<[j;kYF*~X2vel;Xn{DO5Vuz*^j<=Rl;w_I=+@+|9U'1Y\Y'-XCB$-D3?G&;_j79XD<BnL$^
+    w!OC{K^wHA-BmW_=eD0{=CO!QXH5@''-p-ZBZ*BCZ,ZE_;?ci]m!*$V@5p{U.zvI#^[*J42r=Jz;
+    5iWv2W-U[,gEe*aliR{T<O27M'z=Ia^>JAzlIFwAC;3XrXe3K>>=U,zYC3g2VTnfl>,U;e2-%EO~
+    YBECi|^1,AoXuo:aDV=DK,awa7+XTDTinR1{_n1Gn+2vU{nK'HQDjMwaj?VV!W*\rib)Se7Aoo$=
+    wCX=zBEwR7&Co*'~leipBmTd_BOwBaweC|v]WI1HfYXO1D+R@{^o^3ri[#'_a$?<5eOx3?T~oo3l
+    vjaY'IX*}nHjw^s_Tqv^o#SeE>IkQj[THTp<T{XM5><l7<7kss{<OK}z~n'iU+DE1=*@^7mpWpuA
+    $I]-U'EUK{C#KVp^T|J}B^!$1G{zT\a^^ja9kG[1vA5Ae>',Ja]{wzoU'7[*|i>~al}p7B!u'p*K
+    z1lIs>B@uDOQJ@1oo[#W-]=rsA=5eKw,I1Go=DmKCjk2^'&rO?<JYa+cAvo}Jx2A!=x2{+>\p\L_
+    OE-GE<\Bx;7vKY\ok$?1E@oDp7}E;Xn^3CG]uA~=T^jh7<s=z!^{{zJ7\;xz!X_$TAKe/&ur7[CC
+    !},uuoxZx>G]UOIGpn>$@>rrUCs5NX\QEN!}2r5;x2A>]J}~>lEE3Qv^_JD?~*O5i\BzIWjO_vQ;
+    p_Ve1TV*QI1>ppJlGTM~><?}1elOT7{{v$a$~A7@53!WN7*$A/Mv$WGH1Z+o'p?CBEu5KZ^-_a}K
+    Eve"X7KEsrY]TCvj{-2I]tC-AK5eH[G151}!;R=!_isR]76HT\lUvO?eDxJx{OCavH!>rE?iC@]*
+    ou3OWz@EAoAza@nZR2UaDHR'e@aPBAG=\K*7NjoTH^m^YB_}xOJ>IpUO$7B<=Gu,@-TY\@'YOW,K
+    [oZWT'#Zz7mvHR+Y-<Ei,72-!l?QBEGU5vYJ\lHU1]}AJwVIlHwaCZC~p,<l'JC\p1,<pJ_DHYr~
+    Ro1[D8UA{rvTH}ehdUnspKn;O+O<=)'jOv_@QR'>DBWB\'zs@UxBO+@ATV3wJzYoOlWxkG1{11(~
+    <za}2Cw=iR'\jY1lJ*$}mWnO;\e<[eW}B1W~w]Rr1jYLn-2le}CoU5;WsCvIK>n1#ER1G>Rk<Dwm
+    BZUCQ,!~T-Vm[{vzW[[_1?vAUzRDRvW3KaAZk-na}{5J^$;{IxB3ko]TeUorGRv3V+;{f~<Ue2sK
+    386'Q[\ew5@'YkCGw1~$*$mD!I$T[2!7mm'Bv{_z@<[+^j$;A5A$WWY['<RC{6uR!Cp*HREHQ#$G
+    aeaxZ1DzZ\U*2V~\v^W5eC[]W}xxr+D7OJmO=rmtTIoGA}O1}@{Gz!j5?pR1oeX{PUj@-<j[ng7{
+    3_O>CQXz=,DKn+Gz\l8!a5npD_V+[<Wv_##9=*Qw,5@Ro5}#<li;unTQ4IHK!WVU}+AOJkBj*DA!
+    KTQ2,=3w=|zH]{srr12]v}1KC>Ly$3_wZ_-3GoDIJolm%@Hs~o1'JQ!+Julaz?xQ3mRY3o@!Xeu[
+    AxTU}'nTz,XmY7XYkgmn+w@s_sV>2,7#]}uX'T%$~2rm['CRnOp1@BXlwoA&_VToX5JGv3Z+s?V5
+    Q"mev-dHznG>vjDeYWHZQ72!DR'[,su#jh]KH}?l-?B}{*&K=T=>DT+X[BozBIGG27wCpAKkYx^f
+    XQlJ(*GBD!7jV05dNBT^xfvG'@mCTC2[@\Brul\SY#s2n$$xJ\kW]K,mpuYH{arOR${Ad%WUC[rD
+    vQ%mI=Z{Cnurx1iF]Uvn3Tl^MTI!#^O$5R{G!ADOiOmBmrvrYxW*TDG>XXD;}}?<\i|"Z'GKF!1{
+    l,*-KK|;rK$#sHIkV7EZ$#w{+xQ$GpJH$?+<'UAS?EHA}mJ#p*D*vW-TQpPlpuBE+wDpG^<rvV~u
+    }=C7Em,'7op\_zC<C!x}uT^7lJ]CY}Y/xxnB^k@3U<a2<riEis;Y]_3BG7EKAG?$7H$@G!v[]=*_
+    uB{^DXeiXIBDx2>Q0]7Bx[e!\IAm~hXAY$RI!=7kpp]]X]CQB^Y;u1o,u,R1lI[8&=;B7>5H!#,x
+    =H}@Q'ITRr}l1-QzsCiA<I'2A\x+ZZX7}:Y[}KX*u~wU)_OH-Q5'Elei2or>k6^'[IUr1zD*!+Rn
+    $U>*C33<[>]Nc5vw335ApcOeW[x]31sk{Da,JBinHn;enAzio,DekU;o@5QjxXrv'UGI'DY<Y?p~
+    !m|v!=oT<pKTTo}xnoEI+m_Y{v]ID$jfv+5Q;-@k![naFUan$>]#z=upQ=3*A&Q!p<]Ip,IiTr7_
+    p*%~op;nE{a>YT;eERvrs}$GvW23=[1QJp_*mo]w5=acxZX2\eEU,$->+UzUiUU'jBpG'E#<^x^v
+    BI[5%qVu,-'4Bj11E,'z?evQfzxI]$X};+Dpi+QC~lW{oYK;ejpk-7?er-aGeo+nv<CYT]m;Y|R*
+    HD7~w+X}<<!\r5}3>r;<@>{V-kEGCmuDP-j3o+jVOy07=QzAQ#@s!,skQ-5YZl[(1D*C17URA<Qo
+    Prk$Rd;<zDtX$Yi7Rru}^xlo'?oI'D'a,>?E@;Grd{O<lf#o;GNopu#15auuE+3*IGUes]Ad]]J[
+    LVDQz3XDv9>->~[!J>RuOe@Xwu4HQ~_UCT-x>TzarV?Vpx<Es]UuG5!o'Vw/=G!pa^BO?Y*iAr;5
+    BT<e*3W[]iZ;iC[$@{a2osZ!OrZmoXZJNpS^GBevw;,=Vi2oeR$sk=}5kK-o3{AP\lCuf}W@[lix
+    vJ]1KrDH^VzTKeXoUZI^H$nQ;77liKrTo@1[sHo'}ms?VO*T,=wsKU_s7fZTn];$*p$RX?iXT;SX
+    }#G=w<Ig9p,V<r-pDIE>>ju$;BWA~C@nkd!CmD[u-Zw$B~;wvxFYz7BiwJ2TeT<RRXZ!]JJ=$Up}
+    Q?J^z3XkI{*\CKCLDU$_-*\T3&2T+!jUr]wQ~BY7@2!GR?wzQeUw}HWT\#wRpvaoraq'ZHz$wrHw
+    1J,sB3wup7O{Vn@!w>vETA[6p/;X_],,3C}_H$N0-{+~IQ~X!_O1$rY=4__i51\i37car#1.QiD[
+    ?OEUY@*\72pVK_uXBV#X~n^2lOVVr*3}OB@@xC^v72Q<nIKIj?X@Q?s\NwH\vj;*Jmj#x*T><sz<
+    mv<T,>9s*P=^+Beu3@Ia}s=K{mEU[z:5?=v-rB'*;Ka1E?ni^vC]i=s;<Xnc}_si5@}E?[QE+'u~
+    D#'I#IYZTxD2BAVwKsuIjJ]3]X[nT{DVdI=BxaQ]<T]3#,e#=&XEo{Pb>E?>>XlkQoT'#-DaSj2~
+    ~VpzzVxBxb}21jD{O*$Hs@1_5QRev+uVWQG=a,M7}rTnv*UQeT'hK^X^1RmG~7j@DIz51^>C3w[T
+    -*Jmn1H$^+!kIKw$sl<$E#CZ]*lETAwe-{AZ/yK=H~][vU7xVCK+Y?s3x-R#V](QmX!6m}]CpJ'K
+    -{YI_TJa-$7vSiC3T<<=r{5IQH,-mr^EuKs=*E2]5}Trx_;j2}5_*&,qj=[o7l!>1u@;O-nZ1EHJ
+    )>^Q[2=@>{>$D~^=;dH&+5{l!rHx;GlG'O<R&0rX>#%@}}v[p<KEEuK[@eu,5Z*lo$GzlCBH7k,[
+    uUZ]JYn_wp?mI+Hq%4BsCHg=l1wHB,i^'IV!D1x*er<pj[}o#Y7A7xWkaZ@kB$^Vi{[ltT*=]JH}
+    iC3_?_eY3~X,D)a5jO)Q2wW}pO{{9R#}^ljO1sE{-@\Az;r'AHphueDsN\o2KhBm>D$r=TwV]pNR
+    e*W-]RAwTA1#<-UoG$~X1~aHT*u*KoRQ1iuB}pi-e$<O#asA>zra-wme*B'2>@wxn}JU$wBo+=AY
+    r+-lR<#Q~u1!_oHkIl@,?X=\v7X+<^>?ww'#z$A;X]e]-!Oh;xlrhAsK[Q?^wiH,^*XK@n>A]3l^
+    p7;xDZC,[Ev;A]*rB'dnlEW5R-}7_7U~Ts3EK~eIrBnYpDUMuev1}ZKXYWx*TrB'iOp!a}Qu!t^D
+    IxSRtp+pulB<=A^~E5}KoMc2}]UCava7KG'bQJ]@OYU@vaX$ou[!<\^*E<a1>TX35D3T7VO2!_Q-
+    G\I;Qy:nRZ,D[5Kb&jTVuI$\@$u}Hn-s_~aB=Q=3Ua-n#'uBmxYiT~$3[p\u{1{w*EB#e>N[l{?s
+    kG+7R>X\Bp#D;3^B8}1-~JHe@^+3=D<}m*[pTqaUzQ|U^VoB3I_ElQ^m|ZO51JXI3W$H@-1J[rFh
+    ,l;px@o#5{.^ATDp)O^O>pW7z]^onO*3HD{DA.Cwr8!IzHaQ-^^WujDIU~1OA#rQn;eGmQr*W[0=
+    iT2G<E{*jTaBm[>\u{Io>=o"UsVWp;^Ip,GZpj@oOeBALQ2,T\>!+NBZXWBz<,m<~Aw$]pOeiuY.
+    JYe2IJ-I/[z<!lWz_5oDmT|Kv,i-[XevHH1{=~7&$~Y@KTGkq8@Y;AY{aKeT;{Ljr]lcb@Q[3Eo<
+    ACrowOaZDkr;$I'<l>AjE^d2,na:2']mX}_-~Y*uq@eNW\'k*x7^JON7$Rvr\${&1_=O#VA?R$G*
+    a[$xTpiuE*A]D#mu$CVD4~U7!RQWx{T,ra,H2e><Q]B7{#^3CB<O]?AQ'ft(#D_oi(uE=B^Tzz,1
+    oQ=>H~+Vje[K@pe}uvieJp@rpU817wK~TA@zsH+iU5xr~K;B-@7>OV3;QJ5E3}'->VEApa':IE,x
+    rRT#][o\}HwXX1solD{ztOZ3'GwR#l^W\n5{[W>5mr2E=msmpxH'[6ZVlv'-XY
+`endprotected
+
+
+// Statistics block
+
+  reg [63:0] total_accesses;
+  reg [63:0] read_accesses;
+  reg [63:0] write_accesses;
+  reg [63:0] back_to_back_read_bursts;
+  reg [63:0] back_to_back_write_bursts;
+  reg [63:0] fixed_read_accesses;
+  reg [63:0] fixed_write_accesses;
+  reg [63:0] incr_read_accesses;
+  reg [63:0] incr_write_accesses;
+  reg [63:0] wrap_read_accesses;
+  reg [63:0] wrap_write_accesses;
+  reg [63:0] non_cacheable_non_bufferable_reads;
+  reg [63:0] bufferable_only_reads;
+  reg [63:0] cacheable_only_non_allocate_reads;
+  reg [63:0] cacheable_bufferable_non_allocate_reads;
+  reg [63:0] cacheable_wr_through_read_allocate_reads;
+  reg [63:0] cacheable_wr_back_read_allocate_reads;
+  reg [63:0] cacheable_wr_through_write_allocate_reads;
+  reg [63:0] cacheable_wr_back_write_allocate_reads;
+  reg [63:0] cacheable_wr_through_read_write_allocate_reads;
+  reg [63:0] cacheable_wr_back_read_write_allocate_reads;
+  reg [63:0] non_cacheable_non_bufferable_writes;
+  reg [63:0] bufferable_only_writes;
+  reg [63:0] cacheable_only_non_allocate_writes;
+  reg [63:0] cacheable_bufferable_non_allocate_writes;
+  reg [63:0] cacheable_wr_through_read_allocate_writes;
+  reg [63:0] cacheable_wr_back_read_allocate_writes;
+  reg [63:0] cacheable_wr_through_write_allocate_writes;
+  reg [63:0] cacheable_wr_back_write_allocate_writes;
+  reg [63:0] cacheable_wr_through_read_write_allocate_writes;
+  reg [63:0] cacheable_wr_back_read_write_allocate_writes;
+  reg [63:0] normal_secure_data_read_accesses;
+  reg [63:0] privileged_secure_data_read_accesses;
+  reg [63:0] normal_nonsecure_data_read_accesses;
+  reg [63:0] privileged_nonsecure_data_read_accesses;
+  reg [63:0] normal_secure_instruction_read_accesses;
+  reg [63:0] privileged_secure_instruction_read_access;
+  reg [63:0] normal_nonsecure_instruction_read_accesses;
+  reg [63:0] privileged_nonsecure_instruction_read_accesses;
+  reg [63:0] normal_secure_data_write_accesses;
+  reg [63:0] privileged_secure_data_write_accesses;
+  reg [63:0] normal_nonsecure_data_write_accesses;
+  reg [63:0] privileged_nonsecure_data_write_accesses;
+  reg [63:0] normal_secure_instruction_write_accesses;
+  reg [63:0] privileged_secure_instruction_write_access;
+  reg [63:0] normal_nonsecure_instruction_write_accesses;
+  reg [63:0] privileged_nonsecure_instruction_write_accesses;
+  reg [63:0] normal_read_accesses;
+  reg [63:0] exclusive_read_accesses;
+  reg [63:0] locked_read_accesses;
+  reg [63:0] normal_write_accesses;
+  reg [63:0] exclusive_write_accesses;
+  reg [63:0] locked_write_accesses;
+  reg [63:0] incomplete_exclusive_accesses;
+  reg [63:0] exclusive_access_successes;
+  reg [63:0] exclusive_access_failures;
+  reg [63:0] exclusive_read_access_to_unsupported_slave;
+  reg [63:0] exclusive_write_access_to_unsupported_slave;
+  reg [63:0] decode_error_read_responses;
+  reg [63:0] decode_error_write_responses;
+  reg [63:0] slave_error_read_responses;
+  reg [63:0] slave_error_write_responses;
+  reg [63:0] unaligned_read_accesses;
+  reg [63:0] narrow_read_transfers;
+  reg [63:0] locked_read_sequences_across_4k_boundary;
+  reg [63:0] locked_read_sequences_exceeding_2_transactions;
+  reg [63:0] unaligned_write_accesses;
+  reg [63:0] narrow_write_transfers;
+  reg [63:0] locked_write_sequences_across_4k_boundary;
+  reg [63:0] locked_write_sequences_exceeding_2_transactions;
+  reg [63:0] min_arvalid_arready_window;
+  reg [63:0] max_arvalid_arready_window;
+  reg [63:0] min_awvalid_awready_window;
+  reg [63:0] max_awvalid_awready_window;
+  reg [63:0] min_rvalid_rready_window;
+  reg [63:0] max_rvalid_rready_window;
+  reg [63:0] min_wvalid_wready_window;
+  reg [63:0] max_wvalid_wready_window;
+  reg [63:0] min_bvalid_bready_window;
+  reg [63:0] max_bvalid_bready_window;
+  reg [63:0] min_read_access_burst_length;
+  reg [63:0] max_read_access_burst_length;
+  reg [63:0] min_read_access_burst_size;
+  reg [63:0] max_read_access_burst_size;
+  reg [63:0] min_write_access_burst_length;
+  reg [63:0] max_write_access_burst_length;
+  reg [63:0] min_write_access_burst_size;
+  reg [63:0] max_write_access_burst_size;
+  reg [63:0] longest_read_locked_sequence;
+  reg [63:0] longest_write_locked_sequence;
+  reg [63:0] read_bursts;
+  reg [63:0] write_bursts;
+  reg [63:0] write_bursts_with_all_data_masked;
+  reg [63:0] max_outstanding_read_addr;
+  reg [63:0] max_outstanding_write_addr;
+  reg [63:0] current_outstanding_read_addr;
+  reg [63:0] current_outstanding_write_addr;
+
+  reg [63:0] stats_free_run_cntr_on_arvalid;
+  reg [63:0] stats_free_run_cntr_on_awvalid;
+  reg [63:0] stats_free_run_cntr_on_rvalid;
+  reg [63:0] stats_free_run_cntr_on_wvalid;
+  reg [63:0] stats_free_run_cntr_on_bvalid;
+  reg [63:0] stats_free_run_cntr;
+  reg [63:0] num_read_tran_within_locked_window;
+  reg [63:0] num_write_tran_within_locked_window;
+
+  reg first_read_addr_window_update;
+  reg first_write_addr_window_update;
+  reg first_read_window_update;
+  reg first_write_window_update;
+  reg first_wresp_window_update;
+  reg first_read_access;
+  reg first_write_access;
+  reg prev_read_access_locked;
+  reg prev_write_access_locked;
+
+  reg r_arvalid;
+  reg r_arready;
+  reg r_awvalid;
+  reg r_awready;
+  reg r_rvalid;
+  reg r_rready;
+  reg r_wvalid;
+  reg r_wready;
+  reg r_bvalid;
+  reg r_bready;
+  reg r_rlast;
+  reg r_wlast;
+
+  wire collect_stats;
+  wire current_read_access_locked;
+  wire current_write_access_locked;
+  wire [ZI_READ_ADDR_QUEUE_PTR_WIDTH:0] current_read_pointer;
+  wire [ZI_WRITE_ADDR_QUEUE_PTR_WIDTH:0] current_write_pointer;
+
+`protected
+
+    MTI!#l\pK*IAlD;U>l{ZoO;Vo;=O;mT-uEm@a7@*KV/I~TI'^A[S^BC~]3+A[(wj&p@<j^_x1*uK
+    #T>,[DjU-q}XukmVl[*@zB]QViZnlXl5Uo\jkaHVI\{EW~'[iOouA,$TH?ZvxrvZu_H-VYr!5*'o
+    Q1ej_@+7-Yw=_nIDw3G;RC__zaW]?*Q[1k1Z,*!+B@NW=a#!A+Yjv'VHAp-G1=>ZUOp}R{xB*A<,
+    pK<e{]D,\IV[C~RB!IQm_C*}mnIg?5oQ(!X}o}>pT$1>Rxz'ow]W[ua\>UTCV;AeW0$VUBjjEvI'
+    =-!T<~vp@rec%iR$IorA3pm@?_nzTHH^;OA!}s]*}[\Jj#j{!73[$YJ1ilz-Yq>1eCcWjDBU*[=E
+    5$n$7';,UHKHOzD%!AoxJ^VXE,X>Eul_JYYi=HH@mAA1i-AG#QCj=HCI_O5og_'X@VE{1s!$p,]<
+    Z~e7Xr$e<oo]i?=A#E+O;~}*U/w{ssivppesTOY*QT@a*'OE-}77p1gqHU5'B>e2w]x]Qln<@HIn
+    %lw,DZ=$#?XxAh'sn*y}./UHe?c$7=5XYw,;<O?}_eDQrTGn=7r-T7x=z^_BaK$QTIwJC{eil>m[
+    mY^A[5+Y=saTQr2E2ZQdUV=$3AJ'k<H][],Q#o]H\aL;$i<Q\\n~R;Z-+]52v[}ZHjZJp=>*\m7@
+    ]+kCIIDEIXYGu=pAR[]{w\7_4WUY,K-mGK_Yo}HW@o#XIIQI\-<j;<UjaZ\woo;3\\e;?@YvX?Cn
+    wCAn7hA$?oL['errUlGBU~mOjH*+-@soMrYW\On=zYXz-as2@BQ~3G}BT*Im?=Q>KTlW'#]mmAG?
+    v~G<O9I#XoXx-7jIO#s~Wa*sZ}B}ZG+RU+OI{X$;}<Frj*GERvk>p,K8~Q_panC#,^ZKwB'^K*G;
+    fnz__fKACYQVAQe\7YD\DWQx+uQI}?>{pr-S,_IvZV^XivK[=-Ez\zs\H'jD2Im?W}-Cgj#[on==
+    eLuLw*n2,k>3z_oG!57m55Y7>z2k'Y\usXU7iC?W$@DVvea*?w$#o']-Ir'Y#'}Knj3zpE<xATQA
+    j{~YB,TjjKUI>rK](z;RBp_Ya7OQi1XGEmo};HCZ<^7~E[s<@aB;onz]aI|6[~A$zRUez#{TIuOY
+    IR]E,>@^,+2$={5CXrA@U*O+9fo3E2iEiH3xU?@j$?ZE{?*}xK)EACs#$pXv3$BCX{2Q![wIEw1o
+    11u-j_iyx+@}=DG]U>7^sQwW**{[~e',0M~5V-ICG=pATV=+2XS''-VhmE}Hl5[';x\{'V>H:>]Z
+    #k_[!_KX<1w-_q;p1]d,5-w^Z7l7c\$'Arzr##alo=ITU,fG!^G|sWj,IJw-Z=73>vRW:?-WA$e-
+    U$U]^\ir>BUB[kETU;vuRJ8R3uUD1j;;DQKb>xZ$>\W'Ux~~0@l7?2pET_>BDE5YCC?unsW\i,CK
+    sQK~K]~-u2\p^[Z~{{e*U,jCz<'evpw;?C^Q[Q'BR]&*v'axpXCOYpUp5@?k}Z1l^YZneKC1wxx\
+    r>!^]B2~}nv!RaDfeJoolHEn+x,!Q[EC1j}j=s@>DrEeU^O;?*-;jE!VH{mo?IA\!{E'xB!IHH12
+    {'+%@Uj_jDaBXx']#QuO]K@l)ei}EHroiG{Hamxl-voWa#-Z[.~xsK>e~V
+`endprotected
+
+  assign current_read_access_locked = 
+    (arvalid === 1'b1 && arready === 1'b1 && arlock === 2'b10);
+
+  assign current_write_access_locked = 
+    (awvalid === 1'b1 && awready === 1'b1 && awlock === 2'b10);
+
+  assign current_read_pointer = (read_addr_queue_write_ptr > 0) ? 
+    (read_addr_queue_write_ptr + (arvalid === 1'b1 && arready === 1'b1) -
+    (rvalid === 1'b1 && rready === 1'b1 && rlast === 1'b1 && 
+     corresponding_read_addr_found == 1'b1)) :
+    (read_addr_queue_write_ptr + (arvalid === 1'b1 && arready === 1'b1)); 
+
+  assign current_write_pointer = (write_addr_queue_write_ptr > 0) ?
+    (write_addr_queue_write_ptr + (awvalid === 1'b1 && awready === 1'b1) -
+    (bvalid === 1'b1 && bready === 1'b1 && 
+     corresponding_write_addr_found == 1'b1)) :
+    (write_addr_queue_write_ptr + (awvalid === 1'b1 && awready === 1'b1));
+
+`protected
+
+    MTI!#m[JToC1]"BCx?Y~ZYWa+]VCi2ggB{!E7#[k~N"Q{|EpAW}CN,,]=G?Bi&z@IA}H*+#1pIK[
+    yADw^]ke]^+REh>rkUp'~'1Qp~[*AYuD]o,N6Dla[VauE7@71#]KvP:HE[]~p;eu<$rI@-pGu_77
+    Z<BzW!]wTemw<Au_Wl77XmzfIXH@3YY5AXsus|T_'2,[{Z![#U=;XY!DRZ}~{YxA<~}wa[BH''B<
+    zUt$x{1,vvrY5_~Gv1'f{aU^IQAmlU7vUxiD^G{vl];WGiVYzv'DV3pTQmVRnEn2&3x~l7vikE-7
+    !{wQ1j>w'wT7Y3Hn=aAUr[k^*I~\J{j{EID>+s$wO#]Y#}w@v[]Ds{ol+}Iu[~VB}6aa,5n$>EUo
+    A*JaTsA$Bc<r+V17RRG\xG,GEE>[oa:l[T5,*-\B[~]*#vEoM,]srj+1o^=$A[azm}]5wBJpOVK<
+    $#oi<O@T@LEs_O2[IjVx*pms_3wX{A85aVl+^D+SwlrOl];<N7Zlp}C<ojuxEh7^Ax#<H^R3n{s}
+    U2];T!#B}5{[}xxJZ2P{+v<lIvOI>m##[5mAl>?YYU7OsG<-X^7kYBGY!2WkxWn?xIj*mCY\exr<
+    \G#]Ie2>wn+fE<lZy2\={AY5Y~{J,zoa;W$u?Gk<J#nH\iYw'v<,\i_5kk[}<su2zlVIR]p+ZUVV
+    v'ewYx3['<=;l3*5e@Gx2,pz!wRWl5ar[1q.e@va!<$i']UDe\o-a}mnnIQ'Kz+DxZ[RuAe>D2p7
+    pk1<oZB>5r$\i$m,xv2$7CG>l^n*>=~_g:5TDD.l.jin]e17,vJ1oCRB=z*!e>sV!Ow-xz2]1d;A
+    5lCB22a1!HNH*K{jYuT']$'e1~[~VkC@]G>/l>*jeee?98@D5GzVnH+Q++^]XV/_[Iuxn_sO?H2G
+    ?<K}jW,QB^7IHnA}VXY^\Rp[xVzF+VD,'=H#}+3-+X@Q2[i+*;zw=Hv+f\KrW==ODjDQ]ipV=_]>
+    ow|e_Tw#E5[wDY5<-V-+TCIKsQwC{1EervjlR}xx's25?D?3+WY5=5DKearwV,k]*xGk<lx4laBp
+    rp+!Va}>Xs]s!5nB+{m+D2=weA<>zslRO,=@e5A}-YjUYQT{/lG+$?Q@GRKwU=_=m]i;==k'VsA2
+    ^>x{0Gvw2QGX{UrJvB>3;YGrW\1$Zd;Bw_oIe]QW^'Ko-srwo~v7sn,1pz\lAEi>>sTXDj=a3^ET
+    l7]K1v\'W[#Cvkjs[Yb'},2=,^TTO5v7];Bs_@OE3xD++Tr\puA~HvomG}kw,R@pt=i'?#TDT!j3
+    KrEwRR!DjG2]3,>V[u'\X=,!ae[Hu#C*$@vVpmvxQ7x5^CpXUB3[_Ri_=>G3<xexB9}J=~4a8oQ#
+    w*Je^0aY-ZQuB<UoVi!_;[xy1}$^o{>m\7s=GJW21,1v;p~KD2TV75pWVsIpr*?'^iTTE"jXrrN6
+    Bm^YY*TQv+Xpx\xuzXn@ox;[}2'!Y1]o}#\{M#VE^Y[<viaO@i*=UV1jwAwnvElvjV+s}3w@2LlW
+    <75[;KipCn)B~vRQuERaG,H,7DDd5De##ae\Wv_I+=^[6CA$UlhHGVwVY1pDxlO\{m@>^!sIUw7d
+    _5[Tu'7KAI+XTRB3*]k=nEe1AVeslpH=QovV:ul,pq^1ikp@5kv}x\D}L$FBi<Zs}!BiCaU7Kn_2
+    _VHe=s@YsK$P^uD!{\jjv{JwCbjx-~z>sueD$O{>U-^3I'Zn^E*?3zA1$'I]BGenQ2i$}eIATx]>
+    {3mspR,]5i;z}J$$&${e;Iw2CET1A^9Cpe-BTG]<C=O,mDBOU1Vi'v[_\#I^o'C<oRBE'^]#Dr5T
+    O<$?RGs<[{'G=UT@*E<D}K+'73u=k'sAQ;BXD>#>'#>bw$A,,kTJ^Q>}uOI-1]aR_jw^[+o2\;^Y
+    {AmG*n@s}*<p>vT*|z+C2jTp{VXoKMe$Uw5X2G+CRGj#Z'ive[G<Iss*v,oepHz}][jv1+/5;GR^
+    ?35pK]U^*'x<U]$ej\CnC;HjX7$1s1OvU51^5kw\Kx<7@vepC>OB*r70O}k[*?$iJwvJ?7;AIim2
+    ZrBTRp'*%jw2;!EGf~+Ww1$OlZwR3$<;[Bv}nY_*snsJ>UQO<!^o}[_YVD*!VeBHW]2I=|PvZ3@m
+    XHD1uT?mDp$A1QoxCaoB-Z$u7JR+<;xaCp5>v!nu5YTX7\kj?KGlpJKK,WCKRv^#Q}Ql?e_>ImT>
+    lXv,}lIlBk^@}?Qie@?I^+XRka!Oj=~]]rimsB=(ziT;*ADDE=_A$@E^,~RwNKp;2~Yj!7}IUgzB
+    #UK^^$r2xRrI<5RaX^Cv>^I=visW[Cfm5xwxiX<WE;[1w<+p*v7lW2T[+vAr$;DmrV^Di7G^7!+'
+    U$RJI>ZW_}u_Q'$N*BEH#>]=w5T]<5_IpxeRH7'-ln_5lvz7Gw[o#Q$UIenB@[xo-j'$=D+^H]na
+    b5Yj3A>H_LR{$*fi,2!5rU'G,'7_~}Q#x-m~DTuZ,ZxKGV3:[E*I]}u\Kr?Hzz!p\OZQns?s5Txo
+    \rijz]~!~{BjZ>'Qjsvw)5]Q>MUv3\@+~Z>HG1q}BI,^^{[iEva*E?]qHwU\k=+Ox,n!%EE1V*35
+    [ze*sjn23@[Y~p!e]z31lCp1_=1U]_HeQ|OFiaTJizR$Y^I-]lG+v!QCxzJ~5V'_V1>JsBzu_$G!
+    _Dkpl2Rj;'kr_\YYoh?-Ca|a_AUJoIQJe[QrH1n*;xaen+^H|[HX{\v=G_p7m>X23AT]u{Ym3}e{
+    }AaTG=Y@!#eUDQB_1ue;$]J~I77+1VHv5Ni<CjaOVi~[X>v~!U=EsDl{T_$UnwnOC[k}O*AQU,o+
+    R<ZIJY|jOQ]$XA>I~3=V37UjaQ~5D\!{j2+_]?;+\K}U5VOB;Q'E'Y}CzB,I$pCn{ABoYeT$[]sw
+    l,zzWz}1rw[tx,*<U5J=]kxBI+-*V*~_u{KX}X~u\!^<DK$[o#sCAHusA]ix:&aC],}UB@!C3mmC
+    j@g]2\?i{2E_vw*mvn<EW7sI@JBV*^T1_<xJ{A]Q[m1,\wDI]-+zA[KDUC#^}oYvpToszv5EmxDN
+    92X7'RTj+r-3et@r7Ay;x+X{,z'}2xYUUWT$,RW5}-H*<}]+7Vo]?>a[5H#l[;Db\4^i>_RW[lI;
+    X}I']U]s7Dx2}vD3!KSk$e{/2[Q-X*#=B7#>l1u2=$=osQHQ1HaHHRRa{[;K%~1u2K7-XsQ$>Tpj
+    mbyaGHaCpkp}elBl$>IY[BEQ27]P,H=UyU7-@E-*Xl<Ex>tw<YpSC2o]/2_Jwz2X!q}s+>7<@^z\
+    A71j,]3nZIlGW$1wwE;r=zVYikm\CJMe}Q2\n>]^@OJ^17]I_o#R$*Qen\#vS@s[pJYvWuo@n^R>
+    <=72=EC^'oIl_sUI72\-ws!YWAsW!$[J;nw-1}3_Q,ns#ILYrOeuxG^l~{'qxEoYHa+'m^=I3]^w
+    #\z-\C^no'Ern}pe$l'IPB8CQXW![oHlT\ep]^177X@5K5}aDOE'rVm>]??RC$Dlu53;zQ'2GQQ]
+    env5<2#Z}Eww5lH?7^i@_1KTeC+<-+G^'ojBLcHBrrvJQOlDCl!TYUY$<p;D#13$#Z[H<~~7r7oB
+    ezQTI;8?XUz=?ul'27}pH*VHHQQ+*k>3\?5[x\HppDaQ\?w:BG+][[mI]WeI\pR<Z^G]S7+JVn*j
+    Vk*EJX]GTAU*\wB'lnxu@ovxe+$T~ZD3{|$$'uDG?v{Q{pm-oX_s>jiB,{\TTAiA!2lX[_7"$eB#
+    lHmuMwrpKW,1?BY!pfmnnu?5X}]5J!E7+DstjEX['Zw{=e^1H{Vzm=$3,VpW[ooGQx#A*DX?#B[#
+    _n~e5WjKp~1{aw'3;}kD*$@@=D]ok>}~loR!qav$jvkBk$'*vEY'x72G3xAD~B%-YDwGBK$Vgh6I
+    !<uuD;xOwx^^ZW_kj+Zr}Ix#aT~m]2Y3*T;e\I@3VY'sDx-Ua^_7Tj~T=x*znW#+1A#rp;7xJ<J7
+    U5}G+-21&?Tu+3E@n;ExuJ^#w?>5}Z*mCz_W*oO+Anw~'ZnWX'CxjT^j1{tGiYGA7i-K*]OC<+Ds
+    v\u;+ZVIVkamj}sg>}oDT5\R@[vaBXplYJ-YBYsvUzwr{-$m][{k<a=]W^C-nUXVr7#-RLv@soB@
+    77F#H;WfiUAGwX73u=5AMWYU]3*}i9.,{n~(XTJ;vGXVBulBWRG>vW-ACC7BiDTBK7Wx'vnvIZjp
+    WaGpfj{+Drj?vnX!+s[Z_I1E'<C<V5}zU;HDY}CB<~xl]A7,Qv:,nIVo~@k8IUUeG<7sRG$J>n_n
+    esr>]Y>3W}v^cKTO_+R}E\^#w,#$UDxVz~'5o>UsCv1Dz#\VpND\s}p=!^-IKRU*!jx$xvKDuprQ
+    {U;n}I$tZ\Gk@em>xCvO@\=TE~CkYG_{V+XXZO@r-wm>nz,<d(h$OKTiAzQE*JCk{VvM/{Uo^xkv
+    k~G};HGZoZnBsEQ;lb]Yw\?VJZTV*GEnVH&WE+^]sAw?5?ol$\7Ha_s]iE@=,1iAC}=^0_;}1_jz
+    J*lnW==nOYwWWB~X<QZCj/G7&_$}arm$U,rrHBvI\X$U}C3rC#$>EYmR}>A1rp=!GvTQO7WmzUIX
+    V@$?!u7V's'J$I}az7jvCRrp\J_'2,ap?'P2^kV~wTBQQ\+vz@Wzns,{,E'3Up{jQ1?npQ#RHesD
+    R?CA*pk@>7'LBp,vQG\mQsl];{+R^mu7Bu\7=H;r*E\ocz{\Ez!l#pl=jvz}\Bjnja1m7,@x,{<G
+    vRWs'=j+Rr]T7kGR@DeT{fsQ++)YFYJzj#r#^Wz'mR&}<,vv2r,6zzRs-'k+wa{$'Z_KxoW1p$~\
+    5I<\$'pIr22@q5n1=*_%v\wmru075,wN_{C;wHKp\ee}AH<GsoR?#,*52wT#?oE$Hj5]H+1?[D5R
+    Qax}rIAzK*J-Js{kw[<14l2_7IKJT]1ZKpaQwK^XDoZ}VP~Vw[p-e\vT5rR$Yeqo4+DA2EWxW_U2
+    o'XneuIUT!OeWwlmZX=*#VD{{*Y^;DzY\'E*uX^_m12j=Gp;3o1ezA}#5]TeH{_C;]Dr@o-GWR=X
+    <n,?u8F;_{m2>-^eu],BJK2dz#}e\u~TzIr[=%[#r7=BU{^_T!D^2,s$jUkD'UznO~#T{wwQs53O
+    xG7_jvl~D5,z,H^K+epxAVB~[G[Di~Q}Wk?e\kVZ,e1Bzub=KC2mvOTzxo?2}*Gp\K_p*~T]Ea}A
+    r<@iECHd1W5&{,@j$Y5^a$A;QaRp#{${zK33RGKGnxnss-jZDv>WZ<QKS7{Onrms?^*vY^XTA<^!
+    {-G[YlDr_'voR]mz[KBviDa&@w!sO_lz'TYAoUJD*]_KEa;Z7EnQ9yB?J=6;GXQ?,^+Y_j^jsH[I
+    OZ-+I+ZI,T{7>5s_^>G1{+e'I-R{aQB~w]VQl@YFw,^'FJ^sH'E{Ge?^VH$-}^~G*o,RI}{s+s|1
+    J]m]-Y+V?n<lx2~jH{lVlJO7a=--R;roJpTTHTr=Um<2D_lY1uGa75G2+meL[+AV==YEf3llz,{5
+    jR1ICVX1_I^DezY3^G+{GnQQ^Kn;>(CzBWG]XYRjz3hvD5C<n\[DWHzHx5riz]@Xe@1GE-,5;$kW
+    luuZ<H_!->~5xA#*[H\^u72=;Za==]j1svGeRUDB~jrV<-=$so,:,A>@Ql-aGl~$p_Z^TrVG7v7Y
+    E?[B{*'_C"nI*K?=\BsA-s=0Yl7,[;;3'Av[pavr\?us!nIJIu7Y}}aBr_@uZQG;}VvAU_u3XO7k
+    AeAum]3TC^w-Bj1IJ}RX{nr]vU52J5<~AeiJR}XlH]~mCiA'[+u[+E*r^A*@Wj[QAxw'0+T{*a*8
+    ^]eo?TOIJ'A^?B[_pl5#j*RB,GwT;sAzs@JA1-$p~YC$2<Xp\?-=Hvw2r*5@,G=+wrX}zu<\a'I}
+    es5$nDX*=!CHUzEvvlklIDBY5E={J\Em'CTH+Cu?HqnERr~_<ezin=ri<ljBXx,oIA2=;ACGps3C
+    ZXQu;<JGU<C>Tkc_G52>TDI}\wZ{]p,{C<U<v~jI>3EV--ls@_wp#KQ+Aon;OA7ArY~'E5_U^e3{
+    lZXAoYn9]7A'_e#>2BO}-ro-wX+n26HrR_{IYT~A_?f=o_}'*^o>a+KH=lCL3jsCi<A3OkGC@}CG
+    ZE,GlC~3Vlam[mX,ZD2A#aseB}Q<VX}lRoIV^5;\J-QZ<_kUlkAB<&7}i[QDaEDsQU
+`endprotected
+
+`include "qvl_amba_axi_monitor_assertions.svh"
+`include "qvl_amba_axi_monitor_cover.svh"
+
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_amba_axi_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_amba_axi_monitor
+`include "zi_cw_amba_axi_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_amba_axi_logic

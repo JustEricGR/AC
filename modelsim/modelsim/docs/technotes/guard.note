@@ -1,0 +1,81 @@
+                     Model Technology Technical Note
+ 			 Copyright 1991-2009 Mentor Graphics Corporation
+						All Rights Reserved.
+
+	This document contains information that is proprietary to 
+	Mentor Graphics Corporation. The original recipient of this 
+	document may duplicate this document in whole or in part for 
+	internal business purposes only, provided that this entire 
+	notice appears in all copies. In duplicating any part of this 
+	document, the recipient agrees to make every reasonable 
+	effort to prevent the unauthorized use and distribution of the 
+	proprietary information.
+
+	Trademarks that appear in Mentor Graphics product 
+	publications that are not owned by Mentor Graphics are 
+	trademarks of their respective owners.
+
+            MTI Technote on Three-State Buses Using Guarded Blocks
+            ======================================================
+
+We frequently get questions from users about modeling three-state buses using
+guarded blocks. The primary pitfall is that the bus signals themselves need to
+be declared as guarded signals. This is done by using the "bus" keyword in the
+signal declaration, as shown below in the declaration for signal "y". Also, a
+disconnection specification may be required if you want to model the fact that
+the driver takes a specified amount of time to transition from driving the bus
+to being in the high-impedence state.
+
+The following example shows a bus signal "y" being driven by two drivers, enabled
+by signal "b" and its complement. The enabling is done using guards on the block
+statements, which control the enclosed assignments that contain the keyword 
+"guarded". The example disconnection specification specifies 5 ns to transition
+to the high-impedence state.
+
+If you follow this example, you should be able to get up and going right away.
+Good luck.
+
+--------------------------------------------------------------------------------
+-- This design is an example of modeling a three-state bus (signal y)
+-- driven by two drivers (block_one and block_two).
+-- The enable signal for block_one is signal b = '1', 
+-- and for block_two is signal b /= '1';
+--------------------------------------------------------------------------------
+
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity bus_demo is
+end;
+
+architecture only of bus_demo is
+--------------------------------------------------------------------------------
+-- the "bus" declaration in the following line is frequently left out by users
+--------------------------------------------------------------------------------
+signal y : std_logic bus;
+signal a, b : std_logic := '0';
+begin
+
+b <= NOT b after 100 ns;
+a <= NOT a after 200 ns;
+
+block_one:
+block (b = '1')
+    ----------------------------------------------------------------------------
+    -- this disconnect statement is not required unless a delay
+    -- other than 0 is used.
+    ----------------------------------------------------------------------------
+    disconnect all: std_logic after 5 ns;
+begin
+    y <= guarded a after 3 ns;
+end block;
+
+block_two:
+block (b /= '1')
+    disconnect all: std_logic after 5 ns;
+begin
+    y <= guarded NOT a after 3 ns;
+end block;
+
+end only;
+

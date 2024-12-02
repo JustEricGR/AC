@@ -1,0 +1,624 @@
+                     Model Technology Technical Note
+			 Copyright 1991-2009 Mentor Graphics Corporation
+						All Rights Reserved.
+
+	This document contains information that is proprietary to 
+	Mentor Graphics Corporation. The original recipient of this 
+	document may duplicate this document in whole or in part for 
+	internal business purposes only, provided that this entire 
+	notice appears in all copies. In duplicating any part of this 
+	document, the recipient agrees to make every reasonable 
+	effort to prevent the unauthorized use and distribution of the 
+	proprietary information.
+
+	Trademarks that appear in Mentor Graphics product 
+	publications that are not owned by Mentor Graphics are 
+	trademarks of their respective owners.
+
+
+                 MTI Technote on Writing VHDL Testbenches
+                 ========================================
+
+    In this note we will demonstrate how to write a VHDL testbench that uses
+    textio for vector input and error output. We will also describe a technique
+    to make the testbench look similar to a hardware tester.
+
+    Most Automatic Test Equipment (ATE) uses functional test vectors that are 
+    based on tester timing cycles. In order to make your simulation vectors more 
+    compatible with production functional test vectors, you might want to write 
+    your VHDL test bench to use a timing cycle based approach. This approach
+    also is useful in analysing the performance of your design, especially
+    after post-layout backannotation.
+
+    An ATE timing "cycle" is a particular fixed timing pattern that usually 
+    repeats. The pattern consists of a time interval, lets say, from 0 to Tm. 
+    During this interval, various fixed times can be defined to do the following 
+    things:
+
+        1. set a clock high or low (there can be multiple clocks)
+        2. apply data (there can be different application times that apply to 
+           different signals)
+        3. "strobe" results (that is, capture the value of one or more
+           signals). There can be different strobe times that apply to
+           different signals. The data captured at the strobe time is then
+           compared to expected results and any differences are output as
+           errors.
+
+    An example of a timing cycle is the following:
+                                                                                    
+            |______________________________ _____________________|                  
+    da_out  |______________________________X_____________________|                  
+            |_______________________________________ ____________|                  
+    db_out  |_______________________________________X____________|                  
+            |_________ ________ _________________________________|                  
+    data_in |_________X________X_________________________________|                  
+            |___ __________________ _____________________________|                  
+    control |___X__________________X_____________________________|                  
+            |                ____________________                |                  
+    clock   |_______________/                    \_______________|                  
+            |                                                    |                  
+            ------------------------------------------------------                  
+            |   |     |     |  |   |       |     |  |            |                  
+            0   T1    T2    T3 T4  T5      T6    T7 T8           Tm                 
+                                 Time                                               
+                                                                                    
+    As you can see, the clock rises at T3 and falls at T7; control inputs
+    are applied at T1 and held until T5, data inputs applied at T2 and held
+    until T4; and the da_out signals are strobed at T6 and the db_out signals 
+    are strobed at T8. 
+    
+    The similarity between a timing cycle and data sheet timing diagrams is more 
+    than coincidental. You will be selecting T1 and T2 to correspond to setup times,
+    T4 and T5 to correspond to hold times, and T6 and T8 to correspond to max
+    propagation times relative to the rising clock edge.
+
+    Test or simulation vectors then consist of sets of data to be applied 
+    within a given cycle, and sets of results to be compared. The clocking 
+    and timing information is not contained within the test vectors, but is 
+    contained within the definition of the test cycle instead.
+
+    A test may contain more than one type of test timing cycle. For instance, 
+    when testing a memory, you will probably need to define a write cycle, a
+    read cycle and possible a read_modify_write cycle. Processor chips may have
+    several complex cycles.
+    
+    Lets assume that your ATE hardware can handle more than one type of timing
+    cycle. The question is: how would you easily code such a testbench in 
+    VHDL, and do it in a way that would be flexible? By flexible, I mean so you 
+    can easily change the application and strobing times, and which signals are
+    associated, and easily transfer the test bench to a new design. 
+
+Implementation Decisions
+------------------------
+    
+    Let's make the following implementation decisions:
+
+        1. Make the first field in the test vector be the test vector number.
+           This gives us a reference point when failures occur.
+        2. Make the second field in the test vector be an integer indicating
+           the type of timing cycle this vector is to use.
+        3. For vector data and control signals, we will use binary or hex
+           radices. 
+        4. All device-under-test (DUT) signals will be specified in each vector
+           for all cycles types, so the vector format will be the same for each
+           cycle type. The vector format will be blank separated fields:
+
+           field       type           value
+           -----     --------      ----------------------------------------
+             1         char         if '#' then line is considered a comment
+             2        integer       vector number
+             3        integer       1 or 2, indicating which timing cycle to use
+             4        string        12 characters representing new_control(11 downto 0)
+             5        string        8  hex chars, representing new_data_in(31 downto 0)
+             6        string        8  hex chars, representing exp_da_out(31 downto 0)
+             7        string        2  hex chars, representing exp_db_out(7 downto 0)
+             8        string        arbitrary comments
+
+        6. Use VHDL 1993 global variables for internal storage of each vector
+        7. Differences between results and expected will be output to an error log file.
+        9. As an example to handling different cycles, we will support the following 
+           two timing cycles:
+
+           Cycle 1:
+
+            |______________________________ _____________________|                  
+    da_out  |______________________________X_____________________|                  
+            |_______________________________________ ____________|                  
+    db_out  |_______________________________________X____________|                  
+            |_________ ________ _________________________________|                  
+    data_in |_________X________X_________________________________|                  
+            |___ __________________ _____________________________|                  
+    control |___X__________________X_____________________________|                  
+            |                ________________                    |                  
+    clock   |_______________/                \___________________|                  
+            |                                                    |                  
+            ------------------------------------------------------                  
+            |   |     |     |  |   |       | |      |            |                  
+            0   T1    T2    T3 T4  T5     T6 T7     T8           Tm1                
+                                 Time                                               
+
+           Cycle 2:
+        
+            |_______________________________________________________________ _________| 
+    da_out  |_______________________________________________________________X_________| 
+            |_____________________________________________________________________ ___| 
+    db_out  |_____________________________________________________________________X___| 
+            |_________ ________ ______________________________________________________| 
+    data_in |_________X________X______________________________________________________| 
+            |___ __________________ __________________________________________________| 
+    control |___X__________________X__________________________________________________| 
+            |                ________________                  ________________       | 
+    clock   |_______________/                \________________/                \______|
+            |                                                                         | 
+            ---------------------------------------------------------------------------
+            |   |     |     |  |   |       | |      |         |             | |   |   | 
+            0   T1    T2    T3 T4  T5     T6 T7     T8        T9         T10  T11 T12 Tm2
+                                 Time                                               
+
+           With the following timing values:
+                Tm1 = 20 ns
+                Tm2 = 40 ns
+                T1  =  1 ns
+                T2  =  3 ns
+                T3  =  5 ns
+                T4  =  7 ns
+                T5  =  8 ns
+                T6  = 13 ns
+                T7  = 15 ns
+                T8  = 19 ns
+                T9  = 25 ns
+                T10 = 32 ns
+                T11 = 35 ns
+                T12 = 37 ns
+
+========================
+Simple Example Testbench
+========================
+    
+    The following is the VHDL code for the sample testbench. You should be able
+    to compile this and run the sample set of vectors attached below, then
+    modify it as you wish in handling your own design.
+
+    This code uses VHDL93 constructs, so you will need to compile it with the
+    -93 option.
+
+----------------------------
+-- dummy device to be tested
+----------------------------
+    library IEEE;
+    use IEEE.std_logic_1164.all;
+    use work.tb_utilities.all;
+
+    entity dut is
+        port( clock   : in std_logic;
+              control : in std_logic_12;
+              data_in : in std_logic_32;
+              da_out  : out std_logic_32;
+              db_out  : out std_logic_8);
+    end entity dut;
+
+    architecture only of dut is
+    begin
+    p1: process ( clock)
+            variable data_store : std_logic_32 := (others => 'X');
+            variable control_store : std_logic_12 := (others => 'X');
+        begin
+            if (clock = '1') then
+                data_store := data_in;
+                control_store := control;
+                da_out <= data_store after 7 ns;
+                db_out <= data_store(31 downto 24) after 9 ns;
+            end if;
+        end process p1;
+    end architecture only;
+
+-----------------------
+-- the testbench itself
+-----------------------
+    library IEEE;
+    use IEEE.std_logic_1164.all;
+    use work.tb_utilities.all;
+    use std.textio.all;
+
+    entity testbench is
+        generic( show_errors : boolean := true;
+                 show_progress : boolean := true);
+    end testbench;
+
+    architecture one of testbench is
+        component dut is
+            port( clock   : in std_logic;
+                  control : in std_logic_12;
+                  data_in : in std_logic_32;
+                  da_out  : out std_logic_32;
+                  db_out  : out std_logic_8);
+            end component dut;
+        for all: dut use entity work.dut;
+
+        -- global variables for holding one test vector:
+        shared variable vector_number : natural := 0;
+        shared variable new_control : std_logic_12;
+        shared variable new_data_in : std_logic_32;
+        shared variable exp_da_out  : std_logic_32;
+        shared variable exp_db_out  : std_logic_8;
+
+        -- storing the timing values as variables allows us to change them
+        -- during a simulation run without recompiling.
+        shared variable Tm1 : time := 20 ns;
+        shared variable Tm2 : time := 40 ns;
+        shared variable T1  : time :=  1 ns;
+        shared variable T2  : time :=  3 ns;
+        shared variable T3  : time :=  5 ns;
+        shared variable T4  : time :=  7 ns;
+        shared variable T5  : time :=  8 ns;
+        shared variable T6  : time := 13 ns;
+        shared variable T7  : time := 15 ns;
+        shared variable T8  : time := 19 ns;
+        shared variable T9  : time := 25 ns;
+        shared variable T10 : time := 32 ns;
+        shared variable T11 : time := 35 ns;
+        shared variable T12 : time := 37 ns;
+
+        file vectors : text open read_mode is "vectors";
+        file errors  : text open write_mode is "./results/errors";
+
+        -- signals to connect to device under test
+        signal clock   : std_logic := '0';
+        signal control : std_logic_12;
+        signal data_in : std_logic_32;
+        signal da_out  : std_logic_32;
+        signal db_out  : std_logic_8;
+
+        ------------------------------
+        -- write errors to output file
+        ------------------------------
+        procedure write_errors( FILE f : text;
+                                field_name : string;
+                                vec_num : natural;
+                                exp, res : std_logic_vector ) is
+            variable L : line;
+        begin
+            write(L, string'("ERROR in field ") & field_name & string'(" on vector ")); 
+            write(L, vec_num);
+            write(L, string'(" at time "));
+            write(L, now);
+            writeline(f, L);
+            write(L, string'("Res: ") & slv_to_string(res));
+            writeline(f, L);
+            write(L, string'("Exp: ") & slv_to_string(exp));
+            writeline(f, L);
+            writeline(f, L); -- outputs a blank line
+        end procedure write_errors;
+
+        ------------------------------------------------------------
+        -- compare expected versus result vector and log differences
+        ------------------------------------------------------------
+        procedure check_results( exp, res : std_logic_vector; 
+                                 field_name : string;
+                                 vec_num : natural;
+                                 file logfile : text ) is
+            variable errors_found : boolean := false;
+        begin
+            my_loop:
+            for i in exp'range loop
+                -- Use the 1164 don't-care notation
+                if exp(i) /= '-' then
+                    if exp(i) /= res(i) then
+                        errors_found := true;
+                        exit my_loop;
+                    end if;
+                end if;
+            end loop;
+            if errors_found then
+                -- log to error file
+                write_errors( errors, field_name, vec_num, exp, res );
+    
+                -- optionally log to transcript window
+                if show_errors then
+                    write_errors( output, field_name, vec_num, exp, res );
+                end if;
+            end if;
+        end procedure check_results;
+
+        -------------------------
+        -- execute a timing cycle
+        -------------------------
+        -- note: for multiple types of timing cycles, you may prefer
+        --       to use multiple procedures
+        --       rather than if-statements within one procedure
+        procedure do_cycle( cycle_type : natural;
+                            signal cclock : inout std_logic;
+                            signal ccontrol : inout std_logic_12;
+                            signal cdata_in : inout std_logic_32 ) is 
+            variable res_da_out : std_logic_32;
+            variable res_db_out : std_logic_8;
+        begin
+            -- apply input data
+            ccontrol <= new_control after T1;
+            cdata_in <= new_data_in after T2;
+
+            -- start clock cycle
+            cclock   <= '1' after T3;
+
+            wait for T6;
+            cclock   <= '0' after T7 - T6;
+            -- check results
+            if (cycle_type = 1) then
+                res_da_out := da_out;
+                wait for T8 - T6;
+                res_db_out := db_out;
+                wait for Tm1 - T8;
+            else
+                wait for T9 - T6;
+                cclock   <= '1' after 0 ns;
+                wait for T10 - T9;
+                res_da_out := da_out;
+                cclock   <= '0' after T11 - T10;
+                wait for T12 - T10;
+                res_db_out := db_out;
+                wait for Tm2 - T12;
+            end if;
+            check_results(exp_da_out, res_da_out, string'("da_out"), vector_number, errors);
+            check_results(exp_db_out, res_db_out, string'("db_out"), vector_number, errors);
+        end procedure do_cycle;
+
+    begin -- architecture
+
+    ------------------------------------
+    -- instantiate the device under test
+    ------------------------------------
+    dut1: dut port map( clock, control, data_in, da_out, db_out);
+
+    -----------------------------------
+    -- process to read the vectors file
+    -----------------------------------
+    reading:
+        process 
+            variable L, LN : line;
+            variable first_char : character := '#';
+            variable cycle : integer := 0;
+            variable control_string : string(1 to 12) := "            ";
+            variable data_in_string : string(1 to  8) := "        ";
+            variable exp_da_string  : string(1 to  8) := "        ";
+            variable exp_db_string  : string(1 to  2) := "  ";
+
+        begin
+            while not endfile(vectors) loop
+                readline(vectors, L);
+                if (L /= NULL) and (L'length > 0) then 
+                    read(L, first_char);
+                    if first_char /= '#' then 
+                        read(L, vector_number);
+                        read(L, cycle);
+                        -- the following string reads do not automatically skip white space
+                        skip_white(L);            
+                        read(L, control_string);
+                        new_control := string_to_slv(control_string);
+                        skip_white(L);
+                        read(L, data_in_string);
+                        new_data_in := hex_string_to_slv(data_in_string);
+                        skip_white(L);
+                        read(L, exp_da_string);
+                        exp_da_out := hex_string_to_slv(exp_da_string);
+                        skip_white(L);
+                        read(L, exp_db_string);
+                        exp_db_out := hex_string_to_slv(exp_db_string);
+
+                        if (cycle = 1) or (cycle = 2) then
+                            if show_progress then
+                                write(LN, string'("Vector "));
+                                write(LN, vector_number, right, 6);
+                                writeline(output, LN);
+                            end if;
+                            do_cycle(cycle, clock, control, data_in);
+                        else
+                            report "error in cycle field in vector " &
+                                   integer'image(vector_number) &
+                                   ": cycle = " &
+                                   integer'image(cycle)
+                            severity error;
+                        end if;
+                    end if;        -- line is not a comment line
+                end if;     -- line is not null
+            end loop;     -- while not endfile
+            report "End of input vectors reached";
+            wait;
+        end process reading;
+
+    end architecture one;
+            
+
+-----------------------------------------------
+-- a package of utilities for example testbench
+-----------------------------------------------
+    library IEEE;
+    use IEEE.std_logic_1164.all;
+    use std.textio.all;
+
+    package tb_utilities is
+        subtype std_logic_4  is std_logic_vector(3  downto 0);
+        subtype std_logic_8  is std_logic_vector(7  downto 0);
+        subtype std_logic_12 is std_logic_vector(11 downto 0);
+        subtype std_logic_16 is std_logic_vector(15 downto 0);
+        subtype std_logic_20 is std_logic_vector(19 downto 0);
+        subtype std_logic_24 is std_logic_vector(23 downto 0);
+        subtype std_logic_28 is std_logic_vector(27 downto 0);
+        subtype std_logic_32 is std_logic_vector(31 downto 0);
+        function slv_to_string(inp : std_logic_vector) return string;
+        function string_to_slv(s : string) return std_logic_vector;
+        function hex_string_to_slv(s : string) return std_logic_vector;
+        procedure skip_white(variable lp : inout line);
+    end package tb_utilities;
+
+    package body tb_utilities is
+        -------------------------------------------
+        -- convert a std_logic value to a character
+        -------------------------------------------
+        type stdlogic_to_char_t is array(std_logic) of character;
+        constant to_char : stdlogic_to_char_t := (
+            'U' => 'U',
+            'X' => 'X',
+            '0' => '0',
+            '1' => '1',
+            'Z' => 'Z',
+            'W' => 'W',
+            'L' => 'L',
+            'H' => 'H',
+            '-' => '-');
+
+        -----------------------------------------
+        -- convert a std_logic_vector to a string
+        -----------------------------------------
+        function slv_to_string(inp : std_logic_vector) return string is
+            alias vec : std_logic_vector(1 to inp'length) is inp;
+            variable result : string(vec'range);
+        begin
+            for i in vec'range loop
+                result(i) := to_char(vec(i));
+            end loop;
+            return result;
+        end;
+
+        -------------------------------------------
+        -- convert a character to a std_logic value
+        -------------------------------------------
+        type char_to_stdlogic_t is array(character) of std_logic;
+        constant to_std_logic : char_to_stdlogic_t := (
+            'U' => 'U',
+            'X' => 'X',
+            '0' => '0',
+            '1' => '1',
+            'Z' => 'Z',
+            'W' => 'W',
+            'L' => 'L',
+            'H' => 'H',
+            '-' => '-',
+            others => 'X');
+
+        ---------------------------------------
+        -- convert a string to std_logic_vector
+        ---------------------------------------
+        function string_to_slv(s : string) return std_logic_vector is
+            variable result : std_logic_vector(s'length - 1 downto 0);
+            variable j : integer;
+        begin
+            j := s'length -1;
+            for i in s'range loop
+                result(j) := to_std_logic(s(i));
+                j := j -1;
+            end loop;
+            return result;
+        end function;
+
+        --------------------------------------------------------------
+        -- convert a super-hex digit to a 4-bit std_logic_vector slice
+        --------------------------------------------------------------
+        type hex_to_slv4_t is array(character) of std_logic_vector(3 downto 0);
+        constant hex_to_slv4 : hex_to_slv4_t := (
+            '0' => "0000",
+            '1' => "0001",
+            '2' => "0010",
+            '3' => "0011",
+            '4' => "0100",
+            '5' => "0101",
+            '6' => "0110",
+            '7' => "0111",
+            '8' => "1000",
+            '9' => "1001",
+            'a' | 'A' => "1010",
+            'b' | 'B' => "1011",
+            'c' | 'C' => "1100",
+            'd' | 'D' => "1101",
+            'e' | 'E' => "1110",
+            'f' | 'F' => "1111",
+            'x' | 'X' => "XXXX",
+            'z' | 'Z' => "ZZZZ",
+            '-' => "----",
+            others => "XXXX");
+
+        -------------------------------------------
+        -- convert a hex string to std_logic_vector
+        -------------------------------------------
+        function hex_string_to_slv(s : string) return std_logic_vector is
+            variable lbd : natural := (s'length * 4) -1;
+            variable result : std_logic_vector(lbd downto 0);
+            variable j : integer;
+        begin
+            j := lbd;
+            for i in s'range loop
+                result(j downto j - 3) := hex_to_slv4(s(i));
+                j := j - 4;
+            end loop;
+            return result;
+        end function;
+
+        ---------------------------------
+        -- skip white space on input line
+        ---------------------------------
+        procedure skip_white( variable lp : inout line ) is
+                variable ch : character;
+        begin
+            while (lp(lp'left) = ' ') or (lp(lp'left) = HT) loop
+                read(lp, ch);
+            end loop;
+        end procedure skip_white;
+
+    end package body tb_utilities;
+
+
+--------------------------------------------------
+-- sample vectors for use with the above testbench
+--------------------------------------------------
+
+# this line is a comment
+# note the use of std_logic_1164 "don't-care" notation
+ 1 1 001111000000 1234abcd 1234ABCD 12 
+ 2 1 001111000100 1234X6ZZ 1234--ZZ 13        -- deliberate error in db_out
+ 3 2 001111000100 1234ABCD 1234ABCF 12        -- deliberate error in da_out
+ 4 1 001111000011 98feb209 98feb209 -8
+
+
+-----------------------------------------------
+-- sample error file output for above testbench
+-----------------------------------------------
+
+ERROR in field db_out on vector 2 at time 40 ns
+Res: 00010010
+Exp: 00010011
+
+ERROR in field da_out on vector 3 at time 80 ns
+Res: 00010010001101001010101111001101
+Exp: 00010010001101001010101111001111
+
+
+-----------------------------------------------
+-- sample transcript output for above testbench
+-----------------------------------------------
+
+# Loading /home/redside/vince/modeltech/std.standard
+# Loading /home/redside/vince/modeltech/ieee.std_logic_1164(body)
+# Loading work.tb_utilities(body)
+# Loading /home/redside/vince/modeltech/std.textio(body)
+# Loading work.testbench(one)
+# Loading work.dut(only)
+# list -r /* 
+# wave -r /*
+# run 200
+# Vector      1
+# Vector      2
+# ERROR in field db_out on vector 2 at time 40 ns
+# Res: 00010010
+# Exp: 00010011
+
+# Vector      3
+# ERROR in field da_out on vector 3 at time 80 ns
+# Res: 00010010001101001010101111001101
+# Exp: 00010010001101001010101111001111
+
+# Vector      4
+# ** Note: End of input vectors reached
+#    Time: 100 ns  Iteration: 0  Instance:/
+# write list ./results/list
+# quit -f
+
+

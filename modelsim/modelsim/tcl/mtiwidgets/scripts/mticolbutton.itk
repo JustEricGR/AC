@@ -1,0 +1,343 @@
+#
+# Colbutton
+# ----------------------------------------------------------------------
+# This widget supports a text column header, where it depresses like a button
+# but only requires the height of a label.  It also handles a sort arrow, up, down or none.
+# ----------------------------------------------------------------------
+#  AUTHOR: Brian Griffin             EMAIL: bgriffin@model.com
+#
+#  @(#) $Id: //dvt/mti/rel/6.5b/src/tkgui/mticolbutton.itk#1 $
+# ----------------------------------------------------------------------
+#            Copyright 2001-2009 Mentor Graphics Corporation
+# ======================================================================
+# See the file "license.terms" for information on usage and
+# redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+
+itk::usual Colbutton {
+    keep -background -borderwidth \
+	-cursor -font -foreground -highlightbackground \
+	-highlightcolor -highlightthickness -takefocus -text -textvariable \
+	-image -bitmap -justify -padx -pady -underline -wraplength
+}
+
+# ------------------------------------------------------------------
+#                            Colbutton
+# ------------------------------------------------------------------
+class mtiwidgets::Colbutton {
+    inherit itk::Widget
+
+    constructor {args} {}
+    destructor {}
+
+    itk_option define -anchor anchor Anchor center
+    itk_option define -background background Background SystemButtonFace 
+    itk_option define -bitmap bitmap Bitmap {}
+    itk_option define -borderwidth borderWidth BorderWidth 1 
+    itk_option define -cursor cursor Cursor {} 
+    itk_option define -foreground foreground Foreground SystemButtonText 
+    itk_option define -height height Height 0 
+    itk_option define -highlightbackground highlightBackground HighlightBackground lightgray
+    itk_option define -highlightcolor highlightColor HighlightColor SystemWindowFrame 
+    itk_option define -highlightthickness highlightThickness HighlightThickness 0 
+    itk_option define -image image Image {} 
+    itk_option define -justify justify Justify center 
+    itk_option define -menu menu Menu {}
+    itk_option define -padx padX Pad 1 
+    itk_option define -pady padY Pad 1 
+    itk_option define -sortstate sortState SortState {}
+    itk_option define -takefocus takeFocus TakeFocus 0 
+    itk_option define -text text Text {} 
+    itk_option define -textvariable textVariable Variable {} 
+    itk_option define -underline underline Underline -1 
+    itk_option define -width width Width 0 
+    itk_option define -wraplength wrapLength WrapLength 0 
+    itk_option define -command command Command {}
+    itk_option define -state state State normal
+	itk_option define -movecommand moveCommand MoveCommand {}
+
+    public method invoke {x y}
+    public method _release {x y}
+
+    protected variable image_state
+	protected variable buttonText
+
+    private method load_images {}
+    private method _postMenu {x y}
+	private method _motion {w x y}
+	private method _drawMarker {x y}
+
+	private variable _b1X
+	private variable _b1Y
+	private variable _moving 0
+	private variable _destWin   ;# Destination column widget
+
+    common image_up
+    common image_down
+    common image_none
+
+}
+
+#
+# Provide a lowercased access method for the Button class.
+# 
+proc ::mtiwidgets::colbutton {pathName args} {
+    uplevel ::mtiwidgets::Colbutton $pathName $args
+}
+
+# ------------------------------------------------------------------
+#                        CONSTRUCTOR
+# ------------------------------------------------------------------
+body mtiwidgets::Colbutton::constructor {args} {
+    global env
+
+    load_images
+
+    itk_component add button {
+	frame $itk_component(hull).button \
+	    -relief raised
+    } {
+	keep -background -borderwidth 
+       	ignore -relief -height -width 
+    }
+    grid $itk_component(button) -column 1 -row 0 -sticky nsew
+    grid columnconfigure $itk_component(hull) 1 -weight 1
+    grid rowconfigure $itk_component(hull) 0 -weight 1
+
+    itk_component add coltext {
+	label $itk_component(button).coltext \
+	    -borderwidth 0 \
+	    -relief flat -width 1
+    } {
+        usual Colbutton
+	ignore -relief -borderwidth -height -width
+    }
+	grid $itk_component(coltext) -row 0 -column 0 -sticky ew -pady 0
+
+    itk_component add indicator {
+	label $itk_component(button).indicator \
+	    -borderwidth 0 \
+	    -relief flat
+    } {
+	usual Colbutton 
+	ignore -relief -borderwidth -height -width -text -image
+    }
+
+	grid $itk_component(indicator) -row 0 -column 1 -sticky e -pady 0 -padx 2
+	grid remove $itk_component(indicator)
+
+	grid columnconfigure $itk_component(button) 0 -weight 1
+
+    #
+    # Initialize the widget based on the command line options.
+    #
+    eval itk_initialize $args
+
+    bind $itk_component(button) <Button-1> [code $this invoke %X %Y]
+    bind $itk_component(coltext) <Button-1> [code $this invoke %X %Y]
+    bind $itk_component(indicator) <Button-1> [code $this invoke %X %Y]
+    bind $itk_component(button) <B1-Motion> [code $this _motion %W %X %Y]
+    bind $itk_component(coltext) <B1-Motion> [code $this _motion %W %X %Y]
+    bind $itk_component(indicator) <B1-Motion> [code $this _motion %W %X %Y]
+    bind $itk_component(button) <ButtonRelease-1> [code $this _release %X %Y]
+    bind $itk_component(coltext) <ButtonRelease-1> [code $this _release %X %Y]
+    bind $itk_component(indicator) <ButtonRelease-1> [code $this _release %X %Y]
+	bind $itk_component(button) <ButtonPress-3> [code $this _postMenu %X %Y]
+	bind $itk_component(coltext) <ButtonPress-3> [code $this _postMenu %X %Y]
+	bind $itk_component(indicator) <ButtonPress-3> [code $this _postMenu %X %Y]
+    set itk_option(-sortstate) none
+}
+
+# ------------------------------------------------------------------
+#                           DESTRUCTOR
+# ------------------------------------------------------------------
+body mtiwidgets::Colbutton::destructor {} {
+}
+
+body mtiwidgets::Colbutton::load_images {} {
+	if {![info exists image_down] || $image_down == ""} {
+		set image_down [image create photo -data {
+R0lGODlhCAAHAOcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8AAA
+AAAAKgAAVQAAfwAAqgAA1AAqAAAqKgAqVQAqfwAqqgAq1ABVAABVKgBVVQBV
+fwBVqgBV1AB/AAB/KgB/VQB/fwB/qgB/1ACqAACqKgCqVQCqfwCqqgCq1ADU
+AADUKgDUVQDUfwDUqgDU1CoAACoAKioAVSoAfyoAqioA1CoqACoqKioqVSoq
+fyoqqioq1CpVACpVKipVVSpVfypVqipV1Cp/ACp/Kip/VSp/fyp/qip/1Cqq
+ACqqKiqqVSqqfyqqqiqq1CrUACrUKirUVSrUfyrUqirU1FUAAFUAKlUAVVUA
+f1UAqlUA1FUqAFUqKlUqVVUqf1UqqlUq1FVVAFVVKlVVVVVVf1VVqlVV1FV/
+AFV/KlV/VVV/f1V/qlV/1FWqAFWqKlWqVVWqf1WqqlWq1FXUAFXUKlXUVVXU
+f1XUqlXU1H8AAH8AKn8AVX8Af38Aqn8A1H8qAH8qKn8qVX8qf38qqn8q1H9V
+AH9VKn9VVX9Vf39Vqn9V1H9/AH9/Kn9/VX9/f39/qn9/1H+qAH+qKn+qVX+q
+f3+qqn+q1H/UAH/UKn/UVX/Uf3/Uqn/U1KoAAKoAKqoAVaoAf6oAqqoA1Koq
+AKoqKqoqVaoqf6oqqqoq1KpVAKpVKqpVVapVf6pVqqpV1Kp/AKp/Kqp/Vap/
+f6p/qqp/1KqqAKqqKqqqVaqqf6qqqqqq1KrUAKrUKqrUVarUf6rUqqrU1NQA
+ANQAKtQAVdQAf9QAqtQA1NQqANQqKtQqVdQqf9QqqtQq1NRVANRVKtRVVdRV
+f9RVqtRV1NR/ANR/KtR/VdR/f9R/qtR/1NSqANSqKtSqVdSqf9SqqtSq1NTU
+ANTUKtTUVdTUf9TUqtTU1AAAAAwMDBkZGSYmJjMzMz8/P0xMTFlZWWZmZnJy
+cn9/f4yMjJmZmaWlpbKysr+/v8zMzNjY2OXl5fLy8v/78KCgpICAgP//////
+/////////////////////yH5BAEAAP8ALAAAAAAIAAcAAAgfAPEJHEjwn8F/
+Bw78w3cQoUGBBhMeZOhwIj6JDTMGBAA7
+====
+}
+						]
+	}
+	if {![info exists image_up] || $image_up == ""} {
+		set image_up [image create photo -data {
+R0lGODlhCAAHAPcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8AAA
+AAAAKgAAVQAAfwAAqgAA1AAqAAAqKgAqVQAqfwAqqgAq1ABVAABVKgBVVQBV
+fwBVqgBV1AB/AAB/KgB/VQB/fwB/qgB/1ACqAACqKgCqVQCqfwCqqgCq1ADU
+AADUKgDUVQDUfwDUqgDU1CoAACoAKioAVSoAfyoAqioA1CoqACoqKioqVSoq
+fyoqqioq1CpVACpVKipVVSpVfypVqipV1Cp/ACp/Kip/VSp/fyp/qip/1Cqq
+ACqqKiqqVSqqfyqqqiqq1CrUACrUKirUVSrUfyrUqirU1FUAAFUAKlUAVVUA
+f1UAqlUA1FUqAFUqKlUqVVUqf1UqqlUq1FVVAFVVKlVVVVVVf1VVqlVV1FV/
+AFV/KlV/VVV/f1V/qlV/1FWqAFWqKlWqVVWqf1WqqlWq1FXUAFXUKlXUVVXU
+f1XUqlXU1H8AAH8AKn8AVX8Af38Aqn8A1H8qAH8qKn8qVX8qf38qqn8q1H9V
+AH9VKn9VVX9Vf39Vqn9V1H9/AH9/Kn9/VX9/f39/qn9/1H+qAH+qKn+qVX+q
+f3+qqn+q1H/UAH/UKn/UVX/Uf3/Uqn/U1KoAAKoAKqoAVaoAf6oAqqoA1Koq
+AKoqKqoqVaoqf6oqqqoq1KpVAKpVKqpVVapVf6pVqqpV1Kp/AKp/Kqp/Vap/
+f6p/qqp/1KqqAKqqKqqqVaqqf6qqqqqq1KrUAKrUKqrUVarUf6rUqqrU1NQA
+ANQAKtQAVdQAf9QAqtQA1NQqANQqKtQqVdQqf9QqqtQq1NRVANRVKtRVVdRV
+f9RVqtRV1NR/ANR/KtR/VdR/f9R/qtR/1NSqANSqKtSqVdSqf9SqqtSq1NTU
+ANTUKtTUVdTUf9TUqtTU1AAAAAwMDBkZGSYmJjMzMz8/P0xMTFlZWWZmZnJy
+cn9/f4yMjJmZmaWlpbKysr+/v8zMzNjY2OXl5fLy8v/78KCgpICAgP8AAAD/
+AP//AAAA//8A/wD//////yH5BAEAAP8ALAAAAAAIAAcAAAggAP8JPIBPoMED
+BAseFKjwH0KGCg8Y/FfwoUF8GDNqDAgAOw==}
+					  ]
+	}
+	if {![info exists image_none] || $image_none == ""} {
+		set image_none [image create photo -data {
+R0lGODlhCAAHAPcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8AAA
+AAAAKgAAVQAAfwAAqgAA1AAqAAAqKgAqVQAqfwAqqgAq1ABVAABVKgBVVQBV
+fwBVqgBV1AB/AAB/KgB/VQB/fwB/qgB/1ACqAACqKgCqVQCqfwCqqgCq1ADU
+AADUKgDUVQDUfwDUqgDU1CoAACoAKioAVSoAfyoAqioA1CoqACoqKioqVSoq
+fyoqqioq1CpVACpVKipVVSpVfypVqipV1Cp/ACp/Kip/VSp/fyp/qip/1Cqq
+ACqqKiqqVSqqfyqqqiqq1CrUACrUKirUVSrUfyrUqirU1FUAAFUAKlUAVVUA
+f1UAqlUA1FUqAFUqKlUqVVUqf1UqqlUq1FVVAFVVKlVVVVVVf1VVqlVV1FV/
+AFV/KlV/VVV/f1V/qlV/1FWqAFWqKlWqVVWqf1WqqlWq1FXUAFXUKlXUVVXU
+f1XUqlXU1H8AAH8AKn8AVX8Af38Aqn8A1H8qAH8qKn8qVX8qf38qqn8q1H9V
+AH9VKn9VVX9Vf39Vqn9V1H9/AH9/Kn9/VX9/f39/qn9/1H+qAH+qKn+qVX+q
+f3+qqn+q1H/UAH/UKn/UVX/Uf3/Uqn/U1KoAAKoAKqoAVaoAf6oAqqoA1Koq
+AKoqKqoqVaoqf6oqqqoq1KpVAKpVKqpVVapVf6pVqqpV1Kp/AKp/Kqp/Vap/
+f6p/qqp/1KqqAKqqKqqqVaqqf6qqqqqq1KrUAKrUKqrUVarUf6rUqqrU1NQA
+ANQAKtQAVdQAf9QAqtQA1NQqANQqKtQqVdQqf9QqqtQq1NRVANRVKtRVVdRV
+f9RVqtRV1NR/ANR/KtR/VdR/f9R/qtR/1NSqANSqKtSqVdSqf9SqqtSq1NTU
+ANTUKtTUVdTUf9TUqtTU1AAAAAwMDBkZGSYmJjMzMz8/P0xMTFlZWWZmZnJy
+cn9/f4yMjJmZmaWlpbKysr+/v8zMzNjY2OXl5fLy8v/78KCgpICAgP8AAAD/
+AP//AAAA//8A/wD//////yH5BAEAAP8ALAAAAAAIAAcAAAgPAP8JHEiwoMGD
+CBMq/BcQADs=}
+					   ]
+	}
+}
+
+
+# ------------------------------------------------------------------
+# METHOD: invoke
+#
+# Change relief of the button to indicate a press and record
+# the mouse location, used later to detect motion.
+# ------------------------------------------------------------------
+body mtiwidgets::Colbutton::invoke {x y} {
+	set _b1X $x
+	set _b1Y $y
+	$itk_component(button) configure -relief sunken
+}
+
+# ------------------------------------------------------------------
+# METHOD: _motion
+#
+# Watch motion to detect button move operation vs button invoke
+# ------------------------------------------------------------------
+body mtiwidgets::Colbutton::_motion {w x y} {
+	if {!$_moving && [info exists _b1X] && [info exists _b1Y]} {
+		set y1 [winfo rooty $itk_component(button)]
+		set y2 [expr {[winfo height $itk_component(button)] + $y1}]
+		if {($y1 < $y && $y < $y2) &&
+			($x < [expr {$_b1X - 20}] || [expr {$_b1X + 20}] < $x)} {
+			set _moving 1
+		}
+	}
+	if {$_moving} {
+		_drawMarker $x $y
+	}
+}
+
+body mtiwidgets::Colbutton::_drawMarker {x y} {
+	set me [winfo class $itk_component(hull)]
+	set me_parent [winfo parent $itk_component(hull)]
+	set w [winfo containing $x $y]
+	if {$w eq ""} {
+		# We are nowhere!
+		return
+	}
+	set win ""
+	for {set i 0} {$i < 3} {incr i} {
+		if {![winfo exists $w] || [winfo class $w] eq $me} {
+			set win $w
+			break
+		}
+		set w [winfo parent $w]
+	}
+	if {![winfo exists $win]} {
+		return
+	}
+	set ht [winfo height $me_parent]
+	set bd [$me_parent cget -borderwidth]
+	set wd [winfo width $win]
+	set Xl [winfo rootx $win]
+	set Xr [expr {$Xl + $wd}]
+	if {[winfo exists $me_parent.1]} {
+		set 1 $me_parent.1
+	} else {
+		set 1 [frame $me_parent.1 -background black -width 4 -bd 2 -relief sunken -height [expr {$ht + (2 * $bd)}]]
+	}
+	set px [winfo rootx $me_parent]
+	if {$x < $_b1X} {
+		place $1 -x [expr {$Xl - $px}] -y 0
+	} else {
+		place $1 -x [expr {$Xr - $px}] -y 0
+	}
+	set _destWin $win
+}
+# ------------------------------------------------------------------
+# METHOD: _release
+#
+# Release the button, cancel the repeat
+# ------------------------------------------------------------------
+body mtiwidgets::Colbutton::_release {x y} {
+	$itk_component(button) configure -relief raised
+	if {$_moving} {
+		set _moving 0
+		destroy [winfo parent $itk_component(hull)].1
+		if {[info exists _destWin] && 
+			($_destWin ne $itk_component(hull)) &&
+			$itk_option(-movecommand) ne ""} {
+			uplevel "#0" [concat $itk_option(-movecommand) $_destWin]
+		}
+		return
+	}
+	if {$itk_option(-command) != ""} {
+		set wn [winfo containing $x $y]
+		if {[lsearch -exact [array get itk_component] $wn] >= 0} {
+			update
+			catch {uplevel "#0" $itk_option(-command)}
+		}
+	}
+}
+
+configbody mtiwidgets::Colbutton::sortstate {
+	if { $itk_option(-sortstate) == "down" } {
+		eval $itk_component(indicator) configure -image $image_down
+		grid $itk_component(indicator)
+	} elseif { $itk_option(-sortstate) == "up" } {
+		eval $itk_component(indicator) configure -image $image_up
+		grid $itk_component(indicator)
+	} else {
+		#eval $itk_component(indicator) configure -image $image_none
+		grid remove $itk_component(indicator)
+	}
+}
+
+body mtiwidgets::Colbutton::_postMenu {x y} {
+    if {[winfo exists $itk_option(-menu)]} {
+		mti_popup $itk_option(-menu) $x $y
+    }
+}

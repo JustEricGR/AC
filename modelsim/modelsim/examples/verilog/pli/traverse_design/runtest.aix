@@ -1,0 +1,26 @@
+#Copyright 1991-2009 Mentor Graphics Corporation
+#
+#All Rights Reserved.
+#
+#THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY INFORMATION WHICH IS THE PROPERTY OF 
+#MENTOR GRAPHICS CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE TERMS.
+
+# PLI Test Compilation and Execution Script for 32-bit IBM RS/6000
+
+# NOTE: The environment variable MTI_HOME must be set to point to your
+#       modeltech installation directory before invoking this script.
+#       Example: setenv MTI_HOME /usr/local/modeltech
+
+# CC compilation
+cc -c -I$MTI_HOME/include pli_test.c
+ld -o pli_test.sl pli_test.o -bE:pli_test.exports -bI:$MTI_HOME/rs6000/mti_exports -bM:SRE -bnoentry -lc
+
+# GCC compilation
+#gcc -c -I$MTI_HOME/include pli_test.c
+#ld -o pli_test.sl pli_test.o -bE:pli_test.exports -bI:$MTI_HOME/rs6000/mti_exports  -bM:SRE -bnoentry -lc
+
+rm -rf work
+vlib work
+vlog prim.v dff.v top.v
+
+vsim -c -do vsim.do top -pli pli_test.sl

@@ -1,0 +1,418 @@
+###############################################################################
+#
+# Draggable Tabset 
+#
+# Extension of the Tabset widget that ties into the Panemanager to
+#  support dragging tabbed panes.
+#
+# Author: Brian Griffin & Ron Wold
+#
+# DraggableTabset COPYRIGHT © 2007 Mentor Graphics Corporation
+#
+###############################################################################
+
+
+
+proc mtiwidgets::draggabletabset {pathName args} {
+    uplevel mtiwidgets::DraggableTabset $pathName $args
+}
+
+itcl::class mtiwidgets::DraggableTabset {
+    inherit mtiwidgets::Tabset
+    
+    constructor {args} { eval Tabset::constructor $args} {}
+    destructor {}
+  
+	itk_option define -panemanager panemanager Panemanager {}
+
+    public method _moveTabs {x y} 
+    public method _endMove {x y} 
+	public method _outside { x y }
+	public method active_pane { } 
+	public method addWindowTab { window }
+	public method removeWindowTab { window }
+	public method windowTab { tabname } 
+	public method tab_count { } 
+	public method CurrentTabLabel { } 
+	public method TabLabel { index }
+	public method indexFromWindow {windowobj}
+	public method dumptabs { mode } 
+	public method gettabs { } 
+	public method renametab { windowobj }
+	public method UpdateTabs { } 
+	public method RealUpdateTabs {} 
+	public method WindowHasTab  {window} 
+	public method WindowPrevious  {window} 
+	public method OrderedWindowList  {} 
+
+	public method _triggerDropEvent {tabname W x y D T m}
+
+	private variable panedwindows 
+	private variable _movedoutside 0
+	private variable current_label 
+	private variable updating 0
+	private variable _update_id 0
+
+}
+
+itcl::body mtiwidgets::DraggableTabset::constructor {args} {
+	eval itk_initialize $args
+}
+
+itcl::body mtiwidgets::DraggableTabset::destructor {} {
+	after cancel _update_id
+}
+
+itcl::body mtiwidgets::DraggableTabset::dumptabs { mode } {
+	set cnt 0
+	if { $mode == 1 } {
+		puts stdout "Dumptabs on $this"
+		puts stdout "Tab count [llength $_tabs]"
+		puts stdout "paned windows [array get panedwindows]"
+	} else { 
+		echo "Dumptabs on $this"
+		echo "Tab count [llength $_tabs]"
+		echo "paned windows [array get panedwindows]"
+	}
+
+    foreach tab $_tabs {
+		set tabname [ $tab cget -label]
+		set windowname $panedwindows($tabname)
+
+		if { $mode == 1 } {
+			puts stdout "Dumptabs on $this"
+			puts stdout "tab index $cnt is label $tabname"
+			puts stdout "associated window is $windowname"
+		} else { 
+			echo "tab index $cnt is label $tabname"
+			echo "associated window is $windowname"
+		}
+ 		incr cnt
+   }
+}
+
+itcl::body mtiwidgets::DraggableTabset::tab_count {} {
+	set cnt 0
+	return [llength $_tabs ]
+}
+
+itcl::body mtiwidgets::DraggableTabset::gettabs {} {
+	set tabs  [list]
+   foreach tab $_tabs {
+		lappend tabs [ $tab cget -label]
+   }
+   return $tabs
+}
+
+# ----------------------------------------------------------------------
+# PRIVATE METHOD: _moveTabs
+# 
+# This method overloads the regular move.  If the cursor moves outside
+# of the tab area, we convert to the panemanger drag
+# ----------------------------------------------------------------------
+	
+
+itcl::body mtiwidgets::DraggableTabset::_moveTabs {x y} {
+	if {$_moveKind eq "slide"} {
+		chain $x $y
+	} else {
+		if { $_movedoutside == 0 } {
+			if {![_outside $x $y] } {
+				return
+			}
+		}
+		set current_label [tabcget [getSelected] -label]
+		if { ![info exists panedwindows($current_label)] } {
+			return
+		}
+		if { $_movedoutside == 0 } {
+			$itk_option(-panemanager) _startdrag $panedwindows($current_label) $x $y 0
+		}
+		set _movedoutside 1
+		$itk_option(-panemanager) _dragging $panedwindows($current_label) $x $y
+	}
+}
+
+# ----------------------------------------------------------------------
+# PRIVATE METHOD: _endMove
+# 
+# This method overloads the regular end.  If the cursor moves outside
+# of the tab area, we convert to the panemanger drag
+# ----------------------------------------------------------------------
+itcl::body mtiwidgets::DraggableTabset::_endMove {x y} {
+	if {$_moveKind eq "slide"} {
+		chain $x $y
+	} else {
+		set current_label [tabcget [getSelected] -label]
+		if { ![info exists panedwindows($current_label)] } {
+			return
+		}
+		set windowobj $panedwindows($current_label)
+		if { $_movedoutside == 0 } {
+			$itk_option(-panemanager) _startdrag $panedwindows($current_label) $x $y 0
+		}
+		$itk_option(-panemanager) _enddrag $panedwindows($current_label) $x $y
+		set _movedoutside 0
+		
+		# What's going on here you ask?  
+		# When dragging a tab from tabgroup A to B, when complete, the correct tab in A
+		# should be raised, and dragged window should be raised and active upon completion
+		# The correct tab in A recieves a select, which in turn causes an Activate on the correct window
+		# Next, the dragged window recieves an activate since its tab also recieves a select.
+		# Although the window in group a recieves and Activate, its FocusIn event has not yet
+		# triggered.  The window with focus is still the dragged window.  When the dragged window 
+		# gets its Activate, TK ignores the focus call because it has focus.  So, a subsequent 
+		# FocusIn never occurs.  Eventually the FocusIn for the tab A window triggers and thats 
+		# where activation ends up, back in tabgroup A instead of on the dragged window.  
+		# this code handles this specific case.  Note that the is a mouse binding event, so 
+		# it should not effect scripting, etc. -RRW
+		global vsimPriv
+		update idletasks
+		
+		$vsimPriv(Vcop) Activate $windowobj
+		after idle "$vsimPriv(Vcop) Activate $windowobj"
+	}
+}
+
+
+itcl::body mtiwidgets::DraggableTabset::_outside {x y} {
+	set x [$itk_component(canvas) canvasx [expr {$x - [winfo rootx $itk_component(canvas)]}]]
+	set y [$itk_component(canvas) canvasy [expr {$y - [winfo rooty $itk_component(canvas)]}]]
+
+	if { $x < 0  || $y < 0 } {
+		return 1
+	}
+	if { $itk_option(-tabpos) == "n" || $itk_option(-tabpos) == "s" } {
+		set winwid [expr {$_canvasWidth - 4}]
+		set rightLimit [expr {$_start + $x - $_anchorX + [_calcNextTabOffset [lindex $_tabs 0]]}]
+		if {$rightLimit >= $winwid} {
+		  return 1
+		}
+	}
+	if { $y > $_canvasHeight } {
+		return 1
+	}	
+	return 0
+}
+
+itcl::body mtiwidgets::DraggableTabset::indexFromWindow  {window} {
+	foreach {a_tab_name a_window } [array get panedwindows] {
+		if { $window eq $a_window } {
+			set idx 0
+			foreach tab $_tabs {
+				set current_tabname [tabcget $idx -label]
+				if { $a_tab_name == $current_tabname } {
+					return $idx
+				}
+				incr idx
+			}
+		}
+	}
+	return -1
+}
+
+itcl::body mtiwidgets::DraggableTabset::WindowHasTab  {window} {
+	foreach { name obj } [array get panedwindows] {
+		if { $window eq $obj } {
+			return 1
+		}
+	}
+	return 0
+}
+
+itcl::body mtiwidgets::DraggableTabset::WindowPrevious  {window} {
+	set cnt [tab_count]
+	if { $cnt <= 1} {
+		return ""
+	}
+	set idx [indexFromWindow $window]
+	if { $idx == 0 }  {
+		incr idx
+	} else {
+		incr idx -1
+	}
+
+	set label [TabLabel $idx]
+	if { $label != "" } {
+		return [windowTab $label]
+	}
+	return ""	
+}
+
+itcl::body mtiwidgets::DraggableTabset::OrderedWindowList {} {
+	set retval ""
+	set idx 0
+	foreach tab $_tabs {
+		set tabname [tabcget $idx -label]
+		lappend retval $panedwindows($tabname)
+		incr idx
+	}
+	return $retval
+}
+
+
+#
+# Depending on the sequence of events, a window tab can be added using a default name
+# then the window gets registered and the windows UpdateText is called.  A new tab name
+# is formulated and the windowobj attempts to rename the tab to the new name.  this call must
+# travel through the pane manager and if the window hasn't yet been installed into the pane,
+# the rename will fail (do nothing).  A subsequent update will attempt to add the tab again,
+# therefore, we must also search the current tabs by windowobj name.  
+#	
+
+itcl::body mtiwidgets::DraggableTabset::addWindowTab  {window} {
+	set tabname [$window TabLabel]
+	if { [info exists panedwindows($tabname)] } {
+		if { $window eq $panedwindows($tabname) } {
+			return
+		}
+		#puts stderr "Internal Error: attempting to add a non-unique label"
+		# force tabname to be unique
+		set idx 1 
+		while  {[info exists panedwindows($tabname$idx)]} {
+			incr idx
+		}
+		set tabname $tabname$idx
+	}
+
+	foreach { name obj } [array get panedwindows] {
+		if { $window eq $obj } {
+			renametab $window
+			return
+		}
+	}
+
+	if { $tabname != "" } {
+		set tab [add]
+		$tab configure -label $tabname
+		set ico [$window cget -iconimage]
+		if { $ico ne "" } { 
+			$tab configure -image $ico
+		}
+		set panedwindows($tabname) $window
+		_relayoutTabs
+	} 
+}
+
+itcl::body mtiwidgets::DraggableTabset::removeWindowTab { window } {  
+	set tabname [$window cget -tab_label]
+	if { $tabname != "" } {
+		set idx [indexFromWindow $window]
+		if { $idx != -1 } {
+			if { [info exists panedwindows($tabname)] } {
+				unset panedwindows($tabname)
+			}
+			delete $idx
+			_relayoutTabs
+		} 
+		updateScrollOffset
+	}
+
+}
+
+
+itcl::body mtiwidgets::DraggableTabset::windowTab {tabname} {    
+	if { $tabname != "" } {
+		if { [info exists panedwindows($tabname)] } { 
+			return $panedwindows($tabname)
+		}
+	}
+	return ""
+}
+
+
+
+itcl::body mtiwidgets::DraggableTabset::UpdateTabs {} {
+	if {$_update_id >= 0 } {
+		after cancel $_update_id
+		set _update_id -1
+	}
+	set cmd "catch { [code $this RealUpdateTabs] }"
+	set _update_id [after idle $cmd ]
+}
+	
+
+itcl::body mtiwidgets::DraggableTabset::RealUpdateTabs {} {
+	set changed 0
+	foreach { name obj } [array get panedwindows] {
+		if { [winfo exists $obj]  } {
+			foreach tab $_tabs {
+				if { [ $tab cget -label] == $name } { 
+					if { [$tab cget -image] ne [$obj cget -iconimage] } {
+						$tab configure -image [$obj cget -iconimage]
+						set changed 1
+					}	
+				}
+			}
+		}
+	}
+	if { $changed } {
+		_relayoutTabs
+	}
+}
+
+
+itcl::body mtiwidgets::DraggableTabset::CurrentTabLabel { } {    
+    return [ tabcget $_currTab -label]
+}
+
+itcl::body mtiwidgets::DraggableTabset::TabLabel { index } {    
+    return [ tabcget $index -label]
+}
+
+
+itcl::body mtiwidgets::DraggableTabset::renametab { windowobj } {
+	set newname [$windowobj TabLabel]
+	foreach { name obj } [array get panedwindows] {
+		if { $windowobj eq $obj } {
+			if { $name eq $newname } {
+				return
+			}
+			set panedwindows($newname) $windowobj
+			unset panedwindows($name) 
+			foreach tab $_tabs {
+				if { [ $tab cget -label] == $name } { 
+					$tab configure -label $newname
+					_relayoutTabs
+					return
+				}
+			}
+		
+		}
+	}
+	if { ![$windowobj WindowUnDocked] } {
+		addWindowTab $windowobj
+		set myparent [winfo parent [string trimleft $this :]]
+		$myparent updatetabs
+	}
+}
+
+itcl::body mtiwidgets::DraggableTabset::_triggerDropEvent {tabname W x y D T m} {
+	_delayedSelectNameCancel
+	set tname [$tabname cget -label]
+	if { [info exists panedwindows($tname)] } {
+		set window $panedwindows($tname)
+		set child [$window GetRegisteredChild]
+		if {$child ne ""} {
+			set window $child
+		}
+	} else {
+		set window $W
+	}
+	DragDrop::setParameters $window $x $y $D $T $m
+	foreach btag [bindtags $window] {
+		set script [bind $btag <<TabDrop>>]
+		if {$script ne "" && [info complete $script]} {
+			set script [DragDrop::substituteParameters $script]
+			set status [catch {uplevel \#0 $script} rv]
+			if {$status == 3} {
+				break
+			}
+			if {$status != 0} {
+				mti_error_message "${rv}\n$::errorInfo\n"
+				break
+			}
+		}
+	}
+}
+

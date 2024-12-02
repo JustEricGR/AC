@@ -1,0 +1,434 @@
+
+                   Release Notes For ModelSim Altera 6.1f
+
+                 Copyright 2006 Mentor Graphics Corporation
+                            All rights reserved.
+  This document contains information that is proprietary to Mentor Graphics
+                                Corporation.
+    The original recipient of this document may duplicate this document in
+                                whole or in
+  part for internal business purposes only, provided that this entire notice
+                               appears in all
+  copies. In duplicating any part of this document, the recipient agrees to
+                                 make every
+  reasonable effort to prevent the unauthorized use and distribution of the
+                                proprietary
+                                information.
+
+
+
+                                May 15 2006
+   ______________________________________________________________________
+
+     Product Installation and Licensing Information
+   For  brief  instructions  about  product installation please visit the
+   "install_notes" file in www.model.com. The install_notes file can be viewed
+   at:
+   [1]http://www.model.com/products/release.asp
+   For detailed information about product installation and licensing see the
+   ModelSim Start Here Guide. The manual can be downloaded from:
+   [2]http://www.model.com/support/documentation.asp
+
+
+     Release Notes Archives
+   For release notes of previous versions visit the release notes archive at:
+   [3]http://www.model.com/support/default.asp
+   or  find  them  in  the installed modeltech tree in <path to modeltech
+   installation>/docs/rlsnotes
+
+
+     How to get Support
+
+   This OEM product is supported by Altera Corporation
+     * World-Wide-Web Support
+       [4]http://www.altera.com/mySupport
+
+
+   ______________________________________________________________________
+
+  Index to Release Notes
+
+     [5]Key Information
+
+     [6]User Interface Defects Repaired in 6.1f
+
+     [7]Verilog Defects Repaired in 6.1f
+
+     [8]PLI Defects Repaired in 6.1f
+
+     [9]VHDL Defects Repaired in 6.1f
+
+     [10]FLI Defects Repaired in 6.1f
+
+     [11]VITAL Defects Repaired in 6.1f
+
+     [12]SystemC Defects Repaired in 6.1f
+
+     [13]Assertion Defects Repaired in 6.1f
+
+     [14]Mixed Language Defects Repaired in 6.1f
+
+     [15]General Defects Repaired in 6.1f
+
+     [16]Mentor Graphics DRs Repaired in 6.1f
+
+     [17]Known Defects in 6.1f
+
+     [18]Product Changes to 6.1f
+
+     [19]New Features Added to 6.1f
+   ______________________________________________________________________
+
+   Key Information
+     * The RedHat Enterprise Linux 4 is supported as of the 6.1b release.
+       The support includes the following platforms:
+          + 32-bit linux
+          + 64-bit linux_x86_64
+       For a complete list of supported platforms see the Install Guide under
+       the section Supported platforms.
+     * The following platforms will be discontinued as of the 6.2 release:
+          + Windows 98
+          + Windows ME
+          + Windows NT 4.0
+          + Solaris 2.6
+          + Solaris 7
+          + AIX 4.3
+     * Solaris OS 10 is supported as of the 6.1a release. Solaris OS 10 support
+       includes SystemC. However, cdebug is not supported.
+        Solaris 10 has the following limitations:
+          + In the OS, vt alarm is producing irregular and random beats between
+            20ms  and 100ms. As a result, the profiler produces the error
+            message, "Too few samples." To workaround this problem, add the
+            following line to the file /etc/system and reboot the system:
+            set hires_tick=1
+            This will produce consistent sample times. The minimum sample time
+            will be 20ms. This problem has been filed as Sun CR 6290459 and
+            will be fixed in a coming kernel patch. With the patch, the minimum
+            sample time will be approximately 10ms, as in previous Solaris
+            releases.
+          + In rare cases, simulations using sockets via the FLI may hang the
+            system  and  produce  a  messages  like "nfs server array not
+            responding" may be produced. This problem has been filed as Sun CR
+            6296698.
+          + In Solaris 10, g7 is always reserved. Any PLI/FLI/DIP using g7 will
+            break under Solaris 10.
+     * The following platform changes are effective as of the 6.0 release.
+          + The 64-bit simulator is supported on the AMD Opteron and compatible
+            processors  running 64-bit Linux (SuSE 9.0 (x86-64) or RedHat
+            Enterprise Linux WS release 3) as the linux_x86_64 platform. The
+            profiling feature is not supported in 64-bit mode. The 32-bit
+            simulator for the linux platform may also be installed and used
+            concurrently on these systems.
+          + RedHat 6.0 through 7.1 are no longer supported.
+     * You must recompile or refresh your models if you are moving forward from
+       6.0x  or  earlier  release versions. See "Regenerating your design
+       libraries" in the User's Manual for more information on refreshing your
+       models.
+     * Acrobat reader version 4.0 or greater must be used to read any .pdf file
+       contained in version 5.5c or greater.
+     * The HP-UX 10.20 platform is no longer supported as of the 5.7 release.
+       The hp700 platform executables are built on HP-UX 11.0. Please note that
+       in  order  for  FLI/PLI shared libraries to be loaded and executed
+       correctly by the hp700 version of vsim, they must be compiled and linked
+       on HP-UX 11.0.
+     * Beginning with the 5.6 release (on Windows platforms only), attempts to
+       link in libvsim.lib or tk83.lib using the Microsoft Visual C++ linker
+       version 5.0 will fail with a message similar to "Invalid file or disk
+       full: cannot seek to 0xaa77b00". Microsoft Visual C++ version 6.0 should
+       be used.
+     * Beginning in the 5.8 release, SDF files compressed in the Unix compress
+       format (.Z) are no longer supported, but the GNU zip format (.gz)is
+       supported. Therefore, we only when read in compressed SDF files that are
+       created with the GNU zip (gzip) extension. A file is not require to have
+       a .gz extension, but it will error on files that have a .Z extension.
+     * Support of SystemC has dependencies on both operating system versions
+       and C++ compiler versions. The OS support is slightly different than the
+       simulation environments OS support for designs without SystemC content.
+       Also, 64-bit compilation is not supported for SystemC designs.
+       Supported Operating Systems and C++ compilers:
+          + RedHat 7.3 and greater, gcc 3.2
+          + RedHat EWS2.1/7.2 and greater, gcc 3.2.3 (simulation environment
+            version 5.8b and greater)
+          + Solaris 2,6, 7, 8 , 9, 10, gcc 3.3
+          + HP-UX 11.0 and greater, aCC 3.45
+          + Win32 XP and 2000, gcc 3.2.3 (Simulation environment versions 6.0
+            and greater)
+     * The LE product does not support VHDL. However, it does support Verilog
+       and SystemC.
+     * CDEBUG compatibility information by platform.
+          + On HP-UX 11.0, the built-in HP wdb 3.3 program is used as the
+            underlying C/C++ debugger. In order to run wdb successfully, you
+            must have installed HP-UX PHSS_23842, or a superseding patch.
+            Without this patch installed, error messages will occur during
+            CDEBUG startup.
+          + On rs6000, gdb-6.0 works with gcc-3.2. Additionally, when creating
+            shared objects, 'ld' (/bin/ld) should be used, not 'gcc'. This
+            combination works with AIX-5.1. On AIX-5.1 use gcc-3.2-aix51. The
+            native compiler /bin/cc is not compatible with gdb-6.0.
+     * The vcom compiler default language has been changed from VHDL-1987 to
+       VHDL-2002. To choose a specific language version:
+          + select the appropriate version from the compiler options menu in
+            the GUI,
+          + invoke vcom using switches -87, -93, or -2002, or
+          + set the VHDL93 variable in the [vcom] section of modelsim.ini.
+            Appropriate values for VHDL93 are:
+               o 0, 87, or 1987 for VHDL-1987;
+               o 1, 93, or 1993 for VHDL-1993;
+               o 2, 02, or 2002 for VHDL-2002.
+     * Although  the  vlog compiler currently supports some SystemVerilog
+       features, these extensions are not enabled by default because they
+       require new language keywords that may conflict with identifiers in
+       existing code. There are two ways to enable SystemVerilog features: the
+       first is by using the -sv command line option and the second is by
+       naming the source file with a ".sv" suffix.
+     * The EM64T platform is supported as of the 6.0b release.
+       The support includes EM64T machines loaded with Suse 9.1 OS or RedHat
+       Enterprise Linux 3 Update 3 OS and the following linux configurations.
+          + 32-bit linux
+          + 64-bit linux_x86_64
+       FlexLM v8.2a (which is currently shipped in 6.0x) is not supported on an
+       EM64T machine loaded with Suse 9.1 OS.
+     * The 6.1 release will use the following licensing versions: FLEXlm v9.5;
+       Mentor Graphics Licensing MGLS v2004.2 and PCLS 2004.328.
+       CRITICAL LICENSING INFORMATION:
+       For this release of the product, the FLEXlm licensing software being
+       used is version 9.5. For floating licenses it will be necessary to
+       verify that the vendor daemon (i.e., mgcld) and the license server
+       (i.e., lmgrd) have FLEXlm versions equal to or greater than 9.5. The
+       vendor daemons and lmgrd that are shipped with this release will be
+       FLEXlm version 9.5. If the current FLEXlm version of your vendor daemon
+       and lmgrd are less than 9.5 then it will be necessary to stop your
+       license  server  and  restart it using the vendor daemon and lmgrd
+       contained in this release. If you use node locked licenses you don't
+       need to do anything.
+     * SystemVerilog Program blocks are now supported except for the $exit()
+       task.
+     * The default time unit for SystemC can be set using the "ScTimeUnit"
+       variable in the modelsim.ini file. By default ScTimeUnit is set to 1 ns.
+       The  default  time  unit  in  SystemC  can  also  be set using the
+       sc_set_default_time_unit() function before any time based object like
+       sc_clock or sc_time is created.
+     * vlog,vcom and vopt command line options will be case sensitive similar
+       to the vsim command line options.
+     * Starting in the 6.1 release, the vsim -dpiexportobj option has changed
+       behavior somewhat. This primarily affects win32 and rs6000 users.
+         1. You shouldn't put an extension on the object filename. That will be
+            done for you automatically now.
+         2. There is no longer a need to add "-c -do 'quit -f'" to the vsim
+            -dpiexportobj command line.
+       The examples/systemverilog/dpi/simple_calls runtest.bat files have been
+       modified to show the correct flow now.
+     * Due to some bug fixes, some VHDL models compiled with 6.1b or higher
+       will not run under 6.1 and 6.1a. These models will generate the error:
+       # ** Fatal: (vsim-3274) Empty built-in function pointer (511).
+       # Either this version of vsim is not compatible with the compiled
+       # version of the libraries that were loaded or a required shared library
+       # was not loaded. Please recompile the libraries with -refresh or make
+       # sure you specify the required shared library to vsim.
+     * The following lists the supported platforms:
+          + win32aloem - Windows 2000, XP
+          + sunos5aloem - Solaris 8, 9
+          + hp700aloem - HP-UX 11
+          + linuxaloem - RedHat 7.2 and higher.
+   ______________________________________________________________________
+
+   User Interface Defects Repaired in 6.1f
+     * Radix binary waveforms for integer signals were displayed incorrectly.
+     * The toolbar icons were not updated appropriately after selections in the
+       Wave window.
+     * The automatic saving of virtuals during quit could hang the GUI if the
+       virtuals.do file (or the file specified by the preference setting Main
+       DefaultVirtualFileName) is not writeable.
+     * The behavior of drag and drop into a Dataflow window formerly caused the
+       display update operation to be done immediately, effectively locking the
+       user interface until the operation was complete. Now the drop operation
+       causes an add dataflow command to be executed; this command will be seen
+       in the Transcript pane.
+     * Display names of signals within a group could not be edited.
+     * The simulator crashed when using the virtual delete command with a
+       wildcard pattern and there was a match with non-virtual items.
+     * The Wave Mouse Mode toolbar did not update correctly when the Wave
+       window was undocked.
+     * WLF file data was displayed incorrectly for Verilog multi-dimentional
+       bit arrays of the form: "bit [K:0] L0 [P]".
+     * If you link a PSL file to HDL code from a project tab and the path name
+       to the PSL file has a space, the operation failed.
+     * The "compile to" field (and other sccom compiler options) for SystemC
+       objects in the project manager were ignored.
+   ______________________________________________________________________
+
+   Verilog Defects Repaired in 6.1f
+     * In some cases vopt generated an internal error for assignment statements
+       using the SystemVerilog "iff" qualifier like:
+       wdata <= @(posedge clk iff ready) 1'b1;
+       These errors only occured if the variable being assigned to was unused
+       in the design.
+     * In some cases SystemVerilog code with multiple packages generated an
+       internal error like:
+       Internal         error:         ../../../src/vlog/vallocate.c(607)
+       vl_current_nesting_level <= save_current_nesting_level
+     * Using iff could cause a crash.
+     * X-generation due to $width or $period timing check violations in certain
+       cases caused an optimized cell instance to produce incorrect result on
+       next active clock.
+     * In some cases, a vopt optimization incorrectly removed an "initial" or
+       "always" construct that wrote to a variable that was also read inside a
+       called task or function.
+     * In some cases, always_comb and always_latch blocks produced incorrect
+       results during initialization. A common symptom was that $monitor()
+       displayed  multiple  values  for  the  outputs  of always_comb and
+       always_latch blocks at time zero.
+     * Function calls, from Verilog HDL, to
+       $enable_signal_spy()/$disable_signal_spy() were not accepted when the
+       3rd argument was specified.
+     * When the tcheck_status command was used with the vsim command line
+       option +delayed_timing_checks a segmentation violation occurred in some
+       cases.
+     * If an argument was given to vlog -dpiheader with a path delimiter in it
+       (e.g. vlog -dpiheader path/to/header.h), the generated header file would
+       contain illegal C syntax.
+     * In certain cases the simulator produced incorrect values for nets in
+       SystemVerilog designs when the Verilog "force" was used with a constant
+       value.
+     * Designs containing generate case statements with nested procedural
+       blocks  containing case statements encountered fatal errors during
+       elaboration in certain cases.
+   ______________________________________________________________________
+
+   PLI Defects Repaired in 6.1f
+   ______________________________________________________________________
+
+   VHDL Defects Repaired in 6.1f
+     * The simuluator crashed if a vector port of an entity was contrained by
+       an attribute on a generic and the entity was directly instantiated.
+     * A  VHDL procedure which contains local array variables and calls a
+       foreign subprogram crashed the simulator on rs6000 and rs64 platforms.
+     * Using the predefined attributes 'INSTANCE_NAME and/or 'PATH_NAME in a
+       concatenation  expression  in  some  situations  produce incorrect
+       concatenation results.
+     * A variable assignment statement in a subprogram where both the target
+       and right hand side were of an unconstrained array type would sometimes
+       not detect array matching element test failures, possibly corrupting
+       memory.
+     * An error will now be reported if vcom -genxml entity is executed and the
+       entity has not been compiled into the library.
+     * A PORT MAP with an association element with a conversion function or
+       type conversion (on either the formal part or actual part or both) could
+       sometimes affect another unrelated PORT MAP for a component instance at
+       a lower level, which would then attempt to perform the conversion for
+       itself, causing spurious errors when the conversion failed.
+     * Repeated calls to file_open resulted in a memory leak if the file did
+       not exist and if file_close was not called before the next file_open
+       call.
+   ______________________________________________________________________
+
+   FLI Defects Repaired in 6.1f
+   ______________________________________________________________________
+
+   VITAL Defects Repaired in 6.1f
+   ______________________________________________________________________
+
+   SystemC Defects Repaired in 6.1f
+     * The kernel crashed on Solaris when the user logged variables of type
+       "short" or "unsigned short" within a SystemC module.
+     * sccom  incorrectly errored out while parsing gcc options that took
+       filenames as arguments.
+     * sc_fifo and tlm_fifo of classes defined in the C++ Standard Template
+       Library caused the waveform viewer to crash in certain cases.
+     * The "View Declaration" and "View Instantiation" menu items were not
+       working properly at a C Debug breakpoint.
+     * Improved performance of mixed-language vector ports in a Verilog or VHDL
+       design instantiating a SystemC module.
+   ______________________________________________________________________
+
+   Assertion Defects Repaired in 6.1f
+   ______________________________________________________________________
+
+   Mixed Language Defects Repaired in 6.1f
+   ______________________________________________________________________
+
+   General Defects Repaired in 6.1f
+     * Taking a slice wider than 32-bits of a memory could generate incorrect
+       results.
+     * The -elab_load option caused the following fatal error in the simulator
+       startup script:
+       can't read "Startup(-dpiexportobj)": no such variable
+     * Dataflow operations on wide bus signals in large designs could be very
+       slow.
+     * It was not possible to View Source for signal names in the Profile
+       report  windows.  Also,  specifying Showcalls and Expand All for a
+       Structural Profile report window, containing signal names, exhausted GUI
+       memory.  Now,  signal  names  in  profile  reports are of the form
+       @signal@/x/y.
+     * Certain readers commands and dataflow operations on signals with high
+       fanout took a long time to complete.
+     * The "View Declaration" and "View Instantiation" menu items were not
+       working properly at a C Debug breakpoint.
+     * Turning on expression coverage caused a simulation difference in certain
+       cases. This was related to assignment statements of more than one bit
+       wide.
+     * The  default value of IterationLimit has been made consistent. Its
+       default value is 5000.
+   ______________________________________________________________________
+
+   Mentor Graphics DRs Repaired in 6.1f
+     * dts0100320318 - Wave view in radix binary of a VHDL variable is wrongly
+       converted.
+     * dts0100326503 - Issue in group signals.
+     * dts0100329112 - Wave window GUI display issue with unpacked array.
+     * dts0100329342 - Link a psl file to a hdl code from a project tab.
+     * dts0100309490 - Simulator crash in fork join block on a conditional
+       statement.
+     * dts0100329393 - vsim crash with +delayed_timing_checks turned on.
+     * dts0100322134 - Unconstrained std_logic_vector causes crash.
+     * dts0100330744 - sccom reports a problem with C/C++ file extensions on
+       repeated invocations following a good invocation.
+     * dts0100327862 - Crash during log of SystemC variables of type unsigned
+       short.
+     * dts0100326396 - Dataflow window hangs with extremely large fanout.
+     * dts0100325412 - vopt generate issue.
+     * dts0100321077 - Crash when using the -hexadecimal switch with 'add
+       wave'.
+     * dts0100308327 - Simulator crashes during design load.
+   ______________________________________________________________________
+
+   Known Defects in 6.1f
+   ______________________________________________________________________
+
+   Product Changes to 6.1f
+     * Increase timing check capacities for optimized Verilog cells.
+     * Progress information is now included for loading the Dataflow window and
+       is now displayed in the Dataflow window's footer.
+     * The coverage report and vcover report commands have been changed in how
+       toggles are handled. Formerly, if the -cover t compile option was used
+       for module A, and module A had a signal connected to module B, then
+       toggles would also be reported for module B. Now, if a module is not
+       compiled with the toggles option, toggles will not be reported for that
+       module, even if it has signals connected to toggle nodes.
+     * The Active Processes window now loads only those processes it needs for
+       display. This provides better interactive performance on designs with a
+       large number of active processes when selecting a process from the
+       Structure or Dataflow window.
+     * The coverage data files produced by the coverage save command have been
+       evolving. Originally toggle coverage data was in one global list; then
+       toggles were added to individual instances. But the global list was
+       still saved. Now there is no need for the global list and considerable
+       space and time can be saved by not saving it. A -noglobals option has
+       been added to the coverage save command, which will eliminate saving of
+       the global list. Also, if you already have data files containing global
+       toggles,  you can use the vcover merge -noglobals or vcover report
+       -noglobals option to quickly skip the global list.
+   ______________________________________________________________________
+
+   New Features Added to 6.1f
+     * vcover merge has a new option -du duname [-recursive]. Use this option
+       to merge all the instances of design unit duname from all the input
+       files. With the -recursive option it will merge the design subtree all
+       the way down; otherwise it merges just one level. The output will be one
+       instance of the design unit, containing all the merged data (actually a
+       tree if -recursive is used). The default result instance path will be
+       the path of the first instance of the specified du that it finds; to
+       change the result path, use the -install option. The duname specified to
+       -du may be of the form [library.]primary[(secondary)].
+
+

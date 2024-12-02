@@ -1,0 +1,224 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//       U.S. Patent Numbers 6,175,946, 6,292,765, 6,609,229, 6,848,088     
+//                               and 6,885,983                              
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Lane Deskew module of the Gigabit
+ *               Ethernet XAUI monitor.
+ *
+ * DESCRIPTION   This module identifies the code-group boundaries and
+ *               aligns the incoming bit-stream and provides aligned
+ *               parallel 10-bit (symbol) data.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *
+ * INPUTS        areset             - asynchronous reset (active high)
+ *               reset              - synchronous reset (active high)
+ *               clk                - interface clock
+ *               lane_data          - incoming serial/symbol data
+ *               link_aligned       - link alignment status
+ *               align_error        - alignment error
+ *               align_loss         - loss of align
+ *               level_select       - select for muxing posedge & negedge
+ * OUTPUTS       lane_sync_status   - lane synchronized flag
+ *               lane_align_status  - lane aligned flag
+ *               aligned_data       - aligned symbol data 
+ *               aligned_data_valid - aligned symbol data valid
+ *               count              - index of data in accumulated reg
+ *
+ * LAST MODIFIED 08 March 2005
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`qvlmodule qvl_gigabit_ethernet_lane_deskew (areset,
+                                           reset,
+                                           clk,
+                                           lane_data,
+                                           link_aligned,
+                                           align_error,
+                                           align_loss,
+                                           level_select,
+                                           lane_sync_status,
+                                           lane_align_status,
+                                           aligned_data,
+                                           aligned_data_valid,
+                                           count
+                                          );
+
+  parameter SYMBOL_MODE = 0;
+  wire [31:0] pw_SYMBOL_MODE = SYMBOL_MODE;
+
+  // This parameter defines the maximum deskew limit. By default, the deskew
+  // limit is 41 bit times. This is used to decide the width of the register
+  // used to accumulate incoming serial data
+  parameter ZI_MAX_DESKEW_LIMIT = 41;
+
+  // This internal parameter defines the input data width depending on the
+  // configuration whether it is symbol mode or serial mode.
+  parameter ZI_DATA_WIDTH = (SYMBOL_MODE == 0) ? 1 : 10;
+
+  // These internal parameters are used to detect the SYNC and ALIGN patterns
+  // in the incoming bit stream in case of serial mode and symbols in case of 
+  // parallel mode. Here the bit order is "a-b-c-d-e-i f-g-h-j"
+  parameter ZI_SYNC_PLUS = 10'b11_0000_0101;
+  parameter ZI_SYNC_MINUS = 10'b00_1111_1010;
+  parameter ZI_ALIGN_PLUS = 10'b11_0000_1100;
+  parameter ZI_ALIGN_MINUS = 10'b00_1111_0011;
+
+  // These are the bit order reversed version of the above. The bit order is 
+  // "j-h-g-f i-e-d-c-b-a"
+  parameter ZI_SYNC_PLUS_BIT_RVSD = 10'b10_1000_0011; 
+  parameter ZI_SYNC_MINUS_BIT_RVSD = 10'b01_0111_1100;
+  parameter ZI_ALIGN_PLUS_BIT_RVSD = 10'b00_1100_0011;
+  parameter ZI_ALIGN_MINUS_BIT_RVSD = 10'b11_0011_1100;
+
+  input areset;
+  input reset;
+  input clk;
+  input [ZI_DATA_WIDTH-1:0] lane_data;
+  input link_aligned;
+  input align_error;
+  input align_loss;
+  input level_select;
+  output lane_sync_status;
+  output lane_align_status;
+  output [9:0] aligned_data;
+  output aligned_data_valid;
+  output [5:0] count;
+
+  // These are used to accumulate the incoming serial/symbol data in a 80bit
+  // register to handle skew between two lanes. 
+  reg [80:0] lane_posedge;
+  reg [80:0] lane_negedge;
+
+  // These are the counters that keep track of how many bits/symbols have been
+  // accumulated and serve as index to put the data out in symbols after align
+  reg [5:0] lane_count_posedge;
+  reg [5:0] lane_count_negedge;
+
+  // These track the symbol boundaries once the SYNC pattern is identified. In
+  // parallel mode this is throughout high.
+  reg [3:0] boundary_count_posedge;
+  reg [3:0] boundary_count_negedge;
+
+  // These are used to capture the obtaining of SYNC/ALIGN
+  reg lane_sync_posedge;
+  reg lane_align_posedge;
+  reg lane_sync_negedge;
+  reg lane_align_negedge;
+ 
+  // Registered aligned data. Two components required since this is a dual 
+  // edge active interface. 
+  reg [9:0] r_aligned_data_posedge;
+  reg [9:0] r_aligned_data_negedge;
+  
+  // These are the multiplexed wires of the posedge ane negedge components 
+  // declared above of various signals.
+  wire [((ZI_MAX_DESKEW_LIMIT*2)-1):0] lane;
+  wire lane_sync;
+  wire lane_align;
+  wire [5:0] lane_count;
+  wire [3:0] boundary_count;
+  wire data_enable;
+  wire [9:0] r_aligned_data;
+  
+  wire [9:0] temp_data;
+
+
+  assign lane_sync = (lane_sync_posedge || lane_sync_negedge);
+  assign lane_align = (lane_align_posedge || lane_align_negedge);
+
+  assign boundary_count = (level_select) ? boundary_count_posedge :
+                                           boundary_count_negedge;
+ 
+  assign lane = (level_select) ? lane_posedge : lane_negedge;
+  assign lane_count = (level_select) ? lane_count_posedge : lane_count_negedge;
+
+  assign lane_sync_status = lane_sync;
+  assign lane_align_status = lane_align;
+  assign data_enable = (lane_sync === 1'b1 && lane_align === 1'b1 && 
+		       (SYMBOL_MODE == 1 || boundary_count === 4'd0));
+  assign count = lane_count;
+
+  // Once lane align is obtained, the data comingon the lane is accumulated
+  // until the entire link is aligned (ie., all the lanes detect an align).
+  // Once this is obtained, each lane puts out the data starting from the 
+  // align pattern. This way, the first data seen after the link is aligned 
+  // is the align symbol from all lanes. This may inturn be in various segments
+  // of the accumulated register within the respective lane deskew modules.
+  assign aligned_data = (link_aligned === 1'b1) ? ((SYMBOL_MODE == 1) ?
+                        {lane[count-0], lane[count-1], lane[count-2], 
+                         lane[count-3], lane[count-4], lane[count-5], 
+                         lane[count-6], lane[count-7], lane[count-8], 
+                         lane[count-9]} : 
+                        {lane[count-9], lane[count-8], lane[count-7],
+                         lane[count-6], lane[count-5], lane[count-4],
+                         lane[count-3], lane[count-2], lane[count-1],
+                         lane[count-0]}) : r_aligned_data;
+
+  assign aligned_data_valid = data_enable;
+ 
+  assign r_aligned_data = (level_select) ? r_aligned_data_posedge :
+                                           r_aligned_data_negedge;
+
+  assign temp_data = {lane[8:0],lane_data};
+`protected 
+    MTI!#w-ue'VjU$^!J*InoBiD33ae5EHwX2Ei+[cE]J[v@r71m5+7;7oB<\a_U5Bv3>7|YsjwBIX-
+    Z5pUZju?yDIk~MoBBW[5;\*o'soT-?[-ox$K^k61xroR,~O^[U~RGQ*ZQsZ6}uD_x*=>G}W7pLq9
+    QzR[&,Bv#p]T==,[Xu]3UQ}TD|*;Vo7G!+]1Tv&LLi>XZo]>OH1TYa7#lep@\*^EAW]x~@1Avrs{
+    _XG>Uqs=oOinYuji>]+r]Z2]2RB?7$a5+xVCmKjCW#iN5Y#Hf$I('ZKDCo7jHYr!w\![#<I[a_mn
+    ^wTraa{O>>xUqom+75RQa7rA#+==J;j;#be5@Uw+][N@B{5{9rdes#_p#*pupskI#<+[EZ#l^,lz
+    #C3an_=B_m7>o#vHsoX2Tjs.fTj#$3e!5=lvE'rG-jJs>I[}AiC^TOTrXaQE-G*O7\_-^[>'{}5D
+    5XY+u<{@Kz3ziDH;2BC7X[sUDI7XJ+12J?jDeQAAwDwez=mYTKzn@*'##vZ<-q%!=a$H\\u}3T=}
+    A^Z?>;C@en_Qt\s}vMpk{HOwC]{wr2BOuw?[k]v{pE^A*GjQv{>^;m@r>OGQWs*va]Q&sXTK|{UO
+    <};~G_$?2]e5uWTsC-Uh11<TIzBB[IzK*aDQJDkaj~5@Ee1~J5lCeap!&;zpCiE>O!$Dz&rnH[y7
+    ;{D|&k]m3$5nU|\>pIp?n\7nArpn1s6A7mWju'\o^[QBk\1ie^~dRBV#i7o]|H7x[,?m[:mGlXDo
+    rrYi^A[A7p};v_Ee]$=X5uiB1$$R#V<*!},}#prOYTU\77aXKu_W,GD;jsrlYOUXaTe;<?\GH-X$
+    jaC1~VV]m{oDDUb5nD^k{=3^;EXoA7kQCBYr#BQ!Or-!j!ri}H7E!UsV#sZDoXEiH2TH{xG8lj_z
+    R|]Bn\;R@w#[X^r>K[|zxCnhlR^,\u,5\HVo$2j2Bpma75GR=T^2>a<YJ*QCl#j]a>n}mEJkj=a2
+    _WY5jo[5+QX]-Cn$GR_}q2aBIlUDm_HwJ;{O1OJ;XoX'n2T,*yjL6@*r[Vu*koBu^O1k7G{_5@T!
+    ~>GZ*X>[-!BjDheJnE_a\\]5B[vl!RnwWrrKWD,-H5pTC~C,Jk'{2W\R}#5<{r_jCuHGrmzY!e~5
+    CR3+>DlW^JKl3uxO!Hi}$52RBW<5GD\il*]Yz~UrI3j"-OTkHU<?1,s?G~zm>xWEEB5el+rG-Ym^
+    xQKB%VxrZ#G'739w}EowBYV!1{X/0k<3@oB~Ha[Uo,<To5#AjGIQm{T'[Qv1u13zE),U$!PcQ*aw
+    !$H+mY@>ez*JCJR[4sx#relx_YnxZ<Cv3k}pXoCGBZ{o+rwG5su$zXA@2#\KCHl!\(-smkK,u^A'
+    <33>@5kU{+)DY;OVG$\GR><!5lO7Z{7_jJWrA,AI#wCj-~*as]]De5Hwv*]Jte}*{#<eoG@AVaDY
+    #l^^!#llxp=XsBa-A_A1oE>W;z+73bPkBIn@x'50I<v>$wR!uAOo6$<]#l5WpZrp_ueBp~oCR5W\
+    j'RvKZG${<-U]iD#-i>*_W,7T-<~e>pk~JIi7Yll}]wUVe[B-so}#n's3]Eu*u^T1%B=='P-v}1@
+    1a*{zm^q>\,^aHrpS*.WA'mG!X@H=,D5]2zlD15^QUjxjrJlJzJN~}17EeHjxC}~xo3QRO$R]CRi
+    +E'wn[E@lW1QmBa5nj5JK_~WX]l[DYjnBKRvRx3pY1eo'vxVAEKG_z1xQ;<BvA^2s7YZ9qK>j~#T
+    }on*#vOWH_#nY>3>7vuea?'_k2\uG^,]ik7xBOKllxDYC;cx;$W'i^$-'1Ej_3svA_D_wsa4)z?j
+    O+vJJH-*+nnCGEI7pPkBr@+[=<DW,@*Q~#lOxn){z2]=pG2iU>ki>TXE_OA}i[ZZT{=<ez]wrxDe
+    n}i2$vw3IO37]3{?AXwa\<oRD7ZjnXz}rpKi]UYrr!71EklzDv$V#xA$2mKYf=<3oKwp-^-'[-s=
+    +m+A2n<7emaIECq5;,V_V;KH]{_Y_*51u]BJY#BGDX^eQmj@AUp1W1lx~[3#^wKl1XpRTpv*]l[~
+    vlz1->Ob}%OKx\wn}]iUW,#A'3[u\vave]@aA]9V@pi3Ql2'D]}7p>3\nookGsikTs[7;YQ{Ao,G
+    ^Jzs3U[Cu<+kpIUw7
+`endprotected
+
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_lane_deskew.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_lane_deskew.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_lane_deskew
+`include "zi_cw_gigabit_ethernet_lane_deskew.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // zi_cw_gigabit_ethernet_lane_deskew

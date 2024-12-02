@@ -1,0 +1,1806 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+/*************************************************************************
+*
+* PURPOSE     This file is part of Questa Verification Library (QVL).
+*
+* DESCRIPTION This monitor checks the USB 2.0 UTMI interface for compliance 
+*             with UTMI specification and USB 2.0 specification and protocol.
+*
+* REFERENCES  Universal Serial Bus Specification, Revision 2.0, April 27,
+*             2000.
+*             Errata for USB 2.0 specification, May 28, 2002.
+*             Errata for USB 2.0 specification, December 7, 2000.
+*             USB 2.0 Transceiver Macrocell Interface Specification, 
+*             Revision 1.05, Mar 29, 2001.
+*             UTMI+ Specification, Revision 1.0, February 25th , 2004.
+*
+* INPUTS      clock                   - Clock.
+*             reset                   - Synchronous reset, active high.
+*             areset                  - Asynchronous reset, active high.
+*
+*             tx_valid                - Transmit data valid signal.
+*             tx_valid_h              - Transmit data valid high signal.
+*             tx_ready                - Transmit data ready signal.
+*             data_in_low             - 8-Bit parallel USB data input.
+*             data_in_high            - 8-Bit parallel USB data input. This
+*                                       bus carries the high order byte
+*
+*             rx_valid                - Receive data valid signal.
+*             rx_valid_h              - Receive data valid high signal.
+*             data_out_low            - 8-Bit parallel USB data output.
+*             data_out_high           - 8-Bit parallel USB data output. This
+*                                       bus carries the high order byte.
+*             rx_active               - Receive active signal
+*             rx_error                - Receive error signal
+*             
+*             databus16_8             - Selects between 8 bit or 16 bit.
+*             line_state              - Signal which reflects current state
+*                                       of the USB bus.
+*             xcvr_select             - Selects between FS/HS transceivers.
+*             term_select             - Selects between FS/HS terminations.
+*             op_mode                 - Selects operational mode of the Macrocell.
+*             suspendm                - Places the Macrocell in a low power mode.
+*             address                 - Device address.
+*             end_point_config        - End point configuration input.
+*             number_of_active_endpoints - Number of active endpoints.
+*
+*             // Signals to support Bi-Directional interfaces.
+*     
+*             data_low                - 8-Bit parallel USB input and output.
+*             data_high               - 8-Bit parallel USB input and output.
+*             valid_h                 - Valid high signal.
+*
+*             // Signals to support On-The-Go Devices
+*             a_valid                 - Indicates if A-Perip session is valid
+*             b_valid                 - Indicates if B-Perip session is valid
+*             vbus_valid              - Indicates voltage on Vbus is valid
+*             sess_end                - Vbus is below its B-Dev Session End threshold
+*             drv_vbus                - Signal enables to drive 5V on Vbus
+*             dischrg_vbus            - Signal enables discharging Vbus
+*             chrg_vbus               - Signal enables charging of Vbus
+*             host_disconnect         - Indicates weather a peripheral is connected or not
+*
+*             // Signals for supporting Level 1 and above 
+*             id_pullup               - Enables analog Id lines 
+*             id_dig                  - Selects between mini-A or mini-B
+*             dp_pulldown             - Enables the 15k Ohm pull-down resistor on the DP line
+*             dm_pulldown             - Enables the 15k Ohm pull-down resistor on the DM line
+*
+* NOTES
+*
+*        1. Bidirectional signals are required if the UTMI is bidirectional.
+*
+*        2. If the UTMI interface is 8 bit, then signals/ports related to 
+*           16 bit interface need not be hooked up.
+*
+*        3. Depending on the relevent level of operation signals/ports related
+*           to higher level need not be hooked up.
+* 
+*
+*
+* MONITOR INSTANTIATION
+*
+*
+*  Monitor is instantiated in the Host to track the transactions of the
+*  downstream port of the host(Downstream port of root hub).
+*
+*       +----------------+                          +-----------------+
+*       |                |                          |                 |  
+*       | +-----------+  |                          |                 |  
+*       | | Monitor   |  |                          |                 |  
+*       | +-----------+  |     USB Bus              |     HUB or      |  
+*       |                |<------------------------>|                 |  
+*       |  HOST          |    Full speed or         |     FUNCTION    |
+*       |                |    High speed            |                 |  
+*       |                |                          |                 |  
+*       |                |                          |                 |  
+*       |                |                          |                 |  
+*       +----------------+                          +-----------------+
+*
+*  Monitor is instantiated in the Device to track the transactions of the
+*  upstream port of the Device. (Device can be Hub or Function)
+*
+*       +----------------+                          +-----------------+
+*       |                |                          |                 |  
+*       |                |                          | +-------------+ |
+*       |                |                          | | Monitor     | |
+*       |                |      USB Bus             | +-------------+ |
+*       |                |<------------------------>|     HUB or      |  
+*       |                |      Full speed or       |                 |  
+*       |  HOST          |      High speed          |    FUNCTION     |  
+*       |                |                          |                 |  
+*       |                |                          |                 |  
+*       |                |                          |                 |  
+*       +----------------+                          +-----------------+
+*
+*  Monitor is instantiated in the Hub to track the transactions of the
+*  downstream port of the Hub.
+*
+*        +----------------+                          +-----------------+
+*        |                |                          |                 | 
+*        | +-----------+  |                          |                 | 
+*        | | Monitor   |  |                          |                 | 
+*        | +-----------+  |     USB Bus              |     HUB or      | 
+*        |                |<------------------------>|                 | 
+*        |  HUB           |   Full or Low speed or   |   FUNCTION      | 
+*        |                |      High speed          |                 | 
+*        |                |                          |                 | 
+*        |                |                          |                 | 
+*        |                |                          |                 | 
+*        +----------------+                          +-----------------+
+*
+*
+***************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_usb_2_0_utmi_logic (
+                                   clock,
+                                   reset,
+                                   areset,
+                              
+                                   // Transmit Interface
+
+                                   tx_valid,
+                                   data_in_low,
+                                   tx_valid_h,
+                                   data_in_high,
+                                   tx_ready,
+
+                                   // Receive Interface
+
+                                   rx_valid,
+                                   data_out_low,
+                                   rx_valid_h,
+                                   data_out_high,
+                                   rx_active,
+                                   rx_error,
+
+                                   // Control interface
+
+                                   databus16_8,
+                                   line_state, 
+                                   xcvr_select,
+                                   term_select,
+                                   op_mode,
+                                   suspendm,
+
+                                   // Bi directional 
+
+                                   data_low,
+                                   data_high,
+                                   valid_h,
+
+                                   //Misc
+                                   id_pullup,
+                                   id_dig,
+                                   a_valid,
+                                   b_valid,
+                                   vbus_valid,
+                                   sess_end,
+                                   drv_vbus,
+                                   dischrg_vbus,
+                                   chrg_vbus,
+                                   dp_pulldown,
+                                   dm_pulldown,
+                                   host_disconnect,
+
+                                   // Configuration inputs
+ 
+                                   address,
+                                   end_point_config,
+                                   number_of_active_endpoints
+                                   );
+
+  // Parameter Constraints_Mode = 1 will configure some checks in this 
+  // monitor as constraints during 0-In Search.
+
+  parameter Constraints_Mode = 0; 
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Paramete UTMI_LEVEL configures the Level of the UTMI monitor.
+  // UTMI_LEVEL = 0 configures the monitor to operate in UTMI+Level0 mode.
+  // UTMI_LEVEL = 1 configures the monitor to operate in UTMI+Level1 mode.
+  // UTMI_LEVEL = 2 configures the monitor to operate in UTMI+Level2 mode.
+  // UTMI_LEVEL = 3 configures the monitor to operate in UTMI+Level3 mode.
+  // This information is used to configure the width of XcvrSelect signal to
+  // 2 bits for Level 2 and above
+
+  parameter UTMI_LEVEL = 0;
+  wire [31:0] pw_UTMI_LEVEL = UTMI_LEVEL;
+
+  // Parameter PORT_TYPE configures the port type which will be tracked by
+  // the monitor. PORT_TYPE = 0 configures the monitor to track the
+  // transactions of the downstream port of the Host. PORT_TYPE = 1
+  // configures the monitor to track the transactions of the upstream port
+  // of Hub. PORT_TYPE = 2 configures the monitor to track the transactions
+  // of the downstream port of Hub. PORT_TYPE = 3 configures the monitor to
+  // track transactions of upstream port of a function. This information,
+  // along with the value of parameter Constraints_Mode will decide the checks
+  // to be turned into constraints during 0-In Search.
+
+  parameter PORT_TYPE = 0;                             
+  wire [31:0] pw_PORT_TYPE = PORT_TYPE;
+
+  // Parameter UTMI_SIDE indicates on which side of the interface, monitor
+  // is instantiated. By default monitor is assumed to be instantiated on
+  // the SIE side of the interface. 
+
+  parameter UTMI_SIDE = 0;
+  wire [31:0] pw_UTMI_SIDE = UTMI_SIDE;
+
+  // Parameter BI_DIRECTIONAL configures the monitor to track the
+  // UTMI interface.
+
+  parameter BI_DIRECTIONAL = 0;
+  wire [31:0] pw_BI_DIRECTIONAL = BI_DIRECTIONAL;
+
+  // Parameter DEVICE_SPEED configures the monitor for FS/HS, FS only, LS only
+  // mode of operation. Set this parameter to 1 if the UTM is FS only, Set this
+  // parameter to 2 if the UTM is LS only. By default, monitor is configured to
+  // track FS/HS interface.
+
+  parameter DEVICE_SPEED = 0;
+  wire [31:0] pw_DEVICE_SPEED = DEVICE_SPEED;
+
+  // Parameter NUMBER_OF_ENDPOINTS configures the number of end points
+  // to be tracked by the monitor. By default, monitor is configured
+  // to track only one end point.
+
+  parameter NUMBER_OF_ENDPOINTS = 1;
+  wire [31:0] pw_NUMBER_OF_ENDPOINTS = NUMBER_OF_ENDPOINTS;
+ 
+  // Parameter FRAME_INTERVAL_COUNT indicates the number of clock cycles
+  // between two successive SOF packets (USB specification specifies
+  // an interval of 1ms between frames. This time duration needs to be mapped
+  // into number of clock cycles).
+
+  parameter FRAME_INTERVAL_COUNT = 7500;
+  wire [31:0] pw_FRAME_INTERVAL_COUNT = FRAME_INTERVAL_COUNT;
+
+  // Parameter SEQUENCE_BIT_TRACKING_ENABLE configures the monitor to
+  // track data toggle synchronization.
+
+  parameter SEQUENCE_BIT_TRACKING_ENABLE = 1;
+  wire [31:0] pw_SEQUENCE_BIT_TRACKING_ENABLE = SEQUENCE_BIT_TRACKING_ENABLE;
+ 
+  // Parameter PACKET_ISSUE_CHECK_ENABLE configures the monitor to fire
+  // for illegal issue of token, requests. By default monitor fires
+  // for above mentioned conditions. Example : If IN token is issued
+  // to OUT only end point then monitor check fires when this parameter
+  // is set to 1. Similarly if undefined requests other than standard
+  // requests, device class requests are issued then monitor checks
+  // fire when this parameter is set to 1.
+ 
+  parameter PACKET_ISSUE_CHECK_ENABLE = 1;
+  wire [31:0] pw_PACKET_ISSUE_CHECK_ENABLE = PACKET_ISSUE_CHECK_ENABLE;
+
+  // parameter RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY configures the
+  // delay between the deassertion of the RxActive and assertion of TxValid
+  // assertion
+
+  parameter RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MIN = 5;
+  wire [31:0] pw_RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MIN = 
+                       RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MIN;
+
+  parameter RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MAX = 24;
+  wire [31:0] pw_RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MAX = 
+                       RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MAX;
+
+  // parameter TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY configures the
+  // delay between the deassertion of the TxValid and assertion of
+  // RxActive.
+
+  parameter TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MIN = 6;
+  wire [31:0] pw_TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MIN = 
+                   TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MIN;
+
+  parameter TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MAX = 37;
+  wire [31:0] pw_TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MAX = 
+                   TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MAX;
+
+  // Parameter TIME_OUT_COUNT configures the number of clk cycles
+  // after which device or host is required to time out.
+
+  parameter TIME_OUT_COUNT = 800;
+  wire [31:0] pw_TIME_OUT_COUNT = TIME_OUT_COUNT;
+
+  // Parameter OTG_DEVICE configures the monitor to track OTG compliant
+  // USB devices. By default, non OTG compliant devices are tracked.
+
+  parameter OTG_DEVICE = 0;
+  wire [31:0] pw_OTG_DEVICE = OTG_DEVICE;
+
+  // Parameter HUB_TURNAR_TIMEOUT_16BIT configures the monitor to track 
+  // the turn around timeout period in case databus16_8 is set for 16 bit
+  
+  parameter HUB_TURNAR_TIMEOUT_16BIT = 45000;
+  wire [12:0] pw_HUB_TURNAR_TIMEOUT_16BIT = HUB_TURNAR_TIMEOUT_16BIT; 
+
+  // Parameter HUB_TURNAR_TIMEOUT_8BIT configures the monitor to track 
+  // the turn around timeout period in case databus16_8 is set for 8 bit
+  
+  parameter HUB_TURNAR_TIMEOUT_8BIT = 90000;
+  wire [12:0] pw_HUB_TURNAR_TIMEOUT_8BIT = HUB_TURNAR_TIMEOUT_8BIT; 
+
+  // Parameter HUB_CHIRP_TIMEOUT_16BIT configures the monitor to track
+  // the timeout period for a K or J chirp in 16 bit mode
+  
+  parameter HUB_CHIRP_TIMEOUT_16BIT = 1800;
+  wire [11:0] pw_HUB_CHIRP_TIMEOUT_16BIT = HUB_CHIRP_TIMEOUT_16BIT;	
+
+  // Parameter HUB_CHIRP_TIMEOUT_8BIT configures the monitor to track
+  // the timeout period for a K or J chirp in 8 bit mode
+  
+  parameter HUB_CHIRP_TIMEOUT_8BIT = 3600;
+  wire [11:0] pw_HUB_CHIRP_TIMEOUT_8BIT = HUB_CHIRP_TIMEOUT_8BIT;	
+  
+  // Parameter TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_8BIT configures the 
+  // monitor to timeout when term_select signal does not deassert till 
+  // 500 us after HS has been detected.
+
+  parameter TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_8BIT = 30000; 
+  wire [14:0] pw_TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_8BIT = 
+                 TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_8BIT;	
+
+  // Parameter TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_16BIT configures the 
+  // monitor to timeout when term_select signal does not deassert till 
+  // 500 us after HS has been detected.
+
+  parameter TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_16BIT = 15000; 
+  wire [14:0] pw_TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_16BIT = 
+                 TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_16BIT;	
+
+  // Parameters SE0_COUNT_MAX_FULL_SPEED_REVERSE_MAX_COUNT_8BIT configures the 
+  // maximum time 3.125 ms in number of clocks for which SE0 has to be seen on 
+  // the bus for reversal to full speed mode 
+  parameter SE0_COUNT_MAX_FULL_SPEED_REVERSE_8BIT  = 187500;
+  wire [31:0] pw_SE0_COUNT_MAX_FULL_SPEED_REVERSE_8BIT = 
+                 SE0_COUNT_MAX_FULL_SPEED_REVERSE_8BIT;
+
+  // Parameters SE0_COUNT_MAX_FULL_SPEED_REVERSE_MAX_COUNT_16BIT configures the 
+  // maximum time 3.125 ms in number of clocks for which SE0 has to be seen on the 
+  // bus for reversal to full speed mode 
+  parameter SE0_COUNT_MAX_FULL_SPEED_REVERSE_16BIT = 93750;
+  wire [31:0] pw_SE0_COUNT_MAX_FULL_SPEED_REVERSE_16BIT = 
+                 SE0_COUNT_MAX_FULL_SPEED_REVERSE_16BIT;
+
+  // Parameters SE0_COUNT_MIN_FULL_SPEED_REVERSE_8BIT configures the minimum time 
+  // 3 ms in number of clocks for which SE0 has to be seen on the bus for reversal 
+  // to full speed mode
+  parameter SE0_COUNT_MIN_FULL_SPEED_REVERSE_8BIT  = 180000;
+  wire [31:0] pw_SE0_COUNT_MIN_FULL_SPEED_REVERSE_8BIT = 
+                 SE0_COUNT_MIN_FULL_SPEED_REVERSE_8BIT;
+
+  // Parameters SE0_COUNT_MIN_FULL_SPEED_REVERSET_16BIT configures the minimum 
+  // time 3 ms in number of clocks for which SE0 has to be seen on the bus for 
+  // reversal to full speed mode
+  parameter SE0_COUNT_MIN_FULL_SPEED_REVERSE_16BIT = 90000;
+  wire[31:0] pw_SE0_COUNT_MIN_FULL_SPEED_REVERSE_16BIT = 
+                SE0_COUNT_MIN_FULL_SPEED_REVERSE_16BIT;
+
+  // Parameters FULL_SPEED_SE0_RESET_TIMEOUT_8BIT configures the time 2.5 us number 
+  // of clock in full speed mode for which SE0 has to be seen on the bus for detecting 
+  // reset
+  parameter FULL_SPEED_SE0_RESET_TIMEOUT_8BIT = 150;
+  wire [31:0] pw_FULL_SPEED_SE0_RESET_TIMEOUT_8BIT  = FULL_SPEED_SE0_RESET_TIMEOUT_8BIT; 
+
+  // Parameters FULL_SPEED_SE0_RESET_TIMEOUT_16BIT configures the time 2.5 us number 
+  // of clock in full speed mode for which SE0 has to be seen on the bus for detecting 
+  // reset
+  parameter FULL_SPEED_SE0_RESET_TIMEOUT_16BIT = 75;
+  wire [31:0] pw_FULL_SPEED_SE0_RESET_TIMEOUT_16BIT = FULL_SPEED_SE0_RESET_TIMEOUT_16BIT;
+
+  // Parameters FULL_SPEED_J_SUSPEND_TIMEOUT_8BIT configures the number of clock in
+  // full speed mode for which J has to be seen on the bus for detecting suspend
+  parameter FULL_SPEED_J_SUSPEND_TIMEOUT_8BIT = 180000;
+  wire [31:0] pw_FULL_SPEED_J_SUSPEND_TIMEOUT_8BIT = FULL_SPEED_J_SUSPEND_TIMEOUT_8BIT;
+  
+  // Parameters FULL_SPEED_J_SUSPEND_TIMEOUT_16BIT configures the number of clock in
+  // full speed mode for which J has to be seen on the bus for detecting suspend
+  parameter FULL_SPEED_J_SUSPEND_TIMEOUT_16BIT = 90000;
+  wire [31:0] pw_FULL_SPEED_J_SUSPEND_TIMEOUT_16BIT = FULL_SPEED_J_SUSPEND_TIMEOUT_16BIT;
+
+  // Parameter LINE_STATE_DEBOUNCE_TIMEOUT_8BIT configures the time in range of 100 us 
+  // to 875 us to sample the line state for detection of reset/suspend after reversal 
+  // to full speed mode
+  parameter LINE_STATE_DEBOUNCE_TIMEOUT_8BIT = 6000;
+  wire [31:0] pw_LINE_STATE_DEBOUNCE_TIMEOUT_8BIT = LINE_STATE_DEBOUNCE_TIMEOUT_8BIT;
+
+  // Parameter LINE_STATE_DEBOUNCE_TIMEOUT_16BIT configures the time in range of 100 us 
+  // to 875 us to sample the line state for detection of reset/suspend after reversal 
+  // to full speed mode
+  parameter LINE_STATE_DEBOUNCE_TIMEOUT_16BIT = 3000;
+  wire [31:0] pw_LINE_STATE_DEBOUNCE_TIMEOUT_16BIT = LINE_STATE_DEBOUNCE_TIMEOUT_16BIT;
+
+  // Parameter CLK_USABLE_TIMEOUT_8BIT configures the time 5.6 ms in number of clocks
+  // for the clock to be usable after J-SE0 transition is seen on the bus
+  parameter CLK_USABLE_TIMEOUT_8BIT = 336000;
+  wire [31:0] pw_CLK_USABLE_TIMEOUT_8BIT = CLK_USABLE_TIMEOUT_8BIT;
+
+  // Parameter CLK_USABLE_TIMEOUT_16BIT configures the time 5.6 ms in number of clocks
+  // for the clock to be usable after J-SE0 transition is seen on the bus
+  parameter CLK_USABLE_TIMEOUT_16BIT = 168000;
+  wire [31:0] pw_CLK_USABLE_TIMEOUT_16BIT = CLK_USABLE_TIMEOUT_16BIT;
+
+  // Parameter MIN_RESET_INTERVAL_8BIT configures the minimum reset interval of 10ms
+  parameter MIN_RESET_INTERVAL_8BIT = 600000;
+  wire [31:0] pw_MIN_RESET_INTERVAL_8BIT = MIN_RESET_INTERVAL_8BIT;
+
+  // Parameter MIN_RESET_INTERVAL_16BIT configures the minimum reset interval of 10ms
+  parameter MIN_RESET_INTERVAL_16BIT = 300000;
+  wire [31:0] pw_MIN_RESET_INTERVAL_16BIT = MIN_RESET_INTERVAL_16BIT;
+
+  // Parameter CHIRP_KJ_START_TIMEOUT_8BIT configures the time 100 us in number of clocks 
+  // for Chirp-KJ sequence to start after device Chirp-K 
+  parameter CHIRP_KJ_START_TIMEOUT_8BIT = 6000;
+  wire [31:0]  pw_CHIRP_KJ_START_TIMEOUT_8BIT = CHIRP_KJ_START_TIMEOUT_8BIT;
+
+  // Parameter CHIRP_KJ_START_TIMEOUT_16BIT configures the time 100 us in number of clocks 
+  // for Chirp-KJ sequence to start after device Chirp-K 
+  parameter CHIRP_KJ_START_TIMEOUT_16BIT = 3000;
+  wire [31:0] pw_CHIRP_KJ_START_TIMEOUT_16BIT = CHIRP_KJ_START_TIMEOUT_16BIT;
+
+  // Parameter DEV_CHIRP_K_TIMEOUT_8BIT configures the maximum time 5.8 ms in number clocks 
+  // for assertion of device chirp after detection SE0 on the bus for reset 
+  parameter DEV_CHIRP_K_TIMEOUT_8BIT = 348000;
+  wire [31:0] pw_DEV_CHIRP_K_TIMEOUT_8BIT = DEV_CHIRP_K_TIMEOUT_8BIT;
+
+  // Parameter DEV_CHIRP_K_TIMEOUT_16BIT configures the maximum time 5.8ms in number of 
+  // clocks for assertion of device chirp after detection SE0 on the bus for reset 
+  parameter DEV_CHIRP_K_TIMEOUT_16BIT = 174000;
+  wire [31:0] pw_DEV_CHIRP_K_TIMEOUT_16BIT = DEV_CHIRP_K_TIMEOUT_16BIT;
+
+  // Parameter  DEV_CHIRP_K_DEASS_TIMEOUT_8BIT configures the maximum clocks before 
+  // which device chirp has to be deasserted after it is asserted
+  parameter DEV_CHIRP_K_DEASS_TIMEOUT_8BIT = 420000;
+  wire [31:0] pw_DEV_CHIRP_K_DEASS_TIMEOUT_8BIT = DEV_CHIRP_K_DEASS_TIMEOUT_8BIT;
+
+  // Parameter  DEV_CHIRP_K_DEASS_TIMEOUT_16BIT configures the maximum clocks before which 
+  // device chirp has to be deasserted after it is asserted
+  parameter DEV_CHIRP_K_DEASS_TIMEOUT_16BIT = 210000;
+  wire [31:0] pw_DEV_CHIRP_K_DEASS_TIMEOUT_16BIT = DEV_CHIRP_K_DEASS_TIMEOUT_16BIT;
+
+  // Parameter DEV_CHIRP_K_ASSERT_TIMEOUT_8BIT configures the maximum time 6ms
+  // in clocks before which device chirp has to be asserted after entering
+  // handshake mode
+  parameter DEV_CHIRP_K_ASSERT_TIMEOUT_8BIT   = 360000;
+  wire [31:0] pw_DEV_CHIRP_K_ASSERT_TIMEOUT_8BIT = DEV_CHIRP_K_ASSERT_TIMEOUT_8BIT;
+
+  // Parameter DEV_CHIRP_K_ASSERT_TIMEOUT_16BIT configures the maximum time
+  // 6ms in clocks before which device chirp has to be asserted after entering
+  // handshake mode
+  parameter DEV_CHIRP_K_ASSERT_TIMEOUT_16BIT   = 180000;
+  wire [31:0] pw_DEV_CHIRP_K_ASSERT_TIMEOUT_16BIT = DEV_CHIRP_K_ASSERT_TIMEOUT_16BIT;
+
+  // Parameter DEV_MIN_REMOTE_WAKE_UP_COUNT_8BIT configures the minimum time 5ms in clocks 
+  // before which a device capable of remote wake up must not initiate resume
+  parameter DEV_MIN_REMOTE_WAKE_UP_COUNT_8BIT = 300000;
+  wire [31:0] pw_DEV_MIN_REMOTE_WAKE_UP_COUNT_8BIT = DEV_MIN_REMOTE_WAKE_UP_COUNT_8BIT;
+
+  // Parameter DEV_MIN_REMOTE_WAKE_UP_COUNT_16BIT configures the minimum clocks before
+  // which a device capable of remote wake up must not initiate resume
+  parameter DEV_MIN_REMOTE_WAKE_UP_COUNT_16BIT = 150000;
+  wire [31:0] pw_DEV_MIN_REMOTE_WAKE_UP_COUNT_16BIT = DEV_MIN_REMOTE_WAKE_UP_COUNT_16BIT;
+
+  // Parameter RESUME_K_MIN_ASSERT_8BIT configures the minimum clocks
+  // for which resume K must be asserted 
+  parameter RESUME_K_MIN_ASSERT_8BIT =  60000;
+  wire [31:0] pw_RESUME_K_MIN_ASSERT_8BIT = RESUME_K_MIN_ASSERT_8BIT;
+
+  // Parameter RESUME_K_MIN_ASSERT_16BIT configures the minimum clocks
+  // for which resume K must be asserted 
+  parameter RESUME_K_MIN_ASSERT_16BIT =  30000;
+  wire [31:0] pw_RESUME_K_MIN_ASSERT_16BIT = RESUME_K_MIN_ASSERT_16BIT;
+
+  // Parameter RESUME_K_MAX_ASSERT_8BIT configures the maximum clocks
+  // for which resume K can be asserted 
+  parameter RESUME_K_MAX_ASSERT_8BIT = 900000;
+  wire [31:0] pw_RESUME_K_MAX_ASSERT_8BIT = RESUME_K_MAX_ASSERT_8BIT;
+
+  // Parameter RESUME_K_MAX_ASSERT_16BIT configures the maximum clocks
+  // for which resume K can be asserted 
+  parameter RESUME_K_MAX_ASSERT_16BIT = 450000;
+  wire [31:0] pw_RESUME_K_MAX_ASSERT_16BIT = RESUME_K_MAX_ASSERT_16BIT;
+
+  // Parameter RESUME_K_DURATION_LINE_STATE_8BIT configures the minimum clocks for
+  // which resume K must be found on the line_state
+  parameter RESUME_K_DURATION_LINE_STATE_8BIT = 1200000;
+  wire [31:0] pw_RESUME_K_DURATION_LINE_STATE_8BIT = RESUME_K_DURATION_LINE_STATE_8BIT;
+
+  // Parameter RESUME_K_DURATION_LINE_STATE_16BIT configures the minimum clocks for
+  // which resume K must be found on the line_state
+  parameter RESUME_K_DURATION_LINE_STATE_16BIT = 600000;
+  wire [31:0] pw_RESUME_K_DURATION_LINE_STATE_16BIT = RESUME_K_DURATION_LINE_STATE_16BIT;
+
+  // Parameter RESUME_NORMAL_OPER_TIMEOUT_8BIT configures the maximum clock before
+  // which the device should resume normal operation after coming out of
+  // resume sequence  
+  parameter RESUME_NORMAL_OPER_TIMEOUT_8BIT = 75;
+  wire [31:0] pw_RESUME_NORMAL_OPER_TIMEOUT_8BIT = RESUME_NORMAL_OPER_TIMEOUT_8BIT;
+
+  // Parameter RESUME_NORMAL_OPER_TIMEOUT_16BIT configures the maximum clock before
+  // which the device should resume normal operation after coming out of
+  // resume sequence  
+  parameter RESUME_NORMAL_OPER_TIMEOUT_16BIT = 38;
+  wire [31:0] pw_RESUME_NORMAL_OPER_TIMEOUT_16BIT = RESUME_NORMAL_OPER_TIMEOUT_16BIT;
+
+  // Parameter SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_8BIT configures maximum delay for
+  // assertion of FS 'K' on the bus after suspendm is asserted
+  parameter SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_8BIT = 600000;
+  wire [31:0]  pw_SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_8BIT = 
+                  SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_8BIT;
+
+  // Parameter SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_16BIT configures maximum delay for
+  // assertion of FS 'K' on the bus after suspendm is asserted
+  parameter SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_16BIT = 300000;
+  wire [31:0] pw_SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_16BIT = 
+                 SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_16BIT;
+
+  // Parameter HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_8BIT configures the
+  // recovery time after reversal to full speed mode before which
+  // host_disconnect signal cannot be updated
+  parameter HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_8BIT = 240000;
+  wire [31:0] pw_HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_8BIT =
+                 HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_8BIT;
+
+  // Parameter HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_16BIT configures the
+  // recovery time after reversal to full speed mode before which
+  // host_disconnect signal cannot be updated
+  parameter HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_16BIT = 120000;
+  wire [31:0] pw_HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_16BIT = 
+                 HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_16BIT;
+
+  // Parameters related to Inter PAcket delay, Max PAcket Size.
+
+  // Parameter which decides the width of the XcvrSelect
+  parameter XCVR_WIDTH = (UTMI_LEVEL == 0 || UTMI_LEVEL == 1)?1:2;
+
+  // Input port declarations.
+
+  input clock; // Active on the rising edge only.
+  input reset; // Active high. 
+  input areset; // Active high.
+
+  input tx_valid; // Transmit data 'data_in_low' is valid.
+  input [7:0] data_in_low; 
+
+  input tx_valid_h; // Transmit data 'data_in_high' is valid.
+  input [7:0] data_in_high;
+ 
+  input tx_ready; // Transmit ready signal
+
+  input rx_valid; // Receive data 'data_out_low' is valid.
+  input [7:0] data_out_low; 
+
+  input rx_valid_h; // Receive data 'data_out_high' is valid.
+  input [7:0] data_out_high;
+  input rx_active;
+  input rx_error;
+
+  input databus16_8; // 1 - 16 bit, 0 - 8 bit interface.
+  input [1:0] line_state; // Line status signal.
+  input [XCVR_WIDTH-1:0] xcvr_select; // Selects between FS and HS transceiver
+  input term_select; // Selects between FS and HS termination
+  input [1:0] op_mode; // Selects between normal and disable NRZI and bit stuffing 
+  input suspendm; // Places the Macrocell in a mode that draws minimal power from supplies
+
+  input [7:0] data_low; // Bidirectional data
+  input [7:0] data_high; // Bidirectional data
+  input valid_h; // 'data_high' is valid.
+
+  input id_pullup; // Enables analog Id lines
+  input id_dig;    // Selects between mini-A or mini-B
+  input a_valid;   // Indicates if A-Perip session is valid
+  input b_valid;   // Indicates if B-Perip session is valid
+  input vbus_valid;// Indicates voltage on Vbus is valid
+  input sess_end;  // Vbus is below its B-Dev Session End threshold
+  input drv_vbus;  // Signal enables to drive 5V on Vbus
+  input dischrg_vbus; // Signal enables discharging Vbus
+  input chrg_vbus;  // Signal enables charging of Vbus
+  input dp_pulldown; // Enables the 15k Ohm pull-down resistor on the DP line
+  input dm_pulldown; // Enables the 15k Ohm pull-down resistor on the DM line.
+  input host_disconnect; // Indicates weather a peripheral is connected or not
+
+  input [6:0] address; // Address of the device.
+  input [NUMBER_OF_ENDPOINTS * 21 - 1:0] end_point_config; // End point info.
+  input [4:0] number_of_active_endpoints;  
+
+  parameter MAC_LAYER_CONSTRAINT = (UTMI_SIDE == 0 && Constraints_Mode);
+  parameter PHY_LAYER_CONSTRAINT = (UTMI_SIDE == 1 && Constraints_Mode);
+
+  parameter ZI_HOST_SIDE_CONSTRAINT = (Constraints_Mode &&
+                                       (PORT_TYPE == 0 || PORT_TYPE == 2));
+  parameter ZI_DEVICE_SIDE_CONSTRAINT = (Constraints_Mode &&
+                       (PORT_TYPE == 1 || PORT_TYPE == 3));
+
+  // Internal parameter declarations.
+  parameter RX_ACTIVE_TO_RX_ACTIVE_HS_DELAY = 1; // 1 clocks.
+  parameter RX_ACTIVE_TO_RX_ACTIVE_NON_HS_DELAY = 4; // 4 clocks.
+                                              
+  //SRP Related parameteres
+  parameter INIT_SE0_COUNT_DISCONN_MAX_8BIT    = 120000;
+  parameter INIT_SE0_COUNT_DISCONN_MAX_16BIT   =  60000;
+
+  parameter DATA_LINE_PULSE_DURATION_MIN_8BIT  = 150000;
+  parameter DATA_LINE_PULSE_DURATION_MIN_16BIT =  75000;
+
+  parameter DATA_LINE_PULSE_DURATION_MAX_8BIT  = 300000;
+  parameter DATA_LINE_PULSE_DURATION_MAX_16BIT = 150000;
+
+  // Parameter declarations for line_state
+  parameter ZI_SE0_STATE = 0;
+  parameter ZI_SE1_STATE = 3;
+  parameter ZI_K_STATE = 2;
+  parameter ZI_J_STATE = 1;
+
+  
+  // Parameter declarations for transmit states
+  parameter ZI_TX_IDLE_STATE = 0;
+  parameter ZI_TX_SYNC_STATE = 1;
+  parameter ZI_TX_DATA_STATE = 2;
+  parameter ZI_TX_DATA_WAIT_STATE = 3;
+
+  // Parameter declarations for receive states
+  parameter ZI_RX_IDLE_STATE = 0;
+  parameter ZI_RX_SYNC_STATE = 1;
+  parameter ZI_RX_DATA_STATE = 2;
+  parameter ZI_RX_DATA_WAIT_STATE = 3;
+  parameter ZI_RX_ERROR_STATE = 4;
+  parameter ZI_RX_ABORT_STATE = 5;
+
+  // Parameters declarations for session request protocol
+  parameter ZI_SESS_IDLE_STATE = 0;
+  parameter ZI_SRP_INIT_STATE  = 1;
+  parameter ZI_DATA_LINE_PULSE_STATE = 2;
+  parameter ZI_VBUS_PULSE_STATE = 3;
+
+  // Parameters declarations for suspend/resume/reset states
+  parameter ZI_IDLE_STATE  = 0;
+  parameter ZI_FS_RESET_DETECT_STATE = 1;
+  parameter ZI_HS_RESET_DETECT_STATE = 2;
+  parameter ZI_FS_SUSPEND_DETECT_STATE = 3;
+  parameter ZI_FS_MODE_STATE = 4;
+  parameter ZI_HANDSHAKE_STATE = 5;
+  parameter ZI_ENTER_SUSPEND_STATE = 6;
+  parameter ZI_SUSPEND_STATE = 7; 
+  parameter ZI_RX_RESUME_STATE = 8; 
+  parameter ZI_TX_RESUME_STATE = 9;
+  parameter ZI_TX_RESUME_K_STATE = 10;
+  parameter ZI_RESUME_SPEED_DETECT_STATE = 11;
+  parameter ZI_WAIT_RESUME_SE0_STATE = 12;
+  parameter ZI_WAIT_CLK_USABLE_STATE = 13;
+  parameter ZI_WAIT_DEV_CHIRP = 14;
+  parameter ZI_CHIRP_DEV_STATE = 15;
+  parameter ZI_WAIT_HUB_CHIRP = 16;
+  parameter ZI_CHIRP_K_STATE = 17;        
+  parameter ZI_CHIRP_J_STATE = 18;        
+  parameter ZI_HS_DETECTED_STATE = 19;    
+  parameter ZI_SUSPEND_RESET_DETECT = 20;                        
+  parameter ZI_UNKN_STATE = 21;
+  parameter ZI_HNP_DETECT_STATE = 22;
+
+  
+  // Register declarations
+
+  reg [1:0] present_state_transmit;
+  reg [1:0] next_state_transmit;
+
+  reg [16*8 :1] present_state_transmit_string;
+  reg [16*8 :1] next_state_transmit_string;
+
+  reg [2:0] present_state_receive;
+  reg [2:0] next_state_receive;
+
+  reg [6*8 :1] present_state_receive_string;
+  reg [6*8 :1] next_state_receive_string;
+
+  reg [4:0] present_state_reset;
+  reg [4:0] next_state_reset;
+
+  reg [6*8 :1] present_state_reset_string;
+  reg [6*8 :1] next_state_reset_string;
+
+  reg [1:0] present_state_srp;
+  reg [1:0] next_state_srp;
+
+  reg [6*8 :1] present_state_srp_string;
+  reg [6*8 :1] next_state_srp_string;
+
+  reg r_tx_valid;
+  reg r_rx_active;
+  reg r_host_disconnect;
+  reg [15:0] r_tx_data;
+  reg r_tx_new_data;
+  reg r_rx_data_valid;
+  reg r_tx_data_valid;
+  reg r_tx_ready;
+  reg r_rx_valid;
+  reg r_rx_valid_h;
+  reg latch_tx_last_byte_transferred;
+  reg latch_rx_last_byte_transferred;
+  reg r_rx_error;
+  reg r_xcvr_select;
+  reg r_term_select;
+  reg latched_databus16_8; // Latches the databus16_8 input
+  reg enable_inter_pkt_delay_count_1; // Receive and Transmit
+  reg enable_inter_pkt_delay_count_2; // Transmit and Receive
+  reg [7:0] inter_pkt_delay_count; 
+  reg [7:0] rx_active_first_count; // Rx count for first packet
+  reg [7:0] rx_active_delay_count; // Rx to Rx delay
+  reg rx_active_first;             // Rx first packet flag
+  reg enable_rx_active_delay_count;// Rx to Rx count enable
+  reg enable_tx_valid_tx_ready_count;
+  reg [15:0] tx_byte_delay_count;  
+  reg [15:0] rx_byte_delay_count;  
+  reg enable_rx_byte_delay_count; 
+  reg enable_tx_byte_delay_count;
+  reg [7:0] receive_byte_count;  
+  reg [7:0] transmit_byte_count;  
+  reg [7:0] tx_valid_to_tx_ready_count;
+  reg [9:0] response_timer;
+  reg first_clock_after_reset; // Asserted for one clock 
+  reg r_host_is_transmitting;
+  reg r_device_is_transmitting;
+  reg sof_pkt_received_from_device;
+  reg role_reverse;
+
+  // Counters to check out timeout conditions during chirping 
+  // sequence
+  
+  reg [16:0] turnaround_timeout; 
+  reg [11:0] hub_chirp_timeout;
+  reg [14:0] term_sel_deass_after_hs_detect_timeout; 
+
+  // Counter to check the nuumber of K state and J state 
+  // transitions being equal to 6 before deciding the device speed
+
+  reg [2:0] chirp_count;
+  reg r_disable_nrzi_bit_stuff;
+
+  // Counter to check the reset timings 
+  reg [20:0] reset_counter;
+  reg [15:0] clk_usable_counter;
+  reg [15:0] debounce_counter;
+  reg [12:0] chirp_kj_seq_start_count;
+  reg [17:0] host_disconnect_recovery_count;
+  reg [17:0] reset_se0_detect_count;
+  reg [20:0] resume_signal_assert_count;
+  reg [ 7:0] normal_state_counter;
+  reg [19:0] suspendm_to_resume_k_count;
+  reg [20:0] resume_K_duration_count;
+  reg enable_chirp_kj_seq_start_count;
+  reg enable_reset_counter;
+  reg reset_detected;
+  reg enable_clk_usable_counter;
+  reg enable_suspend_reset_detect;
+  reg [1:0] speed_before_suspend;
+  reg reset_from_suspend;
+
+  // Counter for SRP
+  reg [17:0] dev_disconn_se0_count;
+  reg [19:0] data_line_pulse_duration_count;
+  reg dev_type;
+  reg r_dev_type;
+
+
+  reg suspend_reset_se0_detected;
+
+  wire [17:0] se0_fs_reversal_count_min;
+  wire [17:0] se0_fs_reversal_count_max;
+  wire [10:0] se0_fs_reset_count;
+  wire [17:0] j_fs_suspend_count;
+  wire [19:0] minimum_reset_interval;
+  wire [7:0]  rx_active_to_rx_active_delay;
+  wire [7:0]  fs_ls_byte_interval_min;
+  wire [7:0]  fs_ls_byte_interval_max;
+  wire [7:0]  fs_ls_byte_interval_mid;
+  wire [7:0]  hs_byte_interval_max;
+  wire [17:0] dev_disconn_se0_count_max;
+  wire [19:0] data_line_pulse_duration_max;
+  wire [19:0] data_line_pulse_duration_min;
+
+  // Wire declarations
+
+  wire [1:0] speed;
+  wire [10:0] time_out_count;
+  wire tx_start_of_pkt;
+  wire rx_start_of_pkt;
+  wire tx_end_of_pkt;
+  wire rx_end_of_pkt;
+  wire tx_data_valid;
+  wire rx_data_valid;
+  wire [15:0] tx_data; // Data into the UTM
+  wire [15:0] rx_data; // Data out from the UTM
+  wire [15:0] muxed_parallel_data; // Mux between Tx and Rx
+  wire time_out; // Asserted when device or host times out.
+  wire tx_last_byte_transferred; // Asserted when last byte
+  wire rx_last_byte_transferred; // is transferred
+
+  wire tx_new_data; // Asserted whenever 
+  wire pkt_size_error;
+  wire normal_mode;
+
+  wire se1_on_line_state;
+
+  // Signals driven from packet monitor
+
+  wire host_is_waiting;
+  wire device_is_waiting;
+  wire waiting_for_timeout;
+  wire tkn_pid_received;
+  wire split_tkn_received;
+  wire handshake_pid_received;
+  wire [10:0] pkt_byte_count;
+
+  wire [15:0] byte_delay_temp;
+
+  // Signals driven and not used in the monitor
+
+  wire transfer_complete;
+  wire transfer_incomplete;
+  wire transfer_aborted;
+  wire data_pid_received;
+  wire pre_pid_received;
+  wire sof_pkt_received;
+  wire first_sof_received;
+  wire host_is_responding;
+  wire device_is_responding;
+  wire enable_low_speed_port;
+  wire pkt_received;
+
+  // Violations
+
+  wire rx_valid_without_rx_active;
+  wire rx_vald_h_without_rx_valid;
+  wire illegal_rx_error_assertion;
+  wire tx_vald_h_without_tx_valid;
+  wire rx_valid_not_deasserted;
+  wire tx_more_data_transfer_after_tx_valid_h;
+  wire rx_more_data_transfer_after_rx_valid_h;
+  wire tx_data_changed_before_sampling;
+  wire tx_ready_more_than_one_clock;
+  wire rx_valid_more_than_one_clock;
+  wire rx_validh_more_than_one_clock;
+  wire rx_valid_deassert_more_than_one_clock;
+  wire tx_ready_deassert_more_than_one_clock;
+  wire rx_valid_deassert_bit_stuff_violation;
+  wire rx_validh_deassert_bit_stuff_violation;
+  wire tx_ready_deassert_bit_stuff_violation;
+  wire invalid_signaling_on_line_state;
+  wire rx_active_to_rx_valid_delay_fs_ls_violation;
+  wire rx_active_to_rx_valid_hs_delay_violation;
+
+  // Packet size violations
+
+  wire tkn_pkt_size_err;
+  wire split_tkn_pkt_size_err;
+  wire handshake_pkt_size_err;
+
+  // Inter Packet delay violations
+
+  wire receive_to_transmit_delay_violation_min;
+  wire receive_to_transmit_delay_violation_max;
+  wire transmit_to_receive_delay_violation_min;
+  wire transmit_to_receive_delay_violation_max;
+  wire rx_active_to_rx_active_delay_violation;
+  wire tx_valid_to_tx_ready_negate_delay_violation;
+  wire rx_active_and_rx_valid_simultaneous_negate_violation;
+
+  wire rx_path_active_while_tx;
+  wire tx_path_active_while_rx;
+  wire inter_rx_valid_delay_violation;
+  wire inter_tx_ready_delay_violation;
+  wire tx_valid_assert_delay_violation;
+  wire rx_valid_assert_delay_violation;
+  
+  // On the go related violations
+
+  wire sess_not_valid_for_normal_oper;
+
+  
+  // Chirping related violations
+   
+  wire invalid_chirp_sequence;
+  wire chirp_kj_duration_timeout;
+  wire device_j_state_during_chirping; 
+  wire device_initiated_with_j_during_chirp; 
+  wire chirp_kj_seq_start_delay_violation;
+  wire term_sel_deassert_timeout; 
+
+  // reset related timing violations
+
+  wire full_speed_reversal_err;
+  wire reset_interval_min;
+  wire dev_chirp_k_deassert_max;
+  wire dev_chirp_k_assert_max;
+  wire dev_chirp_k_suspend_assert_max;
+  wire suspendm_assert_max;
+  wire remote_wake_up_min_violation;
+  wire resume_signal_min_violation;
+  wire resume_signal_max_violation;
+  wire speed_mismatch_violation;
+  wire resume_normal_operation_max;
+  wire resume_K_duration_min_violation;
+  wire se0_after_resume_K_violation;
+  wire resume_signal_delay_max_violation;
+  wire host_disconnect_update_violation;
+
+  // Wire declarations for supporting bi directional 
+  // interface.
+
+  wire [7:0] data_in_low_actual;
+  wire [7:0] data_in_high_actual;
+  wire tx_valid_h_actual;
+  wire rx_valid_h_actual;
+  wire [7:0] data_out_low_actual;
+  wire [7:0] data_out_high_actual;
+  wire [7:0] data_out_low_int;
+  wire [7:0] data_in_low_int;
+  wire [7:0] data_out_high_int;
+  wire [7:0] data_in_high_int;
+  wire tx_valid_h_int;
+  wire rx_valid_h_int;
+
+  wire host_is_transmitting;
+  wire device_is_transmitting;
+  wire back_to_back_transfer;
+  wire disable_nrzi_bit_stuff;
+  wire normal_phi_operation;
+  wire invalid_mode;
+  wire upstream_port;
+  wire term_sel_xcvr_sel_same;
+  wire [14:0] term_sel_timeout_value;
+
+
+
+`protected
+
+    MTI!#ia{jC@BUIvDn_l>V07X*J(}^io2[H@l[i[^'jit?wr}H|W=j$oA1*Xn<3Qn\~e\'?|,+$W|
+    RG{lEn[aRUnJ3wagL=Y/6I'2DH]]gl*{>$\{Bwwll18KG==Y|.^B22B;m$m,$G<qecz1?}][1zcQ
+    =p!-lJ[1p'CN8RXO~p3aj;RlE21Z!xG;7'!+aj;@QDXno~->p'vU;GOj{BHvKDIICG$s@{1K!Z*W
+    3jw3DjH=i$iu\A[XO713oPw7|IIW^uRHjjWUXq5pxT_#'YCYY3If<=^lm1WX[#KAjn!U'QZ#F{1k
+    xVG~rwD=7Ige,2IyaV=_^TuD$oK-Zx*@v\2W-v>YB$\kY^,'5p<ETrZvp*\GzE_[D$mRVW,pA,'T
+    Y<~[E;]Zi1<=uR?7uBj$IvX_7ajssKTKZwY3WsKze@p5#jN'jwlr;2De1}zCU3IH1^yrr'Qj5O]S
+    1OQH#<K2V=kas=<~iOTR}kGRKp->lmZrbYoAz@'J[s@aR8^H*p^2a*UXvoCA<pR#AUsZY_'V;]k]
+    <e[z${[vX]"3x!k]kW*BDA7-1j5]'_<D[^[ETeV*VK7W-[iGHa@\O7@o2QAeJ[Kl25}Ce]+F[v12
+    Oz$n~xEEk[@<FFajXB[RJ}pxxxh#n1*BSw}@slV^!<]}\zO>IUU}Y_J5Kb7,\U{^HIWj?!o\<o~j
+    <}f;E>@u8v-$e#AUzxioWYo?2\RJvYxn!kXwW>[Zrt[1K<mVI<$*E==;',<Qmao\]ESnB~@xH]or
+    ^u_9wC!@Y<skYoE^06BRzR\Zs*%*T=i*D5V-+w~1mOjT1>rR<J'pH7Z<*WU#_ou5aUwXBKJbL^57
+    QJIl'Bvjr.^n!sU{B![C'jn\m!*$izRiB<,T{CI/~1vEnsiEKCH~@U}}#r2{7u$Yz_V+oXwPoQR=
+    Rk_W1Z_aB=Q@py]I~YBg$Bm*G}pkKnZVC5Z{Ux+TR!Cn{zoOR\3=[,Q@R]Xz{n*!@=p,ZHuzaT1[
+    TDwe5Zr{{AXX}Wu'leOHHB2',?xu6zr5<]ZEJ]Z$Da[Oem^K~i'>OIApmw<W_e<'<1~vAv}[_bvi
+    ]TsQjT$QTv1yTeRO'*<WmXp^zV+l7j+UX{^iZC\w~SQU+'p#<m^GC@-Ok-}k&Z_Bl)=!}w**WHe'
+    V$Xtm-2ABk>mkqFQjxYGX^YtCJD;T}aoDpvu7DrzC@l$4cao['[wnw{TC\kvz{iA55[Qg,{*p;so
+    #>VWsEn=?15alBzGJe'Ir2RlU<*~;{TA7Nm1xW>oI3&OlAY|9:7;;n+=pX)C_pX}~Y@iAsRj;![B
+    [HOKEvU1i<KJB2vD[AC'~!B#A[?m'\Iu\!O5OT<!}A!'o\BW]Vijr~=[SCJIWfP|[gV5K^#15IVS
+    I.<7o~\U2_IG#Wpk\zh%3Olok51Rb#av~v_7p?t,C7A15WI;'nHAv]r>{zo}H~BY7BJ~,1#3CwRs
+    pi=msA*Jamu9U61C>Z[x-WuG+H[J;+*o,owHe[DKm2rGJoypks>rrQxUE{,1k5z]C<VweUC>x?vz
+    A}x|1s2^GHnr\lX;;]<B[3_wsBD;pvupo+;@C}>kY3+X27bmwY$~_~IWrV'b<p>zp?lH[Qx]o#>$
+    7Ze-1o'U#oR#]\2G^$uGasW$veXeX-*}mOQ][2Iapa&HTO;Wo]C[\1Ws7BD{a$@5,ur><DxlX]p=
+    _s+kA{aCEH+O#Y<UvOXMdi[_IPK}Z2WT3-FdWo$-EBm]1gol#2kB{Y'?ssXYoYrzTUe^DiD^Je7J
+    I~p|Jz=HGuQ5Jl{?xOaW.Y~C50![r]l-+o|.*zn,Iiv\B<2\rYkHL52K2IHAn$aBKnomJMIeewj*
+    \n>,R]>$VJ\wVp}7A^pwDbl*!]tAelO7uU=<D*TkQ2=RI=AlpAn|_2+\k^=DIi
+`endprotected
+
+
+  //---------------------------------------------------------------------
+
+  // Multiplex signals based on whether the interface is bi-directional
+  // or uni directional
+
+  assign speed = (DEVICE_SPEED == 2) ? 2'b00 :
+                 ((DEVICE_SPEED == 1) ? 2'b01 :
+                 ((DEVICE_SPEED == 0 && xcvr_select === 'd0 &&
+                   term_select === 1'b0) ? 2'b11 : 2'b01));
+
+  assign id_inv   = (r_dev_type !== dev_type);
+
+
+  assign sess_progress = ((dev_type === 1'b1) ? b_valid : a_valid ) && 
+                         (vbus_valid === 1'b1);
+
+  assign se0_fs_reversal_count_min = databus16_8 ? 
+                                             SE0_COUNT_MIN_FULL_SPEED_REVERSE_16BIT : 
+                                             SE0_COUNT_MIN_FULL_SPEED_REVERSE_8BIT  ;
+
+  assign se0_fs_reversal_count_max = databus16_8 ?                            
+                                             SE0_COUNT_MAX_FULL_SPEED_REVERSE_16BIT :  
+                                             SE0_COUNT_MAX_FULL_SPEED_REVERSE_8BIT  ;    
+
+  assign se0_fs_reset_count = latched_databus16_8 ?                            
+                              FULL_SPEED_SE0_RESET_TIMEOUT_16BIT :  
+                              FULL_SPEED_SE0_RESET_TIMEOUT_8BIT  ;    
+
+  assign j_fs_suspend_count = latched_databus16_8 ?
+                              FULL_SPEED_J_SUSPEND_TIMEOUT_16BIT :
+                              FULL_SPEED_J_SUSPEND_TIMEOUT_8BIT  ;
+
+  assign minimum_reset_interval = latched_databus16_8 ?
+                                  MIN_RESET_INTERVAL_16BIT:
+                                  MIN_RESET_INTERVAL_8BIT;
+
+  assign dev_disconn_se0_count_max =  latched_databus16_8 ?
+                                      INIT_SE0_COUNT_DISCONN_MAX_16BIT :
+                                      INIT_SE0_COUNT_DISCONN_MAX_8BIT ;
+
+  assign data_line_pulse_duration_max = latched_databus16_8 ?
+                                        DATA_LINE_PULSE_DURATION_MAX_16BIT: 
+                                        DATA_LINE_PULSE_DURATION_MAX_8BIT;
+
+  assign data_line_pulse_duration_min = latched_databus16_8 ?
+                                        DATA_LINE_PULSE_DURATION_MIN_16BIT: 
+                                        DATA_LINE_PULSE_DURATION_MIN_8BIT;
+  
+
+  assign time_out_count = TIME_OUT_COUNT;
+
+  assign rx_active_to_rx_active_delay = (speed === 2'b11) ? 
+                                         RX_ACTIVE_TO_RX_ACTIVE_HS_DELAY : 
+                                         RX_ACTIVE_TO_RX_ACTIVE_NON_HS_DELAY;
+
+  assign fs_ls_byte_interval_max = ((DEVICE_SPEED == 0)? 8'd50 : 8'd40) - 2'b01;
+  assign fs_ls_byte_interval_mid = ((DEVICE_SPEED == 0)? 8'd45 : 8'd36) - 2'b01;
+  assign fs_ls_byte_interval_min = ((DEVICE_SPEED == 0)? 8'd40 : 8'd32) - 2'b01;
+  assign hs_byte_interval_max    = ((latched_databus16_8)? 8'd2 : 8'd4) - 2'b01;
+
+
+  assign disable_nrzi_bit_stuff = (op_mode === 2'b10);
+  assign normal_phi_operation   = (op_mode === 2'b00);
+  assign invalid_mode           = (xcvr_select !== 'd0 && term_select === 1'b0);
+  assign upstream_port          = (PORT_TYPE == 0 || PORT_TYPE == 2);
+
+
+  assign host_is_transmitting = 
+	   (role_reverse === 1'b0) ?
+	     (((tx_valid === 1'b1 && PORT_TYPE === 0)
+               || (tx_valid === 1'b1 && PORT_TYPE === 2)
+               || (rx_active === 1'b1 && PORT_TYPE === 1)
+               || (rx_active === 1'b1 && PORT_TYPE === 3))
+	       && !disable_nrzi_bit_stuff) :
+             (((tx_valid === 1'b1 && PORT_TYPE === 1)
+	       || (tx_valid === 1'b1 && PORT_TYPE === 3)
+	       || (rx_active === 1'b1 && PORT_TYPE === 0)
+	       || (rx_active === 1'b1 && PORT_TYPE === 2))
+	       && !disable_nrzi_bit_stuff);
+
+  assign device_is_transmitting = 
+            (role_reverse === 1'b0) ?  
+              (((rx_active === 1'b1 && PORT_TYPE === 0)
+                || (rx_active === 1'b1 && PORT_TYPE === 2)
+                || (tx_valid === 1'b1 && PORT_TYPE === 1)
+                || (tx_valid === 1'b1 && PORT_TYPE === 3))
+	        && !disable_nrzi_bit_stuff) :
+              (((rx_active === 1'b1 && PORT_TYPE === 1)
+		|| (rx_active === 1'b1 && PORT_TYPE === 3)
+		|| (tx_valid === 1'b1 && PORT_TYPE === 0)
+		|| (tx_valid === 1'b1 && PORT_TYPE === 2))
+		&& !disable_nrzi_bit_stuff);
+
+  assign normal_mode = (present_state_reset !== ZI_FS_MODE_STATE && 
+                        present_state_reset !== ZI_ENTER_SUSPEND_STATE);
+
+  assign data_in_low_actual = (BI_DIRECTIONAL) ? data_in_low_int :
+			       data_in_low;
+
+  assign data_in_high_actual = (BI_DIRECTIONAL) ? data_in_high_int :
+			       data_in_high;
+
+  assign data_out_low_actual = (BI_DIRECTIONAL) ? data_out_low_int :
+			       data_out_low;
+
+  assign data_out_high_actual = (BI_DIRECTIONAL) ? data_out_high_int :
+			       data_out_high;
+
+  assign tx_valid_h_actual = (BI_DIRECTIONAL) ? tx_valid_h_int :
+			       tx_valid_h;
+
+  assign rx_valid_h_actual = (BI_DIRECTIONAL) ? rx_valid_h_int :
+			       rx_valid_h;
+
+  assign tx_start_of_pkt = (r_tx_valid === 1'b0 && tx_valid === 1'b1);
+  assign tx_end_of_pkt = (r_tx_valid === 1'b1 && tx_valid === 1'b0);
+  assign rx_start_of_pkt = (r_rx_active === 1'b0 && rx_active === 1'b1);
+  assign rx_end_of_pkt = (r_rx_active === 1'b1 && rx_active === 1'b0);
+
+  // Sample the Tx data only when TxReady and TxValid signals are asserted.
+
+  assign tx_data_valid = (tx_ready === 1'b1 && tx_valid === 1'b1 && !disable_nrzi_bit_stuff);
+
+  // Sample the Rx data only when the RxActive and RxValid signals are 
+  // asserted.
+
+  assign rx_data_valid = (rx_active === 1'b1 && rx_valid === 1'b1 && !disable_nrzi_bit_stuff);
+
+  // Assign tx_data based on databus16_8  
+
+  assign tx_data = (latched_databus16_8) ? 
+		   {data_in_high_actual, data_in_low_actual} :
+		   {8'b0, data_in_low_actual};
+
+  // Assign rx_data based on databus16_8
+
+  assign rx_data = (latched_databus16_8) ? 
+		   {data_out_high_actual, data_out_low_actual} :
+		   {8'b0, data_out_low_actual};
+
+  
+  // Data to the packet monitor is either tx_data or rx_data.
+  // This is due to the fact that usb bus is half duplex.
+
+  assign muxed_parallel_data = (tx_valid) ? tx_data : rx_data;
+
+  assign time_out = (response_timer == TIME_OUT_COUNT);
+
+  assign se1_on_line_state = (line_state == ZI_SE1_STATE);
+
+  assign invalid_signaling_on_line_state = (se1_on_line_state || (speed === 2'b11 && 
+                                            !disable_nrzi_bit_stuff && line_state === ZI_K_STATE));
+
+  assign tx_last_byte_transferred = 
+	      (tx_valid === 1'b1 && tx_ready === 1'b1 && 
+	       tx_valid_h_actual === 1'b0 && latched_databus16_8 === 1'b1 &&
+	       (present_state_transmit === ZI_TX_DATA_STATE ||
+               present_state_transmit === ZI_TX_DATA_WAIT_STATE));
+
+  assign rx_last_byte_transferred =
+              (rx_valid === 1'b1 && rx_active === 1'b1 &&
+               rx_valid_h_actual === 1'b0 && latched_databus16_8 === 1'b1 &&
+               (present_state_receive === ZI_RX_DATA_STATE ||
+                present_state_receive === ZI_RX_DATA_WAIT_STATE));
+
+  assign tx_new_data = (((r_tx_data !== tx_data) || tx_start_of_pkt) && tx_valid);
+
+  //----------------------------------------------------------------------
+  // Glue logic for providing the bi directional interface.
+  //----------------------------------------------------------------------
+
+  assign data_out_low_int = (tx_valid === 1'b0) ?
+			      data_low : 8'b00;
+
+  assign data_in_low_int = (tx_valid === 1'b1) ?
+			      data_low : 8'b00;
+
+  assign tx_valid_h_int = (tx_valid === 1'b1 && databus16_8 === 1'b1) ?
+			      valid_h : 1'b0;
+
+  assign rx_valid_h_int = (tx_valid === 1'b0 && databus16_8 === 1'b1) ?
+			      valid_h : 1'b0;
+
+  assign data_out_high_int = (tx_valid === 1'b0 && databus16_8 === 1'b1) ?
+			      data_high : 8'b0;
+
+  assign data_in_high_int = (tx_valid === 1'b1 && databus16_8 === 1'b1) ?
+			      data_high : 8'b0;
+
+  //----------------------------------------------------------------------
+
+  // UTMI rules
+
+  // rx_valid signal should not be asserted without asserting rx_active
+
+  assign rx_valid_without_rx_active = (rx_valid === 1'b1 && rx_active === 1'b0);
+
+  // rx_valid_h signal should always be asserted together with rx_valid 
+  // signal. This is applicable for 16 bit interface only.
+
+  assign rx_vald_h_without_rx_valid = 
+		(rx_valid === 1'b0 && rx_valid_h_actual === 1'b1);
+
+  // rx_error signal should be asserted only when the packet/data is being
+  // received. 
+
+  assign illegal_rx_error_assertion = (rx_error === 1'b1 && 
+              (rx_active === 1'b0 || 
+	      (rx_active === 1'b1 && rx_valid === 1'b0))); 
+
+  // tx_valid_h signal should always be asserted together with tx_valid 
+  // signal. This is applicable for 16 bit interface only. 
+
+  assign tx_vald_h_without_tx_valid = 
+		  (tx_valid === 1'b0 && tx_valid_h_actual === 1'b1);
+
+  // rx_valid signal should be deasserted after sampling rx_error signal
+  // is deasserted.
+
+  assign rx_valid_not_deasserted =
+	    (present_state_receive === ZI_RX_ERROR_STATE && 
+	     next_state_receive !== ZI_RX_ABORT_STATE && 
+	     next_state_receive !== ZI_RX_IDLE_STATE);
+
+  // Maximum of one byte should be transferred after the deassertion of 
+  // tx_valid_h signal.
+
+  assign tx_more_data_transfer_after_tx_valid_h = 
+           (latch_tx_last_byte_transferred === 1'b1 && tx_valid === 1'b1 
+            && tx_ready === 1'b1);
+
+  // Maximum of one byte should be transferred after the deassertion of 
+  // rx_valid_h signal.
+
+  assign rx_more_data_transfer_after_rx_valid_h = 
+           (latch_rx_last_byte_transferred === 1'b1 && rx_valid === 1'b1 
+            && rx_active === 1'b1);
+
+  // Data to be transmitted should not change until it is sampled
+  // by the UTM. Applicable only in FS, FS Only, LS only.
+
+  assign tx_data_changed_before_sampling =
+            (r_tx_new_data === 1'b1 && tx_new_data === 1'b1 &&
+             tx_valid === 1'b1);
+
+  // In case of FS, FS Only, LS Only implementations, tx_ready 
+  // signal should not be asserted for more than one clock.
+
+  assign tx_ready_more_than_one_clock =
+            (r_tx_ready === 1'b1 && tx_ready === 1'b1);
+
+  // In case of FS, FS Only, LS Only implementations, rx_valid abd rx_valid_h
+  // signals should not be asserted for more than one clock.
+
+  assign rx_valid_more_than_one_clock =
+            (r_rx_valid === 1'b1 && rx_valid === 1'b1);
+
+  assign rx_validh_more_than_one_clock =
+            (latched_databus16_8 && r_rx_valid_h === 1'b1 && rx_valid_h_actual === 1'b1);
+
+  // In case of HS implementation, rx_valid must not go low for more than
+  // one consecutive clock cycle.
+
+  assign rx_valid_deassert_more_than_one_clock = 
+            (r_rx_valid === 1'b0 && rx_valid === 1'b0 && 
+             r_rx_data_valid && speed === 2'b11);
+  
+  // In case of HS implementation, tx_ready must not go low for more than
+  // one consecutive clock cycle.
+
+  assign tx_ready_deassert_more_than_one_clock = 
+            (r_tx_ready === 1'b0 && tx_ready === 1'b0 && 
+             transmit_byte_count !== 0 && speed === 2'b11);
+  
+  // Packet size violations
+
+  // Asserted whenever end of packet is not received after 24 bits.
+  // bit counter is incremented on every valid data bit sampled.
+
+  assign tkn_pkt_size_err = (tkn_pid_received === 1'b1 &&
+                       (pkt_byte_count > 2'b11 ||
+		(pkt_byte_count !== 2'b11 && 
+		(tx_end_of_pkt | rx_end_of_pkt))));
+
+  // Asserted whenever end of packet is not received after 32 bits.   
+ 
+  assign split_tkn_pkt_size_err = (split_tkn_received === 1'b1 && 
+                       (pkt_byte_count > 3'b100 ||
+			(pkt_byte_count !== 3'b100 && 
+		 (tx_end_of_pkt | rx_end_of_pkt))));
+
+  // Wire handshake_pkt_size_err is asserted whenever end of packet is
+  // not received after 8 bits.
+
+  assign handshake_pkt_size_err = (handshake_pid_received === 1'b1 &&
+          pkt_byte_count > 1);
+
+  assign pkt_size_error = (tkn_pkt_size_err |
+                           split_tkn_pkt_size_err |
+                           handshake_pkt_size_err);
+
+  // Inter Packet delay violations
+  assign tx_valid_to_tx_ready_negate_delay_violation = 
+             (speed === 2'b11 && ((enable_tx_valid_tx_ready_count === 1'b1 && 
+             tx_valid_to_tx_ready_count >= 1) || 
+             (r_tx_valid === 1'b1 && tx_valid === 1'b0 
+             && tx_ready === 1'b0)));
+
+  assign rx_active_and_rx_valid_simultaneous_negate_violation = 
+            (r_rx_active === 1'b1 && rx_active == 1'b0) && 
+            (r_rx_valid === 1'b0 || rx_valid === 1'b1);
+             
+
+  assign transmit_to_receive_delay_violation_min = 
+            (r_rx_active === 1'b0 && rx_active === 1'b1 &&
+             enable_inter_pkt_delay_count_2 === 1'b1 &&
+             inter_pkt_delay_count < 
+             TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MIN);
+
+  assign transmit_to_receive_delay_violation_max = 
+            (enable_inter_pkt_delay_count_2 === 1'b1 &&
+             r_rx_active === 1'b0 && rx_active === 1'b1 &&
+             inter_pkt_delay_count >=
+             TX_VALID_DEASSERT_TO_RX_ACTIVE_ASSERT_DELAY_MAX);
+
+  assign receive_to_transmit_delay_violation_min = 
+           (enable_inter_pkt_delay_count_1 === 1'b1 &&
+            r_tx_valid === 1'b0 && tx_valid === 1'b1 &&
+            inter_pkt_delay_count <
+            RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MIN);
+
+  assign receive_to_transmit_delay_violation_max = 
+           (enable_inter_pkt_delay_count_1 === 1'b1 &&
+            r_tx_valid === 1'b0 && tx_valid === 1'b1 &&
+            inter_pkt_delay_count >=
+            RX_ACTIVE_DEASSERT_TO_TX_VALID_ASSERT_DELAY_MAX);
+
+  assign rx_active_to_rx_active_delay_violation =
+           (r_rx_active === 1'b0 && rx_active === 1'b1 &&
+           rx_active_first === 1'b1 &&
+           ((rx_active_delay_count - rx_active_first_count) < rx_active_to_rx_active_delay));
+  
+  assign rx_path_active_while_tx = ((rx_valid === 1'b1 || rx_active === 1'b1) &&                       
+                                     tx_valid === 1'b1 && (receive_byte_count < transmit_byte_count ||  
+                                    (receive_byte_count == transmit_byte_count && 
+                                     rx_byte_delay_count <= tx_byte_delay_count)));                 
+
+  assign tx_path_active_while_rx = ((tx_valid === 1'b1 || tx_ready === 1'b1) && 
+                                     rx_active === 1'b1 && (receive_byte_count > transmit_byte_count || 
+                                    (receive_byte_count == transmit_byte_count && 
+                                     rx_byte_delay_count > tx_byte_delay_count))); 
+
+  assign rx_active_to_rx_valid_delay_fs_ls_violation =  
+             (speed !== 2'b11 && receive_byte_count === 8'b0 && latched_databus16_8 !== 1'b1 && 
+            ((rx_data_valid !== 1'b0 && rx_byte_delay_count !== fs_ls_byte_interval_min) || 
+             (rx_data_valid === 1'b0 && rx_byte_delay_count === fs_ls_byte_interval_min))); 
+                                                            
+  assign rx_active_to_rx_valid_hs_delay_violation =
+           (speed === 2'b11 &&  receive_byte_count === 8'b0 &&
+           rx_data_valid === 1'b0 && rx_byte_delay_count > hs_byte_interval_max);
+
+  // Inter byte/word delay violations
+
+  assign  inter_rx_valid_delay_violation = 
+           (speed !== 2'b11 && latched_databus16_8 !== 1'b1 && 
+            rx_data_valid !== 1'b0 && receive_byte_count !== 8'b0 && 
+           ((rx_byte_delay_count !== fs_ls_byte_interval_max) && 
+           (rx_byte_delay_count  !== fs_ls_byte_interval_min) && 
+           (rx_byte_delay_count  !== fs_ls_byte_interval_mid)));
+  
+  assign  inter_tx_ready_delay_violation = 
+           (speed !== 2'b11 && latched_databus16_8 !== 1'b1 && 
+            tx_data_valid !== 1'b0 && transmit_byte_count !== 8'b0 &&
+           ((tx_byte_delay_count !== fs_ls_byte_interval_max) && 
+           (tx_byte_delay_count  !== fs_ls_byte_interval_min) && 
+           (tx_byte_delay_count  !== fs_ls_byte_interval_mid)));
+
+  assign rx_valid_assert_delay_violation =
+        (speed !== 2'b11 && rx_byte_delay_count > fs_ls_byte_interval_max);
+  
+  assign tx_valid_assert_delay_violation =
+        (speed !== 2'b11 && tx_byte_delay_count > fs_ls_byte_interval_max);
+
+
+  // On-The-Go device related violations
+  
+  assign invalid_line_state_while_power_dwn = 
+         (OTG_DEVICE == 1 && sess_end == 1'b1 && line_state != ZI_SE0_STATE);
+
+  assign sess_not_valid_for_normal_oper = 
+         (OTG_DEVICE == 1 && (present_state_receive != ZI_RX_IDLE_STATE || 
+          present_state_transmit != ZI_TX_IDLE_STATE) && sess_progress === 1'b0);
+
+  assign end_prev_sess_before_new_sess_req = 
+         (OTG_DEVICE == 1 && dev_type === 1'b1 && sess_end === 1'b0 && dischrg_vbus === 1'b1); 
+
+  assign dev_disconn_before_srp_violation = 
+         (OTG_DEVICE == 1 && dev_disconn_se0_count < dev_disconn_se0_count_max && (present_state_srp == ZI_SRP_INIT_STATE || 
+         present_state_srp == ZI_SESS_IDLE_STATE) && next_state_srp=== ZI_DATA_LINE_PULSE_STATE);
+
+  assign srp_initiated_at_wrong_speed = 
+         (OTG_DEVICE == 1 && speed !== 2'b01 && present_state_srp == ZI_SESS_IDLE_STATE && next_state_srp != ZI_SESS_IDLE_STATE);
+
+  assign pulsing_order_violation = 
+        (OTG_DEVICE == 1 && dev_type === 1'b1 && next_state_srp == ZI_VBUS_PULSE_STATE && 
+        (present_state_srp != ZI_DATA_LINE_PULSE_STATE || present_state_srp != ZI_VBUS_PULSE_STATE));
+
+  assign data_line_pulse_duration_violation =
+        (OTG_DEVICE == 1 && present_state_srp == ZI_DATA_LINE_PULSE_STATE && 
+        ((data_line_pulse_duration_count > data_line_pulse_duration_max) ||
+        (next_state_srp != ZI_DATA_LINE_PULSE_STATE && data_line_pulse_duration_count < data_line_pulse_duration_min)));
+
+  // Chirping sequence related violations
+  
+  assign invalid_chirp_sequence = 
+	    (present_state_reset == ZI_CHIRP_J_STATE) && 
+	    (next_state_reset == ZI_IDLE_STATE) && 
+	    (chirp_count < 5);
+
+  assign chirp_kj_duration_timeout = 
+	    ((databus16_8 === 1'b1) ?
+	      hub_chirp_timeout == HUB_CHIRP_TIMEOUT_16BIT :
+	      hub_chirp_timeout == HUB_CHIRP_TIMEOUT_8BIT) && 
+	   (((present_state_reset == ZI_CHIRP_J_STATE) &&
+	     (next_state_reset == ZI_UNKN_STATE)) ||
+	    ((present_state_reset == ZI_CHIRP_K_STATE) && 
+	     (next_state_reset == ZI_UNKN_STATE))); 
+	     
+  assign device_j_state_during_chirping =
+	    ((PORT_TYPE == 1) || (PORT_TYPE == 3)) &&
+	    ((present_state_reset == ZI_CHIRP_DEV_STATE) &&
+	     (next_state_reset == ZI_UNKN_STATE));
+
+  assign device_initiated_with_j_during_chirp = 
+	    ((PORT_TYPE == 1) || (PORT_TYPE == 3)) &&
+            ((present_state_reset == ZI_WAIT_DEV_CHIRP) &&
+             (next_state_reset == ZI_UNKN_STATE));
+
+  assign chirp_kj_seq_start_delay_violation = 
+            (present_state_reset === ZI_WAIT_HUB_CHIRP && next_state_reset === ZI_CHIRP_K_STATE &&  
+            ((latched_databus16_8 === 1'b1) ? (chirp_kj_seq_start_count >= CHIRP_KJ_START_TIMEOUT_16BIT) :
+             ((chirp_kj_seq_start_count >= CHIRP_KJ_START_TIMEOUT_8BIT))));
+
+  assign term_sel_deassert_timeout = 
+            ((PORT_TYPE == 1) || (PORT_TYPE == 3)) &&
+             (present_state_reset == ZI_HS_DETECTED_STATE) && 
+             (term_sel_deass_after_hs_detect_timeout == 
+              term_sel_timeout_value);
+ 
+  assign term_sel_xcvr_sel_same = DEVICE_SPEED == 0 &&
+            (((term_select === 1'b0) && (xcvr_select === 1'b0)) || 
+            ((term_select === 1'b1) && (xcvr_select === 1'b1)));
+
+  assign term_sel_timeout_value = 
+             (databus16_8 === 1'b1) ? 
+              TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_16BIT :
+              TERM_SEL_DEASS_AFTER_HS_DETECT_TIMEOUT_8BIT;
+
+
+  // Reset Timing violations
+ 
+  assign full_speed_reversal_err = (present_state_reset === ZI_HS_RESET_DETECT_STATE &&  
+                                   ((next_state_reset === ZI_FS_MODE_STATE && 
+                                     reset_counter < se0_fs_reversal_count_min) || 
+                                    (reset_counter > se0_fs_reversal_count_max)));
+
+  // Minimum reset interval must not be exceeded
+  assign reset_interval_min = ((next_state_transmit !== ZI_TX_IDLE_STATE ||  
+                                next_state_receive  !== ZI_RX_IDLE_STATE)&&
+                                reset_detected === 1'b1 && reset_counter < minimum_reset_interval);
+
+
+  // Maximum time before which Device Chirp-K has to be deasserted
+  assign dev_chirp_k_deassert_max = (present_state_reset === ZI_CHIRP_DEV_STATE && 
+                                    ((latched_databus16_8 == 1'b1) ? (reset_counter >  DEV_CHIRP_K_DEASS_TIMEOUT_16BIT) : 
+                                     (reset_counter >  DEV_CHIRP_K_DEASS_TIMEOUT_8BIT)));
+
+  // Maximum time for before which Device Chirp has to be asserted
+  assign dev_chirp_k_assert_max = ((present_state_reset === ZI_HANDSHAKE_STATE || present_state_reset === ZI_WAIT_DEV_CHIRP) && 
+                                    next_state_reset === ZI_CHIRP_DEV_STATE &&  reset_from_suspend === 1'b0 &&
+                                    ((latched_databus16_8 === 1'b1)? (reset_counter > DEV_CHIRP_K_ASSERT_TIMEOUT_16BIT) : 
+                                    (reset_counter > DEV_CHIRP_K_ASSERT_TIMEOUT_8BIT)));
+
+  // Maximum time for before which Device Chirp has to be asserted
+  assign dev_chirp_k_suspend_assert_max = 
+                            ((present_state_reset === ZI_HANDSHAKE_STATE || present_state_reset === ZI_WAIT_DEV_CHIRP) && 
+                              next_state_reset === ZI_CHIRP_DEV_STATE && reset_from_suspend && 
+                             ((latched_databus16_8 === 1'b1)? (reset_counter > DEV_CHIRP_K_TIMEOUT_16BIT) : 
+                             (reset_counter > DEV_CHIRP_K_TIMEOUT_8BIT)));
+
+  // The lateset time that a device must actually be suspended, drawing no
+  // more than the suspend current from bus
+  assign suspendm_assert_max = (present_state_reset === ZI_ENTER_SUSPEND_STATE && 
+                               ((next_state_reset === ZI_SUSPEND_STATE &&
+                               reset_counter > minimum_reset_interval) || 
+                               (reset_counter > minimum_reset_interval && 
+                               next_state_reset !== ZI_SUSPEND_STATE)));
+
+  assign remote_wake_up_min_violation = 
+                 (((PORT_TYPE == 2 || PORT_TYPE == 0) &&  (present_state_reset == ZI_ENTER_SUSPEND_STATE || 
+                 present_state_reset == ZI_SUSPEND_STATE) && next_state_reset == ZI_RX_RESUME_STATE) || 
+                 ((PORT_TYPE == 1 || PORT_TYPE == 3) && present_state_reset == ZI_TX_RESUME_STATE && 
+                 next_state_reset == ZI_TX_RESUME_K_STATE)) && 
+                 ((latched_databus16_8 === 1'b0) ?(reset_counter > DEV_MIN_REMOTE_WAKE_UP_COUNT_16BIT):
+                  (reset_counter > DEV_MIN_REMOTE_WAKE_UP_COUNT_8BIT)); 
+
+  assign resume_signal_min_violation  =  
+                 (present_state_reset === ZI_TX_RESUME_K_STATE  && next_state_reset !== ZI_TX_RESUME_K_STATE && 
+                  ((latched_databus16_8 === 1'b1)? (resume_signal_assert_count < RESUME_K_MIN_ASSERT_16BIT) : 
+                   (resume_signal_assert_count < RESUME_K_MIN_ASSERT_8BIT))); 
+
+  assign resume_signal_max_violation  =  
+                 (present_state_reset == ZI_TX_RESUME_K_STATE  && next_state_reset === ZI_TX_RESUME_K_STATE && 
+                  ((latched_databus16_8 === 1'b1)? (resume_signal_assert_count < RESUME_K_MAX_ASSERT_16BIT) : 
+                   (resume_signal_assert_count < RESUME_K_MAX_ASSERT_8BIT))); 
+
+  assign speed_mismatch_violation  = 
+                 (present_state_reset === ZI_RESUME_SPEED_DETECT_STATE && 
+                  next_state_reset === ZI_IDLE_STATE && speed !== speed_before_suspend) ; 
+
+  assign resume_normal_operation_max  =  
+                  (present_state_reset === ZI_RESUME_SPEED_DETECT_STATE && 
+                  next_state_reset ===  ZI_RESUME_SPEED_DETECT_STATE && 
+                  ((latched_databus16_8 === 1'b1)? 
+                  (normal_state_counter > RESUME_NORMAL_OPER_TIMEOUT_16BIT): 
+                  (normal_state_counter > RESUME_NORMAL_OPER_TIMEOUT_8BIT)));
+
+  assign resume_K_duration_min_violation =
+                  (((present_state_reset === ZI_RX_RESUME_STATE && next_state_reset === ZI_RESUME_SPEED_DETECT_STATE) || 
+                  (present_state_reset  === ZI_WAIT_RESUME_SE0_STATE && next_state_reset === ZI_RESUME_SPEED_DETECT_STATE)) && 
+                  ((latched_databus16_8 === 1'b1)? 
+                  (resume_K_duration_count < RESUME_K_DURATION_LINE_STATE_16BIT) :  
+                  (resume_K_duration_count < RESUME_K_DURATION_LINE_STATE_8BIT)));
+
+  assign se0_after_resume_K_violation = 
+                  (((latched_databus16_8 === 1'b1)?(resume_K_duration_count === RESUME_K_DURATION_LINE_STATE_16BIT) : 
+                  (resume_K_duration_count === RESUME_K_DURATION_LINE_STATE_8BIT)) && line_state !== ZI_SE0_STATE);
+
+  assign resume_signal_delay_max_violation =  
+                 (present_state_reset === ZI_TX_RESUME_STATE && next_state_reset === ZI_TX_RESUME_STATE &&  
+                 ((latched_databus16_8 === 1'b1) ? 
+                 (suspendm_to_resume_k_count > SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_16BIT) :
+                 (suspendm_to_resume_k_count > SUSPENDM_DEASSERT_TO_RESUME_K_ASSERT_TIMEOUT_8BIT)));
+  
+  assign host_disconnect_update_violation = 
+                (suspendm === 1'b0 && 
+                ((latched_databus16_8 === 1'b1) ?
+                (host_disconnect_recovery_count < HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_16BIT) :
+                (host_disconnect_recovery_count < HOST_DISCONNECT_UPDATE_RECOVERY_TIMEOUT_8BIT)) &&
+                r_host_disconnect !== host_disconnect);
+
+`protected
+
+    MTI!#PY[m[KaIZqoI''l-A}<-+H7QY~Y-Z#R}#7QhFL{\=o*00,#U[rRBQuE++$PO{[=|-Um1,AT
+    ]On2D,*oa]+~TiaQ}!S/kTV<I*H*rl[X+V3$"<+ApQ7aoEC_+],J{k'\'i1_iO;@V~oZ\2o\u0[7
+    ;G!YxCm[pu[Lrso~B7'A|URo<Q#TvzOA'@I=@K+aGpv[r!]-sf"C<!Ch;5iwrIBvBlk!pHQ2Im~>
+    ,juzeuzH;rvVwRI}cD_~<aar=x,5TD+j]1G[XRe-Hijr[vxJ>cA\+}^~CrjJrA9p9t=zHB3{<,6E
+    _;U-jnCuR*-S=rD1oA+{|lzAuq]pEaY#JYK{7eV!eob]7^2KQ7msBmYQ7[j$[Q5kXvEesrmlxZ@[
+    H7s%+[Qxe15A~ns7q=XH!J,K\On+U}rA\mI!GlGvJCD=wWHVUiAWGaVk#G_anUGaZrHjoVJK^ive
+    ~kx]$Dup2n5<DToE=3GQK];*,VR?eY#veGrnE+\z>o,+'&CzRszV>aBlpiG7$r-6$s~;]OvZW]es
+    X5GIo'_{R+zo9jEn\[GC#-<D][kQuAAaD[D=~7Kw>eG{Bv]DZ3{up51GY2r2EB+=X-,vZ=QEx<D'
+    TlEe\-$5Gp31~_1[KE#5>l1Yv?GvCcEQnwv<za2vR]mjWvSn'U7HGV^Ws!]@52m$$aj,!{w\_l\E
+    BwOv#7]1I;e]v*Y&$j!@x~I>\sl'q9^@+YnrD7nS{GWO{a,uW]<=;BerC\l-{5^KEvoA|~=Kk@pE
+    ~@]=B_v-n,@;;'{CJ!77TFo@$!^5*J}E7e-l'BnhB]!nW=Or_<7I#\Jeas!ptTY>~\UQG.i$UO_J
+    ZnE~m@s<G7G}oj]Aj,CHjJ5-EoBsK^]w-[+AjvEpAEAlRBHnl;VU[$K+jRI{p~q\{EuR+;?DVG7i
+    vje$uoD8Z\?\~R<$$=z!3*W~,UBid*Dvp^ou,6rlkp$*jo~'noR~uAABU3-C#-4}7A*q?XAwv#X>
+    [H*v_$,YUVJu@x#n,:Bzv5][G7s<Z^Mx~<]KHY-=iXJ+T,*gXEzmDx<3!'V-o'm,}1u'aXZQV@W~
+    qSqR',jpe1WdO$,!p++@2{o]TG<v-eQfsz=sp2^^hQvo'TDi+P1jKQVHTBJ<VnY=izu=[*l.JHYr
+    >5!KX^!u>VO7<aGwCw~XD1Hu*o7ZPw<,C2VJuGju!liaG3+*eIOpKPDZ_#l<H-e-_HO^a-Ww>EtQ
+    k]2qrKC?DsRjgC#v>UHEQQj[VE>VRp@UuJ]XTW-Ozt,U<n(}Y;ThujV<|*=o?nVQk6RU]lq(1\\e
+    Y'z[v!$>eek}W-*iEvXrpX'ke[>Yh,O^$lBvX;Rxx1a>KDB=*^+AnX\oa!]<r.n]_r5><o5!7B#[
+    rrF(=D?#2o7ul-,W$@nn.vs*i<o#Jm8>en1B^X\vQ$\L3O!vu'}xsD2=$l{{D[vvHX,X;HJQ/wO?
+    }GoKx#$5sUI3'<YTr>UneMv3!msE5B*n=sK[s'z}Ca]_TE@XaW~[-A!^1J-x>AnTe7HR=$Ue,QDD
+    R+AR/G<A?8RWu3jIVoOnv?J1}*15>'sil>_oWGwC>E/lsAJ[,+kI~\~IK_zZsJOmV;oLDY+?1zuA
+    C,vAr\~78IG$!OnZpXnnpG31[lrlviD^RfbB}}!2}ku;E^~}<=!l^~rN$RJrgx$I2vI1?5_zaer~
+    e_VO^alIn}wT{7sRTv5H2\C1V_O^{O]?\CAsaX*Vp3CCmJp+;@w}z/g3B,op+1vzT)?O*pPaVoU!
+    ezzV5v?sTHHz2>jo7*<Q_Ozx[3]w7WKp@32sH[1g!>YeYKn1l'AujET]C_RJvE#_Is1[:3eHXl-B
+    KEno*zzKvJ'su-wa_I?\<,/J$w+jOjGjE!-Gp;n$pim)*z\wH{<#=>G]~^Vp>_<#]vE_qv{~V,va
+    a$=~O'2W+gR{j'(&s,j#VZ=>iCITmEQ$ns+3Dei2ZAG?J[AsIV~Uu*!J=;ZvJD@x\o;IK]$1$_1r
+    3j,+^KIC(w+[Z-BXu^ea>[Vi*aT7T:cQI3vEZJ2F>DK][mwkrBn@U=#$mR\=CE+nBmVx^s<lCm=7
+    $k^}ekDD=,KJ7Z[VU_#'I#Z?h*WXR;sv{+^5a3Yj*oB';SX<}p7wv3$3sKma}7jww<l2G!F%)2UZ
+    +GsBz2aDDe[RBiA1E@CB-u}+eR$ulnRA>WUo=S*D2U?C<VKAU;uxr5fE!G'vB>7Ba~Y&H5]rOmWZ
+    @Y^;,5ZkCiR>TRv~REAI,rkR[7H2-s~s>Enp\3oO1[zJSJEBCYeAZOV}~AXBi2E#I7+J[ivr'FEl
+    w;rG]DZoX}-Bm[o2JIG?C?VrRaa\>,*#um*~x#zp[J*jrH@DW1}XxK>x-HWR#pNren_u7DBd>z-G
+    ^a-Ql_}'EsGe>a;lN}IiGl#O7Ii\nn$^a#l<G7WV\>A{l1AHB~X$-z+$>Xj]QJz5+#U[}Z\X+RQl
+    _\]2YlqjW'<3rrH?7ze-a~$j1E#ADCVeB*w@DOZBVEr;BC1HezXBi\^2AXJj7}^F1Qu!V#'{lo='
+    r<j1zIkp?C[A_@j=?_i=jra~7kC$2*lw[+vJ*pW{a,12\RQ[si<YRk{G!EC5,B{KrjD@_$Osvw;m
+    yn]7+8@E,X*+x][|_#,RK{_]1Z_u3o?p1$!WpIme}#Osgp2=ZkVDQue[Z8{8m\uC+Sr^{X5jEYm_
+    JE12zzns>_H]nas,i!;Xre}um,#]QAAv7WBL"|NuB'p[&VJvE2+vQf9k_Hr\+[TYZzj><*=!1*Rp
+    WspEv?5o>rsv#>-c>Y-1,lx$=yX}X}@O5x[{2][3+$5upB1be^_Rj5I<>VHKEk[Au_}{=p!'Ej<B
+    /_[XvBEYT6)=s2KQYT}sDWwWVD2_3{!,A-$GZv\["xQ]Rg-x%}@!2Z]l@1lU3rj^>@e2s7vXJYJB
+    u6GH}3ar~a:<O]rnO'HHT}O2o<B*{~ZmY\=w[z>R-roZ}x?#s*ojj\i;Q+3x-OpsiOKD@{3+V_T+
+    }x<jpw-=-seq71H^=,XmWX~Re~R~s5U~j#}~kA[;=+>Yd*b5eX#OY<D+]@{F@su<lB}$k^x'1v7W
+    n>TE+TN$*>_4S{r#@u{-x*e<+OHExE[UZG3BB#EOAN6eEX!5Ba@sKrjpKoVD#A}.U1;l\@7v^+Qu
+    T97\]k5n+U'Zuu$ZDWD#1sX5+BZAC_,7k>m-7p61n7;iza;\~]}j<J[]2-1!Qr~^T+D#aDuVHsj}
+    aus'[D'MI#-C[,Q#'Qnpa]mpT(\VOrrZ]Oz/fJD]=BzHnZje^lzR5|'Y!R~ssnAE>}C!]QIXaALE
+    *#]U$XZ_*=]UBp{l5n?#_U{V+HzA-^Z]UriCBHTxris$R;UWG~QDum-_!Is7mXzfh=ZnepXll{1?
+    jU\3B-D<$}2;1W*!e*u\@XY*]C'Z$}rH,7uA@w=m-Y;W~Y'IiE]@WIZHK=<IC!I*k+a>UrK2E9FG
+    T^<N2Q+jAnpBpoAl3e7]v*vmTVn!_%l-waZ5InI5+}oW3EC|ZH=7B{'B9!wJ2i_}pCo5xAp+*Ko2
+    ?wQ$W^~nzqu{qk-Bv11;u=BT]j1-\..j;w]L@\\R$!'$as[x9d=B}+*:qHzj3DI,@v@xZDC<$C!@
+    GE_~D3z]}?zoZ@pA@I!-R<RjZQe2B=sZlR<ZZ7^ee{}^;-^^-2OJ7;zKCvk_ZeTG3-okoI!-1C@T
+    URR'Y#H-{u{@RXjw!+-HD_H!~cCuZo?l*3jWrVEAA[Yi[H1G;XvZlzGnE[!1!])'y|jQ}sXoTvr_
+    ~{T<l%i^#EP\IIQOzYjU[#n(7YYZG'J;rZ\-21pwVTajR*7m$Ta]1B~1!V,QGHo_$ZKZzalzao?l
+    nU{E]KmwpClXI3fne?<;1sJD\J^"EYK5q>7_#vw>{v<J5z5Uu2l$@{wpCCraU^zA7n7C}&IeukQT
+    Tk@T<^K>$[g1{n?)ATZuoo2x]b=$zj^7CJ!zTlPkpG7&/u^EAAoaDon~~B6V=?jsOiABsV@3RBa#
+    7-H@C2$zvwB3+AnQR>lj?zpWA^a>_;z5;_xDDAGU<5>=in?{[=B$OUW==J#EBDjTs1@TX=E4ta]v
+    _r2![}-HuC~T5Q$H?poA!V_\l\iUAi-;~E#a@0^EvAj#1<ZXO[3n-DA}+Daw*mo_HH^@VH=jnpHl
+    3kiDOV]%6QvaZU5vZwxawo1]IrV-;\B;~OUR@1+=sDU--AHO=e~\[uOssZA+<Ip{?Z^GEHTwOGBR
+    jF\-XHRB{~@AEkCwa_^?U;W<IpA\klhURlz5e1sK'S1$-RIZv$I{+DE-OIe{v,=aB?'vZU:H>I3K
+    }5?I]Wjd*i@>)Ei=>IZYJQE,K@1x[*b?HJOTsv,g:Xen29Qsi{4%QV1ifmt~IJCYTYDl[<A_V_KK
+    H!TGYx}z[+Zv1<J[]V$?R$skBO3u*TaO}lin$Bj.XR5jIZ3Z7?Ee/k62U57D}QkRG*lI]<#CI^Gi
+    5~jQPnY>?}HxO[*v\:G\<3sx7ZTTAWO[$=H+opBDve1e{O.[oOr$Un*->vWF,!7$[_zxxBa#8QG3
+    *p3~7']J5p!5}DD,;I-w2i$$RSo+v?[uxnpWUlv^=o,mYT75~7g!tT'5R\G*xX\-BG[n2or$2EUQ
+    G#^J>riE\IZU]3Imx^'G,k1J55GIX]EIaXE]kWO;U'oJ,A^$'iE@Zvu}De}{j*53kq_=^;-D7TH$
+    EsNraWVDi!C<{a<2pT]6KQwpk}Ek[+<ugZE+#Z'~[__'~}'Av];p+Q'jijZ~7v,K\K7rR?7_^O'@
+    <RK\{+ajuxZ7R7}?e#xoi6s<@7#{>GYZzwZaDoGiK{1W;@=#+o[~VpHAr;^7T?vJ^1V^=DX1!A1E
+    nW{UJkpBw5-Hm@nT~xzax^WvZV#o]^o+JJ-7A^[He1k-R1peW1>CAmv5AnB?p@ZB~ETGE{Qvz]1G
+    *'eW$w\!AzH]e$@lD2@Il]Hz_H}an2-*HR#tuG2x2xlm|JO,W^-OA][AXV{vj,}]!W}-BCQ><vmR
+    ,[$JxX+,kv>{a*KH~j;r$fO*@]5Gj12Cn~RTDuz_!W4OiTOk'?Z6/'Z@k$!r~%lEW'Q&I,Gzc~}-
+    #_D]QwRo_H>nWZVD,wBn<B=}=&1l2Avm+sR.#<R_],8,1!_2O\u!V,TT$+[lX=[!OHA_U'aY<=On
+    =]3<R[>HIwW]_mT-p115O\*XwE]-On#AYuDaoJ>5lYoO31W.pm=jEasERlR*{o]m#l^X7W;R~5Z<
+    3s+\[^WGL}^l<#wO~5lwEG!r'^!A}oJaC;[}voEu?-\<O)VJ5wZq{TKxuolXBBD3H*[O>xQ_en$A
+    Z}esiv!R_XenE]\Y~r+K=oJ=wj,5DRxV?B#}BR=2Yo@llBR3XA^C$WYe*+2uAr]#W>_X<U>omCv2
+    xzx<ZI?@s^2aFlme=lv+RXwCl?*kE;axim5I@=jEEUvsK@TGoTY*\'z=D}oVexEp!CmR5}aT-Ro+
+    1CwXUp3{k1sXsa+T$OJ-T#rC<$}5Yj?+J-1,a{T{G#X[;tZ^_p>}-s+Co^pnTWa>ZGzZa+zYYKEj
+    o;={x-f1=a=13WJLxv*,x$o>'YeU?AQXB?{]UCrrc!sBo?j?X}}1\WAC'{A}~p&x^2nIAGK1n=uD
+    Ze5?a{^Pj5E{lTK>$^l>!Ue[=*m{$En*'_K2rxVRV#Xoza'[pi'_BDkJ,;>p^OV<r~_T<Gi7*IT]
+    o53Q\5VU~Q{Ie,JB^YjoG5k3RH2TVJ+zvDklAzBpu-Q'n*nK;5a+_2,#HOQnJT2^YDZApAQX_^>$
+    3T'w]#~?>+z!57,?=~u'PQ|KTC$M3^pva=l\,[p$)_}mG2{>HzImY8fs}Zj%{s7^@TG-ATTOTX[v
+    4Rl~]Ys<l1eo>17o}G^T!=XzKYpXGLnH\DrCivv=TmzpmUr*Z$#U{or_5'Z<1Y#=UYkIw<>nEoWH
+    VV8!\D*LGAu>~E{xe\,lhy='}lY_C$1u\C1;*-Ko<v;XC+A7PvvCksEX=?7$260xo3=i]n,Rpj[\
+    DR[U\B*X7I}@T'o2Q1Q#_o[D]_C)*p$VrT~\<oEu>I^7\Jw#,iQ!2-[,}^?m[!5}cFBV-QwXU]C<
+    m'aB'?-ORO]kV$'\D[U75<$5kkwY_U8aXmacok\sa'U@<[5YBX+ry,RZ=$Kp+e,erSFOYwDeWnm[
+    Uu@l\7Wg^aAJ#YpB$?\mI7A$^mDT^UaJ!-uu;R'\lu\3VEY+e!'zSi=3!Ypv,~TRKKsXTVkoOxDT
+    XCpEmBCm,Opz7pOo?n\']w_;$S+}}D!sT;Q#Upp2{1e_v$m__R5{jp.kjirR\kWo;s!qBsV3R?YQ
+    &i8{>5,a$uZga'{*@A=a['B~_I_71JrE5E[[Z='ZE\@AbjVu_Bi[]O_ao'J@e3rAI+GJ+uY>m6~n
+    <[$kW1yj{D,E^v[u-5'e\Rxp-$TsU*jK7VQ<5]#OR@~{$rEClaoiHVkT,QQsI>u>7@;S_@1Z!e1*
+    ;jC=zWG1*uHvXjlm}RnXH=Os*GszDGWz!a_{^BjBI^vpEeAOw<zD>G1Q,g#anXvlRujT=!5+~C^T
+    x;HIGo$unr35@r}O3=UG-@BK!a('W[73}#p[koED3BZVs?U?+yo_GG]?lBzXuWE*D~pur\>UR-G$
+    #=oz[xpv7W73';)c$TCnr$H*B!T_FOKDr!HHD3[;Xi$ZR~'>r>YUG=HRvol}X}G]i{j?V$moev$7
+    sIxD,lvY?BE^^XaQ#'rBmWrEjA$Y_HH7s_'@RemKJ'Nj\px|EE+nQRm$rO$'W<Dpm$,1=D^EZ<wU
+    ]q]rR2JO3xAU@7Yo>ol<']mpvl*w2rxJI@C#vv;>G{^YTR!CIU!'D1\jX'HT{=rVIn]*~V9uauIA
+    Bal@j,o#a]_'vTX-w71e>C;y_{z}vYW{O^_GzzzYY}GnKD_^|C^AD-{@pBlm'7uUUvr;<Kn7=Mo\
+    o!4HzX;oAAk_m<]DO;GApu$$#[ska2CZo7+'ABoQ,T>?Rz@}ilE(4IZO;Q?D^MWDvK(OTs^bT<H#
+    FUC^wXAwI'Q,5?I\!j^$m[uxi'{DZj\p]'?@G{=<r[i$eD{*HoD?>G3U7|Yj2ZzrCx}-Y}TB~;Tn
+    7,w.KGh$E5<V3>}QVv[AeH~-Y{R[6#{n'$Zx+X}Jxx[?!Li_IT-7ODz$H?o>[_s2wm7*#[A'Vrma
+    +Wo=>ZXjm*xJT{n=;W2>Zua'kx=TQ<o=]Yj\+ro==_3wKleWR\QH<+X5EWZ[3vzTa#[C-']~R5IG
+    ~3+,ep]@=To}^O]_3WavwXEerxw'Hk2Ym5sOD}zX_wjYCE!Ha1e5v]G*UJ{^}]tK]2>DeDm0erCE
+    DOG<,@B}]{^B={OeRUGOLro@]oO1K7$+1lDCQI^_o>,72OwKs$IQ~1;\763D>U},G<Cnxoj\UZ!q
+    IYzZ;[^^JoU>\m;7}\]xzM9lJ*#]7#IJ=zW@I}roV@X'[YpiE37=vzkIiXm?H7@i*-p#ADK>p2}~
+    {-w-1l1v*k+.QiR}'T-\oHl]TI*G*\zR$Z'[o!2<,lBCG}I~$UHX=pj18j7R*o<12CsBnZ+jTC51
+    ]QIfj]~oXEs$$QYZkXA@}7<-l]^x{_GOx9(RospoVp-~D@__w]pXpUsA$Z[XV;sE2\z$KzJJ_EsC
+    @+>vn_z+D=XW}lZs>;~[_oxD3=nbo{HJ'K\#GJ<WY\js3o}a1la_S1uEZ?o,j]v\?-QI5OKK}R~x
+    rJA^E\,AjR+>rhe,?mC]Erg3RW2+QAxpU[G2\Do\H=]5j3ke'=]_!35}GO'xIxoOEe-zl2r_G{sv
+    R15c[D[#5X=J%Q[<[Tl~HIujRj1j!<j$E_+a[BRs+ixT<TUYk@1kUDmW;[OXn*CGOA=H51Hnm,V5
+    'wQi1N5Wv}<wVsIa${iY\7G,<GqR7=u{$+<HD@BaOAITIupW>_QIQBORXl_@TJ~J-5u^[iu?1OCq
+    ^}iAIlQ~NC$,?z>n,IQU~PBnXEG$AT=5_ku$jQI+7Z7<[[k_mubAv;p&,GZZ@*O_\3z;lEpJ#IRv
+    /BxB5{'arwY<n+DQ\EzH#+U7X#AW@Y2HsU*zi^'O@yH72j=iRmHajv!B?{'n22^Zu7YB'Z)xl,+O
+    <[GH5unnB5KR+@?lEu\l>B\GQpOn*_$aeo^B3$E~1BK=J==j#W@nIlOLJXuVU\xV(y^eBXD_<TIj
+    5r3O}TAaHZ3Qk;2vr5B*G2z5EjY{7zp}*rt<-x~koX~QJo?6r-_lmn]U$TxHl[mwE;'2AR!]OC<=
+    OQjJ[1mUW]RA@w@;j'CufgHX5@n}z2r;KT;rjK7QKDYExvPae{Vz-maVU>*,DamWa@RA{@p?I7!V
+    ;T;I_axQ<E3AQBikwe,>j@$_n>s5T!3zRB>=Wa>FpjDH}B2Uj:Y~vWR[Im(7mQveZ!Z?S=JGJ@B;
+    ?rnr]P}D~2rl<m1I311=V^,2,@pIW[*iInpJz{X(T=pG7+w$3$rY1GulrmKVv3}C;[_!mB+VYU^p
+    fX<lBeX7xl*D!BU3^}O_KV$V7{zTa@TrVjjkD]AvTjwHEUx}~WRRuO,KR=\!Y@^1\b,wQ*s<}{Qt
+    55qrp@!b}eB$J6Cs~7TUo1s!z-$p!J^X'j5TzY|sts3~XRJl@ia<m'mxJC3_X\=xz<vpxOEe<7I=
+    2#q^J~3uoCz<eQnhqMGC]$owXjb=A\VBDKK3,vllTTQp11{VV$T$u]-'A}u{e<umwj+wsJ=J<,<A
+    '+K-XrVR4^KDuI<5RPmwwj=XQpK{vQ5n1n~sj5lmIZ~>eK3ICo@nWHnh{oOo7>3ZX]7Q3a*_$*Tl
+    Es]=pju#YnRT^$DUA^'p^m~>nU<uTne-C,j$KA7nZ*+3Jz>D7kT,KInW{aZ+j!njGGuC&>CQ,KEG
+    }zZGz>HleWoHs@ooY-nE5p2=K!^^p2swuCBWB~j->]$^I<7QOepIs=-vRekV*;eVepWsCi[{}e>a
+    es!\<>ausfx]j,o\EA.0X-T;WvY?V$=D5usV{Aw}Onpjm]w_5YsR2R=Z>U,p<A+WlOVB[D']+n6k
+    rR2zRR?1pvW@eVTl~VjjrCT[${KQOXo3GHm'AaG=DX[kRK^,Vz,j*IW]+[p3[~V{wKTY\;CJEKe'
+    KT;x<Br=Wszs{+Hzj3r{Ua]t}<T=@7JT{X!K{I{^nH~@4oGx5@n1A-\s1IxoDy<*OE[uz]L>z~@3
+    r##x'7Y=]RKetmle1}CjK]er]wev?_3[O^7A2ziVsF^<s_9QTO<*3\'}$2zB^x^,^x3[{>5JnOWF
+    Q7<\.YR~v'KalqZ<oK?OB#B;m\B*~Kvs5]e?o,?n>Z4o2-5%^pB2Vlv@I;3[m<HQ0s+p=2Il~CKR
+    [":}xRC-U[@:qOv<Tp!A<QJ}VrZ7wF'\aQGYjJAQo5_sIRVzQ^ND5Aul\J*lDxO[*7=d*5?]owma
+    dVCJ50Q#Uw[;p<CaDK2^<T'YC21XYs[?nR7iB#8o1Hs2,{T^,2R?^?BsasUIovJ'^;I@T>[DU+'c
+    IIUJ?^~]2_[vdw_DVZ\,UA>$QU+p]_n{,sXT3*?\sreDxlk+C,wX~2+l_$B?>LD+7'YY#>7$aIpO
+    rxAl;7&IQIz3U1DZY{-68As~QixVZ}<@KoB\]n{+@oa;AcI;-Bpzk2<nJl73oBqPH*]K#5umu^?<
+    z*VRvV?J2}n<wvxr_D\r$aw]_!Z!KCVC@Ql>{CCKCR\>mo>$)U^R_X'r7px\Q_6xQ[}JV3-xaR2D
+    Vv[oR77@,m;$]$wJTUlwGVZ'e-sCm;@N<^T3aUE{>[JHvkII~A^$)rIzH^kRWGCQAf*k<XKAQ'Bk
+    ,~#<_,CIv5U$[xBDEiO[W='Jz!?DR}}_em^jZvERv;$K7@,DBHs5T>]!w}Qv2TRXjZj}xsZ5Sr-w
+    Rq|GOjB"_~<O!_G-lr3!u]mnEx~OYu>naRB~zIoB3Da^V=Q2r<>7asKe5!}_7rinX[Ez^$>jSBaY
+    K*+aHjCe3rwOeEeVrjH{-xVreQp!Wn$oBx@\Qe@Giz.~si[IDAE]Z$}XVY1y1i;{3pX-sw}{7!*n
+    aXEO:x!J,xI\x[H2Gb/s>TWJ$~7VK;wD'U^mA7Dm^HG<\wr,Ex[\3RTGBZJdYn.i_k5eqx}5?'#w
+    O&QY^27_JaU=u>mIiQBkY1An1''@Qah?-73#<Bw\*]x{R;I}",DO\zjT@^AB;BOvn~QRj*zOI#$a
+    !l{2~rZmI3AXGqI=-*C]-A$k<puz'2>'@;s=_$JVz-<p@Ew{alxJxZ+_YpT+;~u,DJlnmu_g^+~_
+    OaRXD]pIkr'G5}l$v?>zrE]vTw*5IE}a6dliUTU^{[*JQ?PROenIHUUl7w-7n]C+EHv&llQ+jl;3
+    mYx5I$!U7p_xrz['0GWmD$\T}B.?'w15SGEJT~lrWNsR^UWj-oPo>@~b;ClXwO[GlV{-EAzHK]\+
+    j3+?D@Aal{;!DI*[d*5zJ&5zO{wEv1_Wr$A1I#p,?>N'\>lB1YT[B<Do^5o-CG'rWpVx#c-{+{&[
+    \cE\^O@e{;7\l-pla_Jn\l-+'nDU;B;']OeW[[->;@3}Kr\Ep=o<'*KGi}jCK@]+<^2],wj3uWEG
+    7I8ejk~|l,;-^jvjmQn3z2>JxUTm+EIJllIYU,@TAXji:,-nlCWC~rZow@x*lK72e,q#n_wL3nWw
+    lYT'OaG;i[>O>X\1*@K+HHTjT,}3[D3DxCA~jHnKB@^RCf[1T~l*v-'IsYv32_->rzZ[~nM^^K*m
+    =T_JQ-=s,aJn1TC>oAw\5$X;xID|?O<U-vjns5'kEaVG4!+J{@B2o%L'CDrX$B?KOA?k]\n8u=nY
+    #}Ii#YoD+\~G,j@v#5QIFHOKlO~Zn>E_@)OA~*T7vRO[A+k,373I*{&J{]v9TV}G^_ve>IA3RZZ-
+    AH,V>Ha<nr7B}+W!'n,{\[w*jG5=@$eAj]}+^lsJ^32*xi&;*o3zeAK;jU^{x_=Haea!}u~5_eW4
+    yp~[Oo*RzeuC1E7'>R}~WeEJ_spwop12$W7>WlmD-~Y?Q![mxsTmW=K3w3QBAzW}O7mJ<O1JE-RE
+    YX-;p'3KKmlm-m+HOjle>[AnkA+R=ir;krjE'n][\ko2pR1knw1]*{=[eeim!x:^?j1Yo#<V-lQI
+    r@^L+RG?Cv<^{'D-lAw\GV<?]]ZzvmB#*1>U5Ep,[#B+/l$7l@Dn,GWwsv<rOua1u.Z1Ln}>?\Ah
+    Q^BAnV$;>s-?~^$1?7E;C<j?Ya-<=oml~I]WNE2jTc..JA\>cDDJ#Y6CPz[OiTeD}#=^_:u1RTkp
+    -ufV1oG?[_*T'v?lJRxkR\z[WVDqg/qmn>G]uTxB[]XGl@?!vUw}1@j1s!\1}DE0r>5amG>Glu71
+    vlrH%l'pee^}r}HBr,Qj7}RkGV+GpV,a<jBACRpTEo2uCM#=De~\se3e*u9@YOvQ[v'$U;,G1HO~
+    nG,-TYiD[}HG2Jx@_n$$'ikXEGo!eVBt$nRX;QR}]<Y7'<OBlu}p=-~>$]aouOQR!1jDWl+35$e<
+    v<Is^@3-tjAO3e+z5e*Cj**z?a_Vwg-\XR$?XE<]OBLuU$,c\;[]5eKv^-_*sv#Z7Opoxu_7*=Q[
+    oCpKvKG5=1o'=V!D_t[O>u[B1GBz)xjr;r\mzs-JIIrvOz,H,g>_R2lu2EavKvgAaJ^mtX5nuln;
+    a~I{r{n{2wl#u\V]_UR@]kB''[k*B!I{5,<lo^7<x]x;elvOIsYxRBke3j@^=2r,WOQs-$@Kx_+,
+    uIIj2+^p_xZjlZ1ou>HOV*H<A0O5+X>}}oe^[HL~A+]D1ATv*3QcHD-<,D71;H=$[p];EE;[0>l#
+    _Xn7'p~XQT]=;j=aJ;Ymza^*^Dk;nIDB#>arK\R@pQCjTE,=?o11;j\$pV>C^lKA;wY7Yv[Y\CYs
+    JFfQYvx47Q#YC1Q,nE,Be^KK\s1H=[zEQzZ!*Y<OkHmj5=U]]Iv-s<p'QAXDq=@+T\-QE$5K{;I2
+    [xBw$92Lv\,OeQna=X7}_{$VGxz;nREx~Vm2]!pDTlkBG{GR>B$eyQ}auH'3-rRUYlJ$Ux<ZC@-v
+    j]w;]vjXe'o'J^weUo!WQnvX'0V's2;=*EB3E}l_kub7JBapZn-=@7
+`endprotected
+
+  // Packet monitor instantiation
+
+qvl_usb_2_0_packet_monitor #(
+        /* Constraints_Mode */             Constraints_Mode,
+        /* PORT_TYPE */                    PORT_TYPE,
+        /* DEVICE_SPEED */                 DEVICE_SPEED,
+        /* NUMBER_OF_ENDPOINTS */          NUMBER_OF_ENDPOINTS,
+        /* FRAME_INTERVAL_COUNT */         FRAME_INTERVAL_COUNT,
+        /* SEQUENCE_BIT_TRACKING_ENABLE */ SEQUENCE_BIT_TRACKING_ENABLE,
+        /* PACKET_ISSUE_CHECK_ENABLE */    PACKET_ISSUE_CHECK_ENABLE)
+  PKT_MON (
+          .reset                  (reset),
+          .areset                 (areset),
+          .clock                  (clock),
+          .speed                  (speed),
+          .address                (address),
+          .end_point_config       (end_point_config),
+		  .number_of_active_endpoints(number_of_active_endpoints),
+          .start_of_pkt           (tx_start_of_pkt | rx_start_of_pkt),
+          .end_of_pkt             (tx_end_of_pkt | rx_end_of_pkt),
+          .parallel_data_valid    (tx_data_valid | rx_data_valid),
+          .parallel_data          (muxed_parallel_data),
+          .databus16_8            (latched_databus16_8),
+          .bus_is_idle            (host_is_transmitting === 1'b0 && device_is_transmitting === 1'b0),
+          .high_byte_valid        (tx_valid_h_actual | rx_valid_h_actual),
+          .usb_2_0_compliant      (1'b1),
+          .time_out_count         (time_out_count),
+          .time_out               (time_out),
+          .pkt_size_error         (pkt_size_error),
+          .inter_pkt_dly_count    (inter_pkt_delay_count),
+          .data_k_state           (line_state === ZI_K_STATE),
+          .host_is_transmitting   (host_is_transmitting | r_host_is_transmitting),
+          .device_is_transmitting (device_is_transmitting | r_device_is_transmitting),
+          .low_speed_enable       (1'b0), // Serial monitor only
+          .bit_stuff_error        (rx_error),
+          .op_mode                (op_mode),
+          .term_sel_xcvr_sel      (term_sel_xcvr_sel_same),
+          .normal_mode            (normal_mode),
+
+          // Outputs
+          .host_is_waiting        (host_is_waiting),
+          .device_is_waiting      (device_is_waiting),
+          .host_is_responding     (host_is_responding),
+          .device_is_responding   (device_is_responding),
+          .sof_pkt_received       (sof_pkt_received),
+          .first_sof_received     (first_sof_received),
+          .tkn_pid_received       (tkn_pid_received),
+          .split_tkn_received     (split_tkn_received),
+          .handshake_pid_received (handshake_pid_received),
+          .data_pid_received      (data_pid_received),
+          .pre_pid_received       (pre_pid_received),
+          .pkt_received           (pkt_received),
+          .enable_low_speed_port  (enable_low_speed_port),
+          .waiting_for_timeout    (waiting_for_timeout),
+          .transfer_complete      (transfer_complete),
+          .transfer_incomplete    (transfer_incomplete),
+          .transfer_aborted       (transfer_aborted),
+          .pkt_byte_count         (pkt_byte_count),
+          .utmi_mon               (1'b1),
+          .back_to_back_transfer  (back_to_back_transfer)
+    );
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_usb_2_0_utmi_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_usb_2_0_utmi_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_usb_2_0_utmi_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_usb_2_0_utmi_monitor
+`include "zi_cw_usb_2_0_utmi_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // End of module qvl_usb_2_0_utmi_logic

@@ -1,0 +1,211 @@
+                           March 4, 2009
+
+Recording Transactions using the OVM
+------------------------------------
+
+The OVM contains "hooks" for transaction recording,
+and these hooks have been populated with calls to the
+Questa Transaction Recording PLI calls. If you are
+interested in the details, you can find the implementation
+in the file src/base/tr_hooks.sv in the OVM distribution.
+
+These hooks are only implemented in the OVM kit that
+is distributed with Questa. They are not implemented
+in the OVM version distributed on OVM World.
+
+If you want to record transactions, you either need to
+use the built-in, pre-compiled OVM distributed with
+Questa, or you need to compile the source code
+of the OVM distributed with Questa.
+
+In order to compile the OVM distributed with
+Questa, you should do something like:
+
+  vlog +incdir+$OVM_HOME/src $OVM_HOME/src/ovm_pkg.sv
+
+where OVM_HOME points into your Questa installation tree.
+
+In a linux csh, for example:
+
+  setenv OVM_HOME $MTI_HOME/verilog_src/ovm-2.0.1/
+  vlog +incdir+$OVM_HOME/src $OVM_HOME/src/ovm_pkg.sv
+
+On my windows cygwin:
+
+  setenv OVM_HOME c:/QuestaSim_6.5/verilog_src/ovm-2.0.1/
+  vlog +incdir+$OVM_HOME/src $OVM_HOME/src/ovm_pkg.sv
+
+From a DOS prompt:
+
+ set OVM_HOME=c:\QuestaSim_6.5\verilog_src\ovm-2.0.1
+ vlog +incdir+%OVM_HOME%/src %OVM_HOME%/src/ovm_pkg.sv
+
+
+This transaction recording implementation is BETA.
+
+Please report all problems and issues to vm_support@mentor.com
+
+
+----------------------------------------------------------
+Questa Versions
+
+This code runs on 6.4b and later, and 6.5 and later.
+It is generally best to run transaction recording on the
+latest release possible.
+
+  6.4b/questasim/verilog_src/ovm-2.0.1/src/base/tr_hooks.sv
+  6.4c/questasim/verilog_src/ovm-2.0.1/src/base/tr_hooks.sv
+  6.5/questasim/verilog_src/ovm-2.0.1/src/base/tr_hooks.sv
+
+Transaction recording is only available using OVM 2.0.1
+
+----------------------------------------------------------
+Turning on transaction recording
+
+  To use the transaction recording system, you must
+  first "enable recording":
+  
+    set_config_int("*", "recording_detail", 1)
+  
+  This turns on recording. 
+
+----------------------------------------------------------
+Examples - General
+
+  Transaction recording examples are bundled with this
+  special release. It is undecided how they will be
+  bundled in the official release.
+
+  Run the examples either with 'run_questa' or the makefile.
+
+  See 
+    examples/transaction_recording/simple
+    examples/transaction_recording/simple_module
+    examples/transaction_recording/simple_memory
+
+----------------------------------------------------------
+Examples - Using Field Automation
+
+  If you are using field automation macros then your code 
+  will automatically record transactions.
+  
+  See examples/transaction_recording/simple for such an example.
+  
+----------------------------------------------------------
+Examples - Direct calls
+
+  You can also call the OVM transaction recording API directly,
+  although this is not recommended.
+  
+  See examples/transaction_recording/simple_module for 
+  such an example.
+
+----------------------------------------------------------
+Examples - XBUS
+
+  The examples/xbus/example should run as-is, and record
+  transactions without any intervention from you.
+
+  On Windows (cygwin):
+
+    cd <KIT>/examples/xbus/examples
+    setenv OVM_HOME c:/QuestaSim_6.5
+    vlog +incdir+../sv +incdir+$OVM_HOME/verilog_src/ovm-2.0.1/src xbus_tb_top.sv
+    vsim +OVM_TESTNAME=test_read_modify_write -do vsim.do -c -suppress 3829 xbus_tb_top
+
+    questasim -view vsim.wlf
+	        add wave -r /*
+
+  On Linux (cygwin):
+
+    cd <KIT>/examples/xbus/examples
+    setenv OVM_HOME /u/release/6.5
+    vlog +incdir+../sv +incdir+$OVM_HOME/verilog_src/ovm-2.0.1/src xbus_tb_top.sv
+    vsim +OVM_TESTNAME=test_read_modify_write -do vsim.do -c -suppress 3829 xbus_tb_top
+
+    vsim -view vsim.wlf
+	        add wave -r /*
+
+
+----------------------------------------------------------
+Viewing transactions
+
+  Transactions are viewable during simulation or after.
+
+  One way to view transactions after simulation is
+
+    vsim -view vsim.wlf
+
+  then at the "VSIM>" prompt I do:
+
+    add wave -r /*
+
+  and transactions are displayed.
+
+  Currently, the transaction streams you may see may have
+  incorrect or unusual names. This is a bug, and will be
+  fixed with a future release.
+ 
+----------------------------------------------------------
+Reporting Bugs - and debugging. BETA Code.
+
+  You may identify different kinds of errors in transaction 
+  recording:
+  
+   1) Errors in the thin implementation layer in src/base/tr_hooks.sv
+   2) Errors in the PLI $ calls (like $add_attribute())
+   3) Errors in the GUI/Waveform drawing.
+  
+  In order to help you discover problems there are three levels
+  of debug in the tr_hooks.sv thin layer. In general they
+  print out too much information, but you may find it useful.
+  (These debugging aids will be removed or reduced in the official
+  release).
+  
+    vsim \
+      +OVM_TR_TRACE_API_DETAIL \
+      +OVM_TR_TRACE_PLI_CALLS \
+      +OVM_TR_TRACE_API \
+      ... test.sv
+  
+  They are plusargs for vsim.
+  
+    OVM_TR_TRACE_PLI_CALLS
+       - Show lots of detail about how the PLI is being called.
+  
+    OVM_TR_TRACE_API
+       - Show the OVM API as it executes. Like a function
+         call trace.
+  
+    OVM_TR_TRACE_API_DETAIL
+       - Show many details about the OVM API as it executes.
+         Show the function call trace, and the function call
+         arguments.
+       - Setting OVM_TR_TRACE_API_DETAIL also turns on
+         OVM_TR_TRACE_API.
+
+
+----------------------------------------------------------
+Known problems
+
+  Fixed in Questa 6.4d, 6.5a and later. But still existing in
+  OVM 2.0.1 implementation. Fixed in a future OVM release.
+
+    Bug: Streams may have the name "TVM". 
+    Bug: Streams are created in a "strange scope", like 
+          "/ovm_root::m_do_phase_all/" or
+	      "ovm_sequence__2::start/TVM" or 
+		  "/xbus_master_monitor::run/TVM"
+
+  Questa 6.4a sometimes reports Errors with the PLI
+    registration of components and ports. These errors
+    messages can be ignored - the simulation should run
+    properly, but a Questa GUI Debug session may not work
+    correctly, or may display "missing" components or ports.
+    This is fixed in the upcoming 6.4b.
+
+    # ** Error: Parent for ovm_test_top not defined!
+    # ** Error: Parent for xbus_demo_tb0 not defined!
+    # ** Error: Parent for xbus0 not defined!
+    # ** Error: Parent for scoreboard0 not defined!
+

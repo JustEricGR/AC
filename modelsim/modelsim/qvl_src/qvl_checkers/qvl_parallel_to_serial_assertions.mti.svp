@@ -1,0 +1,516 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_parallel_to_serial_assertions
+                                       (parallel_clock,
+                                        serial_clock,
+                                        areset,
+                                        parallel_reset,
+                                        serial_reset,
+					active,
+                                        parallel_active,
+                                        serial_active,
+                                        parallel_data,
+                                        serial_data,
+                                        parallel_load,
+                                        hold,
+                                        shift_mode,
+                                        right_shift_check,
+                                        left_shift_check,
+                                        hold_check,
+                                        load_before_conversion_check,
+                                        no_load_after_full_conversion_check,
+                                        shift_mode_reversal_check,
+                                        right_shift_fire,
+                                        left_shift_fire,
+                                        hold_fire,
+                                        shift_mode_reversal_fire,
+                                        load_before_conversion_fire,
+                                        no_load_after_full_conversion_fire,
+                                        complete_right_shifts,
+                                        complete_left_shifts,
+                                        total_shifts,
+                                        right_shifts,
+                                        left_shifts,
+                                        load_cycles,
+                                        hold_cycles,
+					support,
+                                        fire_count
+                                       );
+
+
+
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+  parameter Constraints_Mode = 0; 
+  parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+   
+  parameter MAX_WIDTH = 4096; // Maximum width of parallel_data.
+  parameter MIN_WIDTH = 2; // Minimum width of the parallel_data.
+
+  parameter WIDTH = 4; 
+
+  parameter CLOCK_SYNC_LATENCY = 0; 
+
+  parameter OUT_LATENCY = 0; 
+
+  parameter OUT_LATENCY_REG_WIDTH = (OUT_LATENCY === 0) ? 1 : OUT_LATENCY;
+    // This parameter is to take care of register width when latency is 0
+
+  parameter INT_CLK_LAT_DATA_REG_WIDTH = (CLOCK_SYNC_LATENCY === 0) ?
+		  (2*WIDTH)-1: ((CLOCK_SYNC_LATENCY + 1) * WIDTH) - 1;
+
+  parameter INT_CLK_LAT_LOAD_REG_WIDTH = (CLOCK_SYNC_LATENCY === 0) ?
+		  1 : CLOCK_SYNC_LATENCY;
+
+  parameter OUT_LATENCY_COUNT = OUT_LATENCY + WIDTH;                             
+  parameter OUT_LATENCY_COUNTER_WIDTH = 1; 
+  parameter COUNTER_WIDTH = 1; 
+  parameter MSB_CONVERT_CHECK = 0;
+  parameter HOLD_CHECK = 0;
+  parameter REVERSAL_CHECK = 0;
+  parameter CONSEC_LOAD_CHECK = 0;
+ 
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input parallel_clock; 
+  input serial_clock; 
+  input areset; 
+  input parallel_reset; 
+  input serial_reset; 
+  input active; 
+  input parallel_active; 
+  input serial_active; 
+  input [WIDTH-1:0] parallel_data;
+  input serial_data; 
+  input parallel_load; 
+  input hold; 
+  input shift_mode; 
+
+  // Check ports
+ 
+  input right_shift_check; 
+ 
+  input left_shift_check; 
+ 
+  input hold_check; 
+
+  input shift_mode_reversal_check; 
+
+  input load_before_conversion_check; 
+
+  input no_load_after_full_conversion_check; 
+
+  // Firing signals
+
+  output right_shift_fire;
+  output left_shift_fire;
+  output hold_fire;
+  output shift_mode_reversal_fire;
+  output load_before_conversion_fire;
+  output no_load_after_full_conversion_fire;
+ 
+  reg right_shift_fire;
+  reg left_shift_fire;
+  reg hold_fire;
+  reg shift_mode_reversal_fire;
+  reg load_before_conversion_fire;
+  reg no_load_after_full_conversion_fire;
+ 
+  // corner cases & statastics
+ 
+  output [STAT_CNT_WIDTH-1:0] complete_right_shifts;
+  output [STAT_CNT_WIDTH-1:0] complete_left_shifts;
+  output [STAT_CNT_WIDTH-1:0] total_shifts;
+  output [STAT_CNT_WIDTH-1:0] right_shifts;
+  output [STAT_CNT_WIDTH-1:0] left_shifts;
+  output [STAT_CNT_WIDTH-1:0] load_cycles;
+  output [STAT_CNT_WIDTH-1:0] hold_cycles;
+
+  output [STAT_CNT_WIDTH-1:0] fire_count;
+  wire [STAT_CNT_WIDTH-1:0] fire_count;
+  reg [STAT_CNT_WIDTH-1:0] fire_count_1;
+  reg [STAT_CNT_WIDTH-1:0] fire_count_2;
+  reg [2:0] fire_count_1_tmp;
+  reg [2:0] fire_count_2_tmp;
+  assign fire_count  = (fire_count_1 + fire_count_2) <= {1'b0,{STAT_CNT_WIDTH{1'b1}}} ?
+                       fire_count_1 + fire_count_2 : {STAT_CNT_WIDTH{1'b1}};
+
+ 
+  reg [STAT_CNT_WIDTH-1:0] complete_right_shifts;
+  reg [STAT_CNT_WIDTH-1:0] complete_left_shifts;
+
+  wire [STAT_CNT_WIDTH-1:0] total_shifts;
+  reg [STAT_CNT_WIDTH-1:0] right_shifts;
+  reg [STAT_CNT_WIDTH-1:0] left_shifts;
+  reg [STAT_CNT_WIDTH-1:0] load_cycles;
+  reg [STAT_CNT_WIDTH-1:0] hold_cycles;
+
+  // Internal Registers
+ 
+  reg [WIDTH-1:0] shift_reg; // Internal shift register
+  reg [WIDTH-1:0] input_buffer;
+  reg r_shift_mode;
+  reg [1:0] inp_buffer_loaded;
+  reg [1:0] shift_reg_loaded;
+  reg load_asserted;
+  reg latched_shift_mode;
+  reg shift_mode_reversed;
+
+  // Counter to track complete left and right conversions
+ 
+  reg [COUNTER_WIDTH:0] left_full_counter;
+  reg [COUNTER_WIDTH:0] right_full_counter;
+  reg [COUNTER_WIDTH:0] shift_counter;
+ 
+  reg [OUT_LATENCY_REG_WIDTH:0] latency_reg; // Register to implement latency
+  reg [OUT_LATENCY_COUNTER_WIDTH:0] latency_counter;
+  reg [COUNTER_WIDTH:0] bit_counter;
+  reg [OUT_LATENCY_REG_WIDTH:0] data_valid_pipe;
+  reg [OUT_LATENCY_REG_WIDTH:0] shift_mode_pipe;
+  reg [OUT_LATENCY_REG_WIDTH:0] hold_pipe;
+  reg [INT_CLK_LAT_DATA_REG_WIDTH:0] parallel_data_pipe;
+  reg [INT_CLK_LAT_LOAD_REG_WIDTH:0] serial_load_pipe;
+ 
+  // Internal variables
+   
+  wire expected_data; // expected serial data
+  wire shift_reg_out; // output of internal shift register
+  wire input_serial_data_valid;
+  wire data_valid;
+  wire eff_shift_mode; // This is the shift mode delayed by latency clocks
+  wire eff_hold;
+  wire internal_serial_load;
+  wire z_eff_internal_serial_load;
+  wire [WIDTH-1:0] eff_parallel_data;
+  wire xz_detected_serial_data;
+  wire xz_detected_parallel_data;
+  wire parallel_areset;
+  wire serial_areset;
+
+  // Declaration for 0-in PLIs and Statistics
+ 
+
+
+`ifdef QVL_ASSERT_ON
+  wire load_before_conversion_fire_combo;
+  wire no_load_after_full_conversion_fire_combo;
+  wire right_shift_fire_combo;
+  wire left_shift_fire_combo;
+  wire hold_fire_combo;
+  wire shift_mode_reversal_fire_combo;
+`endif
+
+  // Signal assignments
+
+  assign total_shifts = ((left_shifts + right_shifts) <= {1'b0,{STAT_CNT_WIDTH{1'b1}}}) ? 
+                        (left_shifts + right_shifts) : {STAT_CNT_WIDTH{1'b1}};
+  assign shift_reg_out = (latched_shift_mode === 1'b0) ?
+         shift_reg[0] : shift_reg[WIDTH-1];
+  assign expected_data = (OUT_LATENCY === 0)? shift_reg_out : latency_reg[1];
+  assign input_serial_data_valid = (bit_counter !== 0);
+  assign data_valid = (OUT_LATENCY === 0) ?
+         input_serial_data_valid : data_valid_pipe[1];
+  assign eff_shift_mode = (OUT_LATENCY === 0) ? latched_shift_mode : 
+         shift_mode_pipe[1];
+  assign eff_hold = (OUT_LATENCY === 0) ? hold : hold_pipe[1];
+  assign eff_parallel_data = (CLOCK_SYNC_LATENCY === 0) ? input_buffer : 
+         parallel_data_pipe[((2*WIDTH)-1):WIDTH];
+  assign z_eff_internal_serial_load = (CLOCK_SYNC_LATENCY === 0) ?
+	 internal_serial_load : serial_load_pipe[1];
+  //assign internal_serial_load = (inp_buffer_loaded !== shift_reg_loaded);
+  assign internal_serial_load = (inp_buffer_loaded[0] && (inp_buffer_loaded !== shift_reg_loaded));
+  assign xz_detected_serial_data = (^serial_data === 1'bx);
+  assign xz_detected_parallel_data = (^parallel_data === 1'bx);
+  assign parallel_areset = (areset !== 1'b0 || serial_reset !== 1'b0);
+  assign serial_areset = (areset !== 1'b0 || parallel_reset !== 1'b0);
+
+
+`ifdef QVL_ASSERT_ON
+  assign load_before_conversion_fire_combo = (parallel_reset === 1'b0) &&
+(parallel_active === 1'b1)&& (active === 1'b1) && (parallel_areset === 1'b0) &&
+         (load_before_conversion_check) && (!xz_detected_parallel_data) &&
+         ((parallel_load === 1'b1 && shift_counter > 1) ||
+         ((inp_buffer_loaded !== shift_reg_loaded) && parallel_load === 1'b1));
+
+  assign no_load_after_full_conversion_fire_combo = (parallel_reset === 1'b0) &&
+(parallel_active === 1'b1)&& (active === 1'b1) && (parallel_areset === 1'b0) &&
+         (no_load_after_full_conversion_check === 1'b1) &&
+         ((parallel_load === 1'b0 || (parallel_load === 1'b1 &&
+           xz_detected_parallel_data === 1'b1)) &&
+          (shift_counter <= 1) && load_asserted === 1'b1 &&
+           z_eff_internal_serial_load !== 1'b1);  
+                                               
+  assign right_shift_fire_combo =  (serial_reset === 1'b0) &&
+(serial_active === 1'b1)&& (active === 1'b1) && (serial_areset === 1'b0) &&
+         (right_shift_check === 1'b1 && eff_shift_mode === 1'b0 &&
+          xz_detected_serial_data === 1'b0) && (data_valid === 1'b1 && 
+          eff_hold === 1'b0 && expected_data !== serial_data);
+
+  assign left_shift_fire_combo = (serial_reset === 1'b0) &&
+(serial_active === 1'b1)&& (active === 1'b1) && (serial_areset === 1'b0) &&
+         (left_shift_check === 1'b1 && eff_shift_mode === 1'b1 &&
+          xz_detected_serial_data === 1'b0) && (data_valid === 1'b1 && 
+          eff_hold === 1'b0 && expected_data !== serial_data);
+
+  assign hold_fire_combo = (serial_reset === 1'b0) &&
+(serial_active === 1'b1)&& (active === 1'b1) && (serial_areset === 1'b0) &&
+ (hold_check && xz_detected_serial_data === 1'b0) && (eff_hold === 1'b1) &&
+          (expected_data !== serial_data);
+
+  assign shift_mode_reversal_fire_combo = (serial_reset === 1'b0) &&
+(serial_active === 1'b1)&& (active === 1'b1) && (serial_areset === 1'b0) &&
+         (shift_mode_reversal_check === 1'b1 && ((shift_mode_reversed === 1'b1 
+          || (shift_mode !== latched_shift_mode)) &&  (shift_counter > 1)) && 
+              z_eff_internal_serial_load !== 1'b1); 
+`endif
+`protected
+
+    MTI!#WUUWc]p'~u1UY*X<KxuCpEkoChhe\DO7?[D_}"qor[KN?Te]v8}]#Hpz-_}7rTm{QEhYOk1
+    W[=pKnZ~x+,Y!DjJS1-=sE}k$U<I7u=CVf'@ZZ*]W<X_{O_<G[1nK3^5}r}1'=ijD}us{lUo\!_}
+    ~ae^2[lv[HSDo>s|0&madU77][GZV73oo\XeG<lV]w$+##VOiVvviQZJ[u5B@_,_7s[H2Zn1iYAa
+    Hux7lHIAZt%cnV>uon{jp;G#{5R}:s1T?1TQGh-}'>1;<{F[z;RU*k]_3U@$xA>x5I^_j+Jv@aOY
+    _p27kz7U]7B*VK\emU+Llx5j1YCew{}'yjz~v^.Jx@aRn[]9@1k_\Bv[[H~Ck>>IZ^{nt1hUoT!F
+    Axu['kXYv,iv^m$}E#[plU>aV[va8lUpZ^BzQnU5Q<1rGl{Dr<w$-emIw)knD[Q\5>xGxV$n7pw>
+    Y7I6^TIJm{oA-a+5?jll[D}Wf4z]jJ=7OuQn>C|AE#5>ImI$D?aBoO@#pV2}Z]jW5ZjV!\KjRR'l
+    \{j2r>#asErZVWEkVU^SoYDro!u!K7Tn}!;]]\@A;7$WI>*B:?VK[7OURK{Qj^U\JJYx-O,w;TYl
+    {_-E;$w-W7ArY11*K]?XsZ1EEAD*E*]m$p#!xm$]>r~>aop?-5w-3weKVOvuH$3O<lmAw|]Yu!j2
+    UKYJJ>(hNso{,zw>>7k<O:wA'C$#n'7uQ}GA=r3$_zflz;erpZ;OE-17@}]2pliENj3SX>3;EKjR
+    EOx$WQIT1teGrUx@~]N;w3]u5;w#eV+e'[ejrIK}mR!lvT](T1-5p3B;kRCpe3+Ce~5'bNYZ+!*_
+    v=LSel+?)z,??2'*CW$?uQ+YAWX'~-jbweWA\$wOKYGJW--#xsT=sHJ@QR3{#sQ>vjjR5DOi4BYD
+    xh}V1}>{m2Yxmep3j]NES]uBs}J~WB=#\^p\YB+D\#HoCZ,\~;n*>QepXRuA1h^DsI9<r11\E\iC
+    jOusR_Glu!J;={n76!-$[;a+egfW]+[QXwj2Cjz5]z!-o@}RN^?Ao,K$\<C}Dk>'#i<XCe[A#Re+
+    U_{3^Oao+Y@*e5TT!Vv/'-UXwOTT|6p>nlKnpJr+rm+o}?SQWmpTnUaua{}lD#3XQp'9;1Hnvklv
+    9I22;+HjR\VWI,H}nue*Ako*1A-D]qrwW~-G][BpKWs%mHT]|$iR7?_I^,O[Ex$K~C~^!rB7AU7I
+    Dwt][21l7xo>wK^m=OTr''[-CJ!E3~u=G\#mDVHG5<1<>7W\T]DBs1+7}l\w5[-HU]?uh=E-*:p[
+    anC@<;C~aXRD]r'[]QI~n*1_Dz<'3r7QGpI[DJCX'arYV?XHHVVjW]5OW$xBIo5O2ERkwOIv;#AB
+    C-],^[G}D\\aWvxP9CEsJEjaBa=w=^p-xzJXDVm,oTXv;P~AJ*\Qk22H^}@*1lvG2vk[mW>,$w0A
+    I<-Kp[{<aK=}TA1eon,_rDB<X=j$kEm^J[>EWZ@,$os'HQsT{*jsa@]AIjpY?OR\]ZwYs7Dww\U3
+    tC$]~1$;*O2eKGR+]sQj_r5Kp1Ow{JE<wrlj]he5KH}D;veZJ2;l~^BJH>rCI?zYrm&Oa[QR1DkR
+    {*D,Huj$^w<u5D3]7Uaa|rWYBV,zG{RzIJAQit?Nb#UXmK.6Brx\K+v-IIGe+awVWA$xPR<xGxaz
+    kY-^2,jaU71$_E5o2(Q{!BAC?2TQIZp#{A@*G7$E^s?*{-QBII;jp\lp'{sTW+]WXmQo*Oj]w],_
+    1ReUEKlwHk]A=w!rR[]c}H'i$DEnw^]+Y8;oR7~\[i*KEpjJU}m^Jx[~K[jU=AD-A<B#I\nlU]%Y
+    o-nH{zwfJU}o#V<rK}v'IE^RTrJU#+^n$R^'<]IZ\UZEVlpG_2J2[^Z_>opKx_{R:}rB;vpn{9nR
+    IsE+_Av#{U5riZH-p*)Y-^eL:7<@l'_jVI@1Q&JTwm@'xj!T,n5][s,!]vv_uQ6wR7k}'-ZQtG]T
+    Jpv$!'Vu#iDC]f2wZT}@pAutI_7U-CQ,37Rmv~-o'D~B5;12RjBulek<M3]T~Gl?5Bk5?v@W}nXr
+    Ke@{lW$^2|^,CxAR,G#**+ZEB>]7AAKY5QjxrRei'W7I<,@>Cx<aGm?z[EG~x<Y[]e~l#eT[H!^d
+    IYkx;_~kETD;H7C>@T<E8$Yo1xSt6Io#~l7[#Bi5WXQ;YR'}sCb;DVr#wKOY=-+$E<rBYl^[_~]x
+    T{aUx=i#x^e7O2*9oe{w-15U\'$-aH!T&TOYK'}OKG1AQ#>wa1{v+';wB*>>$.+H<@nD^EzHuj;<
+    wVv5mu1CXpVuZvq_*J@}1X>wA3\A^@o'IAW]2J1p#EDV~^;5;<\=\G]O=TI.X^T+o[p!ns-XxaW!
+    ;XwekR>KQ73B2D,*I{3x*i\3iaA+2U*e-_!-mC{a\W>]wE1_3<I!KT,'+In-.;IZ}on~uQ2*=*5{
+    5-X-#>C"#aW]:2nw+z<oes0e?\Vs2<IQ[Knu*A5u8iaI~*l,^]rIoo#X]j*O$:TXHxUpC\/u_El2
+    &6V,wo$pr?#*7~'$C#-ns?}p,GKBpUr2$5cj*XWZ5,#'EmuA5?>_ow,:Uqv1C{w<TBeAKu$AEl3G
+    3XaU7eTY]+?5EWT1}@}_kw[<^_4w7HX|!-GT$5loknj[7rm_,Oa<_WUv^ouDb5j_nGb=ZDv$<Qer
+    [!{fB@vVZ-Y5R1=2+>HQ5#TaLUl-TO1n\]V=Tv/%I_[^/YXV+0jx\EuoB111O?Z,!HE@J?c{>,W*
+    ?T~u\75?aKX2T~25X]}gupr7C3@3[KU*;r{^1,n~NzAWDwCiUl_#]7K+^UjlH$-mT1<YG<]*5B5?
+    nWo~HvV[zB?E=5Kv_QrX'O$X;m<Vn!_1@G]WIXaY>]rI3B@v5nTG[QUm;z!I-@zXeEYH2*EGO)Cl
+    #[}^Y5(j\1o+Hew$=_W[eV37CGsV5E<puB=\'7u'z",Kn{k^A[R>oDV^pzuvJB^n,aKp]i}[Y32a
+    KTHE-ZMk**K7}<C]iDZi}-O^wrxm>ZsI*u*Jv5,Y@,x++eZ1i1DB[J<r1<^>A'C@Ee]>Qem2D7HB
+    J'=M#UaoA<~*}iE#eQVKC=7Q1E@7Hnu]]{5lKjV}@B#Xw+eY{5s^VV<XKC;pRa$#XR{Y6}Y3nRBl
+    H=KXVTBH!EAE!}=B[QDp-CD?~VRo[AoE?nlR+mwXQ2$-@}]UROim1K}&Q+*<2|IsurG1m{b[jXIy
+    Y$lTk*~Ux_V1x@A-Q1A;^1Z{>(f6iIkKp3ZzV_e]}kDu~l'!G~[$9/[^={vnnEwAp#=@$Hxx$u*J
+    @r,j$3K]>TY~~^${^uWsiIBRj+\#B$ys^!a_\w3T\vuzm+m1aUR'sw+5H5JrKG+}TZ5or*I<X<sR
+    kUQCve*2zs=Dee]0wB{,B<+Jy~-}',<zJvr3B~==B(='xQD+2{OCagAx;AzDTeC:,>U!Ce[Qe}BY
+    *bIAl-oa<YIJls<-la/3n'CDZl?[,$v?HJC-ww-=eICOpHupZ~ln[o#BH[-l*pD}Z+uk5x@Yo][C
+    X*];B^!81e\xr'Z]nw'2}u]A7}B@-$}IKlOR]aH']=[w-IQR+lm{Xs{}D3R$Rm1HBsW3^a[QI[]~
+    LZ<O=#r5^h1aW<v2+7RAppnH,U7#[<RTl!:C!*{s+xCE-Z]Zl1j}pO~vAjlzDuDw_X5I;_Jx5wlQ
+    <DOE>oCQmH@jwpm#_sX~sD=UOV{Yj}Jj?e_w*B-w5vCVZn~^C'UCs3J,V#kjkzl3D+;^m~v7Ri{3
+    nZjtG;AI$a+V?\lo1s\av?Twx5_mOTYnOkm]tp@Q{;>W[^<$Qx]KoH\?a^wesG3-I!EJHT>3#$kV
+    ZW<>_I=C^]71'k]VV$G5p1{@*Z]#?'YZJvZ<Kzz?ZBv>D$OQY^2$\$RRl$G,v8!H=}ViQ'FrA>Y&
+    \oR-v^$3GI*>kr<B'WlzZ>;T]^R!Zp7Iym*vEzn{s>E,QMTAusSRpjO*1}k@$3J7<=J#IOwH12#[
+    Tn1*UUkQBmZ9t}^7-sz]R+[lIgvDUIvXTRjk,v+\2~rU^[o>JI-vo13ruoz2;o>[DRvBTj,YDu>\
+    _uvB^#[Cjndx7GnY$C'BK\Yvn@B+B~j5w1v7;>IGQGGuVn{V~Xrp!n^1UKZq_w3xpj2v>x!QXV2x
+    ^a1lH<s}sCuKqkTnxGuou[?QIrw'or;RuDXm\5}*sy-j!vK>';7p_*gzK1pa-p@<}u2.CC^5+}ap
+    6xEXH]CCnIw{zGIiCZ[U3ua$[X]@ae-Iul]V@j*JIZ,oIwrn<]C+B+^1;\DO+$e2!wp2kT7p$Mn+
+    YDw]K+{Q$>0!Q~$xyQJ3V*m-*+}CX?5C}Ib7r*U>7^B|HAoOJ]k,$UQ!Jj+wG+j[^\D$UjvQs}EA
+    Zw17{EBrrO?w51?u,TKvkar-
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  //Instance for load before conversion check. 
+  //
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_parallel_to_serial_load_before_conversion_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (parallel_clock),
+                      .reset_n   (~parallel_reset),
+                      .enable    (1'b1),
+                      .test_expr (load_before_conversion_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_parallel_to_serial_load_before_conversion_check"),
+                          .msg            ({msg," Paralel data item was loaded while the previous data item was being converted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (CONSEC_LOAD_CHECK == 1)
+          begin : assert_parallel_to_serial_no_load_after_full_conversion_check
+            A_qvl_parallel_to_serial_no_load_after_full_conversion_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (parallel_clock),
+                          .reset_n   (~parallel_reset),
+                          .enable    (1'b1),
+                          .test_expr (no_load_after_full_conversion_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_parallel_to_serial_no_load_after_full_conversion_check"),
+                              .msg            ({msg," Parallel data item did not load right after a data item was converted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        A_qvl_parallel_to_serial_right_shift_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (serial_clock),
+                      .reset_n   (~serial_reset),
+                      .enable    (1'b1),
+                      .test_expr (right_shift_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_parallel_to_serial_right_shift_check"),
+                          .msg            ({msg," Serial data bit did not match the LSB of the parallel data."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+        if (MSB_CONVERT_CHECK == 1)
+          begin : assert_parallel_to_serial_left_shift_check
+            A_qvl_parallel_to_serial_left_shift_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (serial_clock),
+                          .reset_n   (~serial_reset),
+                          .enable    (1'b1),
+                          .test_expr (left_shift_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_parallel_to_serial_left_shift_check"),
+                              .msg            ({msg," Serial data bit did not match the MSB of the parallel data."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (HOLD_CHECK == 1)
+          begin : assert_parallel_to_serial_hold_check
+            A_qvl_parallel_to_serial_hold_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (serial_clock),
+                          .reset_n   (~serial_reset),
+                          .enable    (1'b1),
+                          .test_expr (hold_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_parallel_to_serial_hold_check"),
+                              .msg            ({msg," Hold was asserted but the corresponding serial bit changed value."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (REVERSAL_CHECK == 1)
+          begin : assert_parallel_to_serial_shift_mode_reversal_check
+            A_qvl_parallel_to_serial_shift_mode_reversal_check: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (serial_clock),
+                          .reset_n   (~serial_reset),
+                          .enable    (1'b1),
+                          .test_expr (shift_mode_reversal_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_parallel_to_serial_shift_mode_reversal_check"),
+                              .msg            ({msg," Shift direction reversed while a parallel data item was being converted."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_parallel_to_serial_load_before_conversion_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (parallel_clock),
+                      .reset_n   (~parallel_reset),
+                      .enable    (1'b1),
+                      .test_expr (load_before_conversion_fire_combo)));
+        if (CONSEC_LOAD_CHECK == 1)
+          begin : assume_parallel_to_serial_no_load_after_full_conversion_check
+            M_qvl_parallel_to_serial_no_load_after_full_conversion_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (parallel_clock),
+                          .reset_n   (~parallel_reset),
+                          .enable    (1'b1),
+                          .test_expr (no_load_after_full_conversion_fire_combo)));
+          end
+        M_qvl_parallel_to_serial_right_shift_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (serial_clock),
+                      .reset_n   (~serial_reset),
+                      .enable    (1'b1),
+                      .test_expr (right_shift_fire_combo)));
+        if (MSB_CONVERT_CHECK == 1)
+          begin : assume_parallel_to_serial_left_shift_check
+            M_qvl_parallel_to_serial_left_shift_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (serial_clock),
+                          .reset_n   (~serial_reset),
+                          .enable    (1'b1),
+                          .test_expr (left_shift_fire_combo)));
+          end
+        if (HOLD_CHECK == 1)
+          begin : assume_parallel_to_serial_hold_check
+            M_qvl_parallel_to_serial_hold_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (serial_clock),
+                          .reset_n   (~serial_reset),
+                          .enable    (1'b1),
+                          .test_expr (hold_fire_combo)));
+          end
+        if (REVERSAL_CHECK == 1)
+          begin : assume_parallel_to_serial_shift_mode_reversal_check
+            M_qvl_parallel_to_serial_shift_mode_reversal_check: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (serial_clock),
+                          .reset_n   (~serial_reset),
+                          .enable    (1'b1),
+                          .test_expr (shift_mode_reversal_fire_combo)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+  //Instance for no load after full conversion check. 
+  //
+
+
+  //Instance for right shift check. 
+  //
+
+  //Instance for left shift check. 
+  //
+
+  //Instance for hold check. 
+  //
+
+  //Instance for shift mode reversal check. 
+  //
+`endif
+`include "qvl_parallel_to_serial_cover.svh"
+`qvlendmodule // module zi_cw_parallel_to_serial_checker

@@ -1,0 +1,665 @@
+
+                    Release Notes For ModelSim Altera 5.7
+                                      
+                Copyright Model Technology, a Mentor Graphics
+              Corporation company, 2002 - All rights reserved.
+                                      
+   
+   
+                                Dec 18 2002
+   ______________________________________________________________________
+   
+     Product Installation and Licensing Information
+   For brief instructions about product installation please visit the
+   "install_notes" file on the Model Technology web site. The
+   install_notes file can be viewed at:
+   [1]http://www.model.com/products/release.asp
+   For detailed information about product installation and licensing see
+   the ModelSim Start Here Guide. The manual can be downloaded from:
+   [2]http://www.model.com/support/documentation.asp
+   
+   
+     Release Notes Archives
+   For release notes of previous versions visit the release notes archive
+   at: [3]http://www.model.com/support/default.asp
+   or find them in the installed modeltech tree in <path to modeltech
+   installation>/docs/rlsnotes
+   
+   
+     How to get Support
+   
+   This OEM product is supported by Altera Corporation
+     * World-Wide-Web Support
+       [4]http://www.altera.com/mySupport
+       
+   
+   ______________________________________________________________________
+   
+  Index to Release Notes
+  
+     [5]Key Information
+   
+     [6]User Interface Defects Repaired in 5.7
+   
+     [7]Verilog Defects Repaired in 5.7
+   
+     [8]PLI Defects Repaired in 5.7
+   
+     [9]VHDL Defects Repaired in 5.7
+   
+     [10]FLI Defects Repaired in 5.7
+   
+     [11]VITAL Defects Repaired in 5.7
+   
+     [12]Mixed Language Defects Repaired in 5.7
+   
+     [13]General Defects Repaired in 5.7
+   
+     [14]Mentor Graphics DRs Repaired in 5.7
+   
+     [15]Known Defects in 5.7
+   
+     [16]Product Changes to 5.7
+   
+     [17]New Features Added to 5.7
+   ______________________________________________________________________
+   
+   Key Information
+     * You must recompile or refresh your models if you are moving
+       forward from 5.7 Betas or 5.6x or earlier release versions. See
+       "Regenerating your Libraries" in the ModelSim Start Here Guide for
+       more information on refreshing your models.
+     * Acrobat reader version 4.0 or greater must be used to read any
+       .pdf file contained in ModelSim version 5.5c or greater.
+     * Product changes and new features mentioned here are introduced in
+       the 5.7 release. If you are migrating to the 5.7 release from 5.5x
+       or earlier releases, please also consult version 5.6x release
+       notes for product changes and new features introduced during the
+       5.6 patch releases. The previous version release notes can be
+       found in your modeltech installation directory at docs/rlsnotes.
+     * The HP-UX 10.20 platform is no longer supported as of the ModelSim
+       5.7 release. The hp700 platform executables are built on HP-UX
+       11.0. Please note that in order for FLI/PLI shared libraries to be
+       loaded and executed correctly by the hp700 version of vsim, they
+       must be compiled and linked on HP-UX 11.0.
+     * Beginning with the 5.6 release (on Windows platforms only)
+       attempts to link in libvsim.lib or tk83.lib using the Microsoft
+       Visual C++ linker version 5.0 will fail with a message similar to
+       "Invalid file or disk full: cannot seek to 0xaa77b00". Microsoft
+       Visual C++ version 6.0 should be used.
+     * The following lists the supported platforms:
+          + win32aloem - Windows 98, Me, NT, 2000, XP
+          + sunos5aloem - Solaris 2.6, 7, 8
+          + hp700aloem - HP-UX 11
+   ______________________________________________________________________
+   
+   User Interface Defects Repaired in 5.7
+     * Scrollbar auto-repeat in the Wave window has been enabled.
+     * Virtual functions containing a user-defined type conversion on a
+       slice of a VHDL array of type bit would fail to update properly in
+       the Wave window.
+     * In some cases, a bit or slice of a VHDL vector would not get
+       re-logged following a restart command.
+     * Selecting nets in the Dataflow window should update the Structure,
+       Signals, and Source windows to reflect the selected object. This
+       feature stopped working in 5.6c. For those that prefer the
+       behavior where selection does not affect these windows, there is
+       an option in the Tools->Options dialog that can disable this
+       feature.
+     * The rename command did not correctly handle renaming procedures
+       when called from a procedure in a non-global namespace.
+     * In rare cases the spacing between lines in the Wave window was not
+       correct following a restart command or loading a wave format file.
+   ______________________________________________________________________
+   
+   Verilog Defects Repaired in 5.7
+     * Forcing a Verilog register with a delay of 0 caused incorrect
+       evaluation of statements sensitive to the register in some cases.
+       The statements were incorrectly evaluated at the next time step
+       where there was an event instead of being evaluated at the current
+       time step. This occurred when there were no pending events or
+       processes. If there were pending events or processes, the
+       statements were evaluated correctly.
+     * The -R compiler option did not work in conjunction with -fast or
+       +opt.
+     * The destination port of a specify path must have a single driver
+       on it. ModelSim now issues an error when this rule is violated.
+       (Ref: DR 329416)
+     * Enhanced -fast optimization so that incremental compile (-incr)
+       works with it so that designs that have changed may recompile
+       faster.
+     * Enhanced the vlog -vlog95compat switch to disable Verilog 2001
+       keywords.
+     * Incorrect path delay sometimes occurred in the following case:
+          + The cell was compiled optimized (-fast).
+          + Multiple input changes occurred together.
+          + At least one of the changing inputs was not level sensitive
+            and only sensitive to one edge (either rising or falling).
+          + The wire connected to the edge sensitive input was connected
+            to multiple other inputs that were also only edge sensitive.
+     * A net delay in the wire declaration for an input port was
+       incorrectly ignored when a register (or any other non-net
+       expression) was connected to the port.
+     * The initial drive strength of $setuphold/$recrem delayed nets was
+       high impedance instead of strong causing some impedance strengths
+       to output.
+     * Verilog primitive instance arrays caused crashes in two ways. One
+       was when they were compiled with -fast and the other was when the
+       nets connected to them were part selects of nets.
+     * Any net connected to any port of an array of instances must be
+       either as wide as the port or as wide as the product of the port
+       width and the instance array width. When both of these conditions
+       were violated the simulation crashed in some cases.
+     * A $display of a bit-select of a vector net crashed the simulator
+       in some rare cases if the design was compiled with -fast.
+   ______________________________________________________________________
+   
+   PLI Defects Repaired in 5.7
+     * When an elaboration error occurred, the simulator called PLI
+       misctf routines with the reason_reset reason, this was the first
+       call received by PLI applications in this scenario. The
+       reason_reset call was unexpected by some PLI applications in this
+       case. The simulator no longer makes the call in this case.
+   ______________________________________________________________________
+   
+   VHDL Defects Repaired in 5.7
+     * Overloaded functions/procedures with record-type arguments were
+       not disambiguated on the basis of field names of the records. For
+       example, a procedure call p(a.f1=>1,a.f2=>2) would match with
+       declarations p(a:r1) and p(a:r2) where type r1 has fields f1 and
+       f2 and type r2 has fields g1 and g2.
+     * In some cases ports of type record caused a crash. The conditions
+       were that the record type consisted of only one scalar element,
+       the port map used subelement association, and the actual was a
+       scalar signal that was not part of another composite.
+     * The -O5 optimization switch produced code that reused a parameter
+       to a kernel function within the simulator. The PC code generator
+       incorrectly reused the register holding the parameter value prior
+       to the function call. (Ref: DR 329109)
+     * The examine command could hang or crash if the current active
+       process was a merged process or a full path to a merged process
+       was specified in the examine command.
+     * When doing a type conversion, if the type specified was
+       unconstrained the range was taken directly from the object being
+       converted and must be valid for the type being converted to. If
+       the type of the object being converted was locally static and the
+       converting type was also locally static this check was done in the
+       compiler. If the object type's range was not valid for the
+       converting type the error message issued was confusing. This was
+       because the line number that was referenced was not at the type
+       conversion but at the line number of the definition of the
+       object's type which could be in a different file. The line number
+       of the type conversion is now given.
+   ______________________________________________________________________
+   
+   FLI Defects Repaired in 5.7
+     * The use of mti_FindVar() from within a foreign subprogram
+       sometimes caused a memory allocation error. If a VHDL process or
+       subprogram called a foreign subprogram and the foreign subprogram
+       made a call to mti_FindVar() with a path to a signal, constant,
+       generic, or shared variable declared in a scope other than a
+       process, a memory allocation failure occurred if the calling
+       process had a wait statement or triggered a breakpoint.
+   ______________________________________________________________________
+   
+   VITAL Defects Repaired in 5.7
+     * The VitalMemoryViolation routine sometimes failed a table lookup.
+     * VITAL 2000 VitalPathDelay() calls with the IgnoreDefaultDelay flag
+       set to "TRUE" sometimes did not exhibit the expected behavior.
+     * If VITAL optimization failed to completely optimize a level 1
+       VITAL model that contained skew checks, the simulator generated an
+       error when the skew check was done.
+   ______________________________________________________________________
+   
+   Mixed Language Defects Repaired in 5.7
+     * If a Verilog inout port with a Verilog 2001 interconnect delay
+       (i.e. -v2k_int_delay switch is on) was connected to a VHDL
+       architecture, the VHDL output driver was not correctly connected
+       to the Verilog inout port resulting in no output drive value from
+       the VHDL architecture.
+     * If a Verilog module instantated a VHDL entity, and one or more of
+       the VHDL entity's ports were zero width, (NULL array), and these
+       ports were connected to Verilog registers or wires, ModelSim
+       crashed instead of issuing a width mismatch error. ModelSim no
+       longer crashes and now issues the correct error message.
+   ______________________________________________________________________
+   
+   General Defects Repaired in 5.7
+     * Events are typically processed in the simulator with a last-in,
+       first-out algorithm (i.e. the last event scheduled at a time is
+       the first event processed at that time). However, in certain cases
+       based on the size of the simulator's event queue (also known as
+       the "time wheel"), this order was not preserved.
+     * On the rs6000 and rs64 platforms: Function calls to PLI, FLI, or
+       VHDL packages from within native code produced by the simulator
+       sometimes were incorrectly formed if the target address was known
+       at the time the call was generated, and if the target was within
+       16M bytes of the call.
+     * A crash occurred when elaboration exceeded 2Gb under just the
+       right conditions. This problem only occurred on the RS6000
+       platform.
+     * Using -gui on the vsim command line before -elab caused the
+       simulation to run after the elaboration file was created, as
+       though -elab_cont was used instead of -elab. Using -gui on the
+       command line after -elab or -elab_cont resulted in an error. This
+       is the expected behavior and vsim was fixed to issue an error if
+       -gui is used with -elab or -elab_cont. The -i flag is used to
+       create an elaboration file that will launch the GUI when loading
+       the elaboration file.
+     * Errors occurred in some cases when loading an elaboration file
+       (-load_elab) and transcripted a large number of messages. The
+       errors did not affect elaboration or simulation. The error
+       messages were similar to the following:
+       Error while purging stdout stream! Error: can't read
+       "FileWatch(file)": no such variable
+       Error while reopening stdout stream! Error: can't read
+       "FileWatch(fileName)": no such variable
+     * A simulation restart following an add wave -optcells command
+       failed with port not found errors.
+   ______________________________________________________________________
+   
+   Mentor Graphics DRs Repaired in 5.7
+     * DR326527 - Machine Code Not Found error message misleading.
+       If for some reason the simulator failed to open a .asm file during
+       elaboration, the error message gave insufficient information to
+       diagnose the problem. In this particular case, too many files were
+       open at the same time (the shell #files limit was set too low).
+       The error message was enhanced to report more information;
+       specifically, the OS reason for the failure.
+     * DR319500 - vsim does not use DOPATH env variable for -do option
+       specified on command line.
+       The DOPATH environment variable isn't accessible when you invoke
+       vsim from a Unix shell or from a Windows command prompt. It is
+       accessible once ModelSim or vsim is invoked. If you need to invoke
+       from a shell or command line and use the DOPATH environment
+       variable, use the following syntax:
+       vsim -do "do <dofile_name>" <design_unit>
+     * DR328634 - Misleading compile error message for types declared
+       more than once.
+     * DR332161 - Problem with examine function in Wave window.
+       Arrays were incorrectly or incompletely displayed via the examine
+       operation or popup.
+     * ER169516 - Add ability to specify wave gridlines/period.
+     * DR273647 - Forcing a bus does not work.
+     * DR303807 - Cannot examine virtual signal if not logged.
+     * DR316239 - VHDL design with multiple archs...Source window always
+       grabs last compiled arch.
+     * DR317452 - Write transcript command doesn't work in batch mode.
+     * DR327464 - Generic values are not restored from project.
+     * DR328362 - Error (vish-19) Failed to access library 'lib1xlib2' at
+       "lib1xlib2"
+     * DR329109 - Assertion violation under RH 7.2 but not when run on
+       Solaris.
+     * DR329416 - No error or warning when module path output nets have
+       more than one driver.
+     * DR329799 - Can't compile a VHDL file in 5.65 that would compile in
+       5.6x.
+     * DR329904 - Dragging VHDL signal into Dataflow window crashes
+       ModelSim.
+     * DR330747 - The "drivers" command report "anonymous".
+     * DR331046 - falling edge is not correct for v5.65.
+     * DR331109 - Back-annotation does not work on a net between
+       mixed-HDL hierarchical boundaries.
+     * DR331110 - Incorrect simulation results on HP-UX and Linux.
+     * DR332044 - Getting fatal error exiting with code 211 during vsim.
+     * DR333290 - Vital2000 sim. behavior differs when using -novital
+       compile vs. default.
+     * DR332554 - Conditional causing corruption of data.
+     * DR332161 - Problem with examine function in Wave window.
+     * DR333437 - 5.6E hangs when launched from Mentor Graphics
+       "DesignView" product.
+     * DR333446 - fscanf file read limitation.
+     * DR 331167 - Greatly improved restart performance when many
+       (thousands) of signals are in the wave window.
+     * DR334440 - Cannot add several >1 existing files to project.
+     * ER331440 - Enhancement on the code coverage display.
+     * ER285787 - Want branch/conditional test coverage added.
+     * DR334652 - The compare add command adds all signals instead of
+       reporting command usage.
+       The 5.7 ModelSim release has been modified so that use of compare
+       add requires the use of a signal pathname or wildcard (*). If no
+       pathname or wildcard is used, the compare add command results in
+       the following message: # ERROR: Required reference path or pattern
+       not specified.
+     * DR333027 - vsim aborts but no shell prompt.
+   ______________________________________________________________________
+   
+   Known Defects in 5.7
+     * When an implicit wire process is selected in the Process window,
+       the highlighted line number in the Source window is incorrect. The
+       source line being selected is actually the next available process
+       closest to this implicit wire process.
+   ______________________________________________________________________
+   
+   Product Changes to 5.7
+     * This release has a new default layout of the windows. The Main
+       window contains more window panes and more information so it has
+       been made larger. The old default layout can be viewed by
+       selecting the Millennium layout style (Window->Layout
+       Style->Millennium).
+     * mti_FindSignal() was enhanced to be able to find indexed array
+       subelements and record field subelements.
+     * The find and examine commands were enhanced to allow wildcarding
+       at any level of a hierarchical pathname except for within a slice
+       range specification or an extended identifier. '*' and '?'
+       wildcards can be used with both commands. '[]' wildcards can be
+       used only with the find command. Both commands can now find any
+       object in a design except, of course, those in nodebug regions.
+     * mti_FindVar(), mti_GetVarAddr(), and mti_GetVarImage() were
+       enhanced to be able to find indexed array subelements and record
+       field subelements.
+     * In the past when the Tcl commands continue, break, and return were
+       executed in a do file, the commands were ignored. Now these
+       commands are handled appropriately: the return command will cause
+       the do file to stop executing and return immediately to its
+       caller; the continue and break commands will produce an error.
+     * The Dataflow window automatically hides the contents of instances
+       that have either 'celldefine, VITAL_LEVEL0, or VITAL_LEVEL1
+       attributes. To display the contents of a particular instance,
+       select the instance and choose Navigate->Show Selected from the
+       menu. To disable automatic cell recognition, unselect the "Hide
+       cells" in the Tools->Options dialog box.
+     * The 5.7 ModelSim release has been modified so that use of compare
+       add requires the use of a signal pathname or wildcard (*). If no
+       pathname or wildcard is used, the compare add command results in
+       the following message: # ERROR: Required reference path or pattern
+       not specified.
+     * A Verilog sequential UDP no longer updates its output immediately
+       on evaluation. The output is updated in the next iteration so as
+       to minimize races between clocked sequential elements when running
+       a zero delay functional simulation.
+   ______________________________________________________________________
+   
+   New Features Added to 5.7
+     * New Wave Window Cursor Features:
+          + Wave cursors have names under the wave name column. The names
+            can be edited via the Wave Cursor Properties dialog or by
+            right-clicking on the name, then entering a new name followed
+            by hitting the Enter key.
+          + Wave cursors can be locked at their current positions. When a
+            cursor is locked it cannot be grabbed via the mouse, but it
+            can be made the active cursor. A cursor is locked using the
+            'cursor popup menu' selection or via the Wave Cursor
+            Properties dialog. The locked cursor color is controlled with
+            the -cursorlockcolor configuration which by default is red.
+          + For convenience, a locked cursor can be dragged using the
+            shift key and the left mouse button. Once the cursor is
+            dropped it will remain locked at the new location.
+          + The cursor popup menu is displayed by right-clicking in the
+            track of a specific cursor at the bottom of the Wave window.
+            The popup menu allows you to 'Goto', 'Activate', 'Lock', or
+            display 'Properties...' of the cursor.
+          + Cursor names and lock status are saved in the wave format
+            file.
+     * In the Wave window, waveforms (in addition to the name and value)
+       can now be highlighted when an item is selected. This feature can
+       be turned on and off by selecting Tools > Window Preferences in
+       the Wave window and toggling the Waveform Selection Highlighting
+       Enabled button. The default is disabled.
+     * Modelsim 5.7 supports processing of `protect...`endprotect and
+       `protected...`endprotected blocks within a source file. The
+       `protect directive is ignored by default and is enabled only when
+       the new vlog option +protect is used.
+     * Signal Spy (init_signal_spy and init_signal_driver) now supports
+       spying or driving the following in VHDL-based designs:
+          + Records
+          + Elements of Records
+          + Arrays of Arrays
+          + Multi-dimensional Arrays
+          + Arrays of Records
+          + Arrays or Reals
+          + Arrays of Time
+          + Part-selects (slices) of Arrays
+     * The waveform compare VHDL/Verilog matching operations were
+       generalized to all logic values. The new functionality allows
+       specification of VHDL/Verilog matching values for the entire
+       compare session and also on a per signal basis.
+       The following new switches for VHDL and Verilog matching are now
+       supported for the compare add, compare configure and compare
+       options commands:
+       -vhdlmatches matchstring
+       -vlogmatches matchstring
+       For the compare add and compare configure commands these switches
+       set the specific signal match values.
+       For the compare options command these switches set the compare
+       session default values.
+       The following switches are now obsolete:
+       -vhdlxmatches
+       -vhdlzmatches
+       -vlogxmatches
+       -vlogzmatches
+       Please see the ModelSim User's Manual for more information on VHDL
+       and Verilog matching.
+     * The display of vector values using the DECIMAL or UNSIGNED radix
+       was limited to vectors of 64 bits or less. This limitation has
+       been removed so that now the limiting factor is the length of the
+       result which is currently 30,000 characters.
+     * The VHDL SmartModel interface has been added to ModelSim PE. A new
+       license is required to enable the VHDL SmartModel interface for
+       PE.
+     * The add command has a new option, -optcells, for use with
+       wildcards. This option makes Verilog optimized cell ports visible.
+     * More functionality has been implemented in the VPI. The
+       improvements are generally related to arrays of Nets, Registers,
+       and Variables, and their elements. For details on what is
+       currently implemented in the VPI, please see
+       install_dir/modeltech/docs/technotes/Verilog_VPI.note.
+     * ModelSim now supports storing design units as archives in addition
+       to storing them as directories. This capability is enabled by
+       using the -archive switch to the vlib command. There is another
+       vlib switch, -compact x, where x is a number in the range 0 to 1
+       that tells the archive code to compact any archive that has
+       greater than that ratio of free to used space. A library has all
+       of its design units stored as either directories or as archives
+       (they are not mixed within a library).
+       The archive capability is useful to customers who hit the
+       reference count limit on I-nodes due to the ".." entries in all
+       the lower level directories (the max number of subdirectories on
+       unix and linux is 65533). An example of an error message produced
+       by hitting this limit is:
+       mkdir: cannot create directory '65534': Too many links
+       The archive capability may also have limitied value to customers
+       seeking disk space savings.
+     * ModelSim SE 5.7 has a C Debug feature added to the Main window
+       Tools menu. This feature allows users to debug the C/C++ code in
+       their FLI and PLI/VPI shared libraries that are loaded into the
+       simulator. Those libraries need to have been compiled to create
+       debug symbols, and their source code must be available. Please
+       refer to the "C Debug" chapter in the ModelSim SE User's Manual. A
+       cdebug license is required, and the supported platforms in 5.7 are
+       hp700, linux, rs6000, and sunos5.
+     * The new wlfman utility allows one to manipulate a WLF file once it
+       has been closed. Using wlfman one may remove signals, change start
+       and end times, and modify the time resolution and write out a
+       resulting WLF file. See the reference manual for more details.
+     * Several enhancements have been made to the code coverage feature
+       of ModelSim as of release 5.7:
+         1. Multiple statements on a line are now counted individually.
+            Reports show line number and the character number of the last
+            character in the statement. This is referred to as "statement
+            coverage", as opposed to "line coverage".
+         2. Coverage data is now collected on an instance by instance
+            basis. To report by instance, use coverage report -byinst to
+            get a summary of all instances. Use coverage report -lines
+            -byinst to dump details of all instances in the design. Use
+            coverage report -lines -inst path to get details of one
+            specific instance. Exclusions are not instance specific.
+            Excluding a line excludes that line in all instances of the
+            enclosing design unit.
+         3. If statements and case statements now collect branch
+            statistics. Each condition in an if statement has a true and
+            false branch. The coverage report -lines command will list
+            the branches following the statement stats. If statements
+            will have a summary line plus lines of 4 columns, listing for
+            each if condition: line, column, true branch count and false
+            branch count. Case statements will have three entries for
+            each case alternative: line, column, and branch count.
+         4. ModelSim now supports the use of source code pragmas to turn
+            coverage off and on. In Verilog, the pragmas are:
+            // coverage off
+            // coverage on
+            In VHDL, the pragmas are:
+            -- coverage off
+            -- coverage on
+         5. Branch coverage is now reported by the following summary
+            commands:
+            coverage report
+            coverage report -zeros
+            coverage report -inst
+            coverage report -totals
+         6. The coverage reload file command no longer reads the output
+            of the coverage report -lines command. It now only reads the
+            output of the coverage save file command. The file saved
+            retains instance-specific information.
+         7. The coverage reload -keep option is no longer supported. Its
+            use was confusing and it is not compatible with new features.
+            In its place, use the coverage save file command for saving
+            stats on pieces of the design, then use coverage reload
+            -incremental file to merge them all together when the full
+            design is loaded.
+         8. The covsum perl script may no longer be supported for merging
+            coverage stats. Use the coverage save file following by
+            coverage reload -incremental file until support of covsum is
+            announced.
+         9. The following commands no longer exist:
+            coverage exclude enable
+            coverage exclude disable
+        10. The following commands have been changed:
+            coverage exclude clear is now coverage clear -excluded
+            coverage exclude load is now coverage exclude
+        11. coverage report -zeros has been modified as follows. The old
+            command would print out every line that has a zero count. Now
+            coverage report -zeros prints a file-based summary only. To
+            get the line numbers use coverage report -zeros -lines.
+        12. Here is a summary of the current textual commands:
+               o To clear the coverage statement counts:
+                 coverage clear
+               o To clear the statement exclusion flags that have been
+                 set by the coverage exclude command ("user" exclusions):
+                 coverage clear -excluded [-pragma | -user]
+                 Using the -pragma option will clear the "pragma"
+                 exclusions; using the -user option will clear user
+                 exclusions; otherwise both are cleared.
+               o To clear both statement counts and user exclusion flags:
+                 coverage clear -all
+               o To set exclusion flags (in addition to source code
+                 pragma exclusion flags) (this replaces exclusions
+                 specified by any previous coverage exclude commands):
+                 coverage exclude file
+               o To see what statements are currently excluded:
+                 coverage report -excluded [-pragma | -user] [-file
+                 outfile]
+                 Both pragma-based and user-based exclusions are reported
+                 unless -pragma or -user is specified. The -file option
+                 specifies that the report be written to the specified
+                 outfile name. Adding the -append option will append to
+                 the output file, for this command and other report
+                 commands below.
+               o To get a very top level summary of the number of files,
+                 statements, branches, hits and signal toggles, for both
+                 file-based and instance-based views:
+                 coverage report -totals [-file outfile]
+               o To get a summary of coverage by source file:
+                 coverage report [-file outfile]
+               o To get a summary of coverage by source file, but only
+                 the files with coverage below or above some percentage
+                 threshhold; the -below option includes files with
+                 coverage less than or equal to the specified value, and
+                 the -above option includes only files with coverage
+                 greater than the specified value:
+                 coverage report [-lines] -below percent [-file outfile]
+                 coverage report [-lines] -above percent [-file outfile]
+               o To get a summary or statement details for a specific
+                 source file:
+                 coverage report [-lines] -source file [-file outfile]
+                 The -lines option reports coverage stats for each
+                 statement and branch.
+               o To get a summary of coverage by instance:
+                 coverage report -byinstance [-file outfile]
+               o To get a summary of coverage by instance, but only the
+                 instances with coverage below or above some percentage
+                 threshhold:
+                 coverage report -byinstance [-lines] -below percent
+                 [-file outfile]
+                 coverage report -byinstance [-lines] -above percent
+                 [-file outfile]
+               o To get a summary or statement details for a specific
+                 instance:
+                 coverage report [-lines] -instance path [-file outfile]
+                 The -lines option reports coverage stats for each
+                 statement and branch.
+               o To get a listing of statements with zero coverage:
+                 coverage report -zeros [-lines] [-byinstance] [-file
+                 outfile]
+                 If -lines is not specified, a summary by file or by
+                 instance will be reported.
+               o To get a listing of signal toggle statistics use the
+                 existing toggle report command:
+                 toggle report [-all|-summary] [-file outfile]
+                 The -all option reports counts for all registered
+                 signals. Otherwise, only signals with one or more zero
+                 metrics are listed. (See the toggle add command for
+                 specifying signals for toggle counting.)
+               o To save the current coverage stats to a file that can be
+                 reloaded later, preserving instance-specific
+                 information:
+                 coverage save outfile
+                 (This does not include toggle stats.)
+               o To reload one or more previously saved stats files:
+                 coverage reload [-incremental] file1 [file2 ...]
+     * Two new vsim commands allow the selective enabling and disabling
+       of VHDL and Verilog timing checks. The commands are:
+       tcheck_status [-lines] <instance> [<tcheck>]
+       tcheck_set [-quiet] <instance> [-r | <tcheck>] <Stat> | <MsgStat>
+       <XStat>
+       The tcheck_status command prints the current violation action
+       status of an instance's timing check(s). The tcheck_set command
+       allows modification of a timing check's violation action status.
+       The violation action of a timing check consists of violation
+       report message generation and unknown propagation, which in
+       Verilog consists of a notifier register toggle. See the Command
+       Reference documentation for a complete command description .
+     * The Main window supports resizing and repositioning of child
+       panes. The visibility of the panes and their positions is
+       persisent. Panes can be moved by dragging the header frame of the
+       pane.
+       Many of these panes contain multiple columns. A user can modify
+       column visibility via a popup menu. The menu is found by pressing
+       the right mouse button over any column header.
+       Several new panes have been added to the Main window:
+          + Files Tab - When a design is loaded, a new tab will appear
+            within the workspace pane. The tab is labelled "Files" and it
+            contains a listing of each source file that is used by the
+            design. If the design is loaded with code coverage enabled,
+            the Files pane will list code coverage results.
+          + Instance Coverage Pane - This pane is available only when
+            code coverage is enabled. The Instance Coverage pane contains
+            a flattened list of the design's instances, as well as the
+            coverage information associated with each instance. The list
+            presented is based upon the selection within the sim tab of
+            the workspace pane.
+          + Missed Coverage Pane - This pane is available only when code
+            coverage is enabled. The Missed Coverage Pane contains a list
+            of the VHDL/Verilog statements that are not covered or have
+            been "missed". The files that are listed in the Missed
+            Coverage Pane are based upon the selection in either the sim
+            tab or the Files tab of the workspace pane. The Missed
+            Coverage pane also supports statement exclusion. Excluding a
+            statement tells ModelSim to ignore the statement when
+            calculating overall coverage results.
+          + Current Exclusions Pane - This pane is available only when
+            code coverage is enabled. The Current Exclusions pane lists
+            the statements that are to be ignored by ModelSim when
+            calculating code coverage results.
+          + Active Processes Pane - This pane can be displayed in the
+            Main window by selecting View > Active Process. The Active
+            Processes pane shows all processes that are currently ready
+            to run.
+     * The following Verilog 2001 features have been added to ModelSim:
+          + Generated Instantiation (LRM section 12.1.3).
+          + Implicit event expression list (always @*) (LRM section
+            9.7.5).
+          + Implicit nets with continuous assignments (LRM section 3.5).
+          + Disabling implicit net creation (LRM section 19.2).
+
+

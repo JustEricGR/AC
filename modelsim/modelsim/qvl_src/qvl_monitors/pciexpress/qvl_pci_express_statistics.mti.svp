@@ -1,0 +1,1020 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of Questa Verification Library (QVL).
+*
+* DESCRIPTION This monitor checks the PCI Express interface for compliance
+*             with PCI Express Base specification - Physical layer
+*             specifications.
+*
+* REFERENCES  PCI Express Base Specification, Revision 1.0, July 22, 2002.
+*             PCI Express Base Specification, Revision 1.0a, April 15,2003.
+*             PCI Express Base Specification, Revision 1.1, March 28, 2005.
+*
+* USAGE       This module is instantiated in the top level PCI Express 
+*             monitor. This module computes the statistics and cornercases.
+*
+**************************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+     // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+     // Do nothing
+  `else
+     `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_pci_express_statistics (
+                            reset,
+                            areset,
+                            clk,
+                            phy_status,
+                            descrambled_data,
+                            d_or_k_code,
+                            valid,
+                            inc_tlp,
+			    tlp_count,
+                            inc_dllp,
+			    dllp_count,
+                            inc_nullified_tlp,
+                            inc_ts1_os,
+                            inc_ts2_os,
+  // PCI_EXPRESS_GEN2 code start
+                            inc_gen1, 
+                            inc_gen2,
+                            inc_autonomous, 
+                            inc_speed_change, 
+                            inc_compliance_receive, 
+                            inc_compliance_receive_loopback, 
+  // PCI_EXPRESS_GEN2 code end				       
+                            inc_reset,
+                            inc_loopback,
+                            inc_disable,
+                            inc_no_scramble,
+                            inc_fts_os,
+                            inc_idle_os,
+  // PCI_EXPRESS_GEN2 code start
+			    inc_modified_compliance_pattern,	        
+	                    inc_eie_os,
+			    inc_eie,	       
+  // PCI_EXPRESS_GEN2 code end				       
+                            inc_skp_os,
+                            link_width,
+                            link_number,
+                            inc_pad,
+			    inc_end,
+			    inc_stp_on_non_zero_lane,
+                            inc_sdp_stp,
+                            inc_idle_data,
+  // PCI_EXPRESS_GEN2 code start				       
+                            current_speed_5gt,
+			    inc_eie_before_fts_count,
+			    changed_speed_recovery,	       
+  // PCI_EXPRESS_GEN2 code end
+                            level_select,
+			    tlp_packet_detected,
+			    tlp_pkt1,
+			    tlp_pkt2,
+			    inc_tlps_with_digests,
+			    inc_tlps_with_ecrc,
+			    inc_tlps_with_lcrc,
+			    inc_malformed_tlps,
+			    ltssm_present_state,
+                            ltssm_next_state, 	       
+                            dllp_ack_detected,
+                            dllp_ack_ended,
+                            dllp_nak_detected,
+                            dllp_nak_ended,
+                            dllp_pm_enter_L1_detected,
+                            dllp_pm_enter_L1_ended,
+                            dllp_pm_enter_L23_detected,
+                            dllp_pm_enter_L23_ended,
+                            dllp_pm_active_req_L0s_detected,
+                            dllp_pm_active_req_L0s_ended,
+                            dllp_pm_active_req_L1_detected,
+                            dllp_pm_active_req_L1_ended,
+                            dllp_pm_request_ack_detected,
+                            dllp_pm_request_ack_ended,
+                            dllp_vendor_specific_detected,
+                            dllp_vendor_specific_ended,
+                            dllp_initfc1_p_detected,
+                            dllp_initfc1_p_ended,
+                            dllp_initfc1_np_detected,
+                            dllp_initfc1_np_ended,
+                            dllp_initfc1_cpl_detected,
+                            dllp_initfc1_cpl_ended,
+                            dllp_initfc2_p_detected,
+                            dllp_initfc2_p_ended,
+                            dllp_initfc2_np_detected,
+                            dllp_initfc2_np_ended,
+                            dllp_initfc2_cpl_detected,
+                            dllp_initfc2_cpl_ended,
+                            dllp_updatefc_p_detected,
+                            dllp_updatefc_p_ended,
+                            dllp_updatefc_np_detected,
+                            dllp_updatefc_np_ended,
+                            dllp_updatefc_cpl_detected,
+                            dllp_updatefc_cpl_ended,
+                            detected_dllp_pkt_valid,
+                            ended_dllp_pkt_valid,
+                            detected_retry_progress,
+                            ended_retry_progress,
+                            current_expected_tlp_seq_num,
+                            ack_nak_sequence_number_of_dllp,
+                            replay_timer,
+                            acknak_timer,
+                            num_outstanding_tlps,
+                            incr_detected_duplicate_tlp,
+                            incr_ended_duplicate_tlp,
+                            vc_tlp_detected
+                            );
+
+  // Parameter declarations
+
+  parameter DOUBLE_DATA_RATE = 0;
+
+  // PCI_EXPRESS_GEN2 code start
+  parameter PCI_EXPRESS_GEN2 = 0;
+  wire [31:0] pw_PCI_EXPRESS_GEN2 = PCI_EXPRESS_GEN2;
+  // PCI_EXPRESS_GEN2 code end
+
+  // Input declarations
+
+  input reset;
+  input areset;
+  input clk;
+  input phy_status;
+  input [7:0] descrambled_data;
+  input d_or_k_code;
+  input valid;
+  input inc_tlp;
+  input [1:0] tlp_count;
+  input inc_dllp;
+  input [2:0] dllp_count;
+  input inc_nullified_tlp;
+  input inc_ts1_os;
+  input inc_ts2_os;
+  // PCI_EXPRESS_GEN2 code start
+  input inc_gen1; 
+  input inc_gen2;
+  input inc_autonomous; 
+  input inc_speed_change; 
+  input inc_compliance_receive; 
+  input inc_compliance_receive_loopback; 
+  // PCI_EXPRESS_GEN2 code end
+  input inc_reset;
+  input inc_loopback;
+  input inc_disable;
+  input inc_no_scramble;
+  input inc_fts_os;
+  input inc_idle_os;
+  // PCI_EXPRESS_GEN2 code start
+  input inc_modified_compliance_pattern;
+  input inc_eie_os;
+  input inc_eie;
+  // PCI_EXPRESS_GEN2 code end
+  input inc_skp_os;
+  input [5:0] link_width;
+  input [7:0] link_number; 
+  input inc_pad;   
+  input inc_end;
+  input inc_stp_on_non_zero_lane;
+  input inc_sdp_stp; 
+  input inc_idle_data;
+  // PCI_EXPRESS_GEN2 code start				       
+  input current_speed_5gt;
+  input [3:0] inc_eie_before_fts_count;
+  input changed_speed_recovery;
+  // PCI_EXPRESS_GEN2 code end
+  input level_select;
+  input [1:0] tlp_packet_detected;
+  input [69:0] tlp_pkt1;
+  input [69:0] tlp_pkt2;
+  input [1:0] inc_tlps_with_digests;
+  input [1:0] inc_tlps_with_ecrc;
+  input [1:0] inc_tlps_with_lcrc;
+  input [1:0] inc_malformed_tlps;
+// Additional gen1 code start
+  input [4:0] ltssm_present_state;
+  input [4:0] ltssm_next_state;
+// Additional gen1 code end
+  input dllp_ack_detected;
+  input dllp_ack_ended;
+  input dllp_nak_detected;
+  input dllp_nak_ended;
+  input dllp_pm_enter_L1_detected;
+  input dllp_pm_enter_L1_ended;
+  input dllp_pm_enter_L23_detected;
+  input dllp_pm_enter_L23_ended;
+  input dllp_pm_active_req_L0s_detected;
+  input dllp_pm_active_req_L0s_ended;
+  input dllp_pm_active_req_L1_detected;
+  input dllp_pm_active_req_L1_ended;
+  input dllp_pm_request_ack_detected;
+  input dllp_pm_request_ack_ended;
+  input dllp_vendor_specific_detected;
+  input dllp_vendor_specific_ended;
+  input dllp_initfc1_p_detected;
+  input dllp_initfc1_p_ended;
+  input dllp_initfc1_np_detected;
+  input dllp_initfc1_np_ended;
+  input dllp_initfc1_cpl_detected;
+  input dllp_initfc1_cpl_ended;
+  input dllp_initfc2_p_detected;
+  input dllp_initfc2_p_ended;
+  input dllp_initfc2_np_detected;
+  input dllp_initfc2_np_ended;
+  input dllp_initfc2_cpl_detected;
+  input dllp_initfc2_cpl_ended;
+  input dllp_updatefc_p_detected;
+  input dllp_updatefc_p_ended;
+  input dllp_updatefc_np_detected;
+  input dllp_updatefc_np_ended;
+  input dllp_updatefc_cpl_detected;
+  input dllp_updatefc_cpl_ended;
+  input detected_dllp_pkt_valid;
+  input ended_dllp_pkt_valid;
+  input detected_retry_progress;
+  input ended_retry_progress;
+  input [11:0] current_expected_tlp_seq_num;
+  input [11:0] ack_nak_sequence_number_of_dllp;
+
+  input [11:0] num_outstanding_tlps;
+  input incr_detected_duplicate_tlp;
+  input incr_ended_duplicate_tlp;
+
+  input [15:0] replay_timer;
+  input [15:0] acknak_timer;
+
+  input vc_tlp_detected;
+
+  // Constants for request types
+
+  parameter ZI_MEM_REQ = 0; // Memory requests
+  parameter ZI_MEMLK_REQ = 1; // Locked requests
+  parameter ZI_IO_REQ = 2; // IO requests
+  parameter ZI_CFG0_REQ = 4; // Configuration type 0 requests
+  parameter ZI_CFG1_REQ = 5; // Configuration type 1 requests
+  parameter ZI_CPL = 10; // Completions
+  parameter ZI_CPL_LK = 11; // Completions for locked requests
+
+  parameter ZI_MSG_REQ = 2;
+  parameter ZI_MSGAS_REQ = 3;
+  // PCI_EXPRESS_GEN2 code start
+  parameter ZI_TCFG_REQ = 27; // Trusted config types(deprecated) requests
+  
+  // PCI_EXPRESS_GEN2 code end
+  // Constants for completion status
+
+  parameter ZI_SC = 0; // Succesfull completion
+  parameter ZI_UR = 1; // Unsupported request
+  parameter ZI_CA = 4; // Completor abort
+  parameter ZI_CSR = 2; // Configuration request retry status
+
+// Additional Gen1 code start      
+
+  // Parameter declaration for states
+  parameter ZI_LTSSM_POLLING_ACTIVE_STATE = 0;
+  parameter ZI_LTSSM_POLLING_CFG_STATE = 1;
+  parameter ZI_LTSSM_POLLING_SPEED_STATE = 2;
+  parameter ZI_LTSSM_POLLING_COMPLIANCE_STATE = 3;
+  parameter ZI_LTSSM_CFG_RCVRCFG_STATE = 4;
+  parameter ZI_LTSSM_CFG_IDLE_STATE = 5;
+  parameter ZI_LTSSM_L0_STATE = 6;
+  parameter ZI_LTSSM_RECOVERY_LOCK_STATE = 7;
+  parameter ZI_LTSSM_RECOVERY_RCVRCFG_STATE = 8;
+  parameter ZI_LTSSM_RECOVERY_IDLE_STATE = 9;
+  parameter ZI_LTSSM_TX_L0s_STATE = 10;
+  parameter ZI_LTSSM_RX_L0s_STATE = 11;
+  parameter ZI_LTSSM_RESET_STATE = 12;
+  parameter ZI_LTSSM_LOOPBACK_STATE = 13;
+  parameter ZI_LTSSM_DISABLE_STATE = 14;
+  parameter ZI_LTSSM_CFG_COMPLETE_STATE = 15;
+
+  // For power management support.
+
+  parameter ZI_LTSSM_L1_STATE = 16;
+  parameter ZI_LTSSM_L2_STATE = 17;
+  parameter ZI_LTSSM_L1_ENTRY_STATE = 19;
+  parameter ZI_LTSSM_L2_ENTRY_STATE = 20;
+  // Gen2 recovery speed state
+  parameter ZI_LTSSM_RECOVERY_SPEED_STATE = 18; // New state in recovery
+
+ // Additional Gen1 code end
+  //-----------------------------------------------------------------
+  // Statistics block
+  //-----------------------------------------------------------------
+ 
+  // PHY Layer Cornercases
+
+  reg inc_tlp_negedge;
+  reg [1:0] tlp_count_negedge;
+  reg inc_dllp_negedge;
+  reg [2:0] dllp_count_negedge;
+  reg inc_nullified_tlp_negedge;
+  reg inc_ts1_os_negedge;
+  reg inc_ts2_os_negedge;
+  reg inc_reset_negedge;
+  reg inc_loopback_negedge;
+  reg inc_disable_negedge;
+  reg inc_no_scramble_negedge;
+  reg inc_fts_os_negedge;
+  reg inc_idle_os_negedge;
+  reg inc_skp_os_negedge;
+  reg inc_pad_negedge;
+  reg inc_end_negedge;
+  reg inc_stp_on_non_zero_lane_negedge;
+  reg inc_sdp_stp_negedge;
+  reg inc_idle_data_negedge;
+ 
+  reg [63:0] tl_packets;
+  reg [63:0] dll_packets;
+  reg [63:0] nullified_tlps;
+  reg [63:0] ts1_os;
+  reg [63:0] ts2_os;
+  reg [63:0] ts1_ts2_os_reset;
+  reg [63:0] ts1_ts2_os_disable;
+  reg [63:0] ts1_ts2_os_loopback;
+  reg [63:0] ts1_ts2_os_no_scramble;
+  reg [63:0] fts_os;
+  reg [63:0] idle_os;
+  reg [63:0] skp_os;
+  reg [63:0] pad_symbols;
+  reg [63:0] more_than_one_pkt_detected_count;
+  reg [63:0] non_zero_stp_count;
+  reg [63:0] stp_sdp_in_symbol_time;
+ 
+  // PHY Layer Stats
+ 
+  reg [63:0] max_interval_between_skp_os_posedge;
+  reg [63:0] min_interval_between_skp_os_posedge;
+  reg [63:0] max_consecutive_fts_os_posedge;
+  reg [63:0] min_consecutive_fts_os_posedge;
+  reg [63:0] max_idle_data_posedge;
+ 
+  reg [63:0] max_interval_between_skp_os_negedge;
+  reg [63:0] min_interval_between_skp_os_negedge;
+  reg [63:0] max_consecutive_fts_os_negedge;
+  reg [63:0] min_consecutive_fts_os_negedge;
+  reg [63:0] max_idle_data_negedge;
+
+  reg min_interval_between_skp_os_set_posedge;
+  reg min_interval_between_skp_os_set_negedge;
+  reg [12:0] skp_interval_count_posedge;
+  reg [12:0] skp_interval_count_negedge;
+  reg min_consecutive_fts_os_set_posedge;
+  reg min_consecutive_fts_os_set_negedge;
+  reg [12:0] fts_count_posedge;
+  reg [12:0] fts_count_negedge; 
+  reg [12:0] r_fts_count_posedge;
+  reg [12:0] r_fts_count_negedge;
+  reg [63:0] idle_count_posedge;
+  reg [63:0] idle_count_negedge;
+  reg r_inc_idle_data_posedge;
+  reg r_inc_idle_data_negedge;
+
+  reg [63:0] memory_read_requests; // Memory read requests
+  reg [63:0] memory_write_requests; // Memory write requests
+  reg [63:0] io_read_requests; // IO read requests
+  reg [63:0] io_write_requests; // IO write requests
+  reg [63:0] type0_cfg_read_requests; // Type0 cfg reag requests
+  reg [63:0] type0_cfg_write_requests; // Type0 cfg write requests
+  reg [63:0] type1_cfg_read_requests; // Type1 cfg read requests
+  reg [63:0] type1_cfg_write_requests; // Type1 cfg write requests
+  reg [63:0] message_requests; // Message requests
+  reg [63:0] locked_memory_requests; // Locked memory read requests
+  reg [63:0] completions; // Succesfull completions
+  reg [63:0] locked_completions; // Locked completions
+  // PCI_EXPRESS_GEN2 code start
+  reg [63:0] deprecated_requests; // Deprecated requests
+  reg [63:0] memory_translation_requests; // Translation request requests
+  reg [63:0] memory_translated_requests; // Translated request requests
+  // PCI_EXPRESS_GEN2 code end
+  reg [63:0] ur_completions; // Unsupported request completions
+  reg [63:0] completer_aborts; // Completer aborts
+  reg [63:0] completions_with_cfg_retry; // Completions with CRS
+  reg [63:0] tlps_with_digests_posedge; // TLP packets with TLP digests
+  reg [63:0] tlps_with_ecrc_posedge; // TLP with ECRC Error
+  reg [63:0] tlps_with_lcrc_posedge; // TLP with LCRC Error
+  reg [63:0] malformed_tlps_posedge; // Malformed TLPs
+  reg [63:0] maximum_tlp_pkt_size_posedge; // Maximum TLP packet size
+  reg [63:0] minimum_tlp_pkt_size_posedge; // Minimum TLP packet size
+  reg [63:0] maximum_req_pkt_size_posedge; // maximum request pkt size
+  reg [63:0] minimum_req_pkt_size_posedge; // minimum request pkt size
+  reg [63:0] maximum_cpl_pkt_size_posedge; // maximum completion pkt size
+  reg [63:0] minimum_cpl_pkt_size_posedge; // minimum completion pkt size
+  reg minimum_tlp_pkt_size_set_posedge;
+  reg minimum_req_pkt_size_set_posedge;
+  reg minimum_cpl_pkt_size_set_posedge;
+
+  reg [2:0] num_memory_read_requests_negedge; // Memory read requests
+  reg [2:0] num_memory_write_requests_negedge; // Memory write requests
+  reg [2:0] num_io_read_requests_negedge; // IO read requests
+  reg [2:0] num_io_write_requests_negedge; // IO write requests
+  reg [2:0] num_type0_cfg_read_requests_negedge; // Type0 cfg reag requests
+  reg [2:0] num_type0_cfg_write_requests_negedge; // Type0 cfg write requests
+  reg [2:0] num_type1_cfg_read_requests_negedge; // Type1 cfg read requests
+  reg [2:0] num_type1_cfg_write_requests_negedge; // Type1 cfg write requests
+  reg [2:0] num_message_requests_negedge; // Message requests
+  reg [2:0] num_locked_memory_requests_negedge; // Locked memory read requests
+  reg [2:0] num_completions_negedge; // Succesfull completions
+  reg [2:0] num_locked_completions_negedge; // Locked completions
+  // PCI_EXPRESS_GEN2 code start
+  reg [2:0] num_deprecated_requests_negedge; // Deprecated requests
+  reg [2:0] num_memory_translation_requests_negedge; // Translation requests
+  reg [2:0] num_memory_translated_requests_negedge; // Translation requests
+  // PCI_EXPRESS_GEN2 code end
+  reg [2:0] num_ur_completions_negedge; // Unsupported request completions
+  reg [2:0] num_completer_aborts_negedge; // Completer aborts
+  reg [2:0] num_completions_with_cfg_retry_negedge; // Completions with CRS
+  reg [63:0] tlps_with_digests_negedge; // TLP packets with TLP digests
+  reg [63:0] tlps_with_ecrc_negedge; // TLP with ECRC
+  reg [63:0] tlps_with_lcrc_negedge; // TLP with LCRC Error 
+  reg [63:0] malformed_tlps_negedge; // Malformed TLPs
+  reg [63:0] maximum_tlp_pkt_size_negedge; // Maximum TLP packet size
+  reg [63:0] minimum_tlp_pkt_size_negedge; 
+  reg [63:0] maximum_req_pkt_size_negedge; // maximum request pkt size
+  reg [63:0] minimum_req_pkt_size_negedge; // minimum request pkt size
+  reg [63:0] maximum_cpl_pkt_size_negedge; // maximum completion pkt size
+  reg [63:0] minimum_cpl_pkt_size_negedge; // minimum completion pkt size
+  reg minimum_tlp_pkt_size_set_negedge;
+  reg minimum_req_pkt_size_set_negedge;
+  reg minimum_cpl_pkt_size_set_negedge;
+
+  reg [2:0] num_memory_read_requests;
+  reg [2:0] num_memory_write_requests;
+  reg [2:0] num_io_read_requests;
+  reg [2:0] num_io_write_requests;
+  reg [2:0] num_type0_cfg_read_requests;
+  reg [2:0] num_type0_cfg_write_requests;
+  reg [2:0] num_type1_cfg_read_requests;
+  reg [2:0] num_type1_cfg_write_requests;
+  reg [2:0] num_message_requests;
+  reg [2:0] num_locked_memory_requests;
+  reg [2:0] num_completions;
+  reg [2:0] num_locked_completions;
+  // PCI_EXPRESS_GEN2 code start
+  reg [2:0] num_deprecated_requests;
+  reg [2:0] num_memory_translation_requests; // Translation requests
+  reg [2:0] num_memory_translated_requests; // Translation requests
+  // PCI_EXPRESS_GEN2 code end
+  reg [2:0] num_ur_completions;
+  reg [2:0] num_completer_aborts;
+  reg [2:0] num_completions_with_cfg_retry;
+  reg [63:0] next_maximum_req_pkt_size;
+  reg [63:0] next_minimum_tlp_pkt_size;
+  reg [63:0] next_maximum_tlp_pkt_size;
+  reg [63:0] next_minimum_req_pkt_size;
+  reg [63:0] next_maximum_cpl_pkt_size;
+  reg [63:0] next_minimum_cpl_pkt_size;
+  reg next_minimum_req_pkt_size_set;
+  reg next_minimum_cpl_pkt_size_set;
+  reg next_minimum_tlp_pkt_size_set;
+
+  // Wire declarations
+ 
+  wire [63:0] com_symbols;
+  
+  wire [63:0] total_packets;
+  wire [63:0] max_interval_between_skp_os;
+  wire [63:0] min_interval_between_skp_os;
+  wire [63:0] max_consecutive_fts_os;
+  wire [63:0] min_consecutive_fts_os;
+  wire [63:0] max_idle_data;
+
+  wire min_interval_between_skp_os_set;
+  wire [12:0] skp_interval_count;
+  wire min_consecutive_fts_os_set;
+  wire [12:0] fts_count;
+  wire [12:0] r_fts_count;
+  wire [63:0] idle_count;
+  wire r_inc_idle_data;
+
+  wire [63:0] maximum_req_pkt_size;
+  wire [63:0] maximum_tlp_pkt_size;
+  wire [63:0] minimum_tlp_pkt_size;
+  wire [63:0] minimum_req_pkt_size;
+  wire [63:0] maximum_cpl_pkt_size;
+  wire [63:0] minimum_cpl_pkt_size;
+  wire [63:0] tlps_with_digests;
+  wire [63:0] tlps_with_ecrc;
+  wire [63:0] tlps_with_lcrc;
+  wire [63:0] malformed_tlps;
+  wire minimum_req_pkt_size_set;
+  wire minimum_cpl_pkt_size_set;
+  wire minimum_tlp_pkt_size_set;
+
+   /************************* Corner Cases **********************************/
+   reg [63:0] number_of_Ack_dllps;
+   reg [1:0] number_of_Ack_dllps_temp;
+   reg [1:0] number_of_Ack_dllps_negedge;
+
+   reg [63:0] number_of_Nak_dllps;
+   reg [1:0] number_of_Nak_dllps_temp;
+   reg [1:0] number_of_Nak_dllps_negedge;
+
+   reg [63:0] number_of_Initfc1_P_dllps;
+   reg [1:0] number_of_Initfc1_P_dllps_temp;
+   reg [1:0] number_of_Initfc1_P_dllps_negedge;
+
+   reg [63:0] number_of_Initfc1_NP_dllps;
+   reg [1:0] number_of_Initfc1_NP_dllps_temp;
+   reg [1:0] number_of_Initfc1_NP_dllps_negedge;
+
+   reg [63:0] number_of_Initfc1_Cpl_dllps;
+   reg [1:0] number_of_Initfc1_Cpl_dllps_temp;
+   reg [1:0] number_of_Initfc1_Cpl_dllps_negedge;
+
+   reg [63:0] number_of_Initfc2_P_dllps;
+   reg [1:0] number_of_Initfc2_P_dllps_temp;
+   reg [1:0] number_of_Initfc2_P_dllps_negedge;
+
+   reg [63:0] number_of_Initfc2_NP_dllps;
+   reg [1:0] number_of_Initfc2_NP_dllps_temp;
+   reg [1:0] number_of_Initfc2_NP_dllps_negedge;
+
+   reg [63:0] number_of_Initfc2_Cpl_dllps;
+   reg [1:0] number_of_Initfc2_Cpl_dllps_temp;
+   reg [1:0] number_of_Initfc2_Cpl_dllps_negedge;
+
+   reg [63:0] number_of_Updatefc_P_dllps;
+   reg [1:0] number_of_Updatefc_P_dllps_temp;
+   reg [1:0] number_of_Updatefc_P_dllps_negedge;
+
+   reg [63:0] number_of_Updatefc_NP_dllps;
+   reg [1:0] number_of_Updatefc_NP_dllps_temp;
+   reg [1:0] number_of_Updatefc_NP_dllps_negedge;
+
+   reg [63:0] number_of_Updatefc_Cpl_dllps;
+   reg [1:0] number_of_Updatefc_Cpl_dllps_temp;
+   reg [1:0] number_of_Updatefc_Cpl_dllps_negedge;
+
+   reg [63:0] number_of_PM_Enter_L1_dllps;
+   reg [1:0] number_of_PM_Enter_L1_dllps_temp;
+   reg [1:0] number_of_PM_Enter_L1_dllps_negedge;
+
+   reg [63:0] number_of_PM_Enter_L23_dllps;
+   reg [1:0] number_of_PM_Enter_L23_dllps_temp;
+   reg [1:0] number_of_PM_Enter_L23_dllps_negedge;
+
+   reg [63:0] number_of_PM_Act_Req_L0_dllps;
+   reg [1:0] number_of_PM_Act_Req_L0_dllps_temp;
+   reg [1:0] number_of_PM_Act_Req_L0_dllps_negedge;
+
+   reg [63:0] number_of_PM_Act_Req_L1_dllps;
+   reg [1:0] number_of_PM_Act_Req_L1_dllps_temp;
+   reg [1:0] number_of_PM_Act_Req_L1_dllps_negedge;
+
+   reg [63:0] number_of_PM_Req_Ack_dllps;
+   reg [1:0] number_of_PM_Req_Ack_dllps_temp;
+   reg [1:0] number_of_PM_Req_Ack_dllps_negedge;
+
+   reg [63:0] number_of_vendor_specific_dllps;
+   reg [1:0] number_of_vendor_specific_dllps_temp;
+   reg [1:0] number_of_vendor_specific_dllps_negedge;
+
+   reg [63:0] number_of_retransmissions_from_retry_buffer;
+   reg [1:0] number_of_retransmissions_from_retry_buffer_temp;
+   reg [1:0] number_of_retransmissions_from_retry_buffer_negedge;
+
+   reg [63:0] num_duplicate_tlps;
+   reg [1:0] num_duplicate_tlps_temp;
+   reg [1:0] num_duplicate_tlps_negedge;
+   /*************************************************************************/
+
+   /************************* Statistics ************************************/
+   wire [63:0] max_number_of_initfc1_dllp;
+   reg [63:0] max_number_of_initfc1_dllp_temp;
+   reg [63:0] max_number_of_initfc1_dllp_posedge;
+   reg [63:0] max_number_of_initfc1_dllp_negedge;
+
+   wire [63:0] min_number_of_initfc1_dllp;
+   reg [63:0] min_number_of_initfc1_dllp_temp;
+   reg [63:0] min_number_of_initfc1_dllp_posedge;
+   reg [63:0] min_number_of_initfc1_dllp_negedge;
+
+   wire [63:0] max_number_of_initfc2_dllp;
+   reg [63:0] max_number_of_initfc2_dllp_temp;
+   reg [63:0] max_number_of_initfc2_dllp_posedge;
+   reg [63:0] max_number_of_initfc2_dllp_negedge;
+
+   wire [63:0] min_number_of_initfc2_dllp;
+   reg [63:0] min_number_of_initfc2_dllp_temp;
+   reg [63:0] min_number_of_initfc2_dllp_posedge;
+   reg [63:0] min_number_of_initfc2_dllp_negedge;
+
+   wire [63:0] number_of_initfc1_sequence;
+   reg [63:0] number_of_initfc1_sequence_temp;
+   reg [63:0] number_of_initfc1_sequence_posedge;
+   reg [63:0] number_of_initfc1_sequence_negedge;
+
+   wire [63:0] number_of_initfc2_sequence;
+   reg [63:0] number_of_initfc2_sequence_temp;
+   reg [63:0] number_of_initfc2_sequence_posedge;
+   reg [63:0] number_of_initfc2_sequence_negedge;
+
+   wire [15:0] max_replay_timer;
+   reg [15:0] max_replay_timer_temp;
+   reg [15:0] max_replay_timer_posedge;
+   reg [15:0] max_replay_timer_negedge;
+
+   wire [15:0] max_acknak_timer;
+   reg [15:0] max_acknak_timer_temp;
+   reg [15:0] max_acknak_timer_posedge;
+   reg [15:0] max_acknak_timer_negedge;
+   /*************************************************************************/
+
+  wire collect_stats;
+
+`protected
+
+    MTI!#sY}]oOan7N6Y{E'{E*Bt{eQR^KATzw*[z?vE=~QT-'lQ*'kA52}~l\n\G@@De/a}7$,IWvD
+    V!@Q^a]LtoNlD-m^xZI]up}jn]?v}_Q1>+,uaW*ozs<io+~-TW#DW5n+G)\uH~}}YoK'ZH[*i;WT
+    U-ILeUAulVmsVCY><'nJ,U5TUpJ5^>~^f3TApDWDju1EuWDkI[-UWzn2nDxCQI+{5a'7\5Xa2C<>
+    p}vR*KU>+T$uBV+U;izVA<wCo"HrRv!Epe7G>rGnoKwr!1kBx>lY>B;{7iez~Dr+$WoDn{6#YTJ,
+    s@Z11kU_X''gmATY[=ZEz\AAlurA.V3,^jPG,X]J}];}mRTYQVsCG}]$z?k{U@EU+np*>pG7BCza
+    B-=|pX]!\o[!J]\-=s_kjZHUsn>^qm]Y1DA2Rc@Q^QPGm>=Gi}}R]Xe|HOZ\xk5_1eeZHpW>>{mY
+    z>,vDz$C-5Y1^jauD[sT<G>>ZjoZj]2C_TDDOo_35X2><5m_8m]U=mVT{D_o7jE1C.mU_ZT$kZ>o
+    r#aO=,YK2ECUG[VA-p$3l<71kk'j-*H7l+p}GOw{=+{p3]5,?^_UWTY\$e'2@$3eH~o}#,r[1;h(
+    JR}$62$V+l-A3>$gJGYARg;p~~\<~p_\!plHAl;{=,(~GT$nEVjC>V[ID+=VR+-xn~Be-{T2rJE3
+    >3^G!HD}Tlk[V#?DEnDlx$l=XEi^GA'uRV3*GQo7^YeNBO-XQpG1=[l@1]wr4L^kU-X>*JawT33s
+    a\pRT2;z*XH5~vo\A'i&\lGECmQTEZeOTpE^eF<RplCw~A;o5@}=EowrwTWO51d}Hn@HX^^*wEB,
+    R~U_{,v_}jod7OiOVQ!#j}Ak>OZwGe35*TCZ]2$Ue-Wpj32sok$O3<pDI=@!G-$Uo]K,GsGUmU@+
+    x^DE^6U9^CWVw<zu=a$EH$XE#jH?45C#$=z#Z}@I\IxJ$HjT'e+-<Ha=TaUal#Q{mVuXVr?[#{1G
+    \^!Jo+,EvB+[GF/}]x^]yIC<E}][-n-wG;D-=l]$1=,#]aVQ?RU\VdoiDH~+'j''_vvO-oo?=]:{
+    <nu'RAA:G;7{IspQ@Rs7{E!Ua=ZGTXRkken{H<,]'x7V{xuD$XDTTRsle|\;'1{_[R'QAKJ<\D\?
+    _@^JQl;7@3HnA-^HK#8[)$[rmm7->6I*Jn'2B~~A!xvxVYX]7l>aU{xnZv-TUBE_Bus5{U0#jk=W
+    =H~:\$Z_]xTGAVx}w=<}{I\O#rYAml]vs]>]C@[nX];e=TQ-Qz}]ZOB?Y?=z4eCn?AC7CEuzp1QI
+    s$rK\i5ah=ulBRv;Z>lsw,[I{>7T*YOr3VX^?O3-2-H>^;A]TpCC*JE1,n$GHKeT'8a-mU%$^!,x
+    5?+Ownwv7}5CTWDQ,7TQ,<>Y77aRrB!RRC@@5G,jDBW'oVAGCVI:#a^rHY?lFC3axA=+z7n+xVQI
+    OC<E]_t!5{VAQw@B^][*_EepGO?n+O]Z+RoJ5*Z{C]Wo#>rW>-BsVYm\}3k7^,uHDAvH[e1b-\r3
+    UI7x=71#*^T#}KD?IG!YI',XQww]CUUKE{TZBeaTe5[~h_I2x7,;uE3BXG[V*Z1<CB<v}XY5<w>7
+    i''1xJ{HaeR;Il\-'Y}YI,;O{O^o#F0l=uD'+I,)=n\=D_I5F3X3]e}ACO+CGzQn$)VA*+ZzlJV=
+    nu.KBmI#<X]E[mTkRv]na1\'ETDyE?V=>-~,?<{Y;_<@*1=uzXvB;-]aC}UnslxR_Hoa('};jZUD
+    s12\<hIs*@k<Eacr1ueIC_wI+<=)rBuWj[C+xaHwH\mxUYVDuYjz1*'wO'kp#pkERmVnR#@@53$z
+    7\Bxu*EDD=DzJwI$nsUZy<qy1rHmilia^W$w2V5-6IHVspw>]%}}!1<5uDQCI,m+w2Uepim+ZsOJ
+    3m+=-]P-EIT;B=O,2w_7$@3^j#7-UnX@}rlzoAEsB+lU*-xelRD<{aY\x=\,'C1'?;Z'2<+C$i#Q
+    D;G[iw$xDoo'O^lVjU\l$TH:GQJoVwCoI*kV{7*Y}UJuvDV$O_IW$?$7Xs}Zoa37w$CZ@zzB\j'K
+    Q3U7x@W{>DEHk5=}Sr*7*L2=YDRU7D1EUXpC$+Vxe>^;mkYz3<Rs<VBHAH)oXU2Bk'YDW!aRu{JI
+    iXDKpAG:VITQQ>Ul;*Ta==}Zmsv[mzC\urC$'-@2w*[ue>]@Av{u;OVJ[vR]n5$n[AA+}Vsl~'2e
+    bNSm{HTorBsaVZ2^<>Bo\uvIT=^C@,~2E;*7aAYf[kD@hr@K!}vxGsY;1oHup2zR<aU;}Q<,5V'2
+    DlYnmIU**H5mUR\lxv?vnr?55+,;Y$Ob=FGC~]]Q1'iT>jzvRiwBYQHn3*GXHDY+QVz*Q1l7wxZw
+    ~CJI^pP,jJ]91}22^h{XD7f!o1Arn3nx#aB^'E54k{uopZGk9l2]m[m2K1iuH*{O~[E}ne2+vB,j
+    JOe!5r!v{*+HKW-Xp#X=kUVE#l1r@'\w#LT_ko)r^J+m$Z@@<I~mC<]LCWDpW+AUpA-Qe}5kzj$l
+    eH@'Q=r!b[Ce_RK3a27*TI}[=l*wD,{+{xD'^_mjZ]]G\VB$$/v}{k~l-[cZEE[xBXRe@]5QpT-v
+    mp<I@r>vW2Xl-Z3_{JUl,2lIV55xkUmNw5[K^WD^1VXXcjToG~piWA{_~Fr!<[CWwK$?CWV!B39w
+    V7oX}:[]'K;\is
+`endprotected
+
+  // Wire assignments
+
+  // COM symbols are always part of some ordered sets.
+
+  assign com_symbols = (ts1_os + ts2_os + fts_os + idle_os + skp_os);
+
+  assign total_packets = tl_packets + dll_packets;
+
+  assign max_interval_between_skp_os = (level_select) ?
+             max_interval_between_skp_os_posedge :
+             max_interval_between_skp_os_negedge;
+ 
+  assign min_interval_between_skp_os = (level_select) ?
+             min_interval_between_skp_os_posedge :
+             min_interval_between_skp_os_negedge;
+ 
+  assign max_consecutive_fts_os = (level_select) ?
+             max_consecutive_fts_os_posedge :
+             max_consecutive_fts_os_negedge;
+ 
+  assign min_consecutive_fts_os = (level_select) ?
+             min_consecutive_fts_os_posedge :
+             min_consecutive_fts_os_negedge;
+
+  assign max_idle_data = (level_select)?
+             max_idle_data_posedge : max_idle_data_negedge;
+
+  assign min_interval_between_skp_os_set = (level_select) ?
+         min_interval_between_skp_os_set_posedge :
+         min_interval_between_skp_os_set_negedge;
+
+  assign skp_interval_count = (level_select) ?
+         skp_interval_count_posedge : skp_interval_count_negedge;
+
+  assign min_consecutive_fts_os_set = (level_select) ?
+         min_consecutive_fts_os_set_posedge :
+         min_consecutive_fts_os_set_negedge;
+
+  assign fts_count = (level_select) ?
+         fts_count_posedge : fts_count_negedge;
+
+  assign r_fts_count = (level_select) ?
+         r_fts_count_posedge : r_fts_count_negedge;
+
+  assign idle_count = (level_select) ?
+         idle_count_posedge : idle_count_negedge;
+
+  assign r_inc_idle_data = (level_select) ?
+         r_inc_idle_data_posedge : r_inc_idle_data_negedge;
+
+  assign tlps_with_digests = (level_select) ?
+           tlps_with_digests_posedge : tlps_with_digests_negedge;
+
+  assign tlps_with_ecrc = (level_select) ?                        
+           tlps_with_ecrc_posedge : tlps_with_ecrc_negedge;
+  
+  assign tlps_with_lcrc = (level_select) ?
+           tlps_with_lcrc_posedge : tlps_with_lcrc_negedge;
+
+  assign malformed_tlps = (level_select) ?
+           malformed_tlps_posedge : malformed_tlps_negedge;
+
+  assign maximum_req_pkt_size = (level_select) ?            
+           maximum_req_pkt_size_posedge : maximum_req_pkt_size_negedge;
+
+  assign maximum_tlp_pkt_size = (level_select) ?
+	   maximum_tlp_pkt_size_posedge :  maximum_tlp_pkt_size_negedge;
+
+  assign minimum_tlp_pkt_size = (level_select) ?            
+	     minimum_tlp_pkt_size_posedge :  minimum_tlp_pkt_size_negedge;
+
+  assign minimum_req_pkt_size = (level_select) ?                        
+           minimum_req_pkt_size_posedge : minimum_req_pkt_size_negedge;
+
+  assign maximum_cpl_pkt_size = (level_select) ?                        
+           maximum_cpl_pkt_size_posedge : maximum_cpl_pkt_size_negedge;
+ 
+  assign minimum_cpl_pkt_size = (level_select) ?
+           minimum_cpl_pkt_size_posedge : minimum_cpl_pkt_size_negedge;
+ 
+  assign minimum_req_pkt_size_set = (level_select) ?                
+           minimum_req_pkt_size_set_posedge : minimum_req_pkt_size_set_negedge;
+
+  assign minimum_cpl_pkt_size_set = (level_select) ?                            
+           minimum_cpl_pkt_size_set_posedge : minimum_cpl_pkt_size_set_negedge;
+
+  assign minimum_tlp_pkt_size_set = (level_select) ?
+	 minimum_tlp_pkt_size_set_posedge : minimum_tlp_pkt_size_set_negedge;
+
+`protected
+
+    MTI!#HG]YHE<!e;@_v2{x{\]Qd_vXXR;*_n^^[)Hod"TjlaFN[VEi@'Xa}maAiaZ!SGK]a[\k[uD
+    mW<Rz<P{rYx$[o,sZrH\l$Z7?-+1F|Z-BB7v'?G~Br[E+rpGj$\+';N7$_J7}I>#>{~rvV{wYGW}
+    k=k#aa<,l@=ECXVp>uuD<+CKpIi$j2x2R@m['X,1Cj7[eWR<l[$BX_e~le*_rYnKUnX;sYpD{CDl
+    2^@'D#l[,oX-a'["{ti-ex~l<vVp~Gt[xJ]u>C-G3v+H5u'YO1='~*wBIXlxomsuj_a$Cm,exoIF
+    gX$vBE6iGnp'1-^|1%=-2*iBo,G,kT3QE[mT}#KDmT_T$*o]!{}uCW7klIb{Cn7olu!^,ROQ'Ull
+    $7CT+@@C3a*QaUI'IWpY7oWjGGIVau^p$\],l*epZp2,"<oG@hQZZX1WJR6(weY\~}*vmnYWA52*
+    lw1>Dk[xg}W_pKa5Cxa8V?Y]:{U+Ox#@wJv{}Xzg;>Ge-<CGsT!s8Ib8xQ@s2'-\7CTmvuV=oXe]
+    'LTRi7}VB3o*@K<exk1s<moD7u-rD*][2poK!<zx\oe,zQi[;z-H3<)H_RuH<r$=?v'Gk7l2-.<a
+    Q=IWvg/pGX]7*@lRm1i4ViW{Ix5aH>e@?1;~XrC+x5*UpT>u>=T'^{$m~[<{Ejo\cP+G*7nQ-j5}
+    7D*T~\BwHXn1T~kr~*DR}o,W@wkXJV;AXH,^EDpCUYo1a2Q75K+QBr"wUH[5TZQlX;[l{!?+{o<r
+    R~Ba<+o3-m=$@me'rWn?{e^;l}$W]rj}?{1lJ1CT->?FHIGo,7#x'CuubA_m-5Y=!>TV>[AeJ1<~
+    ,Qu3^W$X#>vO{vn@['\7V^^QVI*D[\}xl1TrYA-KRGknAw1k{\2e7]>lX=zC1ke!nxjoB1wAkoZO
+    }XEvDV;7*Y-@'BTa\l+BETae=@5pn:'k\_-h[]*iXs@-~e\,Ws,l#5,^Gp}iqB$~<,sU*^Io\eyU
+    A@[4E}Rr?oOxc:NvB@[PDTv2QWXwr7*2&$Dx#W{'QE^C]l_uYym'o~k5Kra7e]D*OOv(Ur_1Qu5$
+    E_*JU\@oUT\$ijR[F}nKHW1#Y1[}!=a1$_3@e{zw?TRC3EK$^>-r-~w-o%t!U^@~{-[8n-z's+vY
+    77wpL5o7\W--,^$ERvHlXE=>DTx~*Bv^mK]+j^AHvp5JaI,~D_I;x3*VpE-<Qk}K+;{zxxOuxlr;
+    rvUWVkx-D/?Gx1M2*Tn\'^\:Ia_uAplR,Ru!ieA<DZ5<}H--B5RjQzewC$u^^W3?I#E*5XQ[I7##
+    ~-{QxEK@}@=#zGWErY-OB,{ToUAVQ=u\U>w,?jKCSn>jQ>}$R{CoBf013{C4i_Q3];^[9z2+*xqT
+    l~roRX2Cu'><_weFrl~e]7Q]QnW5>N:HeA>\lBVmwp@7BX>e2l1p@x$RQmspmG22]HHv#1i'Hy)a
+    xer+xCK{^7B)_!+lp#!xqxp3\h'p@IQm[n$G*2;8Kn*<omwe^sK'zbI*n@$J@pH9DeG']7VOvjpR
+    T85+W}S5De?Xz~nYwK-O;aOvKnU2*eI@Q##G7i2q$pJ325I-57~?oo-{V]pRXT>r?<fZXv;BZekm
+    Vo^$X1ZD-l@_sKv1s?7*p@EL"Mm\=?!s#J$OWo.p1l$iG^\>[\]_uvlvHn1+UA*4?s?#<jrIzwxZ
+    3oe+fz{<om^-z2nlV?HW;RC,iwsY=T\OiY"Oji[WeiRG<BeDx<3k-7isH2_Y~AU=]#wKI!]7}llp
+    3<*EeWa>E,[R3^>[+o+(QmrKT[AYuj~3k9$u7VuHE*oR{zIZH$nD12}T1\!^J=7JnY_1au~Ul3#,
+    7vE#mQs$HK<\=oKe,;[2AuQC{BV'4^B@Qi[?3@Tz5!*mKL*TCDc=qy2\$X#-w<2Y@kOA+KI*1]Er
+    ++-\ZpBI@^OU$YfeGD-=*32R[AE''RE5X2pRe{3U7{{G$s~Tw^D+R\7nzj5Z}p,saeC/$eDAwvVW
+    #'H;92p3B$^$1z]UXYw+*l!_Twr<{;|3C{Z<,inzA^X3{s!Op-O!1E3[EsC:mr1=3r^[.'uo@DR\
+    TLy!ov3nz27K*TXlw_[*:xss!>U5KZ-l^p^xsS)1x,Q/FY=\C~ju^zU5EQ[XwaRj2/=KWB^;$,aI
+    *EZo[swlW>x}-UTV*Y{<Y<eKR@zen>ZYCR*sso<$2\@H1Okj^C@R<][=2=r'GJ4I>ajpAj!uDZr-
+    Ro#1T'_rvTH5[pU+{31Er-2vXTRwo-o*HeoGoaGY?Z~HjCuwV=EE*?ez}HAAp?uBrj!aHoX3[KGZ
+    Uo;D]Z{EBias9sV~K)kRUz=$j2ysjj;\}+~\+V,5Xnk]O$W}WIQFOzwJ$-R~B@e~d-[X={,B\P\I
+    nO7\n]<xH+@rTs?z!#RCp?=@VeZ5RKXB5'jWjUCr}]eW>WRJ1GeX5U'U7WEoBs!}z$y@+_rV#KvU
+    roCk{[7IsCO=$Y!_i,B@_KJK}}=,]$JynvAjUw[A2Q'}YpAG}'''vWQAZ,5*>pn$1RTnCT]OGsIV
+    sQjpj[_x15Z~C,~Ry'2CAT[Q,\"Kon#ClI^NX]\o3w={HvHR#,zTcD]#G!E{5,eHwx*tP"k>Q\JQ
+    ?G,Jue@_np72V!>OZKQkeu(;CGjVu]*rHaajUA^hp==zNCuXD$\xDw\\3^nO;^+7v-R,i'<HCC-7
+    1xk'a>$\DAURm*u2'@7WXH]aVM]uz!k]][}ZCO:RX]iE^Y1D!;VpoTVV-H5(ZAwR-I@s63GCr_ZV
+    5oG<\!O@Jz],}D*'~3Cj!Z_Xohpw_ZYA,U{R@R5_+#iRR3nYV#x^J=jXD?k*E2BVxX;zsXFv*TQ~
+    CQw-lCV3wtWsVAv,uVM{'>V,W+,DY?#l@@vT=p;2s1+TUH=HU3jB+Z;-*I5h>DZOz+wD'{*WZ{3K
+    >1lvJBJC^O-':rFK^T7<a~uuER!0]$K[G;+5#AV]b2DHk*;a'R~UjqUa[lJ-{3e~Q,!T]!Jla5,l
+    <kQ[BQzv)E2C+r,Xz<=Xnr-vEQ~D^EXW!O'v'WH5u]?_?EA<IwpU=<>o=Q*+#eJpim'pED~+<W-T
+    rApi\.WIle)+>E{e\mo1e7D*mQacBwO--EQkOvkz_2@xsij<:'zamB}Y7}D;YX[f-l_Q''iQ{Y;#
+    ]I5*zQ[{b5\G#-s_#[._YOK^ngS^n2swVjj3>$^{z+sK]TK>{MKpQ@$QWpa1}roIz3as,KG*j^oK
+    HZzoTWIV!\YkZV#'ivjs>[01+Wn>z^\:1>Gaeu{rusv2z+AO-'CHZ[YZ]ZlB*K]DXVJJxsm+Ir\;
+    H{}!1|};xTv-U#~=WXBk2V]GjAWl?KIx^JuC}$>}1w>'WxNbF7IvHfRXKnlX>ulKV]\}*zY2}@5O
+    #[kpr+ueDx*WjDET\o3^x+'B3XHa7o1<^W_ajJMtx_j}]>=Ym1,!5ir12sBK[zmvi+v#;w+Q;DVz
+    Y;vC?x#WBo,GCwxE[eSi$K^{5*$Z$BKjY;R>VW]2,kG]rTQ'7;?@T_XJ$'#Nb,UnA,w^v)$EiuaY
+    YTOja_(.7Il+wBz!TGO$C{R=]~~'n_KVEK-vAS1rBRQl{Zv}x+_n-x*V1a8u[pD1@Km]3JxVxDW.
+    pkV,u]KoJ$VjE!BlD,,=x1H;!EQDex@vmjuKdIH5IIGR@>=H!#pp]YjHpQIu'u*ZuUAj},n~>rsX
+    skT,32znHf?$x_3}O3$UUjiVzT\KO-NS,K+Ce!Y>jAl#rA<31>5EQCYeSlA*3rOHprH<WTRJkQZB
+    'G7\T$wY[Cj;Gj>!prlBi#ORo@eX;\avWD5+u!5aj7R+QYW3;+nl^Qm=rv@QCRCR_:ZI@-IevR?I
+    <VC*Y_Q{[\]kKDJQ?38ZT]rkEZ@A*j#-<W,+'<v\uW7SYAj^qEZBzw>=IoTs}pJlic71}rPvrwI@
+    Tj*kAr;~{5+j_j#m[[3D!C<_O]]45Rk3&?ss3sve+uj5nK-,i}2>!kX+<#{!r$Q=ZH[V?wH_]1=K
+    $'D!@\W!@AE-JO_w3r'riYB#v4O!;@r2-zk_v'UCxz1D-vJwJ]7_<Vj7Avlna1#<Us1HaroljmCv
+    >*U$\[Fz5-1sOU+$\vk+{'l@rTwiV}WYv{WrOWpCn=Z2+aTeB<!#Ts]2$u;vs^rPC{{JW^Wx{wrx
+    @]vz%Gu1]MuU<zbV*5I=nO1lC]s>qI]K=R>{QxG*7ZExuY{'7l}3EVHjTe_?jdZaUI$_vT~}_Xu]
+    wr"~_{#^a*nxyAze]Bwlj$w*^Z<1n#'-K=?2@m$XC~DjHI;3J}^!zi'[T]O=nn_ixRw+x.qnQX2j
+    TNr'>'mV''e^r>p''T{<>TIO5kvUQoD?mJC**G^e}3+D5urQ?#SBUo'YJZX3}I'Q\W]qp*xQ2BO1
+    Axj<'e7V-X>5>rQ[[1=!V%s*T7=-EGc;aOr_I};SQB{A]1$vuXZp5C!#tF#*W3G>_<_zJ}$2@ep7
+    \Oi^O@Hj{[,zkTOjJU<j1pr_'#]2o}h=kj'P[uWOx5a+{rZQ$_H+DuHJGJ1a=_QV7^\X}#J+>}3a
+    nO*io@2v{GH@{<
+`endprotected
+   assign number_of_initfc1_sequence = (level_select) ?
+                                        number_of_initfc1_sequence_posedge :
+                                        number_of_initfc1_sequence_negedge;
+
+   assign number_of_initfc2_sequence = (level_select) ?
+                                         number_of_initfc2_sequence_posedge :
+                                         number_of_initfc2_sequence_negedge;
+
+   assign max_number_of_initfc1_dllp = (level_select) ?
+                                         max_number_of_initfc1_dllp_posedge :
+                                         max_number_of_initfc1_dllp_negedge;
+
+   assign min_number_of_initfc1_dllp = (level_select) ?
+                                         min_number_of_initfc1_dllp_posedge :
+                                         min_number_of_initfc1_dllp_negedge;
+
+   assign max_number_of_initfc2_dllp = (level_select) ?
+                                         max_number_of_initfc2_dllp_posedge :
+                                         max_number_of_initfc2_dllp_negedge;
+
+   assign min_number_of_initfc2_dllp = (level_select) ?
+                                         min_number_of_initfc2_dllp_posedge :
+                                         min_number_of_initfc2_dllp_negedge;
+
+   assign max_replay_timer = (level_select) ? 
+                                max_replay_timer_posedge :
+                                max_replay_timer_negedge; 
+
+   assign max_acknak_timer = (level_select) ? 
+                                max_acknak_timer_posedge :
+                                max_acknak_timer_negedge; 
+`protected
+
+    MTI!#GI5-C~'U?IVA/$YZ5v++#VRsKs,G+26}#A[$|"G>raF7ZQu{E*v]2*+Ca+BUj[}">5T!)=Z
+    ns*B7*}jZr]RsrJUzG{<rYs[#kk$Qob,ze^f*;}]v_W=Hx,x\zi[!-VA3BM#>,DV@<-iBE[vTRv=
+    @*m$O+7rV]@ZG!5-^s1VskDO>B-2RvWla+eG[=O%+=i$oK=CcIpICwXul}#1~Tzi^o5VzT=ZHqYf
+    ARJ,xj=~a[ACC<5\Cm!O9K[XoEVWZj3R{pm]aJRAHTRA1l72pN(5?mB_2O<[<-1\[1!RT[j5H@\}
+    J7$x^iW)o=$Ij-$mI!ee!}pU+,HI]AW{Y,R^lvv-pk<w2eB*z'#1l{$~oZxj#nQrr;_mZ,o7v[X5
+    6aAX]lB5*&t{aZV@_@37o2a,RKmj[\3*>RkD+BE?[#zx#T![!x$~<XC[!]2QGX{+++@571*eGTH*
+    DU3VrwU}\=kG+vG}U{nU'n@F&w1zRz!;vAX\H}V<oWp'Y4\$oaHC~^kOYj^O;@=sVkz1mp_11ud>
+    *H$)aDiO@(VOYXH\^=DYo~jO@<-5gHl!G'*#{^Wxjapl}l-HkH}\aH5ijYQIT)7_OZCk[BnCiTVU
+    T=&?}@aKY'3#O#rOE\5O'B^vr$Je\ln6Kaj$E8GsTzD\a#M;Aup_!}$rJDwT>!R8YG'iEA;Y1Bio
+    KSWwa{2Cnv$R#-,rovU==#]G\>p2AWism#>G@KQ@]Y%B#1@'ix2pOYOAGYD}J$$n|TYYj~YKR7<V
+    ~|$I$OD=wpDAACmA_~Q,o<u'k+?+-o#]52e#v]z[$ZBYl~{<p[pV}3w{$n#BQT|#sosOwn+R@~Io
+    {DJx<rzV5!YBXQlae\UJOz+mwvYjZ${VHjsoT;eo=ZY|U\?#kCXWJOz^%BB[xB,oVj]EnPe-pe{z
+    e+e3_'R!5KCUmIuz*KZe*]si{WnQe$xjSc5'#>I?V+TB,wo-u>%ujpJE{paNJEex(7#;w{}1$uX=
+    3UC/<a[XD{U{M_r_nARC5<zKru[2TvzZx:czs@5GHT]YaY;oZ,_/zL;l5;,vak[;zXvEW$]JI[zB
+    E3i+=]R1-@r!e!e@XRS~T17:BZTK_H[uo4z+!jHw=pZ]k2'w[^Y71eBCI\R1C'!e[R]A$GAVXv/s
+    YE5BZVuOsVrm\'YB{Q>-w+=jvxYpxvia<p{^W*^?A]${CZ#uE;w\{~v}3!WTr\1Q?*?]{\D3TQie
+    al*TUp-5DB1',aE9IxCRQn*\LTx+?pp,e:l"fUrawv;CK1Uo\Z+}oXoCT?>,=>p-+>r{*Krml'++
+    ^V?-?/@a72A'jOj\=1,\OXw,zC'[-5n5\aY#>EM#*rvC,J1=spK7PR~B5G-e?'FbKlv[l-AT}X7D
+    }XOY$7apA$OeVI{}8UTzmOE{{IX;}o#OBH-'kHvn2w1}\7+'KI$U=)'vjR35G3s<E3UVUs*Yl7ma
+    J<Bs^pW]Zpm}ixL\\Xu5kvH[5veATx*s~D{^RxpV,[O'W}ef[Vj@'=>EA{AxBa~l#sx+ZA^wHlv{
+    _OE}43^0X=lW,p[}uoWGw]>w8dQu3;E]p*aD'{1_;7*[I3J{<V]ZE1#v$\@5u[B]3e^x^KZ5vzlW
+    ]W<-jZ@xaDk{c2QoVcgh@Ee}3-,J$[Ux:#C!J27G@@a@VGUCCXsiFp4wCj5m_lW*YpB^=x15,,j#
+    wrD!wA!\UEeA{naeK\@VulXzYTx,B~Hs[{_-<zC_<xuE0CYYVK+5^]+vUkx!BDi@+2Y<TZCIBpWO
+    x^#A}<r>VB,=r:^<s--]3K9Om52E;A\^e+z^ZYXJ*mxs!>rJzHzuvBpBzswKO_T(jASEJA59c5TX
+    {3r'Y*IaE]pA-P;A5s>zx*j+RU3,wr1]ea,3vIO]5RUae;onGIvE-_1?RW&VT@uO#K@iz\G%1T7@
+    t^=VsEmG>,j2D^*W~v<OK[[lH*$3a}>j?C;AXFoO;~GD=rz=Ax5>]+e~V*B'D5v=nxW**-RlIxrA
+    Tk.B^+r<\oXRm~E""I1eps[IZ>VRee>oIWo3$}?WUK7TIR=Us.V1>37sT\e}]*RlRp[<<srRHrxQ
+    GxpK['j$<a4TE3<3ox~us]=\{'w}[;=mOop1kwv%DKDCn5V]?XUjl$@2[-z2#^1jkh@(,H5'~TxW
+    GD#YsmWsKYAv{ClR@]n1keY}HUXACIZKpCHB*],R[w}zAz}32H1RCAe~j!]*}~'!R<Jmp]a2TT-D
+    X<QXGRwWe'e!U*W=V@{~sO!<O>G@mU73G1xOOmxnIRkEMCG1+5Jj_u}aCwpI$&jGkkWQU!\W2nQl
+    JD{YRe,Tx*s;\OIe[v?}rCk^={+CVEzrjn3\rl{x~?$rXxKGRKGZ\ukQ@QEnzu}{}riHzj5?C*O=
+    ^I2XGxz<V#XjEa<v-*5W=vO~[mlOroWB'3>[QJbQ,*;CzXOp3T]_Ypm}rm@GsY]A}D-TRE;{9^+l
+    'Hl{A-'J~EnEwjaJa$7{-XvX*3V@r+w[k_Qn1rXx?i{XEQ+Gp:~nXR\xT^VsCW}l;D!*av6ICw,p
+    Xo5]7IGkY=z@jG>JI-zaDYzD?L>jv!1UI]w=AnT}=x+1-xro?Ce2o#)krW<\AJ\ur*ozDYk-=Vup
+    Q$G?QZ[#TloG<C*aRCz@}T-G!_KMQjexxH]G=]jBk*jTj$oQOOr;ksnQCH2k121Dn<avxG!Ev_C$
+    V;ZIwOoVyh.moapi++RsB\_&mAn_QDz~-jw<1v;*z^Y?k^*vrre^a7$llGHnzi7'AA]ROX<~T'\]
+    k{;Vx?,{Y7E<NRnx-r\KX8J+wZ/4!r^CD}J$NOrEx-R{WO5+G5\UIwEs\!51VKQABT[<uE5RwTO-
+    G\>~}eGoZ2BUVaEW!_#Q+lG2r}-RuAlZJ{TnEW*+@e~;,2rW!v-w_aD{}rrl#WHj,O}-@}A1Y--{
+    {@{KskjRo&_~V]l@jTmz_raBZZv+Kr%:[juBalX2\$>z)$ok?EJ2eQAZ5m**CxGJ_]jO\>\^G_>1
+    [ZpVCJTl]D=AUl'ZewOWQ5{vJZI#}oJvCU,@=vVKOZjakRm,72Eps!vukO^}YgNeQj7#p<'a>K\G
+    p{uW{OvI<uIQ]G!~s,vlm[$$*>OBV_k3pu@OV!A)BaZw4;C,CSw$RIMRIulRW'!=,mv=15Y3G{_,
+    3{[Gk{mR4sZ'plN_-<WOXp5b=22<ABIZp'A1RQx^]5k$O@!-Ed_kV+:ZzJ$vrioC6\>nzo-[]Dks
+    [B~,ARJlsnXe$[Z@AOplpiHz~Y$u3K$-EG;{}uY1jCli!H=HD7sp+GXz=lmV$_K{#P}S$e#oI1D'
+    [<{+5VY}e#AK;w^=5$A[nxV]We#ARI{WE}}5S=$e_j\@Gw-v=)g>lGvrCD'QAUXX$i5Eo7@72!{p
+    ZV#Buo}]+]i@XEp"t1aZAxuI=6G$y[~R*V~-I^E;A*2E]OBeHKvz=QImp5YmK*<$TT\D^QnzAzJj
+    xJY-WsuT+U,Hw[qJA'HTv5?X>rz}mKVi{,-C9nn7AJaY~G?apWEZsiQoiTIO_&@ezQ[H@px\WkVH
+    R3jo[KrkuYNBX}e=i}\r^\*=Xp~t&'_jve'GOo;~{a==umx#Ww5ko>a+lJI^OV-5;;QW52EaAKE5
+    T$GJjTDB3&BU[a!RakRsIx[urA_5n,]-!{AUI[o9]prX)_sZm-\uRlGU;_w'jvU{[IQrRgj3p[Y4
+    uE{^?^5'UG^Ex72eY[k*Q!xWYoQni=\YoX]u*3O'l{U1k'G,D&eW}1>tTzQ23<;E*msHCmA-+$j5
+    Q!ERx1;-Y=<J)IQI<kr}3mGeGKsa5ABW+B{JrV-++G~o]{{YrpX~5EXj!QE>v]?2nHA!W%Ta>C\'
+    O*,,=<lj\AG-3Kz>+B$rZWm7X*JoYesODZj-$;jj7as5+rpZY7p,rp9+H3j]so1(UR'rAO__w$n1
+    x;x\}3eO'kp,ix=$-$=un[7Ov,_Q]]2Kk>Z5"j>{u7Cz=Cr{^\mpEoTVn^\$Ue_*QI7J'_?xjC1;
+    #wBJ>-1IYDO{?s>ZuzIWGQX@rKY{3}H,s*2OW_'>_*S>7^5wp~I.kC#A$C2,\^YJDnIO~>]X,{pi
+    I-lp*'5Q,ww_qoX\ZsNT_O]^vVG1EKz:1r{n5GRX1e,X'ZW,rv;;-r}+\31+mOzIql&*tBK2aeAE
+    *^E3u1;,>kOIvZDo}I++wC0#\-T}%awI'=Q3!2w7i<QR@ar'aZ9DK5X}CQ+5jOv77R@S-RQQsmsC
+    t.HU5<top73DBk<25_JpOIakTX},s_}e3~32'QTu5$xJe]RIZj3^+G3v$^ZE}m3CCJrs1J=T\T;Q
+    lHXGU^pizIUO5_<D#oep~;\v+<TS+1ur1jsU1B{G;7z?rX-^|aEIlfY{D2,3R?nQ>uJwo\ZppE_Q
+    {^I7p@{YRm]CU'W]|onr1r\j?aU*lV~'3E?@z*xK{u^]B_>v<K$-O'X@3;a,5W$,$<_j\=!Om*_i
+    ^*G~oD*KT~{nn]kZYr3D$h}OH_|eZXkY~KV2Rj>RiA^-H-G7Dju#zlk{*?[O^1ADY>mCHVY12^],
+    ce@~U\E@X~l2[}!;zL4Y;*iT-Jw[_YTuhn>GH=3\BGB!W#svpX]3~-l]?.,V=i5=k7Qn3["CY\#:
+    f?vB1#*}p*OpuCsd5=j5+=TJ>D''K|YTpX]<rDBi}Xg@^XveI@KAn+C]nVk^TTv?$QZCDH7Mu5u^
+    Ia{QRT*l*a,e;D]<D^EZ@1]U!hR@WQ$3o~CTV{|ve;;@1,jM7B1<(=n@oj!5>C$r>>IKaLu=p-x}
+    TrDeRl7YvIOs-Tuv!?EYBX0UT\'N%QR#3Z>+Ou^!j'!^$1o@nN[Wu!]uJU[HZ5}{2;~Ew+,VIG_C
+    ;D_ZX{qvjoHR<QCxl?w,3D~jJ<^*A2<f}!O-W-XA<C$u2};w<HskJ_v}zQu_i|j=z58W}DwY'~^K
+    V+}MDvXJQXe1R+I$1|7THOxX~-eYz=\}?JKI[C$}Y~T{AseR8XDk?q}Url||';nCpxJ2Di7w@5*a
+    ]re?%_oTAQr<O'YWkloeX\YHHlvnKxR~I,XJ7Y[{C\*eojlsHKAB\>\kVpo*+'k];$_k{:Ylw$iH
+    TD#l,W2[*_z?We9?_aUTOo{NSQn\5JQlUqix;I1RZ5kr*^>QzU+}51$'GXQ?@x_Xv{<]2>D<I}y7
+    X]mYj?>ml3G[B~nTw$@o$uZJ1o}-,m@$;mRBGTo2x~v/>\?!pw>uQv>n~Dk,axBOV<xREQ{7SDr1
+    @j;;wI{lK>r]J'*@X)QUOD{pz{IQRHTU],\12Yp&}p\KhH7+]7Am~k\[K8\!sxrz^Gjbw6K_@xs7
+    Dw>aOKp}+BsC{rcl=<ZBCnUrAjUn>QRC}VE>zA@DjT='=HOUzOuTX<kG2=vr[_W@jOY;]iv?-2Bw
+    =Q*#$IYp}B*{G-jBZs^&^l,>]?VW75QB7$lG$V{QeI;u>Ujl~O'<,7;ez+mx?H'm'X$OxWzkR>[X
+    oY4D,$n]@A^?T_!!7#$uYi3;=\@#n2aDGX}zav+@\U{eCs~o,sA<U+*?L}o]u51w1fX<r{CAJ;ee
+    Zw'eUH{<7?Or2XIIKxO$x-Az}lelmZJSjzwW~IHm{-GkCB1K$J*[;UC[BeE+AT@;B$}3}iETCCNm
+    r27BIv\Z1aWCC$1YB?pC'MJeJU**w[@o[=WC$H#Cr,Dm'>Bi>TwUnTG_>ro;TQ_vpjHA+urB->H$
+    u]U<Ro+wex52'2ZNBTxzHR{Qm5<==Z1]sa{J9D<;\'GlOPI+-j{[,\nT,{3R*=pv_AGj-7bHliQH
+    ,xo-TwDoUwC3oaI>E^H=k@$a_YQGY#H?A+]opv,lRn-MUQiYRaUxv=T7_#>YVix+?]\uXIr@~Oc/
+    IKGJ~\[H}D,?MQ2XCGoxm]AO2#TK]81Z<e=_aX15+H[zI@},jraY$51+m#Uo}G;n^HrKXDiskmE3
+    l@-XJ?moW^3o>En<I!c'n}v=AW,6$Ii~2^lIsQC!'xA=]Yx1OK,O7Kaao^Ez{To_5<<7$x~asE~A
+    o[$2w{YHwO?[jW2DII*V4RVVX}YQkAHvzFx,^JD,Z<JH*3D\^},}'*.2G^^v?Z2jmn*xC!vzQw@I
+    >3rHCv_R\-o?smOFp#COV7Evr[_-eBHj$paw>Gr>~v$!BZ'eV=$#|a]D}!^uxBGp]W*XQmO=Y*r+
+    ;rmv,oQR;J1*s~Y$^sI$CTCX3g7Znsasl^G#n?QJ=o!o^3oCUZW8jT5I1T*@IoA28w5!'r+RKQk-
+    _CYe]O^weY<+TzWV2dU{[BD#;@&1p=r|!aoCI_n$=l7kHRmC_+;][*DDElv-?TQ*]v'psR^\i{Or
+    =[pYSl!Xk$QZGQ=Q{Yjp\\rl2oH_ePR-OW,V~~KE]O-j3k%2GQ5[On]QOeD27[wN*Ul,^1WKljYR
+    wYmeoQrj&]+]^8"Y8=G5U_k_u_HE}V1u*[KuRV*,x,ZD\Nu\@R!IoYm^]'Bs@Ecg#spmHlQ<<sU$
+    $=W@M~wK;3$o]z'OzPtrv~'3'@1o;-vZ>^i5'!ooA+Il7ov-A{wD22$[n~wA7HH@wq,|r1Ol?D*$
+    %3-+u2o5'Q(_V\pI=UX\JoZCA=2seoAlj\WxlUZRa[7KT5[Yk-r(K}vBoD$$G#wjr1OK]kH}EieW
+    [~_s[a1=Zw^wivoDz{Iw5J~;#IaDsz^v'uZ[-Ox}+XpYs\K]I[iXv{2sl#]gE,KpPUnZG<L}@>ro
+    XxRz>v*o7\vpwKJDz!sT,vI:^KwBR^or*K\=r+]<TCICCGu}v^,ep$wRyz]e+~DV=WH@;0f0rmUV
+    xVv+pJ'7lEap_p{A}=JJc0"~BW_j$TuO\kYxpr\Qi<x1^m]b~1CC_B?orC\BmB<BC!!E!'>j~eJ$
+    #*1D,REnkD-[P^;C{hbgf{]2[x_TwD[CiIuI$No}G;$?E,^-rl>sj=LWvmJV1?Or7XrHXw+i}o7+
+    e]3JHIT!(!I^VQzExBH'G1!DsH,+RCZ~j>vu-GzeT!6Y5v{Q^5=CTB5poV}U5~$'2Q3;A]j^v'+-
+    <3V_Dx?O,V{QCZVwnX7*'[}HCAJj2VOOoJz\~<1Q+\~GiBX2}Er2zxORO#jwUVl*O?lB{zUvWRr}
+    z+Z9Uz]{o_]3K=}-,e@r$9G2v2J'l;'J;~rX1C[JWR!O1-re\WCs+UKpzEupXKZDElmX_aIO~?2T
+    *>HY@*mIaTv8\eeoYvZ7p?~#t=D,v^E;$=^;zG;\DGQ5<KO_-2vHm]CUUv,EC|dH$m[EZ<EGz\1j
+    AK*Iw3~k|>A,;^3vBEC<!jvn1'G?{sio@$'+GK^-wp2l*YD@I#o{-An7w#QAu(#V3j.Skn@Ax'3W
+    I#12,lK#5$Vu+HzsUCiEKOX3qa_}B~\?@aE]p%R$T{AEx;2lQ$~>E2zRj{l!_wk^UE'IRJk+G%]Z
+    m}pX@BIIDneU$A},-H}5V]ZpYB1V=H$EI^?]~;>];$-ou,l;D>m$iW6<pTE[z'JEp3pYR^QZsWEj
+    Y$wI<u_<E5B#5i3=u-;l^?X?}2@,TTsOsn#zcm7@u{,{BO@K@i+>$-E?Vnw3Ke[+H?{\eg]oK,@n
+    ~O+HVEL{Eo$HAsuGR=p{>~AQ[]ET,QGz,~TH'e<ra=[BYnpjx~?QpZpv*s3g8~-z{wA^;CCmUaO@
+    {O#HA+E>}[n~}131W?B^'\-_+sQBnK_HY#5Y+4?Yu[GDj5B*5$-O_n=WR@>^n}E<zJ+B*_p}jvnl
+    O1ERp*z}T-e's<>jC2**YDw^\=v#W_j*0AnXHU9uxn^xweKV[uryd;I<2w^ArDO!Xx>B'3*_@nzW
+    @U*!~9-\QHaQi]D}xinvl3u]]3<w-EDZ@C7{5'%5+I!NP#zYDsDe2i=T=]#O>^E]V!9FHn+prQU@
+    s=UQyF}$XJ*D\]=sAxdx='o;*-5AEn^Ce!Gxv~_$\up_Ueu;]!?xnnoX5Q1Klo_eC;<pwW[Qr1{k
+    jQv!U-T*a*3+$H]|e=]Oarzk^><T?n*5Oc25n_T{*+OowKpjas#ADe3Gr-{si=6kn\aNCYIri1^\
+    oU{B[VOD#C,K$s3a}'>\wYJR_s~?k5]wzr=ol5E_QA5\s2wsJx3]^[\R<*AzW<I@^Ue\ueOrGIVk
+    nG}i;,,u'$;UoaU>7ExJo_2$wH1!n\k?$K_=hjk**YD>]hK&HX\T{o,klE#$=@Y<?Q7k^DH[oZlD
+    ^w,GvuGpEv'k5Z$ws\A]vpOj'UonuBirHwOAW^^+guxlwj<=$<LI>]X^vVKlk{5&'-IT#$l1X]x7
+    YHV5G~pUv-}+OCY?0cY~H_n_lnACQW\Kxr.O3754~^naps!JX'\*|^B3Z@U];!*a@slVmNY#a~>n
+    1n]KBI-_{'-+BYGnu~j33p7ZoCQVazX>d^joK'Rk-B*_-.!CJ=nTQxCA$ULRlTDzCR}ZD5UeplV*
+    d3p#3wXeCM^;v][3s_?pCx$m=n@>m'%Vo1zM#CDU'Woes*UG*V7x5,k\7YJA{Dw{Ao<$_J5Vv!Z~
+    [Bex{_J>n]^CVj,=H5Oj&nnzraT]AG;}_+>jm7mVD[pAJO-jYXxVV!nUj4wDA@kn5kuRa=vv\H#B
+    ]72lRE3DR[?H=wIiBT'Xz!@*x@Qxx{i<{m<[@DeQ-KD3-3#{<p~rxlXIx]I'v!w*5B2jC73Vk#sJ
+    lXx{3IG_-Z%@=1@V2vK\l^srrzGG\sUJE!?ypwB=;\TaU\OMqdm>UVYpXm\,i2KQ$<oUE_?Tvht-
+    >T}VjDk'B-zK\^UH{IswI>Dv^]vH<<w,o@X}oaG+T!xr'\7?T<JgQ!21Pn+O$lRR~AUAs_O.eIE*
+    3xan_i3n_swn7v{;#'eH;C{vW'\'T]lTv^O+(Ii\H>r'x&\>1O*oBiwemmU5Z~xxissIQjr=,p9B
+    _alE1vUWEBuqBeur_J7p2r'w><{zC"r+5BwX}Of=un7OTI1Rj1^Oj![P^*sehh_<1wv\z3H',*nv
+    uw*ls#fZrXzaXHnCw$,#Q+\z?eI!Xjw7=EwlKwZY_*Uxg>CjrYuaWJ=a<?s'IX>RK1BKxnv{2,xU
+    C,n*Q",'^um5+##1_rDE^@ra=\l$!}VAm}Qxo^kw(o?5#!^<-)mC7ZbA'<?!A_xCzG^;*2$*\^^7
+    -5-vIoYmz!,{{@=<w5'B2,K'Z'#B#B$l}{YW,'+V#E$>eA-eL+z=le2@rZ'wO,\?XUUr<'vT{U=n
+    Gk1$pBta*CIzx#nTnpE^1>zQJCae_n?Z+;kzwBn*X@p?+*5WLA'aABIs$ZV+KClIwN#jZYv\,Aou
+    -s"Dsusy+TR]RxVwm_IZ0lCK]O*}Z]iG5j|EHOJ*Ok]1<-#<YV@^T,*oI@VV+URW<G5Xeo@9VKAn
+    'OH$cK>=HeV>{H_T_lll+LpQn'x3CCz1{V4u]*j3Q,x)I*[w=,sB*Ro}7Xr;7;{'thr\U+$Os$%N
+    dnGnnnCXa
+`endprotected
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_pci_express_monitor_cover.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_pci_express_statistics.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_pci_express_statistics.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_pci_express_statistics
+`include "zi_cw_pci_express_statistics.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // End of module qvl_pci_express_phy_statistics.v

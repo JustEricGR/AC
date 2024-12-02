@@ -1,0 +1,152 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_same_bit_assertions (
+                                    active,
+	    			    clock,
+				    reset,
+				    areset,
+				    zivar,
+				    used,
+				    used_cond,
+				    same_bit,
+				    same_bit_fire,
+				    evaluations,
+				    all_bits_zero,
+				    all_bits_one,
+			            support
+			           );
+   
+
+
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = "QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+
+
+  parameter Constraints_Mode = 0; 
+  parameter MATCH_XZ         = 0; 
+
+  //Instantiation dependant parameters
+  parameter WIDTH = 1; 
+
+
+
+  parameter SUPPORT_WIDTH = 1; 
+  input [SUPPORT_WIDTH-1:0]  support; 
+
+  input active; 
+  input	clock;  
+  input	areset; 
+  input	reset;  
+
+  //required user specified inputs
+  input [WIDTH-1:0] zivar; 
+  input	used;            
+  input	used_cond;       
+ 
+  input same_bit; 	
+  output same_bit_fire;
+
+  output [63:0] evaluations;
+  output [63:0] all_bits_zero;
+  output [63:0] all_bits_one;
+
+  reg same_fire;
+  wire same_bit_fire = same_fire;
+  reg [63:0] evaluations;
+  reg [63:0] all_bits_zero;
+  reg [63:0] all_bits_one;
+  reg same_viol;
+
+
+
+`ifdef QVL_ASSERT_ON
+  wire same_bit_check_fire_combo;
+`endif  
+
+`protected
+
+    MTI!#pYkCpWo\>>->i,J>E}Ja1x#@EDGeAwrT}@-EaE"BXCw{[Bu!'-lqf[u@T*@x?G7;3ha{JEG
+    ~!ze*ueTU\v_s!Y>aHa1-=sE}k$U<I7u=CVf'@ZZ*]W<X_{O_<G[1nK3^5}r}1'=ijD}us{lUo\!
+    _}~ae^2[lv[HSDo>s|0&madU77][GZV73oo\XeG<lV]w$+##VOiVvviQJ1[@53T_1ml}<T2{L[!+
+    l5u<C?ab={we)+{nGx@\^V\M7AGXSEe]D+DBrQ@BHaDp$UR#_5]nj,lX52jRsWAXED<O]EQY@p1R
+    T5EA];nT'}c?1Z3I>Q3!H@CdN,~vDeoOsUT{*VH5?rm-aNB,V'uDl2Rw*@B\O!Uow3#7w^_Y#!Aw
+    !v^Zu+<je;ppI2EX}UDH<XDG*{C~5a_]un1vJJ~X&~>@$8OK*[51QYOW,W2Rvl!$ZR3=VZQT7$#O
+    ?1@*<GwG@T>-H~B-s\'Di$@Tj#OYZOouD@&]'Uwa7-EszYm&~1u{^;7oWQzup+-uFpGeC",,~*I7
+    BC\5Jww}QaYX'@HT=DE,*{ob5oV[p3EAck1ZYRmwuDrIuI_r?}KK,oU@+ZOK}z}_zS*3u~wAWUE-
+    @sQ;7p3}{}u-3]SrOK]7G#>e][GI@A_u'J>l2HweED'pXG{<{$peZX>Rv-}>*O-#lTw#n<wCkV<K
+    [jDuB5=kaD!w'-~\>>H\#~^G}oj,CxIv]*[cKVpQjRAQtY[{]mE>D^'kaGRi~'>Te!j(T$GiuU@Q
+    $ZZo]In_L&]a_}}F5^3!,r@rKX5$eR}Ulk7k'XB?>1H;2jp!@AnKY2BAV!o]/Wx|~QW@!l;]Y,e=
+    [wZ=Lll<DiBTxzx![$DEHp{x]B<]7aEv@[VYnZQe[*jir{vi[a$O~[[Is1!ZwOiIm!aG+!5<Cru{
+    @pw+<Bw~UEn[5pusJ7ti+1J]1i]d!G---+A$Caaj"'?AIosae-<
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+  assign same_bit_check_fire_combo = ((areset === 1'b0) && (reset === 1'b0) &&
+                                      (active === 1'b1) && 
+                                     (({WIDTH{zivar[0]}}) !== zivar) &&
+                                     (MATCH_XZ ||
+                                      ((zivar^zivar) === {WIDTH{1'b0}})) && 
+                                     (same_bit && (!used || (used && 
+                                      (used_cond === 1'b1)))));
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        A_qvl_same_bit_check: 
+          assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (same_bit_check_fire_combo)))
+          else qvl_error_t(
+                          .err_msg        ("A_qvl_same_bit_check"),
+                          .msg            ({msg,"Not all bits of the expression had the same value."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        M_qvl_same_bit_check: 
+          assume property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (same_bit_check_fire_combo)));
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_same_bit_cover.svh"
+
+`qvlendmodule 

@@ -1,0 +1,283 @@
+
+                   Model Technology Technical Note
+             Copyright 1991-2009 Mentor Graphics Corporation
+                        All Rights Reserved.
+
+    This document contains information that is proprietary to 
+    Mentor Graphics Corporation. The original recipient of this 
+    document may duplicate this document in whole or in part for 
+    internal business purposes only, provided that this entire 
+    notice appears in all copies. In duplicating any part of this 
+    document, the recipient agrees to make every reasonable 
+    effort to prevent the unauthorized use and distribution of the 
+    proprietary information.
+
+    Trademarks that appear in Mentor Graphics product 
+    publications that are not owned by Mentor Graphics are 
+    trademarks of their respective owners.
+
+
+Workaround flow: Generic support for VHDL instantiating SystemC 
+===============================================================
+
+ModelSim does not fully support the use of generics from VHDL to SystemC.
+However, two workaround flows are available for your use. The first workaround
+is simpler, but only works for VHDL designs using component instantiation syntax
+for the instantiated SystemC module. The second workaround is slightly more involved,
+but works for any type of instantiation syntax.
+
+First workaround: component instantiation syntax only
+-----------------------------------------------------
+
+When using a VHDL component instantiation to instantiate the SystemC module,
+"ringbuf", do the following:
+
+1.    Compile SystemC module as usual, with sccom command.
+2.    Link the design with sccom -link command.
+3.    Delete "<work>/_sc/_<module_name>.vhd". Since the SystemC module is "ringbuf",
+      you would delete the "_ringbuf.vhd" file. (This must be deleted after any
+      subsequent recompilation with sccom, before the VHDL compile of the parent.)
+4.    Compile the VHDL parent.
+
+In the first workaround flow, when the SystemC module is instantiated using
+component instantiation syntax, VHDL already has the generic list it needs.
+Therefore, you must remove the "_ringbuf.vhd" file which sccom creates for you
+in the "<work>/_sc" directory in order to use the generic information contained
+in the component instantiation. 
+
+Second workaround: any VHDL instantiation syntax
+------------------------------------------------
+
+This workaround can be used for any type of instantiation.
+Again, we'll call the SystemC module "ringbuf".
+
+1.    Create a stub entity for the SystemC module being instantiated in a VHDL parent.
+2.    Name the stub entity "_ringbuf.vhd". Preserve this original file for future use.
+3.    Compile and link the SystemC components of the design using sccom and sccom -link.
+4.    Copy _ringbuf.vhd to the <work>/_sc directory. Be sure to preserve the original
+      for subsequent runs of sccom, which will overwrite the copy you place here.
+      You'll need to copy it over again each time you recompile. 
+5.    Compile the VHDL parent.
+
+When using this workaround flow, you must create a stub entity containing your
+generic mapping information. You can create an initial stub by running a
+preliminary run of sccom. Then, manually add your generic mapping information
+to it, as shown in the example below (_ringbuf.vhd). After you create the stub,
+you must use it in place of the stub module that sccom automatically creates.
+You must do this before you compile the top VHDL design. If you recompile the
+SystemC module with sccom, you must recopy the file.
+
+
+Example
+=======
+
+This example is valid for both flows. The file "_ringbuf.vhd" is an example
+of the stub entity, including the generic mapping information, which is only
+required for the second workaround flow.
+
+-----------------------------------------------------------------------------
+--
+-- test_ringbuf.vhd
+--
+
+PACKAGE user_type IS
+    TYPE FourState IS (S0, S1, S2, S3);
+END PACKAGE;
+
+LIBRARY ieee;
+USE ieee.std_logic_1164.all;
+
+ENTITY test_ringbuf IS
+END test_ringbuf;
+
+ARCHITECTURE test_ringbuf_arch OF test_ringbuf IS
+-- SystemC module
+COMPONENT ringbuf
+    GENERIC (
+        generic_int : integer;
+        generic_real : real;
+        generic_boolean: boolean;
+        generic_char: character;
+        generic_bit: bit;
+        generic_ulogic: std_ulogic;
+        generic_logic: std_logic;
+        generic_str: string;
+        generic_logic_vector: std_logic_vector(3 downto 0);
+        generic_time: time;
+        generic_user_defined_enum: FourState
+    );
+    PORT (
+        clock : IN std_logic;
+        reset : IN std_logic;
+        txda : IN std_logic;
+        rxda : OUT std_logic;
+        txc : OUT std_logic;
+        outstrobe : OUT std_logic
+    );
+END component;
+
+SIGNAL clock : std_logic := '0';
+SIGNAL reset, txda, rxda, txc, outstrobe : std_logic;
+
+constant generic_int : integer := 255;
+constant generic_real : real := 2.5;
+constant generic_boolean: boolean := true;
+constant generic_char: character := 'A';
+constant generic_bit: bit := '1';
+constant generic_ulogic: std_ulogic := 'X';
+constant generic_logic: std_logic := 'Z';
+constant generic_str: string := "Error Message";
+constant generic_logic_vector: std_logic_vector(3 downto 0) := "UX-W";
+constant generic_time: time := 1000 ns;
+constant generic_user_defined_enum: FourState := S3;
+
+BEGIN
+-- Instantiate SystemC module
+chip: ringbuf
+    GENERIC MAP(
+        generic_int => generic_int,
+        generic_real => generic_real,
+        generic_boolean => generic_boolean,
+        generic_char => generic_char,
+        generic_bit => generic_bit,
+        generic_ulogic => generic_ulogic,
+        generic_logic => generic_logic,
+        generic_str => generic_str,
+        generic_logic_vector => generic_logic_vector,
+        generic_time => generic_time,
+        generic_user_defined_enum => generic_user_defined_enum
+    )
+PORT MAP (
+    clock => clock,
+    reset => reset,
+    txda => txda,
+    rxda => rxda,
+    txc => txc,
+    outstrobe => outstrobe
+);
+
+END test_ringbuf_arch;
+ 
+-----------------------------------------------------------------------------
+--
+-- _ringbuf.vhd
+-- stub entity for SystemC module
+-- You don't need this file if the first workaround is applied.
+--
+
+library verilog;
+use verilog.vl_types.all;
+library ieee, work;
+USE ieee.std_logic_1164.all;
+USE work.user_type.all;
+entity ringbuf is
+        GENERIC (
+            generic_int : integer;
+            generic_real : real;
+            generic_boolean: boolean;
+            generic_char: character;
+            generic_bit: bit;
+            generic_ulogic: std_ulogic;
+            generic_logic: std_logic;
+            generic_str: string;
+            generic_logic_vector: std_logic_vector(3 downto 0);
+            generic_time: time;
+            generic_user_defined_enum: FourState
+        );
+    port(
+        clock : in  vl_logic;
+        reset : in  vl_logic;
+        txda : in  vl_logic;
+        rxda : out  vl_logic;
+        outstrobe : out  vl_logic;
+        txc : out  vl_logic
+    );
+end ringbuf;
+ 
+-----------------------------------------------------------------------------
+//
+// ringbuf.h
+//
+
+#ifndef INCLUDED_RINGBUF
+#define INCLUDED_RINGBUF
+
+#include 
+
+SC_MODULE(ringbuf)
+{
+public:
+    // Module ports
+    sc_in clock;
+    sc_in reset;
+    sc_in txda;
+    sc_out rxda;
+    sc_out outstrobe;
+    sc_out txc;
+
+    SC_CTOR(ringbuf)
+     :  clock("clock"),
+        reset("reset"),
+        txda("txda"),
+        rxda("rxda"),
+        outstrobe("outstrobe"),
+        txc("txc")
+    {
+        printf("generic_int=%d\n", sc_get_int_param("generic_int"));
+        printf("generic_real=%g\n", sc_get_real_param("generic_real"));
+        printf("generic_boolean=%d\n", sc_get_int_param("generic_boolean"));
+        printf("generic_boolean=%s\n",
+               (const char*)sc_get_string_param("generic_boolean"));
+        printf("generic_char=%s\n", (const char*)sc_get_string_param("generic_char"));
+        printf("generic_bit=%s\n", (const char*)sc_get_string_param("generic_bit"));
+        printf("generic_ulogic=%s\n", (const char*)sc_get_string_param("generic_ulogic"));
+        printf("generic_logic=%s\n", (const char*)sc_get_string_param("generic_logic"));
+        printf("generic_str=%s\n", (const char*)sc_get_string_param("generic_str"));
+        printf("generic_logic_vector=%s\n",
+               (const char*)sc_get_string_param("generic_logic_vector"));
+        printf("generic_time=%s\n", (const char*)sc_get_string_param("generic_time"));
+        printf("generic_user_defined_enum=%s\n",
+               (const char*)sc_get_string_param("generic_user_defined_enum"));
+    }
+
+    ~ringbuf() {}
+};
+
+#endif
+ 
+-----------------------------------------------------------------------------
+//
+// ringbuf.cpp
+//
+
+#include "ringbuf.h"
+
+SC_MODULE_EXPORT(ringbuf);
+ 
+-----------------------------------------------------------------------------
+
+To run: 
+=======
+
+% vlib work
+% sccom ringbuf.cpp
+% sccom -link
+// If first workaround:
+    % rm work/_sc/_ringbuf.vhd
+// else:
+    % cp _ringbuf.vhd work/_sc  )
+% vcom test_ringbuf.vhd
+% vsim test_ringbuf -c
+# generic_int=255
+# generic_real=2.5
+# generic_boolean=1
+# generic_boolean=true
+# generic_char=A
+# generic_bit=1
+# generic_ulogic=X
+# generic_logic=Z
+# generic_str=Error Message
+# generic_logic_vector=UX-W
+# generic_time=[hi=0, lo=1000]
+# generic_user_defined_enum=s3
+

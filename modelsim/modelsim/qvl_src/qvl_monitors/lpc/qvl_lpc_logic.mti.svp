@@ -1,0 +1,893 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/***********************************************************************
+ * PURPOSE      This file is part of Questa Verification Library (QVL).
+ *
+ * DESCRIPTION  The LPC monitor checks if the Low Pin Count (LPC)
+ *              interface functions properly.
+ *
+ * REFERENCE    Low Pin Count (LPC) Interface Specification,
+ *              Rev. 1.0, Sept 29, 1997
+ *
+ * USAGE
+ * 
+ *                    ISA                        PCI/Host Bus
+ *               <--------+->                  <-+------------>
+ *                        |   +--------------+   |
+ *                        |   |              |   |
+ *                        +---|     Host     |---+
+ *                            |              |
+ *                            | +----------+ |
+ *                            | |  LPC mon | |
+ *                            | +----------+ |
+ *                            +--------------+
+ *                                   |
+ *                                   |
+ *                                   |                 LPC
+ *               <============================================>
+ *                                   |
+ *                                   |
+ *                                   |
+ *                            +--------------+
+ *                            | +----------+ |
+ *                            | |  LPC mon | |
+ *                            | +----------+ |
+ *                            |              |
+ *                            |   SuperIO    |
+ *                            |              |
+ *                            +--------------+
+ *
+ * Last Modified : 17-August-2006 
+ ***********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_lpc_logic(lclk, lreset_n, 
+			 lframe_n, 
+			 lad,
+			 ldrq_n,
+			 serirq,
+			 clkrun_n,
+			 pme_n,
+			 lpcpd_n,
+			 lsmi_n);
+
+   parameter Constraints_Mode = 0; 
+   wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+   parameter LDRQ_WIDTH = 2;
+   wire [31:0] pw_LDRQ_WIDTH = LDRQ_WIDTH;
+   parameter RETAIN_DMA_ON_ABORT = 1;
+   wire [31:0] pw_RETAIN_DMA_ON_ABORT = RETAIN_DMA_ON_ABORT;
+   parameter CHECK_RESERVED_VALUE = 0;
+   wire [31:0] pw_CHECK_RESERVED_VALUE = CHECK_RESERVED_VALUE;
+   parameter ALLOW_LARGE_DMA_TRANSFERS = 1;
+   wire [31:0] pw_ALLOW_LARGE_DMA_TRANSFERS = 
+                 ALLOW_LARGE_DMA_TRANSFERS;
+   parameter ALLOW_DMA_AFTER_DEACTIVATION = 1;
+   wire [31:0] pw_ALLOW_DMA_AFTER_DEACTIVATION = 
+                 ALLOW_DMA_AFTER_DEACTIVATION;
+
+ // These parameters can be used to disable/enable the checks LPC_30 and LPC_31
+
+   parameter ZI_CHANNEL_CHECK_ENABLE = 1;
+   parameter ZI_BM_CHECK_ENABLE = 1;
+
+   input       lclk;
+   input       lreset_n;
+   input       lframe_n;
+   input [3:0] lad;
+   input [LDRQ_WIDTH-1:0] ldrq_n;
+   input       serirq;
+   input       clkrun_n;
+   input       pme_n;
+   input       lpcpd_n;
+   input       lsmi_n;
+
+   wire [10*8:1] cycle_type_str;
+   wire [10*8:1] field_str;
+   wire [7*8:1] size_str;
+   wire [10*8:1] sync_str;
+   wire [8*8*LDRQ_WIDTH:1] ldrq_state_str; // This string will indicate the  
+                                           // concatenated status of all 
+                                           // ldrq lines.
+`protected
+
+    MTI!#~,_{'pJA1EJuQGi<?V#s05'T<3QUJ<EtFqTN":&tF|/^UpoBGDip\,lK_WAG-m}!Bop__nV
+    o3EA'V_2Rz?;8}-mW]qHsj'$vWrEzI7Crjxl,JK3IkBMyz'+Y[DT;^^'H|>Vsu-xx7;_uk3Q$['G
+    nRGW]i~x+vzO!7^=re7@,eB9ZT_W[B{[QX,[;z'~<1s=w<,2>Nk+Y}_j[~(=v+!HRT;1-][}Cs'o
+    ?X@,Cn$W}pA$K>Am}zCR7a~%5CnJ=l#_mYD]-<V_OCITV[p]1JDOp1n{X[W\1lKo+{IZ[@A7CK-,
+    rR;[z~G1*B*D]T>]3Rlik^^a[p@1vuTQ5TDw:EI1K$_~-Y<*JyQ#{KG'TQi7W^jkwX=RBA@XQmpz
+    u+pl-OmRYV%IJ*Y]T1>El=TI=]+B{,T_u'[>a][^E^$!lz[2$@]jvkkR?^?.:T}VG]ZeC'm*W%,3
+    YG1v~=FI5K$<A!kE^WA.Ot'zl?,'zDaOzo*l!D+Tzp]a7r0wDJOci*,$J[}?+X<Kok<Yl@[Y7I]J
+    =+A~=z;>cIO2Y+D_[8x#[xx@5-.iV;_$X!Rp-n]I*[lRkTu),I<RNe)o:[?l{&em_+m_~HQ!x~l1
+    -]"k[;$]k{'ts;7kj@7prNr?_i#Um+K]IZjH=Yl~px73o>2h3UXU$,Qe}wp\1oX3VEKl>zW!Ap72
+    jjXC@*rrITOT1DisOk9!pQ{J7IOt[--D*Gz~Q5=U55!mo-'+#{~vipD@hTrO$t31]$AaJj"'ZA-o
+    ]aV^7
+`endprotected
+   /***************************************************************
+    *
+    * store lframe_n
+    *
+    ***************************************************************/
+
+   wire	       z_lframe_n = (lframe_n !== 1'b0);
+   reg	       z_last_lframe_n;
+   reg	       z_lframe_n_reg;
+ `protected
+
+    MTI!#x_RuDOQ?-{\wKnv{OujV=}v-2v~{wrvrFL('/"[{r<|&YABWmCQnoAXJzU!-Y>{uJs-'r_<
+    x,'Wr&Yr^kd1JQ##VE_6=UF}>nR;7KG%"pK\TiOVx}sm=l7<{kUe=^U[_[a{GCoVKs8~'#$6#_\*
+    u[>}d$IOQGH,=Bnl;IT3!eQBOuYQ~ADuZm=zk'v!Qm+VRAEVn8<<Jm\aYa\lxI()M!V1<R<^~,3w
+    ^\AxmI[3QrO$a~l~^ax3$lmna]}_a@YK!XnIvBKu\kBET!^~JI}W=}W,T1[S*O}C5A\>gZsi+s,D
+    RlWY@OuUon[a#VZ$ZcYa<{t-Y[^{9LtkzAvT_w$_UUR"$%XU^DRQ'
+`endprotected
+   // start on posedge lframe_n
+   wire	     z_start = (!z_last_lframe_n & z_lframe_n);
+   
+   // abort on negedge lframe_n
+   wire	     z_abort = (z_last_lframe_n & !z_lframe_n);
+   
+   /***************************************************************
+    *
+    * store lad
+    *
+    ***************************************************************/
+   reg [3:0] last_lad;
+ `protected
+
+    MTI!#JHQG25?nht;Rv=m\{<{\3plQ7V3=>7+'#=Q$i["[Jl7|o?Ds*\X+81-ZknUKl+w,uUD]3](
+    #5[*rusKop<D1Z;TKjKB8^=$<=W7'iDD>6:E\oY_=V{XYuujpAH^,eA|Ls>HAi<*ElAADca=l+~=
+    xsu$#sICCvQ1},U^2I_,IWe_+'7Bu^k<YDR?HH1?BR+<o##w5oKo^E#<P#Oir;j#}[{^^[$x?B+I
+    j7JCul>*BKnr^!e!j^ol,YQDZ+RCvdv\mvAxY>ZRT2_T1[';+lymw$Q}WA~B*TH_2$
+`endprotected
+   /***************************************************************
+    *
+    * LPC start type  definitions
+    *
+    ***************************************************************/
+   
+   reg [1:0] start_type, next_start_type;
+ `protected 
+    MTI!#?z^QP<Rx*<IEW2RB;;O_<lO,zz_VzzAV[zmRW=3ou^s,CEGA5zIiCZUV#Xa3!Ia!Rh=3*?-
+    B'>V.F7_7zImGw3jD2e?>[I>GZtC=VHFBE$2OQZs#E[i,=5*Ur}C/o>1kLI3B}y}$jU!<Y*T=UDr
+    Vu{U{7T'^-\G'+k^@su_tB{@nT=o}2r5xFk5~=FPah(^?K;~=oUP7D]Oi,KVuHGi0'B#$!+en_zi
+    ^JGm3G67^?shB;HV7$Jr*x\=BiJ2-E'[~D<^r4[C;>XI_U5e}A)!wA7+'>mHa<,>]:IO#rExB<]G
+    QlnDKeJ]7{wCml$k<n^7]BhVW]X,e@2|v{]il{JeCKs-dUUuVAriai_X',nE;seo5;>5'j*XnWRr
+    ll>*>?GZ+lsVD9Z]2TQVKp5r~+P{O;zD[[5s*pWBjBE?jKBE$?l7]RxV3*VT$,$$5^$C'z[n{\=C
+    nA]O@OAz+1~CD5+Eewss^~-2Q11v~7s|DQjD<*-]&P=5nkr>Dsp~<Hmo-@Bnx<|oA1ZIOAX{V?#\
+    {sU-[OYG1+>a'TwRZ=$'I1w&X\1^FuCmAn]pO=]IW5IZuS8j1@l'1&C]3\U*@?,Z=i<sA=iGH#pZ
+    ]2Tv;7<Yz@x?z\o*GB>ww+rrw*RNY'jwVs>n^U_DR*1Z_HBB%Ge[!a]Vovj)5=~=Ix}DSxBTp]*.
+    ~C]EQ>n~aC*J)12X[pB2Y^lB5U\v-l>E<BB\D]UG>p23#@j;@VuBoxTnlq5DX[U=3[!$*$y\3]#X
+    aE\JE2aZl#RepAu#Xz$n5K1[P'YZKBrRa
+`endprotected
+   wire [12*8:1] start_type_str = start_type2str(start_type);
+   wire [12*8:1] next_start_type_str = start_type2str(next_start_type);   
+   
+   /***************************************************************
+    * 
+    * LPC Cycle Type definitions
+    *
+    ***************************************************************/
+
+   wire		 z_doing_bus_mas_op = (start_type === STRT_BUS_MASTER); 
+ `protected 
+    MTI!#[I$H3xBaYewpkYxaQT7UjYumz*2QlO[w=;Qz~s"[DDR=;~zK$#UIJF!5TT6}U}+}xQk]?'@
+    ^rmoP-$]v!wa^}k{1kYABP62[D]5*@u*>VGu<Cr.%YC>oVC1eI%'r$in'*Uh}mJRIeUeRRTH__\m
+    l+^]1O,k=BW+x?>[V,'!Na5r;~'JWrOzl*-G+1pH#>AOUzmBjojWYZrIWNxAj]=TpG,',_vE$WI}
+    #Y7uVJ;CQ>WX2$p<pW.B;x'}=]x[sVZToCE^J!O7*j;smv2KQU@|4?joO3O>lV@KCVnQ*z}voYVo
+    D\QWu[;]AQkA=!jT$AX><CW+TMNjmu^oEH?Yi
+`endprotected
+   reg [3:0] cycle_type, next_cycle_type;
+ `protected
+
+    MTI!#Yv2*txv#a=7}zl3}Go5Y+,kV?PPH[=VFB4@'k=/<CI,|.q1'p[7\@B%eZ3@!j@@A}=lv'i>
+    woR7k=!waQ]!<]QBAxaIR?-E|p-+pDCr2V7#D?sH;xI^z+1*Ar^[}G;Eu'HO-B;n5IDJOyI]#_fU
+    +Pq14"*=zpp~\w7f+1[2-$T*'B?!$WTVw5m{$<Ts^T7a~Y]pyvW]jY^V2$u3mN?H[^}JuKn]mvuX
+    V^Om5;7s-J,=i'O++?#$}]<\J[a'-v,p@I'H7?5E]v;l3~=EAKCBYQmwHUmt^\<J7@1{2s2u-1E[
+    5r~\r'}sO]iU\_R]{rB5mnlrLQ]AQIipi1ZpkuC'EQ>+ElmRQElIIA}[Kql[js.h:>OX2IA!*K_^
+    TgvCe+|(12H}w''<s%n>@p:e,5;^1$>j\{V]9ecXo]rlKZAEH<}-juC$DD^Cz*u+o_Xv<WnxJJVV
+    I7}nRx1rW>2ST$D>OKKDRHnYx_,$A$Qr=W*W)YRU;sl#~.m[nV@YQJm';[$D3Di*YK'>$Q3x1vCL
+    @w,<e?QQoD*7|K5r$,{T2K]x]GK!QV[oYQa7Z0kQ2uYxx*H=jRWa<rCY>r$7p{m>J[5Ha?*1w#D@
+    ^W<HeIGB;x;o~jM|m'R1\V|mXx[nXB$pK1p+DR+W-Wl*Y~{[DlR7_ow1evJz~ue*a]#Q+ROtpK5J
+    O<mXHU{ZT[p3_s5DG1p;'3K_AxeGIp_;oJOn]R[#EeHQ-=]\vQv;C{]@21~pQ?zs7}Y?E;a}Yv[!
+    =naA(p5!,?s~JB}TrHGzl!vWGEO'QFvs2ZURlXI<H_pVDO=^l5I[me)fWjnQA=;sGs1;2>p\[e7H
+    \Xr7BI$?^~nBE_Gk'1~=}2$,d={V\j3x2x_ix*{2Kd[c0fFQ]Twv1_lN(a7ou{a*X5Ro\~]rx]a;
+    v}zQO(,V\@ZRl,W}HZXlkC2GH2(K>{=-V~WzsovaT}kFNB;H72sYov#J3kUX<y.|4{_aEXY1p
+`endprotected
+   assign        cycle_type_str = cycle_type2str(cycle_type);
+
+   wire          z_dma_write_op = (cycle_type === CYC_DMA_WR);
+   wire          z_dma_read_op = (cycle_type === CYC_DMA_RD);
+   
+   wire		 z_dma_op = (z_dma_write_op | z_dma_read_op);
+			     
+   
+   wire		 z_host_mem_op = ((cycle_type === CYC_MEM_RD) ||
+				  (cycle_type === CYC_MEM_WR));
+   
+   wire		 z_host_io_op = ((cycle_type === CYC_IO_RD) ||
+				 (cycle_type === CYC_IO_WR));
+
+   wire		 z_host_op = (z_host_mem_op | z_host_io_op);
+   
+   wire		 z_bus_mas_mem_op = ((cycle_type === CYC_BUS_MAS_MEM_RD) ||
+				     (cycle_type === CYC_BUS_MAS_MEM_WR));
+   
+   wire		 z_bus_mas_io_op = ((cycle_type === CYC_BUS_MAS_IO_RD)  ||
+				    (cycle_type === CYC_BUS_MAS_IO_WR));
+   
+   wire		 z_bus_mas_op = (z_bus_mas_io_op | z_bus_mas_mem_op);
+
+   wire		 z_mem_op = (z_host_mem_op | z_bus_mas_mem_op);
+   
+   wire		 z_io_op = (z_host_io_op | z_bus_mas_io_op);
+   
+   wire		 z_rd_op = ((cycle_type === CYC_MEM_RD) ||
+			    (cycle_type === CYC_IO_RD) ||
+			    (cycle_type === CYC_DMA_RD) ||
+			    (cycle_type === CYC_BUS_MAS_MEM_RD) ||
+			    (cycle_type === CYC_BUS_MAS_IO_RD));
+   
+   wire		 z_wr_op = ((cycle_type === CYC_MEM_WR) ||
+			    (cycle_type === CYC_IO_WR) ||
+			    (cycle_type === CYC_DMA_WR) ||
+			    (cycle_type === CYC_BUS_MAS_MEM_WR) ||
+			    (cycle_type === CYC_BUS_MAS_IO_WR));
+
+
+   /***************************************************************
+    *
+    * LPC Size Type definitions
+    *
+    ***************************************************************/
+ `protected 
+    MTI!#DsJG'v}oJSs!m]F-=]Q}{1Tx7T@=3v'|,?V5=~l{ru7~e=k$'[}BDO$j*Ap_[3KT5a,[dl>
+    pTR;^V}2J_lxOaH5*-Y*wI|^_3eqCY^V''f<[{}QZ,o_mJ{]jH^'!<ZHGJ#Q_a=G-H2TU\,_K~[$
+    Ra75@!'z/^K;AW}vO5#<Rxl~CN@O[[K*B'6:V1u1a\[~Wv=J$$?Y3U$^lOX,_+eC~Xn?Q<r[lr1o
+    ]o1CJU-XkVG?HC;TI8ae^w?5?X}OU*I5aw,\oXQ#WpYXYE5e+oJ1TuBGazUn1[v[HJB0^+[[I1{{
+    _j<$@>H<'R}R2j~IQ_kkzXeX?'AIwr-'52lZ_XwK*BBJY}Kp~x#[/,Aj[:z#IT}nrVpZD\r}?[Ce
+    ZKl['B
+`endprotected
+   reg [1:0] size, next_size;
+   
+   assign size_str = size2str(size);
+ `protected
+
+    MTI!#mG~zz$!>GO'[An55~v5$^RQ2Dms,@j?A[%~Bji]?<Woe]Q|^_UwcQcH}7'a<n\1-{!o^\Yz
+    r;7VJz>5kTXoH-!aRip},~~p;e\IX=#9jb\2'Zn1$+2}kxlWZ_DOR2YlIX]IQ+j]k=pYo@d&7Fp?
+    =^)<=T,'\kY5'TQYHI{!<B1-6jQ=^-n=uo+!Y&.[>A;=ZpX'FcvvOY7-_kUl*?O!m,'ENLeW3~^o
+    G;#T=@vX_uGCaB]5l5H_@!wCWRIz<oI;=>=E\DOlOv3]-KX>~j=GKWV5;HRIRre#7e2V+mru;[%2
+    B#~BLBmTUIaOADTvGz?Eub]DI^{E<vY)5H@'=HV,I7TRo=Y[so,K}+[5B2o]Q2rxNBou$7pj'=;{
+    =)pKC}~E]WH17V]K2<A+7mq.Q;z=BxxzDjQ=xQ7p=^,k;=JXYU!^wXwAr?2u#neAVl!{V?$Y'l*a
+    ^3RBV}XEE>E]R3C+Vno1Tn@34lUHB%mz-H{5AsrkDxR[Ywj"*#$m$rzWsK3Hz*Z~Je,r6-T[{657
+    -xwaKaTBpa7?+Q3aex}]x}DO[iaU}72C{15s1{kI#!BkaeiX\$KaAT+RU<Z*X-uo+^?$_Dr?-#zO
+    =21eKmI{AR]l?[^Z>OgEH]n$!m-W$*E1.D=11@NJapv_'V@#T^5'HYsar@$px_<VDi'v|H5!lRQa
+    wjbepQxI?Dk-HaB@>{EgRk]u;wo=G_we?RE52l,{@_.Uol$x~5e591u+Z{p+s_$*YZH']iIbU]];
+    *Yrw[7$D5[,r$AV~5G{DY*aHA^7nEiTGG}Wa@\#5?}au\Eint<*xE}KXUT{WruUvmb-B}[.?r+U2
+    s~uQ?D@5*E*7?ZH{$-aw<+CWs,x#-1pxQ->3C-3P=t!O]@2t*m8|OJrrcwUK]x?nsw1kuJ*lE']p
+    ~
+`endprotected
+   reg [3:0]  sync, next_sync;
+   reg [31:0] sync_counter;
+   reg        reset_sync_counter;
+   assign  sync_str = sync2str(sync);
+   wire [10*8:1] next_sync_str = sync2str(next_sync);
+ `protected
+
+    MTI!#Y,QkYZQ5nR~{QO2]%)7Z=!u1R_\zWzxR#U1R{[Cuow![<uNwXI~'F5{2]F<]@?1>-'g<H]-
+    [T[eUH2uEY5QN-}w'O6ZC#sfBjC{^TRJ2pepXU-v@{x@_ZA[VvHE1n~#@'D?]Cw@!7Ua[xA-:,'?
+    oHY$YmnB^:JsZlp,XTsRuk>{o*v_E@!U[i\Pz3xWe=s_x[<e)KTlZ9Fw1?z"|^po[1-zr;R{537H
+    pQX*JFBZ*Jqr++m_{l!>r#3p\j@*]mp^_peA\<oa5Yxt{}V1V>X~B~vz,Hn>[lvr[T+C$HY^[$r;
+    Lv=aWzZH,[Ax;12O+,rm^p;'AKURAJYjk}{V@a$;oGHEkEpMAp+Dw*@\<QpCCI@!9w=Buw\!EW$z
+    K/[,1[r@~A|8n1O$Ca@}ICQEW1?ur]\K~OuR
+`endprotected
+   /***************************************************************
+    *
+    * LPC channel info
+    *
+    ***************************************************************/
+ 
+   reg [2:0] channel_number, next_channel_number;
+   reg tc, next_tc;
+ `protected
+
+    MTI!#lzpx19YZCRH^+B{$Im/c\?BTU+JWtK]k}@>Gi/=lwkt?s@~1BD17@JJrgu[sKoLdL7w]VBU
+    [,UI2@E*5YN{aOoI-7-IvT]EH^p]plo7i'*!R!+\vIpsWlV;7}*&CJ;[/r_UErXwwU5Ws_u\!iC-
+    $A1Q;x}rQ1;]_oilipr+7@X1pD@GpeZW*_oiog>$n*[z'irBvUBUB!,J]3qsjpJ^3<}),W&vT2eV
+    Hl+DZJ#hk1[a=DW~'**>Rc$;jipK-X}=O>@Dks(|^ZpOa+D{2auV#l'{?z{KmYA7}pm$+<xp}GY*
+    ?rGv,r3plpQl<Xw1oU;1jlH]E'x<?vTE~E<k!j-CRm;Qr3[~[~AHcjE+UiN7kB<Gn+n'3=
+`endprotected
+   /***************************************************************
+    *
+    * LPC monitor determination if host or peripheral is driving lad
+    *
+    ***************************************************************/
+ 
+   reg  z_host_is_driving, next_host_is_driving;
+   wire z_peripheral_is_driving = !z_host_is_driving;
+ `protected
+
+    MTI!#s'#Arsp\sQV!.W\z$o{R{WYu>Yapl>pD[y-\bFB+<k|Y3@~K}@~}~vzQ$?sG;$^(!j2BGA{
+    @o?GQ]7{Em^6NYsz$mo_1_o{[{DDXx-$Z,Z]17kj]u*Z@~75WRwGW-rEw-[,}];puo-wE%XR+xR<
+    ;sX<[TaR@A=H{I^nY?;Eia-5+;Hrm{I_!IYJx5Fjj+7F3{1#rmYir+V*&|HnX<b#xD?bjz_uSV$^
+    \AzI*VnQ;e1kxW_Y]X{TCHR#7}1lIJOj@BXUH,!3>iGxoRn[uKOJo>GHe{ar}l+{@}2Y=|g*O,Tu
+    {e*}K{BYITGRG$
+`endprotected
+   /***************************************************************
+    *
+    * LPC monitor state counter
+    *
+    ***************************************************************/
+   integer set_state_counter;
+   integer state_counter;
+ `protected
+
+    MTI!#,Y+7_n_<$xsGBv>RGRnsAT~m<*7'-7B{FBy!$#})(Gew{N!{5[6f*+Vrt,m-ZmT7?EeX\vr
+    3<oJj>hf@rXT-pDQ.=}-p\zY'*7]#5UnJ^B<x=3xZH+<O]2175xZ]O>+zeiz;D@D+8Q'B2g9U'n<
+    [wX=ZjVi6.=Jxo73mpr*D!>v=[EXW!W]3@KHn_^O[Qej<n=+oBAH2n]_3=IvupHnRipWrHu]7Qa&
+    LR^V?^Q,E[*ooZ${@$?wH>w}{:25>Y-X{B0>R;XTTu2{pnTIoxZB#]]-j{pmCw@hO>DRr_2,TXwK
+    ioBm}?'O|X>leI@_\a1>vt|/e~$DfsZHTi5oo6!a7+FC3suC-ZGO<
+`endprotected
+   /***************************************************************
+    *
+    * LPC monitor dma_transfer counter
+    *
+    ***************************************************************/
+   
+   integer set_dma_transfer_counter;
+   reg     reset_dma_transfer_counter;
+   integer dma_transfer_counter;
+   reg     decrement_dma_transfer_counter;
+   reg     set_dma_abort;
+   reg     dma_abort;
+   wire	   z_dma_transfer_last_byte = (dma_transfer_counter <= 1);
+ `protected
+
+    MTI!#=[J<0<E7eQG!EBI=^T{Hw^w<w5\^;w*s[y#p]i[i\#<D[iFQCe^^@eYitI>^p#=nHQO=zps
+    i_{or7J=iwUYT!T]+7A'aG1<IEyjp{!rz=XzPH1-VC<I=l@muh3jiH!Y!JgkDKDWA-Kln1Z@l'p1
+    $37}++D?[]l>jZkj1Koe#$;aX-v*lC@=?H]a+\$5C<>=ICC;Gr[=3<oP#V1]qa7T2}@Qp4wR?+-8
+    z;nj#$RJ2GYTC}^Gp#J?~}*CTrAB*V3#U{2u]U{eD[p[l3]Bj2Jz[kH;Fav3[=5~p^CBu#hC3ppE
+    O'eq\AWAJ<R],Q?-$]{}z\^e?O#o7W=V#,uU;-o@1,u+{^1T8#B2<ORX{{D]~qYBW}RII<#oA@JV
+    iw#$?KY-@j([Iu3FraK[toV]\QQ2*>_x$]k4h]Apvzu~<7Xav<wj21}A}rnRe~-+#a{+Y{oeD3_R
+    O=Cn}<[5[QB_#DQs^a7\#9(hIlAGOQ}#LpJsi]v+Q\W{n0{q77u=rvo2]G!so;axrHlU$^Xw+[+G
+    [Bi$AaTJvu3W[KTJz$-,H7BJ=uv#C@\<n{HD7Q@-TYI?>oA}RRXTY}-,m5[anx$'2Ta]}4!CmHGA
+    m}w=v=}!C<aY,kv#I@~}R-^O}{K7ArH'3V]'2JG+Ax@z3G[*I?l=!17kEj@{<_[@vB@73EZw-w'U
+    {[m]e~/!'iGp?OZR>=H\}-I'vX2JH*^Cao'3A^'"UV33jBT3elOJwHCes5XIZ+uO}$*;oal,Z]#w
+    UY=iax-C,,11E@Z2{T+aB}>m=kGmZTZ<$5{Q)D+{ExewaYA!e3Cn[iGRQKO~li_7XJvAA!Y3Bgjz
+    o}}1,Q052+aD\W#Xlko\O+#*3p]1\X,X=\{bAO-2[^7Tx\VC3$B=xwJH7VIze*k]l_]Hox<>wX!Q
+    iYw27U!\R^?oUa,-oE+\1H^*YITs7H3oasj'?e>mBJnkz[JBOk<\x#w'e}>-5jZwW+p3B*1i?B<z
+    *T2CPr,X~<HRn}7EozBi@GART(%XoInJs[o#+{]SUwE3.p@YuIAm>1U1,(xSl_IXtw*\lImQ,^xU
+    $vv>7IOv]!7{?TDT$}OwX*R~+[#{5@CiD1^mT]HVeB-B@!Ei]>^KEo^QA
+`endprotected
+   reg [3:0]	state, next_state, last_state, last2_state;
+   wire [10*8:1] state_str = state2str(state);
+   wire [10*8:1] next_state_str = state2str(next_state);
+   wire [10*8:1] last_state_str = state2str(last_state);
+   assign field_str = state_str;
+   
+   reg dma_write_odd_byte;
+   reg next_dma_write_odd_byte;
+ `protected
+
+    MTI!#AXl5wT]=r}Klx'{lc^2OwdfW1XpCWe$}Z<WSF"YBBi|/!TVsRXwkKX]GEJ~@!'u]QGI>TX[
+    s,aW]{aeK{Q;[aC<-?CT@^I#Ap~p~ywH{lAYJ7?+z\}BmD-5C<TxJ5wpml;CWu\~=z\7xC.vZJk;
+    jz]vuDY!asu};paZr_5u{O]Ye1xHX1=v<AGHAxB,z7z@$l!O32$}pA7\,,uB>Y';]"QO+2Ox^<]G
+    QlnDKeJ]7{wCml$k<n^7]BZxQ^@s1l(|v{]il{JB=,vHT$eBr-_^v>e\.j3\zV2Z_\,EnOJ*[0w}
+    3n=,A>e)O[~-=HEvoI>+@j-Zbz?=<z$*}T1kABJ<swTz!SK>ClA{WuPteuZ*^^xkD\$C]BQ$pN^-
+    Q*BT'$YJ;[sI<D[<zY=;on$3GrTpoUPsw]mxpDE{{{!&c#tuC3l,I'mHx?Y!lR=<EBDG#1u5'#>E
+    #jGZE<!me$V[+@27>]-^Wsi}[^k}^+A|9lGCn'z,xR*C@QET$-[?<U7.Qn@kgm7?J#+;[CT,=MK'
+    ;oxA!+G_Vi!si'QG_JAY'1QY5s[_>A^A-;Ip7i|8li>BOC'j'UB+IQmC?^}~.YA$Hi[@v7!CQC@I
+    w!,*i\YORLiE>WZ[i^O'K{1n>xjuvezeDQoR#p{$5ArKO<%Q[{AI!~nJ72'EwD7=UuCXp2OR7iNg
+    GWsYuY7*K]i7x\XY3qpJ[iA'^=R8a''iBm3>2=jx\i>r5UKn$K3QP:1mPlAa,%#53H-A5J_;WZTj
+    RWzxwlV><zAlmCG]OkuE'#QzAu^I-s=,p*k7\^}Z^W%HCk]eKTjE7Z2e-w\B+$[eJ[i<B[fr~}Bo
+    ;YV[_nXWDiWxnI{w+UEK\K[T+K^5T@=x>u{!w>xU$G{YAY;37{@}lnj:m1]_a>,-]+,ip;J=r#3,
+    ToJRO2~[KTn~^K1+\iaeB*$=6_}IW=Wp<Y!se1Swr_o2On~e1Z_l*mE#Y+;qB^iXb;D-QAT{[r&)
+    kARiQEA-DOlws!BR?}lWX>T=I5?}IB!Y1X^!.HXCT:CK-}7#}kvC;5xE@HF>UQ>Dw,sUH~HEg'[e
+    jxuRn'O;?~r@R1,^}>I]scqI@@AHC5#mI.>A3Vf^={nou\^k}+{{V,[=OKxuAHs3r\]FF}2XKcV]
+    xi*p<A],oA7wD';EZ}ICAOSEm7?7G<p;O#w}^n1n>A5{wnUD{m3CCI[EpzuWjU7HU{T7e^?'4#Du
+    jisl^?{p^5=i$W'!jEvABBB13wO_AJrI}YO2o;n!{!xmwRsiR+=WG$x!Wg1[^*pZ-#="/npY{I7~
+    2VO,xI}Smx?=5I2a-AzRtI7rAr,iI|=#^UHIji?EH#K5iZT'i$~I5E"C}u[*nTU5}$wj<>Wv?5?O
+    3plCWB?x*KaHr>_os~=OK3E@CTwE~o!sD}i-7s'+7Z!J$Vi1En-ovEuq~5Yw4^3Dij$aloZC?bHT
+    IW^uO*N,WreZ+mZ2j3JsYZYln$sk5~#U,<=}'rQ5O*Hih\GDkv-EH-AT$GQ+#R3BksHW<mOI;E~1
+    sEAmV|a_Y^~=\as*>KG>>$U1p[DrU?<[$\h:~HEwd']EOiGQi_p^!;_5\VIsEl~3nsXw]jT+*s~&
+    oF?wXum]\r&3OAJl}*m-AeXAn;;'IB2=oU{'rp\L6WYK=?'?,3epD@sWa0WO<;'i*wyTTA+AoiT/
+    zYe1g^<
+`endprotected
+   reg [(LDRQ_WIDTH*4)-1:0] ldrq_state, next_ldrq_state;
+   reg [(8*8*LDRQ_WIDTH)-1:0] ldrq_state_string;
+   assign ldrq_state_str = ldrq_state_string; 
+   reg [(8*8*LDRQ_WIDTH)-1:0] next_ldrq_state_str;
+
+   // These temporary state vars are used within the loop to update strings
+
+   reg [(LDRQ_WIDTH*4)-1:0] ldrq_state_tmp_reg, next_ldrq_state_tmp_reg;
+ `protected
+
+    MTI!#'W']\O_nKUC+CQe]7Dv21@'}=VB=>=lzFl?[R=#o#Q}llFq<aO~=;!+}H{_naX,'^UWlG*E
+    |,VTr$i5?JD7]/TvZ>axaBz?-E|p-XEB2EY[CilKRZprTGu]2vGpBRW$z+ZI&W1#-vROoG>v,gei
+    lnjmG-}K;{n5x@*vBOm]oZD[ZnK<n+lA<zrQ**M'?xIiTn[IIT[e~sA=~C_[~KUJUs\sn-@2]VX]
+    _A=~{Z~W_;]1+HkIW7$_jo[]asm=Wp'K8ZalRYC-?zr\C[TrE;wjxOWV1sQ^rB~,+PYxzn]v=O#h
+    6;zu=j;XKv{vD^WB_E$WkS5*Vn^IVi$CK>{1pC~[lzl?Zw>l<m2[*A2[kHs;pieZB;[ulnkzAv$e
+    X$;<xZFy'jZnB-'*
+`endprotected
+   integer   i;
+   integer k,l,ldrq_ind,mem_ind;
+
+  // z_ldrq_n will be an array since ldrq is a bus.
+
+  reg [LDRQ_WIDTH-1:0] z_ldrq_n;
+
+  // In the following block, the state variables and the strings are both 
+  // rotated to in steps of 4 bits and 64 bits respectively and lsb of the 
+  // strings updated w.r.t. the lsb of the state variables.
+ `protected
+
+    MTI!#W$a\O<{}xou3Fb?\}DsE}T>$aV3'aH%|*3u?N1m\zx;=,iNRO#H3'BH|l#-mBWIY=BzDU{T
+    o/~=ViaQH^CuX@zteBVVpJMwB?~Ge_[8E<p@ijTO![$i[a<R\TlG|.z#m^3[^xe3H<5'7_is>>vz
+    @T>O<D[\1KF-]{?a<*G*{>,2>CCF"X^#zT1DavM~G>~YH'n'_rwGj@@[Ql,VZuaknJBa}pTQoir^
+    {jk_{[7Ij!7on*;k[o'}7HA*E'rGDlokXmdVRa^5p[2OmJmCHQi}nl>L}B~*%kD[Z1#BQ=u8DA*[
+    tg$gG!7j'+ueo7uuC=o[Ge1A<CwKaVzZC2C[oWGnYA^n!e5+@OHrq'IowZU^w~$jrRRX2*s<Qs#l
+    Oy1AT*]r_5sB2K'v'oq|Csm~,Vza=>l'I~{o8^$EYeKl$hYUaQd=RDCC1K{zCiz-r<!2oDi\iB>>
+    Xz{Lk{<XKIK!+<IuD{QT7?$H1B[U+n}K*R]?{5V{@+AX\Qi<ll^>=<n$>$u'5aERP[WjJem}3C;*
+    ,Hs3BCAw=kCp{EsZRk+ZR\_OH\y,<1E-EA#hZ5CR,Q\[GJ}2c(6^>-x#o7iP)WEeE7O]
+`endprotected
+
+
+  wire [(LDRQ_WIDTH*4)-1:0] ldrq_wire = ldrq_state;
+  reg [(LDRQ_WIDTH*4)-1:0] ldrq_state_reg;
+  reg [(LDRQ_WIDTH*4)-1:0] ldrq_state_reg_tmp;
+
+   reg	     z_retain_dma_request;
+   reg [7:0] dma_channel_num_is_requested;
+   reg [7:0] dma_channel_num_is_deactivated;
+   reg [7:0] dma_channel_num_is_requested_temp;
+   reg [7:0] dma_channel_num_is_deactivated_temp;
+   wire current_dma_channel_number_is_requested = 
+	   dma_channel_num_is_requested[channel_number];
+   wire current_dma_channel_number_is_deactivated = 
+           dma_channel_num_is_deactivated[channel_number];
+   
+   // All channel number related signals are 3*LDRQ_WIDTH since there are 
+   // LDRQ_WIDTH number of ldrq lines each of them 0-7, which requires 3 bits
+
+   reg [(3*LDRQ_WIDTH)-1:0] current_channel_request_num_tmp;
+   reg [(3*LDRQ_WIDTH)-1:0] next_channel_request_num;   
+   reg [LDRQ_WIDTH-1:0] current_channel_request_active_tmp;
+   reg [LDRQ_WIDTH-1:0] next_channel_request_active;
+   reg [(3*LDRQ_WIDTH)-1:0] current_channel_request_num;
+   reg [LDRQ_WIDTH-1:0] current_channel_request_active;
+   reg [2:0] ldrq_channel_num [0:7];
+   reg [3:0] dma_abort_counter_mem [0:7];
+   reg dma_on_deactivated_channel;
+   reg [LDRQ_WIDTH-1:0] fire_channel_previously_requested_by_different_ldrq;
+   reg [LDRQ_WIDTH-1:0] fire_unauthorized_channel_request_bus_mas;
+   reg [2:0] bus_mas_0_ldrq;
+   reg [2:0] bus_mas_1_ldrq;
+   reg [2:0] bus_mas_0;
+   reg [2:0] bus_mas_1;
+   reg bm_0_set;
+   reg bm_1_set;
+
+   // There can be maximum of 2 bus master requests outstanding
+
+   reg [2:0] bus_mas_request_outstanding;
+   reg [2:0] next_bus_mas_request_outstanding;
+
+   reg [LDRQ_WIDTH-1:0] fire_dma_tc_inactive_request_for_inactive_channel;
+ `protected
+
+    MTI!#]mmHnpoE8AXCXl=Ka2U{\W>_DHX+2]Jx[Q;\J=;Qiya]lGQUpw*7YiDCx,7?Is^]][?]w#!
+    {wZY?3o]7{E0e]#wp2;Q:mzv@fD'^pBVoXN\aT}5uzOx?I@^Rs3%&1o~k*a,p'KJ,*-j7EU2e,[A
+    WvnnoEX1kj7il;TlA$2s1~EUe,ZA;ZT1BvB\ee?'d5Y#RyaaA~R}!ns#7YVHYJBB*u)i+RiA}k_v
+    rK3[,m!|<Gp~&{TZ]u{-j8l~~x1EnllT=iBWBl38mG+@PC-Z@pGoolu{!7mu-i_\o<E;jfcujoC}
+    We_7B$VYT@oB[{uVJV}5OHjxYD$v}=>s$,H:z}E_oKTRA>!>AUQY-Cne,>uTiD#A*[\$[$e\[+!Z
+    -51B@*BQV2UC,Ka;mjT3Rr'<l]!vesneiGKa@na{r$Ap]CiJY$?W\GJvY,;kC,xCximnkE=^|i$e
+    psYvmLiY1l}pUYr5Ilp7*}\VavYXaQw=6PXX~T][#_J*~zwa-!~emHc,VuWZ_27[WWox~HC4a$Zw
+    |+Q2'73{{ei*}l5^\lu1O?<l$!D}[W(sjr'5;3e"X55eiX'r3\!3<YwUPl^rQ3]rY;{U3'A@}?pK
+    T6CERGn+W@>^3O>w+vP<_[UAl<riXZu_D>][XO}/DpX3Yu,3wn+DeR5CTpk*j>~j,2JEv@up&3Y5
+    k@^~<od7#}Y^ZBTLxZ*ZCfRo^Zl5woO{H}qDU!'$;}[r!eRHxB,-hFKa5[r_^e7#vBS"'Z\{mXjO
+    ]#1>UR'#eC_7}<QDO]I39le?7rY${u1v,}{*W2Xj@s4?o@]}k~E|=_mnnXz]__n<E'k<_=J7C=Zx
+    Z^<=.Y+mJu1mlD#-}|m]]ij;_!vjCku1o;bN%w52}Js{1eQe!5^x7UsWoQ+W14g51^K!DnGmo,Zj
+    lKRUxxe~X[ofKQnD!I]QJU>p^a}]*IJ+,+vnvkAoO,AWvi$}[@XJ$>=-o^,#Dr,7'3QOJj#vEr~}
+    5[v2>$HO:E:iwJh*o$~eJ]O12J+vwI-1'oB}rXwl-xK>7Br1G#n}4E25WUI#Q1[eV^OI^=KBliGG
+    Y6mlS5_Jz"Q5Jzp#DC_5j'Z[<\%]+!uLF7j}-=,v;WGJ!Y{-uBJ@2C=#OF5KBY{.{I)ce8#X\37W
+    UReo=[+p*oRZDm*H\@i77v5ZGUO3j_owuk<7iW5m{r'!JAk'>xEupZz$2Y=l*11^'!eD*kxV5rR[
+    x@V<<ZxT]$|^2IZ71BGp,<oq?$T37<ZeJ<m3G2uWLgLl^A+U-A~UsCi*u],{v'37jR7jH]7s^EnE
+    ;Y'wz!uy!=ua$e=[p-ZGR#>D=!X~ZQ+ZmDTaklBkC}#B.vXX[W<-nQVsiFW5}{i-@@7@Ku7,R5)z
+    _X}13'Z\lGD2*uUE[E22jKY!_EpJ*W3'>>]mlvC\$Zn~H3<_gTD$#?}mUGBkQ5K+X!_Q,I7l?2]$
+    kl~CZ!{}D\7?#6\em+Co1!n{GikIU=w'KT0<eD}zp^^w^@_RoQe2wwU<Umz4]I\B\3_G7WlWC}#O
+    W'a#D=#;.("Pi<J~A+va1@TKw=[66XD@+IT\v=@B*9g$@rn^_QT''#=~7^2QI<HrrD*C}__xWjYJ
+    X_*_$e^ei!e^Q#JqB#_2tT$]#D_7X7;xHprDXj*rmI$-~#U'\xo>B\RGU]CTRDBJO@GU<Ql_nrz,
+    +B.DY>-2[Gi^D}swVKoC1;I'>a__?<r-B$ROBavv!2Aw5^R*m-W9&wOsZ]En!\EOY^r}W{5!\XDT
+    ACwQpo5YDo>ZsC[Vx;wEwx_Is%Z\*<'^{]eO,$7\<m|<OE;+_KV=+$![sDGoV5E}M[+^j]poI/Or
+    {@s>zV#-x^J[kT[x,5zkH*gB1^r@[ji31<a[$[2@=Q[I{[<?a7zSw[_}EwmV'HI3^5-u]XC}<71<
+    -jw-w5+OAGovmw1W5#H'>C7rvXQaop,o-lxr[aw+Al!G^RY*xOe5Ts<axr?w2R<KD*U'9DvHRYuw
+    !TVsKe,wpHCeTYCQ*R=n~9}s?a!jY$2[;VYB]7;L]5['-zm,Fnr5l"6F+zO~LzX*R~$nRQkHp>QX
+    r$wW\goJ$Vws~>w,A?AUAax[=O*W\3f~1\n_RTllazrrV-DkXO,lA-z7m7[^'+?fpjppe-vV|K$]
+    vEBHWOm,7o]zs'AvxI\XR,C53xVembw5=JZ';+GZAap{r5^Rl\{UpVO_Us^Q*lj53E7kO<^/[R-I
+    =-eVUYv3!VVXs+B2j>a\epu+UQs,I-B+bP{oW@ExO}}\'@7u+;1Q1}e7WwR=pCsQ?GC'njRmB\C{
+    *_1{wC**pH='}wXDIzmar[z,WEa[2}tBUOw3*[n<VK}$wD-p?}x*XJX=i,}n^w@}w!AXInJ%&Dl\
+    {9Q#$Dr;C3H*K*';,~'_nC5sE*_hnXH}TXlTZxQlGKCY_!~BOIVkJzWr1s$G#^vx&1;5i!Iei'~Q
+    2,r<Al]QC*>ZCnh,]xZ#eUWYxps@jA5&D;mnVzUOwC1~7*D}B[Uw<5Glj<[,lTz{1H{$e+Q2}e,@
+    TvlD5KDvkAx;G3U>:R!e]'a@n[u71_Cu^!R'>;^aD<OD}VpeXAp=@_|GBi!Es,Yoju;U}*,r+s^;
+    zn3r7A!a*GiTX>}/o]i}QUVuE<@eq&k_B1J*#;LVJRx^<-{Z=,~Onr?iT'U=1X5So\\CQi}u1#Cp
+    _<OHxk\$'+OKwY;_QJ+ly/]2;J$Z-H}!]e[RODrAKGlIVZsk;@?-QIh-TR[=QiX7C5m<*Vvp^$17
+    w[*wjn-G=oxKVuZ[B;]zW~jVGR,X[j~D5Kmk1I[G{[VpZTV!^m7=_-'L1]eRv,*IDDvoL6!Y,kxZ
+    EJe_Zj~QQ~*k\XkO,#,3>$$G}Vxz125ExuQ1YWD}m[;O,J\RW25jk$nv-R7{-v-s*O_I#}{e}w^'
+    s=k^xV8~RX#)WU;Zs':'}e^toavj~{A-Yi]R"nw^n@$=xuj~@l1vDVY3{]A}pH*Es#Up<<_5>p>-
+    Em+<>#*^HzK7W<}~I'oUY0cJ+=]$+{?1{eUj$wE=\W>1[Vs}S5i^<,Wj$wOv$7VX]BsaDjkj!=#U
+    IO2)Sp?euR{7!BAVWfg_?-ZxW>5QaU-1Gr-MjWw\xkTrQ$D2*<2lrDHD^2GJ{XQIPsin2,z!W5HB
+    [Qw~<#XsY'v@B-l+p5e8wpn1*,3orr]JUUXnxVm2k>+*oQ'Ej;R['o+szuwGw^enTowC${3?-5ru
+    d1WjDO_C;;X-AU^>RW'!{h&e>@ROZ{-{T'T_iA#=:Q#a7KsIeA-TB&FCZs7xUZQV[
+`endprotected
+    
+   
+   /***************************************************************
+    *
+    * LPC monitor checks signals
+    *
+    ***************************************************************/
+
+   reg incr_stats_back2back_op;
+
+   reg fire_illegal_cycle_type;
+   reg fire_illegal_lad_in_TAR;
+   reg fire_CHANNEL_in_non_dma_op;
+   reg fire_dma_in_addr_state;
+   reg fire_illegal_lad_in_SYNC;
+   reg fire_host_in_SYNC_in_not_bus_mas_op;
+   reg fire_illegal_sync_value_in_SYNC;
+   reg fire_SYNC_with_reserved_lad_value;
+   reg fire_peri_in_SYNC_in_bus_mas_op;
+   reg fire_illegal_size_for_data;
+   reg fire_size_op_in_host_op;
+   reg fire_aborted_op;
+   reg fire_size_bits_3_2_non_zero;
+   reg fire_reserved_start_type;
+   reg fire_illegal_start_type_on_abort;
+   reg fire_lframe_not_asserted_for_4_cycles_in_abort;
+   reg fire_reserved_channel_num_in_dma;
+   reg fire_dma_started_for_unrequested_channel;
+   reg fire_illegal_bus_master_op;
+   reg [LDRQ_WIDTH-1:0] fire_illegal_dma_bus_mas_request_protocol;
+   reg fire_bus_mas_op_start_with_no_request;
+   reg fire_sync_short_wait_too_long;
+   reg fire_sync_long_wait_too_short;
+   reg [LDRQ_WIDTH-1:0] 
+       fire_bus_mas_request_arrives_when_bus_mas_request_outstanding;
+   reg fire_invalid_start_type;
+   reg fire_invalid_size;
+   reg fire_ready_or_error_sync_on_odd_byte_of_16_bit_dma_read;
+   reg fire_ready_or_error_sync_on_odd_byte_of_16_bit_dma_write;
+   reg [LDRQ_WIDTH-1:0] fire_ldrq_message_prior_to_8_clocks_of_dma_abort;
+   reg fire_word_or_quad_dma_on_byte_or_word_channels;
+
+   wire fire_supported = 
+      (fire_illegal_cycle_type | fire_illegal_lad_in_TAR |
+       fire_CHANNEL_in_non_dma_op | fire_dma_in_addr_state |
+       fire_illegal_lad_in_SYNC | fire_host_in_SYNC_in_not_bus_mas_op |
+       fire_illegal_sync_value_in_SYNC | fire_SYNC_with_reserved_lad_value |
+       fire_peri_in_SYNC_in_bus_mas_op | fire_illegal_size_for_data |
+       fire_size_op_in_host_op | fire_size_bits_3_2_non_zero |
+       fire_aborted_op | 
+       fire_reserved_start_type |
+       fire_illegal_start_type_on_abort |
+       fire_lframe_not_asserted_for_4_cycles_in_abort |
+       fire_reserved_channel_num_in_dma |
+       fire_dma_started_for_unrequested_channel |
+       fire_illegal_bus_master_op |
+       (|fire_bus_mas_request_arrives_when_bus_mas_request_outstanding) |
+       (|fire_dma_tc_inactive_request_for_inactive_channel) |
+       fire_bus_mas_op_start_with_no_request |
+       fire_sync_short_wait_too_long | fire_sync_long_wait_too_short |
+       fire_invalid_start_type | fire_invalid_size |
+       (|fire_illegal_dma_bus_mas_request_protocol) | 
+       fire_ready_or_error_sync_on_odd_byte_of_16_bit_dma_read | 
+       fire_ready_or_error_sync_on_odd_byte_of_16_bit_dma_write | 
+       fire_word_or_quad_dma_on_byte_or_word_channels | 
+       fire_ldrq_message_prior_to_8_clocks_of_dma_abort | 
+       (|fire_unauthorized_channel_request_bus_mas) | 
+       (|fire_channel_previously_requested_by_different_ldrq));
+   
+ `protected
+
+    MTI!#.7~R+v!aW\~xYz__X;X*?55#+R_\z+^B[e#n,N/[Vw]=@[[Qla[=iKHu[3aE+r*<<*@,u{B
+    Ml?V;T&1l*@pXx*lXu[G$lp]*Q-#_V-AoX>wU2DV,oAl3{aIZI*7l[[@EW.])s7+2sV<PaOa[>{=
+    ;F7pY^}l[!.1T2JU_3v[O<[y^vpTpGvj=2QwR=l';7[[%&^@m-$~1ru{ZrT7{$j<K{VK=@[mJYU]
+    ~O*E#I[xQs:#Qz@cvh[musQ]?#G#]}1Aj;7W=DB?W^x5Xo@l^Eo?wDrT5rO!]-,_p'Bae1=-p2w+
+    v~{5ZRFuV*]Qp5*RkY@x-RB_#wo<T<J?Um-3E3[wjJ*,pa;wznkI,#Ye?Ve?pD!\EZ=,BkJR@GVp
+    Ov#*'d",W7I+BRi\QRjzCBEodmHj$N,5z_}\A^>]IBF[JQB}B$p=Zw?BV+K,k,iDC^[QuV5lC5YK
+    YDZU73[VX8g/v,>pCjWl[um?~RTY8qE#+]OV~#5VRDJ]!GgvH2C~DB2l~1JLI=DQ@-l]Y]l}i<l#
+    =rKH!CbHUA}mj~HY%o^?5G_^},V#;::I.7UIudoHWK$m,RgiE]^FNe~r<2X=m}i<EsEeEYBu
+`endprotected
+  reg [(LDRQ_WIDTH*4)-1:0] ldrq_state_tmp;
+ `protected
+
+    MTI!#eVKx,o?>&VGO20FX[pu<oJ}XVB=>VA\}m<XW$i!waouhF!U-k7wv^i$#2}HB1\Q{O|+B-A,
+    B?^=Y:Ejl{@s\_6Dv[!/QCsa^>{]OIKHe[=@\'p}|rD,W;zY'w]@KeAr^I~*QnU\-Zrk_{$1XR-H
+    ^<<^IvzAl^Gx#,RAI@-R{Gk<@Z$O1Xv;<[L'V<]i5WXEU+UsO,2jlCJ+aVO!TU_?'VeBR\!E,1;a
+    w2H<OmCuX^#Ei*3Bs{AXrKonj=zM:E7Wv7O]l[H1<]OvzQ=z~5Aap/$7OG3UUW]i\?h,CWB-C@5b
+    Blv+'p=xr-'Y\UTDf_nD]xAsHQv\Cm-YBJ<>aOT$,@X\u/$'WX^Jw#B1o]B{[_h5[~?I7^T_'?oz
+    6z'\]^?pK]japv=Cw7ECCw5YA2-$2w$n?>X=kkU*7F<]v_zIw$#>VTKG_>@sCz,**m>C-Z1,K}QG
+    +5<,EvZ'?Rs,Ii&KvoT%dsI!K1>7k^ran{De!d;RrxQxTkIEtNzIIkvW_,AQ*k+>1=DDQr_QXn1-
+    ID)keaJRuw^"|=>1kj!-a?aA{$wD+e~-_{}_C5,vHQ+7!suBv*o?$ZojO6^I,!=<Bz=a!\Wp!{D,
+    !D7?rIu[oil'k;eH2@[EmIkp3,aOKs*#xieUE][ArWTGi$xZpO2p5nAxO7I^'>[Qm?Zv$GzzOTpJ
+    @ke~2]KOAeeB]1;TBmv[A^KEzC#En-+r{}XlII_I?otlkEW@rXww,2T\w[@[RYT7\{+=r{CsZ$@Z
+    ]-}a-+[aU;HOv\};{x3r]p>g^iE5M-CT-+j%xU{-#lQiL.b[?rQ!Qj['BO5{QV!p^~I+H2!fnzwB
+    1xwX7Iv3xs#V3O}7+5ia^3[?${pr}?\rr<{2(D;3w<xu$,rk'Js*[bH}+l2}x_ZXDw_ZH7eZW[b?
+    vs+@O7xY2{a1?Wa]C}o0jiU-1}=ua7VB<&xiU?^O[olsJpAY,71E1uF-_>l"l2,m><,}9fsm1]IQ
+    E1ilGi5aZzn1CXLIREaa_,D[(vPVRY+RX^jxK}=E3e$z<Wk6I5*wICE-Vj#u7?mKw+{>]u-[DZ7a
+    rpp]X'$=TT!1#BK[($Q!AO<2EG-!-Exp^*IxKQQAlV>e'+7VrMB}wE%Eu!G3T=3:#\,3CuDpZ{<_
+    n^=Kpzj=wxkKir?enOBr%)SAps*}>wvZGRs{_;^xv?aB7O=xYHU2<TmGi>U<C?#kDs>GoU<z1HKY
+    O}B?R}2zej$R;x7_WUjClD]#XXVjeTK9qaU5AzR+@V,lJ\A,BiQ@=#VJr*Oxr}w7pTUA'zA~AEe?
+    GK=^{pXX5/V1{[hR/j}Z7Te\^!_';~*kjatzjQUG^1;{},k?z[i5pX3]}{U*]AkvK'v~7}AZ75YW
+    se+TC~a0mU1^pi2KlxZV\PYjOn+R+]}~wEE;G'L4_'iw[nJX7eU-fi5KmuX+~P]><$llW2RKX{{C
+    x@HA_*]RUusz=]GCKe~o,JiDXo[?T['s^1$eDV!eOHre}$z2UOwV,Gl1EZ~BvJp85v3D;QQvA*BI
+    I!BYU_K@IKs5wz';}*Zk]ow-BYJ'iH*5wnX~_ZuG2XO]#+_]2$mk;T>K;U+Xg3wj#-I!{J}@J!{V
+    AU]w!+5i_Vln]q1@HWH{m]@TGpa]pnLsw^@,2\xqOiYs$Is\2R~]ZA<VeH=IvE>@rjE;A1[,,\X;
+    -{vuWoCW)!'UuOs=Rnl?X$TKKILr\[,^?2sXUp}O}Ek^k+,ZE$<o=2K>T1B>o]mJC7wr#1J-C;=2
+    DVma1;]I]7p^G=I-=izzT-]Iro>-^2;V2_Jv1BvH$k7oJ>Oo;Ja6#{A7?{uX_~^CBjRu?>![kj\r
+    <as[k[RmG?EB_n}HA=zVzH>{~nl~Vl_?z[o^^w>,IBK;Crx@DT]V/d?BAAmBp[OYvON.nRK~ETuj
+    ^mVxuBX[QXj^l'+YF/YE+ZmE?[Y=Ce~5{ZkRX~]aI1{*[V1EVw!D{E;}'$\A>u3sKO~Vvi\BX]Vl
+    ~mWaX!G^KA:=^n;G3$E&#w{!3^ED+YIW7e$D'3>kA'>xwo{B_uCEvB3]}oskBE\v!j!rQn*j}O\Z
+    GEDVG>r#iE]Hg]57Va]iZB|7m^Q2$Y3U1k[vvD@zW''HjiGE_+[JEOid::IC3C~e<=1V@$|wXZaN
+    @j7U5}ajQCB*[zJl'CHY[C$,iooIU=R}YVxi\u-2'D{1n>[$YZpr-51LlUO>|o>WkkOEC;j@[AA5
+    {z+$ljir#CaDu]Q1rWGC>NgJ5@YQ#KV7$3pE^!7QP>vAD+XJA>oH*92,C#Jj;TI(xK~O2]5zln+D
+    &RLl5rWYxO;q>O<O-e<'u{+eW',j/QaYsluoO{O,{x-s,A]X[sj\D:wo-}.glV*e]a~O-T>\$7'o
+    ?5VEf{Xl^p~=*w=<#\io!Y"$s!H'm<vG^}Jurx]g}!ee_VRQYR]ial',^a5X-o@<0.1$u?lZB,Y+
+    $u5?T[N:XDp?xv-p!\V#-$k@rWu~VQ$oN^?CRfzlY]!&wI5CDRl1I1WYBiOY6KD!]Xz3^.ivzO+D
+    w_xx5{\,}kJRmHZ*,l>p<?:,UA'un@W?|1W1+a-VOJRi?8,3-lV*;e^~2eBSQQ_}aYT1#UI[,W$[
+    -_~KIA^>{_,T#5vH@oj3_j$vn--sG}p]zUR--}sj{l\ZG$A^u>>[+,5>?a$Z~\<{K=@^%p7Z-uaQ
+    o>R~Rm,1s-YHEYI<{%D~DiNa<IY1T{WlgB[rDLGR#B^O2sE}!7HAvr!5YXK}ZxQ~RxJ>XwzX'e]p
+    ,U=#x?1?$7xYaT5nX#4?C!-{7p*;sRK7'=?B@zoc#r=p$RB-p[D~^;~ld+wn5^2HCr<<!^@Q1mV]
+    A!x<o3AmYe;wO'UxR7#1!_+m<WeBIB>QDYO'KQwl<Vm}IdEZ[G><{R"fzI!G"p?p#lElYise2x=G
+    i[PB#2\UoC1;ssJ>E~'><+Z|^dw'xY1I7!=,D'H7QEbpi!Ja]peFxRK,$aevOl~lb}]a>2rD}j3{
+    ?vWKXRT,kC={eoB,*G~H-4C_Q$x'HDA,IT>xk]P?B<zs_[*1^!s3,Km'o5aeW=Thd#Rl=HsEjo+^
+    3j~7DD'1Deoa]eACJ,pQaMoWZv2{GkRrH]Z5><\j{lBeu>wXZ,#]?x-G!a'RX7a1~==5ERK5@alv
+    Qp2z[e*D,rRo<W}HY!lr3r[ewWZ<J*vs'$~r-vR'-'s1a_=OID*CwOmClasuBn4}}5H@a<A<p+Q=
+    u2D'JY_N5p~Hur$iQAwKI#I<&h'~JnvmCCLCCw?}BW3<AB#\R=+6z_zKUOQjRW$j)<a{l7-{x!aA
+    s]J'j$1p#KRO}1\s'w{oQcU$pmZwTVu=>75<3-dcGJwuJ,**^;Ko$JuGC5V~Ds@I={{>D[AUxzA;
+    B+O^$aV+sDi~E>v{NxjYDcoI>~pmXa[j,;x!;m]F1A$7OkswrwuT'!JKr#pxBfnrXaxA*rQ3s!=H
+    ok;R1{o5kwO\-lnQrX.jjm#xw@Z*C>XC=ns]5]#5$Xe~wT[@>@3XHT~kACxnz?~[*]^>jWeG[}GP
+    <9Dw^3eH;enrOCjA<xvB3,x\~[N-sK{U$X;~+!Uc!GVI7KpueUVBmO3;kDJ]j?w2kATv5O_p]Iz>
+    l5-73Go]#TwAy_7=pTs;,9lPG^pDt@NK5_]VC^5X_[K3]aOPo^I@$mV+o';Uy}jlIBX!pnHA#2HV
+    k'@uvV,B^w'HXe%wT7oC]7^m'3Wyt7_G-Tj,E]Q'sYm,m-szIYOkO,em>%3zI!,R;V]a1\c[o$];
+    $?Kzu1wOK1ouV\UsZ;!VIn[w<OW@+He1nAY<spku5G$O+rsjH1??I~_~UC5!a*QB{e\OTJR,O,o=
+    sOGZVwxWn_mv_ro1ka5pCVA*;n-o7_,;z7WETwQoL~1a?7E=E!\i}{}+\ev'J$}#~VHmk!n+!l!Q
+    EVA+I-16=R_TeQa?v'#n+IV]7-}O5;m[I.&l^mx$l^!qWGIUvE2})1x<BGIwxGCHu5v}]w=2l[Z$
+    r;RYW7~5'\l!uR#QKlr<3SmaG<p?\iM'C5lrFeziC9R[imr+o}@$OlGim[r/zjXINZt5=!v{UKTp
+    ;R'$1{rKlY=Ox{pAB+GqkU-scm1A*}'[uY}5lu-<?A-{5DR@<njDXGwY[*H^/OkK\v!XR~5KwB_I
+    uZ,;e2x!GklE!%{$xDvCK@Vwe~E,#zR;vz^r[l5\m?Qk_+IK,^z7xvfY\B{Rv;mz>+xMo+uD7>Kz
+    qQG~YVl@Dzm{5'xJXB}*+[JII$G-w$]=Tv!Y7!Yp56OUIu,V]=Y_RYzGk<{,+3mzXWa]nzWsX[2O
+    XsD+J_[ou2;+DiI?;kX{p5KARR5~U2HA2Be!s71~~>E>=*(=|!Hu,F4iTm~@*Y#~-J3/+oZsjspu
+    <G]>aR>ZeI#;mTa,D@rnz[nEBKDYr_[!Rj3Ku5vsHYZ5Ap~p\7[16lIBYU<+>l!x$iaUC[a_~-vu
+    Hj5jz=R5o.O2\_lXzi+5>+r5xK~^zO$I!7g7nDH*#[x7ia^[D<I_Z^W+';@%TwG<,bes;Bv#^[G>
+    ~Te{*?^B?HXw>{YOuG*u[WXrzp5]!O~<-_hQxJ7/&2D#a2pl@\m!e$pp;6[Tu~5$GVij!G--r-Jv
+    sx[WHwgV!$o3+nW1~-^?jJ]e_>@xJ\<=J*ip!Bk<]1R2\Ym3<*,@EC>s#2?caBj[EC!v'uxa0a{Y
+    >]Yj]jpr~3XD@(5E7n=5\{=[IerGeIQWY\?RvY~''VXoOxE#H31AKVbe,H15X}wUTY'8^o!KWn=}
+    #A!v+$KxErKUz!Bu+-OIrEx1kpl\3>vvY?K~GZT~[[<s5WxllB*p}X+3z7HQ[7\!\wD7@]-Qm5T_
+    o~<;jeBOiYwzer<VCWjK'm_JC-e,&DdIY[_]sCaE'\\su7^.W-n5}',~X&w]RX,_u5*]bo\U^#D7
+    7BY?kx#rT~8?a2E,{~3R?pzAA'uGsCE1K!!}>[{A_Oveew7hK^GzDaCvuppIKDz1'xlADRZzc<l<
+    #%EC}IA\i}nw7o,2-@,j_>TEl;l@Ra-<<j-_KwO!~~oHa'V';Yea_2_'3+!OEu#p'_lu@s@xY?!-
+    aWOr3ADpY\QUsk{BJEt+CmZ{Q@;mo[1)Z>>'&^XAkxC#'1JV$o\z=.I*HXn\j^B+KZ[[WsooYY[,
+    Y]WTj2E3-1E?,{1}z_/,\R~E!]D*o[WlulK*5{'&wer@Y]U[TnGQl_nXzs{Ymv>ZjX=_BZI-_{Q@
+    n\\3dunrusAw],W\Rww1_C'1}mQX,X>HJ;T[}p$'^1mTU3[z3_]{}CUw$+HU!M\a,OvY[K[]WDar
+    's^AA+z+-'G,vUT7>1@+1Z8x7-JIQ^RvmoIAVR,Y>pA,JB7KpjsRV'H{sk3-Trk$Y1iM&h*kZ;]G
+    [[T$A'nj\csiH2{5p\noEOb*V=]*jD^R,G1IGpWy~{57_je*SRvEZkU{<oT^?}{Ex=R}\<U]'e_a
+    JTpjTaBJ]pK^GX57'W^X;'+,pwvYejvuDV*za0xp<JOH2;RO;I\7G=dJ-lK{I$lvmsHJa]K[*GwY
+    G$'-UC1-]v<',i\c#zG[TBRJ<\*Z[@JrQKARjoe<o<rkWp;}=Y{uxS]}a+ZwYrw}ur}~C-2A^R"T
+    AYk=R>@>R'JRA7a,_>-izoG\lCrHUQ+[TpZ4v-ZJl'Tk|s;z>m'D~G}!>mCC1'?Wx4[3b+DX?Rl=
+    [2vl_/9p2[Wze'v3rZ^E5G5[A<?B\C,I@Ei>oCEv;+D"Z7Qr\TCT<QCB$;\I*^zlCv?rE[Q@IoJ*
+    mT{H!U-*);G='{IOu\EZ1~B5\61Vl,eCweY*Zv,mWe7zBW^v^'n<K-pYuY^JmXja!KZzve9^eTHQ
+    -G@XYiE05KjvRxl\YvsB#5T$vZjrij2]uT>o>,[C=%35V+}kGnzpZHPVQ\,zaA1^CHj57#<IQmjH
+    Hr{-VsI0-^pHk>BzDoC*xTH=V@C]p:5-\Qi},TY?G!!z!BH>mvpe7BmzZCf#a}o7p]*1JGz*VivM
+    Ga+<=uJ,wrkD=w'~r=#C'mY=I{!Bj7?BsjzBn7eiC23}CR[Qsp;j@B[}z}DZsK-rM^UIjEZ,QX*$
+    #xZW>a+IZJO]I2sz^XHY{K'-GZ5r-?*>^]H-n1pKDsrG$G]JG'OZ+pB]>>{@rD3@2N3Rkw'BZK]K
+    -YklGoN1R>A=Oe_q2X*+@<VQEa!xI,G$CD$uu+D\DJowE1\U5-{13xur=A1[gDE(u'7uA1U;-1\^
+    m]l[>+~!B_a,;o-ewR+I[[I#eqksvoWvDk*o*_^Yjv@D=2!Xx~i.-}m5$Ie>xw\ie><ab%UVwH{e
+    eQ_{n{'zj]5[}}j}+Gw{-]Vsvsp3eim}!U;TIkE'zp7i~p@BolBURsoWAHs3w',s]^ATprvSrG>,
+    b,>{ZR<$Q=zkoeUI7RaEmU=j@o?WpJxQEImE{GoTHS_T;#QT,>U}j<3G+]r?vBfo+mCXw>@b5}$G
+    sOw{\p;!!}Zs{=?7CICB7~VY[O5?@OwJvkp\,RBiO+Ww<Tvx@Yev3B3YDs>C7=Ap5il#{{XYa=k=
+    L}j<+$7DexK@u-<;WK};'!v<RB2{ZG>>{rBD3]TW@K&JUzlwXr\kn{'^?1;]w]{!'o>1_G$H-;!~
+    [,^?5BDErz@U[kw4?<eGCa+lT'a_u*o[EGvp1u_K>=;\,HT^P^:<-w7wQW?[}uZ7^u*Bi=\rDsCu
+    T+CI<Q{zwR!YXp;RCsjC\5^kX=oyZBxKKA3IY!u},Z^]}COvtKEev-\>_7jQjoEn^pRA~7V_@$lj
+    l#HD^kwK}ia[nz2H*MMu]wIuwm<S*zr@Ena~]wH5V=XGATY],GEXQiVHS1UY{7>QKK^Y'zx$]*]p
+    3WBv3f\+A<s5?z?&<,{XGxrUjD;jm-VCANKejm8C@=II?~X-1?[WwH+oCvJiI}D?-B{_^\o],em3
+    R<{XBIaFN,_5EBY=C~*!7j\iR'iA5e'}?>sADV;I??nE#gvoE-URi]A,~H,,Z-w[7>C>vJrDe;l,
+    p*A$Kejl<>jVQvz#*iFo#VpoI5a+VH^N2oT!e\lIyvowD@>rKpfN*!z,bC~~pOe,JW$ZT?B<RjUn
+    {VHV?sn1w3pp3rR'^=GH_*Bno<_?El#JkgH1!7Iaonz>V@o{<Wo}2o7>!{sDIDx/N!]+^j[AeCls
+    spU]}]Ys##QpzoZ_#7o2XCW$m<n@}r$zQEV^Zv_aJX>msDA~k'-<so@~jyi[Cje'EGoC'[,poZo]
+    ovB+'m(X+JxST]ex]b],Ir$#BK$[ZCeU{55Qu[p*JQAG~3]ajHC{sQurkUR:IE]uG5#!'377@\AW
+    z'DJ?*aw\sJx-E[pp?EBKE5!#=m<jGjQ=-\jx,w54)<5IoVO5^?-=!Z]ppDW^#G<OxnE?TkCE3+D
+    _n]$7HOQXm-^X2Uax!,Tm$ksY!6I{@C<n\{EZ2?+T*1<j^zts*_IrX5\,vKo[GvAMA^>K]Gs=XG7
+    ]|vu*+2<Q@I3_,?Y^Ino'YV\uo};;eQXIC]xE3OGlE$CW}iB\$^GVuZ{'\~'>xIQAZL~zsKd<r}D
+    <DTUX>Jn;wu~$l?W,{ZoN,Y'{UlHK0di'D5#<oXCF{*R[IC?e'TQCl>j='3]{~Q}@2pzk]noGLvr
+    ]DJrO#$Rr@lY\A<eiKxz2-wr@BLCIWINQp>a0)e_J;[!O}@5+p!7DB<={RzaEr8h~7'pXw$;A$cC
+    iT1}sI~G0Ts7o3[<[Ca[5lTuwBwmx=5n3We@!P7ZEZ1G#+*O=!E=GJBCeiLRm5\VwzTu,Os#]-;i
+    ]D^5D;sEUHExrs^ru;p3AZ;G>u}DHBnj]ilLksAD~}>r8j~BpmrokUX\$A\orHH]Z{1E{zopr4+v
+    <=V?Yl=em!5EAaVx2=iEp-i'owI>~J_X{JhBW<><TO7^TKpo*@5\$R{~A<vs^;#zE*{%B$1=k1^J
+    x5[1W71A^3JkIU2@WBB]NO?z~>><sH^\3;x15.7T{C'wV+7i<rGxuKTo-sBs5m~.CGkC1BCCViX_
+    FyIKeHBi3I_rB2DrKaTGWr"QpHGpxEiA,,id^#w{YMKTf2+@<iXWw9H<OnpTsWm^2ERA-kDr]-\R
+    O~J1pH1oEHe^TO>ooo7!v\-U;w>a07u^oJoms'UDGHVXC$I-lwEXrxS-$5pKH]I']=JRO5JBmp_l
+    DnlGW171dI21{B7@DZQ?[\oOG1u~HHVRs'JOj+]XQe\$T2Y@'5v2a\|U=pk,VKAD#[_8QUz~GArw
+    ]YeEIo\+kD>Cw-a!I@sKOeWAwIOe+zYsx*;HTo-w5O}_s?'rY\}#Q:!pEGY^A!{BnQV\jzGTeumR
+    ]2E'WK2Rm}3AUl=-YO*\J';>zsIQ'@r2QuvmY>C27r_n53}HaWr;3w!{~}+^HB?^]TwDi<o[3\i<
+    Kv}|&}Y1r}OY@E[QL-HVQ-C3H\57BT$D3PIIo1MO1'#=3Vp6EEE};[71p=]i)'[RYa-+#'~^AIy)
+    d{}CU3}G^Mo1$XH+s?F}t2[uV';Ka\']u):{H}GBT$~2$jeiBv>IGCI]Wa*}exCjr!u'ieJrT5OF
+    zjvD5WG=oAt#B'BQsDsOkDG;w\w=vzo\~O+OmTQ.'z\$//"3zWT$\U5r}GxBG1rf12~^6,lT{G2J
+    wr.jVoVW$eU<-,Bp$,,@DWsl}QOU_X\'rYGJp\#1?Wk]l?K}Uer_Xz~75I-=eB1z;jUE1VkD}3>-
+    {;zK{n;8Uw*{9'-+m}^m+2,'>Es_D!+~_an=KBRTW_;\T]-r#oO9#{B-VAl'$RxG[G#5xOiTT7QT
+    o2K1=@XY2}?[owavD_7_
+`endprotected
+   integer m;
+
+   /***************************************************************
+    *
+    * LPC monitor checker firings
+    *
+    ***************************************************************/
+
+
+
+   
+
+   
+		       
+
+  
+
+   /***************************************************************
+    *
+    * LPC monitor checker firings for illegal modes- Has to be removed -Senthil
+    *
+    ***************************************************************/
+
+   wire	      fire_illegal_serirq   = (serirq === 1'b1);
+   wire	      fire_illegal_clkrun_n = (clkrun_n === 1'b0);
+
+   wire	      fire_illegal_pme_n    = (pme_n === 1'b0);
+   wire	      fire_illegal_lpcpd_n  = (lpcpd_n === 1'b0);
+   wire	      fire_illegal_lsmi_n   = (lsmi_n === 1'b0);
+
+   wire	      fire_unsupported = (fire_illegal_serirq | 
+				  fire_illegal_clkrun_n |
+
+				  fire_illegal_pme_n | 
+				  fire_illegal_lpcpd_n | 
+				  fire_illegal_lsmi_n);
+
+   wire	      fire = (fire_supported | fire_unsupported);
+
+
+   /***************************************************************
+    *
+    * LPC monitor statistics
+    *
+    ***************************************************************/
+
+   reg [63:0] stats_num_total_transfers;
+   reg [63:0] stats_num_host_io_read_transfers;
+   reg [63:0] stats_num_host_io_write_transfers;      
+   reg [63:0] stats_num_host_mem_read_transfers;
+   reg [63:0] stats_num_host_mem_write_transfers;
+   reg [63:0] stats_num_dma_read_transfers;
+   reg [63:0] stats_num_dma_write_transfers;
+   reg [63:0] stats_num_bus_mas_io_read_transfers;
+   reg [63:0] stats_num_bus_mas_io_write_transfers;      
+   reg [63:0] stats_num_bus_mas_mem_read_transfers;
+   reg [63:0] stats_num_bus_mas_mem_write_transfers;
+   reg [63:0] stats_num_aborts;
+   reg [63:0] stats_num_8_bit_transfers;
+   reg [63:0] stats_num_16_bit_transfers;   
+   reg [63:0] stats_num_32_bit_transfers;
+   reg [63:0] stats_min_peri_sync;
+   reg [63:0] stats_max_peri_sync;
+   reg [63:0] stats_min_host_sync;
+   reg [63:0] stats_max_host_sync;
+   reg [63:0] stats_num_transfer_cycles;
+   reg [63:0] stats_num_non_transfer_cycles;
+   reg [63:0] stats_num_back2back_transfers;
+   reg [63:0] stats_max_num_clks_busmas_req2gnt;
+   reg [63:0] stats_min_num_clks_busmas_req2gnt;
+   reg [63:0] stats_max_num_clks_dma_req2gnt;
+   reg [63:0] stats_min_num_clks_dma_req2gnt;
+   reg [63:0] stats_num_dma_on_deactivated_channels;
+
+   reg [63:0] num_peri_sync_cycles;
+   reg [63:0] num_host_sync_cycles;
+   reg	      min_peri_sync_stats_set;
+   reg	      min_host_sync_stats_set;
+   reg [63:0] num_clks_busmas_req2gnt;
+   reg	      min_num_clks_busmas_req2gnt_set;
+   reg [63:0] num_clks_dma_req2gnt;
+   reg	      min_num_clks_dma_req2gnt_set;
+   reg [63:0] dma_channel_num_clks_req2gnt [0:7];   
+   integer    j;
+   wire	      collect_stats;
+ `protected
+
+    MTI!#H,@>['W;Y^Qe$Q3je7a@#7I_O?ajBOCB7Z*OBgx@1{R^R+=?Xp]@A]pn12V;$X#1TC15}C$
+    O[?13xOjV[p@G{TTVKQ-Rj@>Hz=E='!?EZzNceWZ5IH<ps[^moA[]Gm$7CbyBl7Exm*z\AW'~rw[
+    $=*}~<]^,lG;UI^iQ1nAy*-rj'[p}<V5T^lkkOV^j#<u~'_akLT7@T/2aT#5n_];aOHCAe\eHeo1
+    [I]/lVvT1n'*iOpYZ{v^$YD2pG1;kr\w{jX@Yk=*Y_,J(?e;jBZZ$X5Xpi5#k.mz^$3<j#ujx]1a
+    jR'ww_Jes<6'+OU$U}1'eU<>Xw+q#>-xZV{3y!E]->e''@=+sXeDQ=Hvr}z1Q/1%a\IG}-K;Is*_
+    _=\D=5epG5ZJ6gRjJUB=IJ<lvO*TXa?wDs8P~X1u}=lvl><miTxWCs!<^^122'5zjwvmO]=wkA1j
+    *Yj]0WGAWAsk~RxA+'r3Y!o<>Tj@$,swkA<,l\=+[>]*iE7U!dO-WO+1IlWTC~j$;!Vz;kBnG]Q>
+    =p7?\w^'U1o5YCh#^p_$2Z2{zk?sapszi3\kO?jROjo\5+}Qj+$GY7=HHv7>$m#>[D=@_2>#pW3?
+    7[ZYnupqAUR\W5=pOR^VOsrrmHlp=#vrp@nli+ApP=^x,EIps*^pV*!'z$C!w>oQp+sm1!5z=;}7
+    mQ}QAxm}zo!Q77iX};}=]*~]j~CJYpjup>=u!e3Bj2[$Ca+xE/=?$x'[ElX{I@Be!{,E3V*7Qr@w
+    j32j>,:L5UR|-OAx2aYIsn\rZp!*5@Q<-a-^E"ZUIl!Dv'Q=,IYvji9o*X#6vYK7];ppG3xJ#+DW
+    73~;NT{$Dz,vQ$G5\A]?2j5j~\olO#U1n#o528K=@p]Y1[n<U@YQ{Qo7eK'nH7Z$Ijl-A<in5iAv
+    aIRZAmaa*Y+s?=?H5zuUIU_l>2\lQr=e'r--RQ6?<ua<BKK:rUa{sD*T8Ve?,#=7v<VG,+wAYEu>
+    R_;B#C<[2,iD]nRVGHjW]53BvCK2zCuTa1w-Q$va[H{B2iawHornG#aTDk}Ys[s=s$v<E<w<u}nR
+    Y3spU;$A^C\WQp,7J*U+vu=[n5QE#7(H-1AYX}OEO1[7'aHWnREDUY-7kps;BOBTY\3&4jV;Z>z{
+    $'nm$_+^Gm$XI%X<3E}RV{XwKrX<V{Q3_}I=w^#s@<}]>$-[Ru];wKRYH#|eBuDV}jxWX,rCjn!}
+    ^Toj*X]=ir7wDx25u2r7=!~e1]=Z[*]27nQGAu\r"E3Ou\iJnkjsaIYk[+eYUL_?B!=kH?,5pXA^
+    w}BmA>l],!R0)YDG^s''KmGIEAXWx'e35AG~QHY#O$xkWw=*rz[R<qC_}[~L-&*>wBp\Q+Q_ls_a
+    E,uw+}^d7n5,+}'7IWj2e2_?r21xn+'#j-7J7D'Hqu81*wo;sU54#YDjQ1e5WGOO~Tv;>H7!X'Zn
+    ~Q>YsoVsl3<B2aXU^Dz>*IxxHjA~x2IojWj1-HJD;Hp#'a~G'}aKY+=JgwHn^OEkRZ<nQ|?COA:+
+    omQ}uAUv;;=eWlDVODjh<+DAE+oklJ-Y\~uA~ouT1IK5enea'^SKRweB\R2jY\2+<{px3_WCkCr3
+    UzuwrEDznmZ4jGs5^Z3XC{5jjJTs,RDG17+Qw$ZvlIeGCZC_*^\p*Wz!ne>uNs'iIQRY+uQ;Z5sj
+    DUV5>z!^D*ywV@nQsK]]wBW=;lXBGz{n7}2z5AjiQoCzA2Qj+\Ber*eAzYsHnTGkj'<H',ln*ks$
+    E-AYjXW11BuAY{sQnJ~AwYiv*\][$-#c<XG7NOe3}nC<=M^}pm=nr1}$'A![+x>aDwhjn]K.#aw1
+    <Ek2Ol<+6,3nE#pD,vvJ+j{;,*^[Wl5rA}~;>=uBJ?-waC1@@oHxJ7OXQ[^C_>V+{~}ArCE$?_BE
+    ;VQD+h],T;O2p;oOz]^,YUll$=n7>InsT-E_e1oXY<v3^,e7B7@+[]JA>kvWTYwDHJ:r#[<G3UV|
+    H\OlAR^THri{Rx$!hjGCT^@aWrpvjpX+QaDei-Y,Z_5H$EG+\s2xk\JXz?r*'Oi[O{H2]lnnW]Ew
+    AnaHwgv7DWxx~j;>UKoR!?%7C@O6F_Reul?A'=i{>$A.'uoI^;CQzG!Bvk[!~jvIkw~~'a{~UX5\
+    3e!uHv$5A7{D,~;$hw]7rG{a*7oeAB$\GnBx1P$QY'*O-so\}+3\7'lv@5WaA;7GK~Q_31l?KZ|e
+    CEn!vIkOAa[7[\Y\"jXZGDTamOB]!*Y@QF3=Z5OWvGYjX'5k!esyF^$!A@vEpjm[$w{uzo>-}]nJ
+    ,V#E>vBj!JXza7OBJ(W1kTpQV]uaBwT1Ew5EOQ^#GE+U{Au=7Ajj|R*QJr2=Yuo7$Qp*i*xDBOZY
+    vliE?,veRU=#Gp@KY)5j<Zw]=JHH~wX>Bo|QD$r>7RQ.Hje2),{7\=Z^pUVAG&~E}I5W7]J]WoY>
+    7r=2IT*teV,Xd3^Tle'<YsHK3{oE\lR=xI?!!_r=1XVe@U]J<Y.Jrz^*k$IlJj5%9o^ZR3$QC[Ie
+    n7Xz[CY#W}=V7l?ux^pxBE+XI*us[!IZUVwG}n7krN[UJoar-,TXU]~VRo:~DTsrDiJ^!',7~[nv
+    ux;}mr1o2WGa>C#<laU:AAR{BX_KrS,mV1RWA3laR}JQtYAp#=kQ7iCT@eVT
+`endprotected
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_lpc_monitor_assertions.svh"
+`include "qvl_lpc_monitor_cover.svh"
+   
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_lpc_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_lpc_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_lpc_monitor
+`include "zi_cw_lpc_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_lpc_logic

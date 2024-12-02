@@ -1,0 +1,807 @@
+                        Model Technology Technical Note
+			 Copyright 1991-2009 Mentor Graphics Corporation
+						All Rights Reserved.
+
+	This document contains information that is proprietary to 
+	Mentor Graphics Corporation. The original recipient of this 
+	document may duplicate this document in whole or in part for 
+	internal business purposes only, provided that this entire 
+	notice appears in all copies. In duplicating any part of this 
+	document, the recipient agrees to make every reasonable 
+	effort to prevent the unauthorized use and distribution of the 
+	proprietary information.
+
+	Trademarks that appear in Mentor Graphics product 
+	publications that are not owned by Mentor Graphics are 
+	trademarks of their respective owners.
+
+
+                          Using the WLF API
+                   ====================================
+
+This technote documents the WLF interface.  WLF, which stands for Wave Log
+Format, is the new format for vsim log files.  The WLF api  provides a read-only
+programming interface to the WLF logfile. 
+
+
+The WLF symbol data is accessed through iterator functions.  It is possible to
+traverse the symbol hierarchy using iterators created by one of the following
+functions:
+    wlfSymChildren
+    wlfSymSignals
+    wlfSymSubelements
+    wlfSymSiblings
+    wlfSymProcesses
+    wlfSymByPattern
+    wlfSymByPatternSpecial
+
+The wlfIterate function is then used to fetch symbols from the iterator.
+
+Symbol value information is retrieved by registering a callback function that
+is activated by a signal event, wakeup event, or time advance.  The functions
+that register callbacks are:
+    wlfAddSignalEventCB
+    wlfAppendSignalEventCB
+    wlfAddWakeupCB
+    wlfAddTimeDeltaCB
+
+After registering the callback functions, the WLF data is scanned by calling
+either wlfReadDataOverRange or wlfReadDataAtInstant.  As events occur, the
+appropriate callback function will be called.
+
+
+The WLF api function are provided in a shared library and static archive
+located in the $MODEL_TECH/<platform> directory.  The header file, wlf_api.h, is
+located in $MODEL_TECH/include.  A sample WLF application is located at
+$MODEL_TECH/examples/dumplog64.c.
+
+Here is an example of how to link a WLF application on Solaris.
+
+cc -o dumplog64 dumplog64.c -I$MODEL_TECH/include -L$MODEL_TECH/sunos5 -lwlf -lm
+
+
+                      WLF API Function Descriptions
+                   =====================================
+
+The WLF functions described below are in alphabetical order by function name.
+The function declarations are located in the wlf_api.h file in the
+$MODEL_TECH/include directory.
+
+int wlfAddSignalEventCB( 
+         WlfPackId packId,            /* callback context id */
+         WlfSymbolId signal,          /* signal to register */
+         WlfValueId valueId,          
+         WlfCallbackRequest request,  /* type of callback request */
+         WlfSignalEventCB cbFunc,     /* callback function */
+         void *cbData );              /* data to pass to callback func */
+
+  Desc:   Add a signal (scalar or composite) callback to low level reader.  The
+          data pointed to by cbData is passed to the callback function cbFunc
+          when the callback is triggered.  The callback will be triggered when
+          there is an event on the specified signal during a read.  
+          See the wlfReadDataOverRange function for details on reading data.
+
+          
+
+
+int wlfAddTimeDeltaCB(
+        WlfPackId packId,             /* callback context id */
+        WlfTimeAdvanceCB timeCB,      /* time callback func */
+        WlfDeltaAdvanceCB deltaCB,    /* delta callback func */
+        void * cb_data );             /* data to pass to cb func */
+
+  Desc:   Schedule a low level end-time and/or end-delta callback
+          Now can have multiple end-time or end-delta callbacks.
+          They must be called in the order registered.
+
+
+int wlfAddWakeupCB(
+        WlfPackId packId, 
+        WlfTime64 time, 
+        WlfTimeMode timeMode, 
+        WlfWakeupCB cbFunc, 
+        void *cbData ); 
+
+  Desc:   Schedule a low level wakeup event.
+          Save wakeup events in pack, queue them in valudId queue.
+
+
+int wlfAppendSignalEventCB(
+        WlfPackId packId, 
+        WlfSymbolId symId, 
+        WlfValueId valueId, 
+        WlfCallbackRequest request, 
+        WlfSignalEventCB     cbFunc, 
+        void *cbData, 
+        void **cbPtr );
+
+
+  Desc:   Used for registering lists of signals to the same callback record,
+          in order to get only one callback when any of the elements of the list change.
+          The invalid flag is not used in this case.
+
+
+char *wlfCallbackReasonToString(
+        WlfCallbackReason reason );
+
+  Desc:   Simple debug routine to print WLF callback reasons.
+
+
+int wlfCleanup(void);
+
+  Desc:   Release wlfapi resources.
+
+
+int wlfCompareSymbols( 
+        WlfSymbolId obj1, 
+        WlfSymbolId obj2 );
+
+  Desc:   Compare 2 symbols. Returns 1 if symbols are equal, else returns 0.
+
+
+int wlfCompareTypes( 
+        WlfTypeId td1, 
+        WlfTypeId td2 );
+
+  Desc:   Compare 2 types for equality.  Returns 1 if types are equal, else 0.
+
+
+int wlfEnumLiterals( 
+        WlfTypeId enumTypeId, 
+        char ***enumLiterals,
+        int *count );
+
+  Desc:   For an enumeration type, fetch a list of enumeration names and the
+          count of literals.  Returns -1 on failure, 0 on success.
+
+
+     
+int wlfErrorInfo( 
+        int *errorNum, 
+        char *errorMsg );
+
+  Desc:   Fetch the current global WLF error num and message.  Returns 0 on
+          success.
+
+
+char *wlfErrorMsg( void );
+
+  Desc:    Return the current global WLF error message.
+
+
+int wlfErrorNum( void );
+
+  Desc:    Return the current global WLF error number.
+
+
+void wlfExit( int exit_code );
+
+  Desc:    Cleanup the WLF api and exit returning exit_code.
+
+
+int wlfFileClose(WlfFileId fp);
+
+  Desc:    Close the WLF file.
+
+
+char *wlfFileDividerGet( void );
+
+  Desc:    Return the character string used to separate the file name
+           from the symbol name.
+
+
+char *wlfFileDividerSet( char *new_divider);
+
+  Desc:    Set the character string used to separate the file name from
+           the symbol name.  The file divider must be 1 or 2 chars.  Returns the 
+           file divider string on success, else NULL.
+
+
+int wlfFileEndDelta   (WlfFileId fp, int *delta);
+
+  Desc:    Fetch the end delta for the wlf file into delta.  Returns 0 on
+           success.
+
+
+int wlfFileEndTime    (WlfFileId fp, WlfTime64 *time);
+
+  Desc:    Fetch the end time for the wlf file into time.  Returns 0 on
+           success.
+
+
+WlfFileId wlfFileFind( char *logical_name );
+
+  Desc:    Return the WlfFileId of the file with the given logical name.
+           Returns  NULL on error.
+
+
+WlfSymbolId wlfFileGetCurrentContext( WlfFileId fileId );
+
+  Desc:   Returns pointer to current context of specified file, or NULL
+
+
+
+char *wlfFileGetLogicalName( WlfFileId fileId );
+
+  Desc:   Return the logical name of the specified file.
+
+
+WlfFileMode wlfFileGetMode( WlfFileId fileId );
+
+  Desc:   Return the current file mode.  For user applications will always be
+          WLF_FILEMODE_VIEW. 
+
+
+char *wlfFileGetName( WlfFileId fileId );
+
+  Desc:   Return the file name associated with the specified WLF file.
+
+
+int wlfFileGetOpenCount( void );
+
+  Desc:   Return the number of currently open WLF files.
+
+
+WlfSymbolId wlfFileGetTopContext( WlfFileId fileId );
+
+  Desc:   Return the top context for the specified WLF file.
+
+
+WlfSymbolId wlfFileGetTopRegion( WlfFileId fileId );
+
+  Desc:   Return the top context for the specified WLF file.
+          ( use wlfFileGetTopContext )
+
+
+int wlfFileInfo(WlfFileId fp, WlfFileInfo *buf);
+
+  Desc:   Return information about the specified WLF file.  See
+          wlfapi.h for details on the WlfFileInfo structure.
+
+
+
+int wlfFileNumSigs(WlfFileId fp, int *num);
+
+  Desc:   Fetch the number of signals in the specified WLF file into
+          num.  Returns 0 on success.
+
+
+int wlfFileNumTypes(WlfFileId fp, int *num);
+
+  Desc:   Fetch the number of types in the specified WLF file into
+          num.  Returns 0 on success.
+
+
+
+WlfFileId wlfFileOpen(char *fname, char* lname );
+
+  Desc:    Open the WLF file specified by fname and associate the
+           logical name lname.  Returns the WlfFileId on success,
+           else NULL.
+
+
+
+int wlfFileResolution (WlfFileId fp, int *resolution);
+
+  Desc:     Fetch the simulator resolution associated with the specified
+            WLF file.  Return 0 on success.
+
+
+
+WlfSymbolId wlfFileSetCurrentContext( WlfSymbolId context );
+
+  Desc:   Sets current context of file containing specified symbol to the
+          specified symbol.  Returns NULL on error.
+
+
+char *wlfFileSetLogicalName( WlfFileId fileId, char *new_name );
+
+  Desc:    Set the logical name for the WLF file specified by fileId.  Returns
+           the new name on success, else NULL.
+
+
+int wlfInit(void);
+
+  Desc:    Initialize the WLF api.  Returns 0 on success.
+
+
+
+
+WlfSymbolId wlfIterate(WlfIterId id);
+
+  Desc:     Return the next symbol associated with the iterator id.  Returns 
+            NULL after last element and then resets to head.
+
+
+int wlfIteratorCount(WlfIterId id);
+
+  Desc:      Returns the number of symbols in the specified iterator.
+
+
+int wlfIteratorDestroy(WlfIterId id);
+
+  Desc:      Frees the resources associated with the specified iterator.  It is
+             an error to use the iterator id after calling wlfIteratorDestroy.
+             Returns 0 on success.
+
+
+int wlfIteratorReset(WlfIterId id);
+
+  Desc:      Resets the specified iterator to the start.
+
+
+
+WlfPackId wlfPackCreate(void);
+
+  Desc:      Creates a context for signal callback and search functions.
+             Returns NULL on error.
+
+
+int wlfPackDelta( WlfPackId packId, int *delta );
+
+  Desc:      Fetch the current delta for the specified pack.
+
+
+int wlfPackDestroy(WlfPackId packId);
+
+  Desc:      Free the resources associated with the specified pack.  It is
+             as error to use the packId after calling wlfPackDestroy.  Returns
+             0 on success.
+
+
+int wlfPackEndDelta( WlfPackId packId, int *delta );
+
+  Desc:      Fetch the end delta for the specified pack.
+
+
+
+int wlfPackEndTime( WlfPackId packId, WlfTime64 *time );
+
+  Desc:      Fetch the end time for the specified pack.
+
+
+
+int wlfPackReset(WlfPackId packId);
+
+  Desc:      Remove all pack callbacks and dynamically allocated valueIds.
+
+
+int wlfPackTime( WlfPackId packId, WlfTime64 *time );
+
+  Desc:      Fetch the current time for the specified pack.
+
+
+int wlfPhysUnits( 
+        WlfTypeId physTypeId, 
+        WlfPhysUnitRec **physUnits, 
+        int *count);
+
+  Desc:      Fetch the count and list of WlfPhysUnitRec's for the specified
+             physical type.  Returns 0 on success, -1 on failure.
+
+
+int wlfReadDataAtInstant(WlfPackId packId, WlfTime64 time, int delta );
+
+  Desc:   Performs callbacks on all triggers at a given time and delta.
+
+
+int wlfReadDataOverRange(
+        WlfPackId packId, 
+        WlfTime64 startTime, 
+        int startDelta, 
+        WlfTime64 endTime, 
+        int endDelta, 
+        WlfTimeAdvanceCB timeAdvCB, 
+        WlfDeltaAdvanceCB deltaAdvCB, 
+        void *cb_data );
+
+  Desc:   Routine that launches the read over given time range triggering
+          callbacks as it proceeds.
+
+
+
+int wlfSearchForCondition(
+        WlfPackId packId, 
+        char *exprString, 
+        WlfTime64 startTime, 
+        int startDelta, 
+        int count, 
+        int flags , 
+        WlfTime64 *resultTimePtr, 
+        int *resultDeltaPtr, 
+        int *resultCountPtr );
+
+  Desc:   Searches forwards or backwards from a given start time
+          for the nth condition match. The condition is specified by
+          an expression string.
+
+              Valid flags are:
+                   WlfSearchForward;               -- default
+                   WlfSearchReverse;
+                                
+                   WlfSearchNoDeltas;              -- default
+                   WlfSearchDeltas;          
+
+
+int wlfSearchForGroupEvents(
+        WlfPackId packId, 
+        WlfSymbolListId symbolListId, 
+        WlfTime64 startTime, 
+        int startDelta, 
+        int count, 
+        int flags, 
+        WlfTime64 *resultTimePtr, 
+        int *resultDeltaPtr, 
+        int *resultCountPtr );
+
+  Desc:   Searches forwards or backwards from a given start time
+          for the nth change in a specified group of scalar or compound signals.
+          Returns the time and delta of the change found.
+          If more than one change is requested and it finds less than the
+          requested number, it returns the time and delta of the farthest
+          change, and the number of changes found. 
+
+          A change is defined as a delta or time slot in which one or more 
+          subelements of any of the signals in the group change.
+
+          The signal types are not restricted.
+
+              Valid flags are:
+                   WlfSearchForward;               -- default
+                   WlfSearchReverse;
+                              
+                   WlfSearchNoDeltas;              -- default
+                   WlfSearchDeltas;
+
+
+int wlfSearchForSignalEvent(
+        WlfPackId packId, 
+        WlfSymbolId signalId, 
+        WlfValueId valueId, 
+        WlfTime64 startTime, 
+        int startDelta, 
+        int count, 
+        int flags, 
+        WlfTime64 *resultTimePtr, 
+        int *resultDeltaPtr, 
+        int *resultCountPtr );
+
+  Desc:   Searches forwards or backwards from a given start time
+          for the nth specified type of edge on the specified signal.
+          Returns the time and delta of the edge found.
+          If more than one edge is requested and it finds less than the
+          requested number, it returns the time and delta of the farthest
+          edge, and the number of edges found.
+          If the signal arg is not a scalar, ignores the edge type.
+          If valueId is not presented, will create a temporary one.
+
+          For scalar signals, the signal is restricted to types for which we 
+          understand what "rising" and "falling" mean, which are:
+                    VHDL bit
+                    VHDL stdulogic/stdlogic
+                    Verilog reg or net
+
+                Valid flags are:
+                    WlfSearchRisingEdge;    -- default
+                    WlfSearchFallingEdge;
+                    WlfSearchAnyEdge;
+                   
+                    WlfSearchForward;               -- default
+                    WlfSearchReverse;
+                           
+                    WlfSearchNoDeltas;              -- default
+                    WlfSearchDeltas;
+
+
+int wlfSearchForSignalValue(
+        WlfPackId packId, 
+        WlfSymbolId symbolId, 
+        WlfValueId valueId, 
+        char *valueString, 
+        int valueRadix, 
+        WlfTime64 startTime, 
+        int startDelta, 
+        int count, 
+        int flags, 
+        WlfTime64 *resultTimePtr, 
+        int *resultDeltaPtr, 
+        int *resultCountPtr );
+
+  Desc:   Searches forwards or backwards from a given start time
+          for the nth value match for a scalar or compound signal.
+          Returns the time and delta of the match found.
+          If more than one match is requested and it finds less than the
+          requested number, it returns the time and delta of the farthest
+          match, and the number of matches found. 
+
+          The valueRadix arg specifies what radix to use when comparing the
+          value.
+
+          If valueId is not presented, will create a temporary one.
+
+          The signal type is not restricted. In fact, the specified signal
+          may be of type accVirtualSignal or accVirtualExpr.
+
+          In the case of accVirtualExpr, the valueString arg may be left NULL,
+          and it will default to search for "TRUE" or "1".
+
+            Valid flags are:
+                 WlfSearchForward;               -- default
+                 WlfSearchReverse;
+                              
+                 WlfSearchNoDeltas;              -- default
+                 WlfSearchDeltas;
+
+
+
+WlfSymbolId wlfSymByName( char *name, WlfSymbolId refScope );
+
+  Desc:   Two cases:
+          1.  Child name specified.  Returns symbolId of child in refScope.
+          2.  Full path name specified.  Returns symbolId of item if
+              exists.
+          A wildcard can be specified, however only first occurrance will
+          be returned.
+          Does handle slice or index.
+
+
+WlfIterId wlfSymByPattern( 
+        char *pattern, 
+        WlfSymbolId refScope, 
+        WlfSymbolSel symSelect, 
+        WlfModeSel modeSelect, 
+        int recursive );
+
+  Desc:   Return an WlfIterId with symbols matching specified pattern
+          and context(s).  By manipulating args, wlfSymByPattern()
+          can be used to:
+          -- get all objects of specified kinds whose name matches 
+             a pattern, optionally recursive
+          -- get one object of specified name
+          -- get all children of a specified kind
+          -- get count of pattern matches 
+          -- get count of children of object
+          Objects found using wildcard will be sorted 
+          as controlled by a configurable global signal sort style.
+          If pattern is an index expr, will attempt to get the child
+          corresponding to the index.
+          If pattern is a slice expr, will create a virtual signal corresponding
+          to the range of the slice.
+
+
+WlfIterId wlfSymByPatternSpecial( 
+        char *pattern, 
+        WlfSymbolId refScope, 
+        WlfSymbolSel symSelect, 
+        WlfModeSel modeSelect, 
+        int recursive,
+        int flags );
+
+  Desc:   Return a WlfIterId with symbols matching specified pattern
+          and context(s).  Same as wlfSymByPattern() with the addition
+          of the 'flags' argument which allows greater flexibility.
+          Currently, the only flag is WLF_FLAG_CHARCLASSGLOB.
+          If this flag is set the contents of square brackets [] in 
+          the pattern are treated as a character class glob.  
+          If the flag is not set then square brackets are treated as 
+          an index or range.
+          Note, if flags is 0 then this function is identical to
+          wlfSymByPattern().
+
+
+WlfIterId wlfSymChildren( WlfSymbolId parent, WlfSymbolSel accFilter);
+
+  Desc:  Return an iterator containing children that are scopes of specified
+         type.
+
+
+int wlfSymCountSubelements( WlfSymbolId parent );
+
+  Desc:  Return the count of subelements of symbol parent.
+
+
+WlfFileId wlfSymGetFile( WlfSymbolId symId );
+
+  Desc:  Return id of the WLF file associated with the specified symbol.
+
+
+int wlfSymIsModeSelect( WlfSymbolId symId, WlfModeSel select );
+
+  Desc:  Return 1 if specified symbol is of mode given by select else
+         return 0.
+         See the WlfModeSel values in wlfapi.h.
+
+
+int wlfSymIsSymbolSelect( WlfSymbolId symId, WlfSymbolSel symSel);
+
+  Desc:  Return 1 if specified symbol is of WlfSymbolSel type given
+         by symSel else return 0.
+
+
+WlfIterId wlfSymProcesses( WlfSymbolId scope );
+
+  Desc:  Return an iterator containing processes within the specified scope.
+         Returns NULL on error;
+
+
+int wlfSymPropInt( WlfSymbolId symId, WlfPropEnum p);
+
+  Desc:  Returns the integer value of property p for the specified symbol.
+         Returns -1 on error.  
+         Valid values for p are:
+              WLF_PROP_SUBELEMENT_COUNT
+
+
+
+WlfModeSel wlfSymPropPortType  ( WlfSymbolId symId, WlfPropEnum p);
+
+  Desc:  Return the WlfModeSel bit map representing the port type of this object.
+
+
+char *wlfSymPropString    ( WlfSymbolId symId, WlfPropEnum p);
+
+  Desc:  Return a string representation of the property p for the symbol symid.
+         Returns NULL on error.
+         Valid values for p are:
+                WLF_PROP_SYMBOL_NAME
+                WLF_PROP_SYMBOL_FULLNAME
+                WLF_PROP_LIBRARY_NAME
+                WLF_PROP_PRIMARY_NAME
+                WLF_PROP_SECONDARY_NAME
+                WLF_PROP_SOURCE_NAME
+                WLF_PROP_EXPRESSION
+
+
+WlfSymbolId wlfSymPropSymbolId( WlfSymbolId symId, WlfPropEnum p);
+
+  Desc:  Return the WlfSymbolId for the parent or higher region of the symbol
+         symId. Returns NULL on error.
+         Valid values for p are:
+                WLF_PROP_PARENT_SYMBOL_ID
+                WLF_PROP_HIGHER_REGION_SYMBOL_ID
+
+
+
+
+WlfSymbolSel wlfSymPropSymbolType( WlfSymbolId symId, WlfPropEnum p);
+
+  Desc:  Return the WlfSymbolSel value for the type of the symbol
+         symId. Returns 0 on error.
+         Valid values for p are:
+                WLF_PROP_SYMBOL_TYPE
+
+
+WlfTypeId wlfSymPropTypeId( WlfSymbolId symId, WlfPropEnum p); 
+
+  Desc:  Return the wlfTypeId for the object symId.
+         Returns NULL on error.
+         Valid values for p are:
+                WLF_PROP_TYPE_ID
+
+
+WlfIterId wlfSymSiblings( WlfSymbolId symbolId, WlfSymbolSel accFilter);
+
+  Desc:  Returns an iterator containing the siblings of the specified symbol.
+         The siblings are filtered by the WlfSymbolSel value.  Returns NULL
+         on error.
+
+
+WlfIterId wlfSymSignals( 
+        WlfSymbolId parentScope, 
+        WlfSymbolSel symSelect, 
+        WlfModeSel modeSelect );
+
+  Desc:  Returns an iterator for children that are signals of specified type and
+         mode. Returns NULL on error.
+
+
+WlfIterId wlfSymSubelements( WlfSymbolId signal );
+
+  Desc:  Returns an iterator for subelements of the specified symbol.  Returns
+         NULL on error.
+
+
+WlfSymbolListId wlfSymbolListAppend(
+        WlfSymbolListId last, 
+        WlfSymbolId symbolId,
+        void *data );
+
+  Desc:  Appends WlfSymbolId and user data onto end of list specified by the 
+         list tail pointer last.  Returns the tail pointer of the new list.
+
+
+void wlfSymbolListDelete(WlfSymbolListId head );
+
+  Desc:  Frees the list pointed to by head.
+
+
+int wlfSymbolListInit(
+        WlfSymbolListId *firstPtr, 
+        WlfSymbolListId *lastPtr, 
+        WlfSymbolId symbolId, 
+        void *data );
+
+  Desc:  Creates a new list containing the specified symbol and data.  Upon exit
+         firstPtr and lastPtr point to the new list.  Returns 0 on success.
+
+
+void wlfSymbolListInsert(
+        WlfSymbolListId *firstPtr, 
+        WlfSymbolId symbolId, 
+        void *data);
+
+  Desc:  Inserts the specified symbol and data into the front of the list
+         pointed at by firstPtr.
+
+
+
+char *wlfTime64ToString( char* buf,  WlfTime64  time);
+
+  Desc:   Return a string representation of a 64 bit time value.  The user
+          must allocate the space for buf.
+
+
+
+WlfDataType wlfTypePropDataType ( WlfTypeId typeId, WlfTypePropEnum p);
+
+  Desc:   Return the wlfDataType for the WlfTypeId typeId.
+          Returns -1 on error.
+          Valid value for p are:
+                WLF_TYPE_TYPE
+                WLF_TYPE_ARRAY_ELEMENT_TYPE
+
+
+int wlfTypePropInt( WlfTypeId typeId, WlfTypePropEnum p);
+
+  Desc:   Return the type info for typeId. Returns -1 on error.
+          Valid values for p are:
+                WLF_TYPE_ARRAY_LEFT
+                WLF_TYPE_ARRAY_RIGHT
+                WLF_TYPE_ARRAY_LENGTH
+                WLF_TYPE_ARRAY_DIR
+                WLF_TYPE_REGISTER_WIDTH
+                WLF_TYPE_SUBELEMENT_COUNT
+
+
+WlfTypeId wlfTypePropTypeId( WlfTypeId typeId, WlfTypePropEnum p);
+
+  Desc:   Returns WlfTypeId for selected property p.
+          Returns -1 on error.
+          Valid values for p are:
+                WLF_TYPE_ARRAY_ELEMENT_TYPE_ID
+
+
+int wlfValueCompare( WlfValueId value1, WlfValueId value2 );
+
+  Desc:   Compare 2 values.  Returns 0 on success, else 1.
+          ****  Not Implemented ****
+
+
+
+int wlfValueCopy( WlfValueId valueTo, WlfValueId valueFrom );
+
+  Desc:   Copy valueTo to valueFrom.
+          **** Not Implemented ****
+
+
+int wlfValueDestroy ( WlfValueId     valueId );
+
+  Desc:   Free the resources associated with valueId.  It is an
+          error to use valueId after call wlfValueDestroy.
+
+
+WlfValueId wlfValueGet( WlfPackId packId, WlfSymbolId   signal );
+
+  Desc:   Return the value of the specified signal in the given pack.
+          Returns NULL on error.
+          **** Not Implemented ****
+
+
+
+char *wlfValueToString( WlfValueId id, WlfRadixEnum radix,  int maxWidth );
+
+  Desc:   Return a string representing the given value using radix with
+          maximum width maxWidth.  
+
+
+

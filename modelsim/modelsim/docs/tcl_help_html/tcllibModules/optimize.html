@@ -1,0 +1,198 @@
+<html><head>
+<title>math::optimize - Math </title>
+</head>
+<! -- Generated from file './modules/math/optimize.man' by tcllib/doctools with format 'html'
+   -->
+<! -- CVS: $Id$ math::optimize.n
+   -->
+
+<body>
+<h1> math::optimize(n) 0.1 math &quot;Math&quot;</h1>
+<h2><a name="name">NAME</a></h2>
+<p>
+<p> math::optimize - Optimisation routines
+
+
+
+
+<h2><a name="synopsis">SYNOPSIS</a></h2>
+<p>
+package require <b>Tcl 8.2</b><br>
+package require <b>math::optimize ?0.1?</b><br>
+<br><table border=1 width=100% cellspacing=0 cellpadding=0><tr            bgcolor=lightyellow><td bgcolor=lightyellow><table 0 width=100% cellspacing=0 cellpadding=0><tr valign=top ><td ><a href="#1"><b class='cmd'>::math::optimize::minimize</b> <i class='arg'>begin</i> <i class='arg'>end</i> <i class='arg'>func</i> <i class='arg'>maxerr</i></a></td></tr>
+<tr valign=top ><td ><a href="#2"><b class='cmd'>::math::optimize::maximize</b> <i class='arg'>begin</i> <i class='arg'>end</i> <i class='arg'>func</i> <i class='arg'>maxerr</i></a></td></tr>
+<tr valign=top ><td ><a href="#3"><b class='cmd'>::math::optimize::solveLinearProgram</b> <i class='arg'>constraints</i> <i class='arg'>objective</i></a></td></tr>
+</table></td></tr></table>
+<h2><a name="description">DESCRIPTION</a></h2>
+<p>
+<p>
+This package implements several optimisation algorithms:
+
+<ul>
+<li>
+Minimize or maximize a function over a given interval
+
+<br><br>
+<li>
+Solve a linear program (maximize a linear function subject to linear
+constraints)
+
+</ul>
+
+<p>
+The package is fully implemented in Tcl. No particular attention has
+been paid to the accuracy of the calculations. Instead, the
+algorithms have been used in a straightforward manner.
+<p>
+This document describes the procedures and explains their usage.
+<p>
+<em>Note:</em> The linear programming algorithm is described but not yet
+operational.
+
+<h2><a name="procedures">PROCEDURES</a></h2>
+<p>
+<p>
+This package defines the following public procedures:
+<dl>
+
+<dt><a name="1"><b class='cmd'>::math::optimize::minimize</b> <i class='arg'>begin</i> <i class='arg'>end</i> <i class='arg'>func</i> <i class='arg'>maxerr</i></a><dd>
+
+Minimize the given (continuous) function by examining the values in the
+given interval. The procedure determines the values at both ends and in the
+centre of the interval and then constructs a new interval of 2/3 length
+that includes the minimum. No guarantee is made that the <em>global</em>
+minimum is found.
+<br><br>
+The procedure returns the &quot;x&quot; value for which the function is minimal.
+<br><br>
+<i class='arg'>begin</i> - Start of the interval
+<br><br>
+<i class='arg'>end</i> - End of the interval
+<br><br>
+<i class='arg'>func</i> - Name of the function to be minimized (a procedure taking
+one argument).
+<br><br>
+<i class='arg'>maxerr</i> - Maximum relative error (defaults to 1.0e-4)
+
+<br><br>
+<dt><a name="2"><b class='cmd'>::math::optimize::maximize</b> <i class='arg'>begin</i> <i class='arg'>end</i> <i class='arg'>func</i> <i class='arg'>maxerr</i></a><dd>
+
+Maximize the given (continuous) function by examining the values in the
+given interval. The procedure determines the values at both ends and in the
+centre of the interval and then constructs a new interval of 1/2 length
+that includes the maximum. No guarantee is made that the <em>global</em>
+maximum is found.
+<br><br>
+The procedure returns the &quot;x&quot; value for which the function is maximal.
+<br><br>
+<i class='arg'>begin</i> - Start of the interval
+<br><br>
+<i class='arg'>end</i> - End of the interval
+<br><br>
+<i class='arg'>func</i> - Name of the function to be maximized (a procedure taking
+one argument).
+<br><br>
+<i class='arg'>maxerr</i> - Maximum relative error (defaults to 1.0e-4)
+
+<br><br>
+<dt><a name="3"><b class='cmd'>::math::optimize::solveLinearProgram</b> <i class='arg'>constraints</i> <i class='arg'>objective</i></a><dd>
+
+Solve a <em>linear program</em> in standard form using a straightforward
+implementation of the Simplex algorithm. (In the explanation below: The
+linear program has N constraints and M variables).
+<br><br>
+The procedure returns a list of M values, the values for which the
+objective function is maximal or a single keyword if the linear program
+is not feasible or unbounded (either &quot;unfeasible&quot; or &quot;unbounded&quot;)
+<br><br>
+<i class='arg'>constraints</i> - Matrix of coefficients plus maximum values that
+implement the linear constraints. It is expected to be a list of N lists
+of M+1 numbers each, M coefficients and the maximum value.
+<br><br>
+<i class='arg'>objective</i> - The M coefficients of the objective function
+</dl>
+
+<h2><a name="notes">NOTES</a></h2>
+<p>
+<p>
+Several of the above procedures take the <em>names</em> of procedures as
+arguments. To avoid problems with the <em>visibility</em> of these
+procedures, the fully-qualified name of these procedures is determined
+inside the optimize routines. For the user this has only one
+consequence: the named procedure must be visible in the calling
+procedure. For instance:
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+    namespace eval ::mySpace {
+       namespace export calcfunc
+       proc calcfunc { x } { return $x }
+    }
+    #
+    # Use a fully-qualified name
+    #
+    namespace eval ::myCalc {
+       puts [minimum ::myCalc::calcfunc $begin $end]
+    }
+    #
+    # Import the name
+    #
+    namespace eval ::myCalc {
+       namespace import ::mySpace::calcfunc
+       puts [minimum calcfunc $begin $end]
+    }
+</pre></td></tr></table></p>
+
+<h2><a name="examples">EXAMPLES</a></h2>
+<p>
+<p>
+Let us take a few simple examples:
+<p>
+Determine the maximum of f(x) = x^3 exp(-3x), on the interval (0,10):
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+proc efunc { x } { expr {[$x*$x*$x * exp(-3.0*$x)]} }
+puts &quot;Maximum at: [::math::optimize::maximum 0.0 10.0 efunc]&quot;
+</pre></td></tr></table></p>
+<p>
+The maximum allowed error determines the number of steps taken (with
+each step in the iteration the interval is reduced with a factor 1/2).
+Hence, a maximum error of 0.0001 is achieved in approximately 14 steps.
+<p>
+An example of a <em>linear program</em> is:
+<p>
+Optimise the expression 3x+2y, where:
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+   x &gt;= 0 and y &gt;= 0 (implicit constraints, part of the
+                     definition of linear programs)
+
+   x + y   &lt;= 1      (constraints specific to the problem)
+   2x + 5y &lt;= 10
+</pre></td></tr></table></p>
+<p>
+This problem can be solved as follows:
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+
+   set solution [::math::optimize::solveLinearProgram \
+      { { 1.0   1.0   1.0 }
+        { 2.0   5.0  10.0 } } \
+        { 3.0   2.0 }]
+</pre></td></tr></table></p>
+<p>
+Note, that a constraint like:
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+   x + y &gt;= 1
+</pre></td></tr></table></p>
+can be turned into standard form using:
+<p><table><tr><td bgcolor=black>&nbsp;</td><td><pre class='sample'>
+   -x  -y &lt;= -1
+</pre></td></tr></table></p>
+
+<p>
+The theory of linear programming is the subject of many a text book and
+the Simplex algorithm that is implemented here is the most well-known
+method to solve this type of problems.
+
+
+
+<h2><a name="keywords">KEYWORDS</a></h2>
+<p>
+linear program, math, maximum, minimum, optimization
+</body></html>

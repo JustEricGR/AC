@@ -1,0 +1,357 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_multiplexor_assertions( 
+				       active,
+                                       clock,
+				       reset,
+                                       areset,
+				       in,
+				       out,
+				       select,
+				       used,
+				       used_cond,
+				       multiplexor_check,
+				       multiplexor_fire,
+				       selects_checked,
+                                       inputs_selected,
+                                       inputs_selected_bitmap,
+                                       inputs_not_selected,
+                                       all_inputs_selected,
+				       support,
+                                       fire_count
+				     );
+   
+   
+
+
+   
+   parameter severity_level = `QVL_ERROR;
+   parameter property_type = `QVL_ASSERT;
+   parameter msg = " QVL_VIOLATION : ";
+   parameter coverage_level = `QVL_COVER_NONE;
+   parameter Constraints_Mode = 0; 
+   parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+   // Instantiation dependant parameters
+   
+   parameter		    IN_ITEM_WIDTH = 1;    
+
+   parameter		    IN_ITEM_COUNT= 1;    
+   parameter		    OUT_WIDTH = 1;    
+
+   parameter                SELECT_ITEM_WIDTH = 1;    
+   parameter                SELECT_ITEM_COUNT= 1;    
+   parameter		    SELECT_WIDTH = 1;    
+   
+   parameter                BINARY = 0; 
+   parameter                NO_OF_ELEMENTS = (BINARY ? (2 << (SELECT_WIDTH - 1)) :SELECT_WIDTH); 
+
+   parameter		    IN_WIDTH = 1;    
+
+   parameter                BIN_SEL_WIDTH_REQD = 1; 
+
+   parameter CW_FOR_FPGA = 0;
+   parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIN_SEL_WIDTH_REQD : 63;
+   
+
+   parameter SUPPORT_WIDTH = 1; 
+   input [SUPPORT_WIDTH-1:0]  support; 
+
+   input		    active;               
+   input		    clock;                
+   input		    areset;               
+   input		    reset;                
+   input		    used; 
+   input		    used_cond; 
+   
+   input [OUT_WIDTH-1:0]    out;
+   input [IN_WIDTH-1:0]	    in; 
+   input [SELECT_WIDTH-1:0] select; 
+   
+   input		    multiplexor_check; 
+
+   output		    multiplexor_fire;
+   
+   output [STAT_CNT_WIDTH-1:0]	    selects_checked;
+   output [BIT_CNT_WIDTH:0]	    inputs_selected;
+   output [IN_ITEM_COUNT-1:0]       inputs_selected_bitmap;
+   output [BIT_CNT_WIDTH:0]	    inputs_not_selected;
+   output		    all_inputs_selected;
+
+   output [STAT_CNT_WIDTH-1:0] fire_count;
+   reg [STAT_CNT_WIDTH-1:0] fire_count;
+   
+   reg			    multiplexor_fire;
+
+   reg [STAT_CNT_WIDTH-1:0]		    selects_checked;
+   reg [BIT_CNT_WIDTH:0]		    inputs_selected;
+   reg [BIT_CNT_WIDTH:0]		    inputs_not_selected;
+   wire [IN_ITEM_COUNT-1:0] inputs_selected_bitmap;
+   wire                     all_inputs_selected;
+   
+   parameter		    CNTWIDTH = 1; 
+   
+   wire			    xz_detected;
+   wire			    check_used;
+   wire			    is_used;
+   
+
+   // internal signals for this checker
+   reg			    last_active;
+   reg [SELECT_WIDTH-1:0]   old_select;
+   reg [IN_ITEM_COUNT-1:0]  inputs_selected_stats;
+   wire			    select_change;
+
+   wire wire_BINARY = BINARY; 
+   
+
+   reg			    force_checking;
+   
+   reg [IN_WIDTH-1:0]	    in_temp;
+   reg [OUT_WIDTH-1:0]      selected_in;
+   integer		    selected_bit_num;
+   
+   wire select_change_stats = ((select != old_select) || (last_active !== active) || (force_checking === 1'b1));
+   
+   wire xz_detected_in = (^in === 1'bx);
+   wire xz_detected_out = (^out === 1'bx);
+
+   
+   integer     i;                  
+   
+   wire [31:0] currentCount;
+
+`ifdef QVL_ASSERT_ON
+  wire multiplexor_fire_combo;
+  wire multiplexor_onehot_select_fire_combo;
+  wire multiplexor_onehot_out_not_equal_fire_combo;
+  wire multiplexor_binary_out_not_equal_fire_combo;
+`endif
+
+   assign inputs_selected_bitmap = inputs_selected_stats;
+   assign all_inputs_selected = &inputs_selected_stats;
+   assign select_change = 1'b1; // always do checking otherwise it is a hole as a constraint
+   assign xz_detected = (^select === 1'bx);
+   assign check_used = ((used === 1'b1) && (used_cond === 1'b1));
+   assign is_used = ((used === 1'b0) || ((used === 1'b1) && (used_cond === 1'b1)));
+   
+
+
+`ifdef QVL_ASSERT_ON
+
+  wire [OUT_WIDTH-1:0] selected_in_combo1;
+  wire [OUT_WIDTH-1:0] selected_in_combo2;
+
+`endif
+
+`protected
+
+    MTI!#&6=lBRAjG~x~Rj\[evg'<!>^*'zlIDO|(1TW[CJj<}@AOCD<p>r@lBKa{\Qp'xs+JTB=_HR
+    r5}4.<nnE71?^;=<C}Kz-B*<A;sA]G!K{>np+O_$T-[IB*2\o$XCm{okucA1,}IO!$9U]Qsb}*@^
+    mp5*i=@n9ujv^'2+AxzDQQme+HUr^Y7n)OE#-I5e<i[GE^$j{7[{wn>BD{jwv}3KQz{]JQ1bl?o[
+    N2X@o]><+,r<ri<QO<Ewaw_v}$iY2\2muw_I_,$ZJZ^ZxW,C>,;]zK5Tx!j?px,H[=3zmW=n[*sU
+    vapJJZX$J]l?xIJ;Wio-_s#!G<=O*-'u,@G><><x!B-o+#TA~_#(=^z^7@~OJ}=x*er]e';maDAU
+    3IG+<'5*AseXlEnkekEeH{_ovke[1*Imk$Uj?noC?<~Tv]{]pKjTwrOO{=vR+z#m[ov~mx*AM:?<
+    oB>]r7J7v<]B2X{xmaQj#]v'-5hsKT}JICTRuv^(W+$Y^F<a[KC1Ho*eU[GKeTcY>=;0YC\x|VK=
+    EGw]RH7
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+  assign selected_in_combo1 = value1(in,select);
+
+  assign selected_in_combo2 = value2(in,select);
+  assign multiplexor_onehot_select_fire_combo = (reset === 1'b0) &&
+                                           (areset === 1'b0) &&
+                                           (active === 1'b1) &&
+                                           (xz_detected !== 1'b1) &&
+                                           ((multiplexor_check === 1'b1) &&
+                                             (select_change === 1'b1) &&
+                                             (xz_detected_in === 1'b0 &&
+                                             (xz_detected_out === 1'b0))) &&
+                                           (!wire_BINARY && currentCount>1);
+
+  assign multiplexor_onehot_out_not_equal_fire_combo = (reset === 1'b0) &&
+                                           (areset === 1'b0) &&
+                                           (active === 1'b1) &&
+                                           (xz_detected !== 1'b1) &&
+                                           ((multiplexor_check === 1'b1) &&
+                                             (select_change === 1'b1) &&
+                                             (xz_detected_in === 1'b0 &&
+                                             (xz_detected_out === 1'b0)) &&
+                                           (!wire_BINARY && currentCount==1 &&
+                                             selected_in_combo1 !== out));
+
+  assign multiplexor_binary_out_not_equal_fire_combo = (reset === 1'b0) &&
+                                           (areset === 1'b0) &&
+                                           (active === 1'b1) &&
+                                           (xz_detected !== 1'b1) &&
+                                           ((multiplexor_check === 1'b1) &&
+                                             (select_change === 1'b1) &&
+                                             (xz_detected_in === 1'b0 &&
+                                             (xz_detected_out === 1'b0))) &&
+                                           (wire_BINARY &&
+                                            selected_in_combo2 !== out); 
+  assign multiplexor_fire_combo = multiplexor_onehot_select_fire_combo ||
+                                  multiplexor_onehot_out_not_equal_fire_combo ||
+                                  multiplexor_binary_out_not_equal_fire_combo;
+
+`endif
+
+   assign currentCount = get_count(select);
+
+`protected
+
+    MTI!#oOuJGSDu+DqJwW*VQ_~,k~AUO\I+'o7FI37@|"pprj=;Y,2[7,&8}W5o'D?[P~q)$d'7xIB
+    uQB'@j$\_Oru,Y=Xl<_B3+kr-VJL$p$EwaYvCJZKD5ei~Rrv=*vwVD3Kc/+VC3f6o~sZ7;J[{]5W
+    ?-ECp}BQ'>>T#H-w_2Jnu<A*'*@J~*j<>'3'E~o$Z1u^EEV*C$j;>TD$WRp3_KD=3a,{Y]+'HETW
+    x~sl~]z}[<^J7#5k;=p>GPIi2*@=>BCYQima_G:4G5T3TQ>mA^?Ye}v$1\eu]6<RDnQ^HJ<Y]~{T
+    ~[IXa[]T=i)TR~VjIjn:w5X\o-}ZRU][^x<2w\R~tmj_UPY-Ks1i$*C{M'Z!*}vlnOzZ'3]iGi{_
+    kC+u^alikYgrGmHUs*nY^;az]G~,XIQ=>_,$liu[~s[}_{2s\rnsAWDv{C~o#!!=eok]k],;&F-x
+    U$I?x]lp{u$~Dp*3RRBB^sz=kTcvR?KvV'Q?_DC"GQUeN<8'V<<=Z]k&v{j@_u2pl5>+Mo_[!mYA
+    z3AD]]wz1uzoTm\~Kk'l^Dwzion[\=rl<TE<<Urwa?$p}YT'Dl1loc)nY?GLED#'Y>D[h/f$puJx
+    RpV<rHBQk5Em$1*DNx/Y@;<Ev1BJVG!nsdZj~H5T![A^VZpA'W*[B'evH\=7-Qw<{=@GHXWz+OEG
+    u3t2<'C0Qa>ekC;Dw5-Re;A}.W7A['TwKG;u?AElCzzxoZ$elreaepGGkc>Api~H4Ao@\CTI7[~E
+    }=223Q;YCA\m[?TpKV>H;G|5GA-zvE'd~QKCz=~ahe$rYBZGJ^g'I=-}IWY'A@'#v=[0\HA[Ye2=
+    |DVpk[s\$pYn}BnQHlAI}XEXrUrQ_ZGJ2-ROHsEX1rT>'\B<}.Tq~><7Axm]G7z,.|JUh]r!BXV=
+    ej_U=Rj\UXpTxlw]1xCD$!XTJcx7^[_iw!mH~o1R!VO_laoqknZKHjzXQ'!Jd>[{o2AQmvB-?3=R
+    u~sjo=;!Iw\>;v<.w{5^eke_)@=25*<meVnWBo}G^jxIAAB,pAaKWpG^Z)Cx*z\;3K{.JDEI}^1a
+    xv-?=k}2&4Y{jpi>-}em[]tVHo~p@aXMY~Vss[5O_TX<GBG~XUGO\;=K![}O{Bp3Z135^X>E2\2k
+    G}-[:;<Q[3B?~2},;tn[+weDRKziQoVZVJUBQsm]{Vn]a*-=B7Zsp]IP(z-viDA$Rhm5ua^W(*5X
+    ?>$j}@_J=}#RK5X]E,w_IvTK;[$DvwDTW5u~^m=!^7uZJWoQE#V!50uR_Gp75k<jlVpY-{<<J{V~
+    ;W>Y}3E+1[Bs3GfoQ<K>ponDz\'lV,\D}sxR?v3}wn5vwxo!Y351{lZ646a,1lH}A{xU>=B~5_,{
+    Y^6@oHpC-j*m-,m&e-C_VO{KX1~-_=rr55k<B~U*;s{1K\H3NkI-x9QAIDkz]~)n*+7mr5+zaK^O
+    p3$^BsWz-11$DE'[Een\jZlNR;azD{KauQQKOzT-$GXV1Ra?<D\XYU7{RT;Im1r#XQVn=CR{+]p@
+    @j1$+w+T%DlX=7e1Z$?sxBmm@*nUBlj#X;V+nR,IGS]EuYs{\CzppOTazr{{!#*CAe0;ov*H-J37
+    'E]hs@QK]~lKax~JX'=>w5Q,B}3zK1XRhae$*A7=p%s5Dz38UHO[!VOko#ZAQ=oz#AWwJ'@]m{Ei
+    rIBKO>}iJ=1e:Aw[*YOvsx,x1R$CsJQX]+}@ZATQ'[E^E_sW561KKsT\lBCYkA$17IEnVlE-jpI*
+    2A>C!HU|_D,G{o7j^Hhas-a(Q^2H7pT*[H15'$$;jwC[l3Jzrjn?e>bXD?>Fy,wT$+-rJkl1^p#\
+    -rBmRH5l!Q_YIojm~HxC1\@KZ-.\K+oZ$C[QKK~QKm'O}-\vYXYPUCpWo?v,\UDR==WY!o!B1!eu
+    k*vl/noY]d>r?<B\1WGo:^D2_l}?3vn7TJIAoCu;srlk!*u'ibina7$}_zNVRmQ]HQ#OUmGcg;z2
+    $EDm3Jx+WljAUmzie#,j~%<H>!,sswxxW{vE,G2B1KBIi>Yr=;J'_!$KI{#}$[!D;!2zK,BGva5]
+    =!s_p+\~o}iT->}B\1Ix><}e<nqV}U[Ep{[.+<@5B7@?'mZwmQn<j3;~1lYE..5#s'*Q'uk77{}R
+    TXQ#p=(^I}U=n^r9e[\o,m;*>}YGj-~'3Ii+qnsj#L_pZj'{zp--GZTsA$Bp-Ka^}#-*ZDia}e[;
+    h;j{5Y}~sZ=>p~Gw[h*$,k>]aRD$AG<r]u{YRj5nuB^(|^oU3~Y*IKUUAEnK^Mq{n1j)<o<nE~w#
+    {Tm3p@RK/s[3DP}HHo:}>g67]n}{e^<zlu*Ewn'-AB!YIA$Cb-vX@=155<[<@}R#z_rr2&4]E=Rl
+    eBjo^@Q'!l3&DzRHRh&[7'KOp~K
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+   // Instance for select lines violation when BINARY = 0
+   //
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert
+        if (BINARY == 0)
+          begin : assert_multiplexor_onehot_select_input
+            A_qvl_multiplexor_onehot_select_input: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (multiplexor_onehot_select_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multiplexor_onehot_select_input"),
+                              .msg            ({msg,"The number of asserted bits of 'mux_select' is not 1."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (BINARY == 0)
+          begin : assert_multiplexor_onehot_out_not_equal_to_in
+            A_qvl_multiplexor_onehot_out_not_equal_to_in: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (multiplexor_onehot_out_not_equal_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multiplexor_onehot_out_not_equal_to_in"),
+                              .msg            ({msg,"The output of the one-hot multiplexor is not equal to the selected input."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (BINARY > 0)
+          begin : assert_multiplexor_binary_out_not_equal_to_in
+            A_qvl_multiplexor_binary_out_not_equal_to_in: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (multiplexor_binary_out_not_equal_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_multiplexor_binary_out_not_equal_to_in"),
+                              .msg            ({msg,"The output of the binary-encoded multiplexor is not equal to the selected input."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume
+        if (BINARY == 0)
+          begin : assume_multiplexor_onehot_select_input
+            M_qvl_multiplexor_onehot_select_input: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (multiplexor_onehot_select_fire_combo)));
+          end
+        if (BINARY == 0)
+          begin : assume_multiplexor_onehot_out_not_equal_to_in
+            M_qvl_multiplexor_onehot_out_not_equal_to_in: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (multiplexor_onehot_out_not_equal_fire_combo)));
+          end
+        if (BINARY > 0)
+          begin : assume_multiplexor_binary_out_not_equal_to_in
+            M_qvl_multiplexor_binary_out_not_equal_to_in: 
+              assume property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (multiplexor_binary_out_not_equal_fire_combo)));
+          end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+   // Instance for output violation when BINARY = 0.
+   //
+
+   // Instance for output violation when BINARY = 1.
+   //
+
+`endif
+
+`include "qvl_multiplexor_cover.svh"
+
+`qvlendmodule  

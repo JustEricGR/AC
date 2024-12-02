@@ -1,0 +1,1011 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+/*************************************************************************
+*
+* PURPOSE     This file is part of 0-In CheckerWare.
+*
+* DESCRIPTION This monitor checks the Serial ATA interface for compliance with
+*             Serial ATA specification.
+*
+* REFERENCES  Serial ATA specification revision 2.5, 27th October 2005
+*             Serial ATA: High Speed Serialized AT Attachment Revision 1.0a,
+*             7-January-2003
+*             Serial ATA II: Extensions to Serial ATA 1.0a Revision 1.2,
+*             27-August-2004
+*             SATA PHY Interface Specification (SAPIS) Draft Rev 0.90, February
+*             8, 2002
+*
+* LAST MODIFIED: 25th January 2006
+*
+**************************************************************************/
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`define ZiCwQuietIfNoCwDebug
+`else
+`define ZiCwDebugDelay1
+`define ZiCwQuietIfNoCwDebug -quiet
+`endif // ZiCwDebug
+
+`ifdef QVL_COVER_ON
+  `ifdef QVL_SV_COVERGROUP_OFF
+    // Do nothing
+  `else
+    `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+    // Do nothing
+  `else
+    `define QVL_MW_FINAL_COVER
+  `endif
+`endif
+
+`qvlmodule qvl_sata_core_monitor (areset,
+                                     reset,
+     		     	       	     tbc,
+		     	     	     tx_data_plus,
+			     	     tx_data_minus,
+				     tx_enable,
+				     rbc,
+				     rx_data_plus,
+				     rx_data_minus,
+				     rx_data_valid,
+				     k28_5_detect,
+				     rx_locked,
+				     comwake_detect,
+				     comreset_cominit_detect,
+				     partial,
+				     slumber,
+				     scrambling_off,
+				     bypass_power_on_seq
+			            );
+
+//List of parameters
+
+  // This parameter configures the checks in the monitor as constraints
+  // during formal analysis
+
+
+  parameter Constraints_Mode = 0;
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // This parameter when set indicates that the monitor is instantiated on the
+  // Link side of the sapis interface
+
+  parameter LINK_SIDE = 1;
+  wire [31:0] pw_LINK_SIDE = LINK_SIDE;
+
+  // Interface type (Location of monitor instance)
+  // 0 => Serial interface
+  // 1 => 10B interface
+  // 2 => SAPIS interface
+
+  parameter INTERFACE_TYPE = 0;
+  wire [31:0] pw_INTERFACE_TYPE = INTERFACE_TYPE;
+
+  // This parameter configures the type of the DUT the monitor is hooked to
+  // 0 => Host
+  // 1 => Device
+
+  parameter DEVICE_TYPE = 0; 
+  wire [31:0] pw_DEVICE_TYPE = DEVICE_TYPE;
+
+  // This parameter defines the width of the parallel interface
+  // 10 - 10Bits
+  // 20 - 20Bits
+  // 40 - 40Bits
+
+  parameter PARALLEL_DATA_WIDTH = 10;
+  wire [31:0] pw_PARALLEL_DATA_WIDTH = PARALLEL_DATA_WIDTH;
+
+  // This parameter configures whether data is available on both clock edges or
+  // on single edge of the clock.
+  // 0 => Single data rate
+  // 1 => Double data rate
+
+  parameter DOUBLE_DATA_RATE = 0;
+  wire [31:0] pw_DOUBLE_DATA_RATE = DOUBLE_DATA_RATE;
+
+  // This parameter defines the speed of the SATA interface GEN1 or GEN2
+  // 0 => GEN1 speed
+  // 1 => GEN2 speed
+
+  parameter MAX_DEV_SPEED = 0;
+  wire [31:0] pw_MAX_DEV_SPEED = MAX_DEV_SPEED;
+
+  // This parameter when set enables Native queued commands
+
+  parameter NCQ_COMMAND_ENABLE = 0;
+  wire [31:0] pw_NCQ_COMMAND_ENABLE = NCQ_COMMAND_ENABLE;
+
+  // This parameter when set enables legacy queued commands
+
+  parameter LEGACY_QUEUED_COMMAND_ENABLE = 0;
+  wire [31:0] pw_LEGACY_QUEUED_COMMAND_ENABLE = LEGACY_QUEUED_COMMAND_ENABLE;
+
+  // When set this parameter indicates that the monitor sits on the host or
+  // device side of the port selector or on the host or device interface
+  // connected to the port selector
+
+  parameter PORT_SELECTOR_ENABLE = 0;
+  wire [31:0] pw_PORT_SELECTOR_ENABLE = PORT_SELECTOR_ENABLE;
+
+  // When set this parameter indicates that the monitor sits on the host or
+  // device side of the port multiplier or on the host or device interface
+  // connected to the port multiplier
+
+  parameter PORT_MULTIPLIER_ENABLE = 0;
+  wire [31:0] pw_PORT_MULTIPLIER_ENABLE = PORT_MULTIPLIER_ENABLE;
+
+  // This parameter when set enables packet command protocol.
+
+  parameter PACKET_COMMAND_ENABLE = 0;
+  wire [31:0] pw_PACKET_COMMAND_ENABLE = PACKET_COMMAND_ENABLE;
+
+  // This parameter when set enables the reserved field checking when set to "1"
+
+  parameter RESERVED_VALUE_CHECKING_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECKING_ENABLE = 
+                                  RESERVED_VALUE_CHECKING_ENABLE;
+
+  // This parameter when set disables power management.
+  // 0 - Power management mode disabled
+  // 1 - Power management mode enabled
+
+  parameter POWER_MGMT_ENABLE = 1;
+  wire [31:0] pw_POWER_MGMT_ENABLE = POWER_MGMT_ENABLE;
+
+  // This parameter defines the maximum queue depth for ncq commands.
+
+  parameter MAX_QUEUE_DEPTH = 32;
+  wire [31:0] pw_MAX_QUEUE_DEPTH = MAX_QUEUE_DEPTH;
+
+  // This parameter when set enables Asynchronous signal recovery support.
+
+  parameter ASYNC_SIGNAL_RECOVERY = 0;
+  wire [31:0] pw_ASYNC_SIGNAL_RECOVERY = ASYNC_SIGNAL_RECOVERY;
+
+  // This parameter configures the retry interval time.
+  // minimum time is 10ms (i.e. 10ms/0.6667ns = 14999250GEN1 clocks)
+
+  parameter RETRY_INTERVAL = (INTERFACE_TYPE == 0)
+			     ? 14999250
+			     : ((PARALLEL_DATA_WIDTH == 10)
+				? 1499925
+				: ((PARALLEL_DATA_WIDTH ==20)
+				   ? 749912
+				   : 374956
+				  )
+			       );
+  wire [31:0] pw_RETRY_INTERVAL = RETRY_INTERVAL;
+
+  // This parameter when set enables the reserved fis type checking
+
+  parameter RESERVED_FIS_TYPE_ENABLE = 0;
+  wire pw_RESERVED_FIS_TYPE_ENABLE = RESERVED_FIS_TYPE_ENABLE;
+
+  // This parameter when set enables the Vendor specific fis type checking
+
+  parameter VENDOR_FIS_TYPE_ENABLE = 0;
+  wire pw_VENDOR_FIS_TYPE_ENABLE = VENDOR_FIS_TYPE_ENABLE;
+
+  // This parameter defines the pattern that indicates electrical IDLE condition
+  // in case of 10B interface
+
+  parameter ELECTRICAL_IDLE_PATTERN = 0;
+  wire [31:0] pw_ELECTRICAL_IDLE_PATTERN = ELECTRICAL_IDLE_PATTERN;
+
+  // Internal parameters
+  // Configures the comreset/cominit idle time for tx interface.
+  // Default is 320ns
+  // i.e. 320ns/0.6667ns = 480GEN1 clocks for serial interface
+  // 480GEN1/10 = 48 for 10B interface.
+  parameter ZI_TX_COMRESET_COMINIT_IDLE_TIME = 480;
+
+  // Configures the comwake idle time for tx interface. Default is 106.7
+  // i.e. 106.7ns/0.6667ns = 160GEN1 clocks for serial interface
+  // 160GEN1/10 = 16 for 10B interface.
+  parameter ZI_TX_COMWAKE_IDLE_TIME = 160; 
+
+  // Configures the comreset/cominit max idle time for rx interface.
+  // i.e. 525ns/0.6667ns = 788GEN1 clocks for serial interface
+  // 788GEN1/10 = 79 for 10B interface.
+  parameter ZI_RX_COMRESET_COMINIT_IDLE_MAX = 788; 
+
+  // Configures the comreset/cominit min idle time for rx interface.
+  // i.e. 175ns/0.6667ns = 262GEN1 clocks for serial interface
+  // 262GEN1/10 = 26 for 10B interface.
+  parameter ZI_RX_COMRESET_COMINIT_IDLE_MIN = 262;
+
+  // Configures the comwake max idle time for rx interface.
+  // i.e. 175ns/0.6667ns = 262GEN1 clocks for serial interface
+  // 262GEN1/10 = 26 for 10B interface.
+  parameter ZI_RX_COMWAKE_IDLE_MAX = 262; 
+
+  // Configures the comwake min idle time for rx interface.
+  // i.e. 55ns/0.6667ns = 82GEN1 clocks for serial interface
+  // 82GEN1/10 = 8 for 10B interface.
+  parameter ZI_RX_COMWAKE_IDLE_MIN = 82; 
+
+  // This parameter is to configure the width of input tx & rx data bus
+  parameter ZI_DATA_WIDTH = (INTERFACE_TYPE == 0) 
+                             ? 1  
+                             : PARALLEL_DATA_WIDTH;
+
+  parameter ZI_D_COMWAKE_TO_D10_2_TIME = (INTERFACE_TYPE == 0)
+				         ? 800
+                                         : ((PARALLEL_DATA_WIDTH == 10)
+                                            ? 80
+                                            : ((PARALLEL_DATA_WIDTH ==20)
+                                               ? 40
+                                               : 20
+                                              )
+                                           ); // 533ns
+  parameter ZI_H_COMWAKE_TO_D_ALIGN_P_TIME = (INTERFACE_TYPE == 0)
+					     ? 1309434
+					     : ((PARALLEL_DATA_WIDTH == 10)
+						? 130944
+						: ((PARALLEL_DATA_WIDTH ==20)
+						   ? 65472
+						   : 37736
+						  )
+					       ); // 873.8us
+
+  // Parameters for the statemachine
+  parameter ZI_PHY_IDLE_STATE = 4'h0;
+  parameter ZI_UNSOLICIT_COMINIT_STATE = 4'h1;
+  parameter ZI_COMRESET_DETECTED_STATE = 4'h2;
+  parameter ZI_COMINIT_DETECTED_STATE = 4'h3;
+  parameter ZI_H_COMWAKE_DETECTED_STATE = 4'h4;
+  parameter ZI_D_COMWAKE_DETECTED_STATE = 4'h5;
+  parameter ZI_D_ALIGN_P_DETECTED_STATE = 4'h6;
+  parameter ZI_H_ALIGN_P_DETECTED_STATE = 4'h7;
+  parameter ZI_3NON_ALIGN_P_DETECTED_STATE = 4'h8;
+
+  parameter ZI_TX_CONSTRAINT = LINK_SIDE
+			       ? 0
+			       : Constraints_Mode;
+  parameter ZI_RX_CONSTRAINT = LINK_SIDE
+			       ? Constraints_Mode
+			       : 0;
+  // Inputs
+  input areset;
+  input reset;
+  input tbc; // The tx interface clock
+  input [ZI_DATA_WIDTH-1:0] tx_data_plus;
+  input [ZI_DATA_WIDTH-1:0] tx_data_minus; // not used in sapis interface
+  input tx_enable;
+  input rbc; // The rx interface clock
+  input rx_data_valid;
+  input [ZI_DATA_WIDTH-1:0] rx_data_plus;
+  input [ZI_DATA_WIDTH-1:0] rx_data_minus; // not used in sapis interface
+  input k28_5_detect; // Specific to Sapis ifc
+  input rx_locked;    // Specific to Sapis ifc
+  input comwake_detect;
+  input comreset_cominit_detect;
+  input partial;
+  input slumber;
+  input scrambling_off;
+  input bypass_power_on_seq;
+
+  // Internal signals
+  wire tx_clk;
+  wire rx_clk;
+  wire z_rx_locked;
+  wire z_tx_enable;
+  wire z_k28_5_detect;
+  wire z_k28_5_detect_r;
+  wire z_rx_data_valid;
+  wire rx_comwake_detect;
+  wire rx_comreset_cominit_detect;
+  wire z_partial;
+  wire z_slumber;
+  wire z_scrambling_off;
+  wire [ZI_DATA_WIDTH-1:0] data_to_tx;
+  wire [39:0] rx_data_to_link;
+
+  wire comreset_detected;
+  wire cominit_detected;
+  wire comwake_detected;
+  wire h_comwake_detected;
+  wire d_comwake_detected;
+  wire h_align_p_detected;
+  wire d_align_p_detected;
+  wire host_idle;
+  wire pwr_mgmt_mode_entered;
+  wire four_pmack_detected;
+  wire tx_four_pmack_detected;
+  wire rx_four_pmack_detected;
+  wire [3:0] present_state;
+  wire h_comwake_deasserted;
+  wire dev_three_non_align_p;
+  wire tx_three_non_align_p;
+  wire phy_ready;
+  wire r_comreset_detected;
+  wire r_cominit_detected;
+  wire r_h_comwake_detected;
+  wire r_d_comwake_detected;
+  wire [23:0] latency_count;
+  wire rx_comwake_deasserted;
+  wire rx_three_non_align_p;
+  wire [23:0] comwake_count;
+  wire [31:0] align_p_count;
+  wire d_comwake_deasserted;
+  wire host_dword_valid;
+  wire dev_dword_valid;
+  wire tx_dword_valid;
+  wire rx_dword_valid;
+
+  wire tx_collect_stats;
+  wire rx_collect_stats;
+  wire tx_level_select;
+  wire tx_comreset_cominit_detected;
+  wire tx_comwake_detected;
+  wire [39:0] tx_data_shifter;
+  wire tx_data_valid;
+  wire tx_first_align_p;
+  wire tx_idle;
+  wire tx_comwake_deasserted;
+  wire rx_level_select;
+  wire rx_comreset_cominit_detected;
+  wire rx_comreset_cominit_detected_r;
+  wire rx_comreset_cominit;
+  wire rx_comwake_detected;
+  wire rx_comwake_detected_r;
+  wire rx_comwake_deasserted_r;
+  wire rx_idle_r;
+  wire rx_comwake;
+  wire r_rx_comwake;
+  wire [39:0] rx_data_shifter;
+  wire rx_data_valid;
+  wire rx_data_valid_out;
+  wire rx_first_align_p;
+  wire rx_idle;
+  wire rx_first_align_p_to_link;
+  wire [39:0] sapis_data_shifter;
+  wire [39:0] sapis_data_shifter_out;
+  wire first_rx_sapis_align;
+  wire first_rx_sapis_align_r;
+  wire rx_sapis_data_valid;
+  
+  wire tx_h_comwake_to_d_align_p_violation;
+  wire rx_h_comwake_to_d_align_p_violation;
+  wire tx_d_comwake_to_D10_2_violation;
+  wire rx_d_comwake_to_D10_2_violation;
+  wire tx_no_2048_align_p_violation;
+  wire rx_no_2048_align_p_violation;
+  wire tx_retry_interval_violation;
+  wire rx_retry_interval_violation;
+  wire tx_h_align_before_d_align_violation;
+  wire rx_h_align_before_d_align_violation;
+  wire tx_align_p_D24_3_violation;
+  wire rx_align_p_D24_3_violation;
+  wire comwake_in_partial_violation;
+  wire comwake_in_slumber_violation;
+  wire cr_ci_and_cw_active_violation;
+  wire partial_slumber_active_violation;
+
+  reg pos_toggle;
+  reg neg_toggle;
+  reg phy_ready_pos;
+  reg phy_ready_neg;
+  reg r_comreset_detected_pos;
+  reg r_comreset_detected_neg;
+  reg r_cominit_detected_pos;
+  reg r_cominit_detected_neg;
+  reg r_h_comwake_detected_pos;
+  reg r_h_comwake_detected_neg;
+  reg r_d_comwake_detected_pos;
+  reg r_d_comwake_detected_neg;
+  reg [23:0] latency_count_pos;
+  reg [23:0] latency_count_neg;
+  reg [23:0] comwake_count_pos;
+  reg [23:0] comwake_count_neg;
+  reg [31:0] align_p_count_pos;
+  reg [31:0] align_p_count_neg;
+  reg r_rx_comwake_pos;
+  reg r_rx_comwake_neg;
+  reg [3:0] present_state_pos;
+  reg [3:0] present_state_neg;
+  reg [4:0] next_state;
+  reg [39:0] sapis_data_shifter_pos;
+  reg [39:0] sapis_data_shifter_neg;
+  reg first_rx_sapis_align_pos;
+  reg first_rx_sapis_align_neg;
+  reg first_rx_sapis_align_r_pos;
+  reg first_rx_sapis_align_r_neg;
+  reg rx_sapis_data_valid_pos;
+  reg rx_sapis_data_valid_neg;
+  reg z_k28_5_detect_r_pos;
+  reg z_k28_5_detect_r_neg;
+  reg rx_comreset_cominit_detected_r_pos;
+  reg rx_comreset_cominit_detected_r_neg;
+  reg rx_comwake_detected_r_pos;
+  reg rx_comwake_detected_r_neg; 
+  reg rx_comwake_deasserted_r_pos;
+  reg rx_comwake_deasserted_r_neg; 
+  reg rx_idle_r_pos;
+  reg rx_idle_r_neg; 
+  reg [26*8-1:0] present_state_string;
+  reg [26*8-1:0] next_state_string;
+
+  reg [63:0] total_no_of_comreset_count;
+  reg [63:0] total_no_of_cominit_count;
+  reg [63:0] tx_total_no_of_comwake_count;
+  reg [63:0] rx_total_no_of_comwake_count;
+  reg [63:0] total_no_of_unsolicit_cominit_count;
+
+  reg total_no_of_comreset_count_neg;
+  reg total_no_of_cominit_count_neg;
+  reg tx_total_no_of_comwake_count_neg;
+  reg rx_total_no_of_comwake_count_neg;
+  reg total_no_of_unsolicit_cominit_count_neg;
+`protected
+
+    MTI!#=peAQ_I]ovWzOaUU1m}^+*il>\^1Q,O+=3lw&|)Q-FwYoB{XE^,Jp]mXT[m{Na^#vH{pDi=
+    ][b|kQk>]#r7&I[~zr35<B,#,Jr?#\j>Z;Y$x"RO5vqt>OV!AHpaU[+GpnD>RJ{E5Bsks$>k-[>,
+    O2XzOQAJurpnX{+U{Dap_W(aQ{GZ{{ppw;@oCH-]D\-HDeG3<mv\@EE7<pjkRJ>X=Je<rUR^X<>C
+    $q^wW]$pG=#_vAI^-IeAskJ{Q1v_^J{sGauq^z[U[-E3rHpDi]o~gv-H!DTOKrU@vVvrv1ZQZ[8k
+    sOs>QwG#{2\$u<m}7O[w}ow#5k=!A'RT<OksHnk#C12RiDrUB,-M5r3$Y6#V<?kT~e#>'C]V\iW7
+    #p*;T$F%[~{'pOK_@EiJA7~p.(B,wr$Q^?C+a]GKDJj<l#p![I~*[<C1vn:X7~JzfH*R52]m@'$Z
+    OoGD>Ve2+<oQ?_nwv!U-t5Y$aapzz~T9E1nzvpH~_K<W;OGJV\\JCA\0I#el]Nr~@rOlBsvTJu?V
+    ]}<X2TH_mB<x-}O$JKtA7{$eeKA=m=oJ-;a^iO~XjXC1TsVz{>aE33Q'RDvI#}s?H$2+HT@gfm<e
+    =,I;u]#vvoa=wxvTUlprCCG-EoRa{kQzIG_7z&_]5\ns_j7$v*BO$?{Y]#-[aAE7U<r!+lF6CW=5
+    <eBk~a2eplvK!nrXY_K#i>eZw{v!EA<@$R]$BD_@5WE'}k-RxW5mx%^NXv}^3]eia++u;\m-Rs5A
+    1uuOe\'Q}FrrK1WXY[zg\_QiN$@W3IQ1;D{CYzYC$uH,zqAE[Ifp3*l?QU\!}k[;B*EaGW>
+`endprotected
+
+  //----------------------------------------------------------------------------
+  // Tx power_on_sequence module instance
+  qvl_sata_power_on_sequence #(Constraints_Mode,
+                                 LINK_SIDE,
+                                 INTERFACE_TYPE,
+                                 DEVICE_TYPE,
+                                 PARALLEL_DATA_WIDTH,
+                                 DOUBLE_DATA_RATE,
+                                 MAX_DEV_SPEED,
+                                 PORT_SELECTOR_ENABLE,
+                                 ELECTRICAL_IDLE_PATTERN,
+                                 1, //TX_INTERFACE
+                                 ZI_TX_COMRESET_COMINIT_IDLE_TIME,
+                                 ZI_TX_COMWAKE_IDLE_TIME,
+                                 ZI_RX_COMRESET_COMINIT_IDLE_MAX,
+                                 ZI_RX_COMRESET_COMINIT_IDLE_MIN,
+                                 ZI_RX_COMWAKE_IDLE_MAX,
+                                 ZI_RX_COMWAKE_IDLE_MIN
+                                )
+                 POWER_ON_SEQ_TX(.areset(areset),
+                                 .reset(reset),
+	                         .clk(tx_clk),
+	                         .data_plus(data_to_tx),
+	                         .data_minus(tx_data_minus),
+                                 .phy_present_state(present_state),
+                                 .align_p_D24_3_violation
+                                               (tx_align_p_D24_3_violation),
+                                 .D10_2_detected(tx_D10_2_detected),
+                                 .pwr_mgmt_mode_entered(pwr_mgmt_mode_entered),
+                                 .four_pmack_detected(tx_four_pmack_detected),
+                                 .bypass_power_on_seq(bypass_power_on_seq),
+                                 .level_select(tx_level_select),
+                                 .data_shifter(tx_data_shifter),
+                                 .data_valid(tx_data_valid),
+                                 .first_align_p(tx_first_align_p),
+                                 .idle(tx_idle),
+                                 .comwake_detected(tx_comwake_detected),
+                                 .comwake_deasserted(tx_comwake_deasserted),
+                                 .comreset_cominit_detected
+                                                 (tx_comreset_cominit_detected)
+                                );
+  //----------------------------------------------------------------------------
+  // Rx power_on_sequence module instance
+  qvl_sata_power_on_sequence #(Constraints_Mode,
+                                 LINK_SIDE,
+                                 INTERFACE_TYPE,
+                                 DEVICE_TYPE,
+                                 PARALLEL_DATA_WIDTH,
+                                 DOUBLE_DATA_RATE,
+                                 MAX_DEV_SPEED,
+                                 PORT_SELECTOR_ENABLE,
+                                 ELECTRICAL_IDLE_PATTERN,
+                                 0, //RX_INTERFACE
+                                 ZI_TX_COMRESET_COMINIT_IDLE_TIME,
+                                 ZI_TX_COMWAKE_IDLE_TIME,
+                                 ZI_RX_COMRESET_COMINIT_IDLE_MAX,
+                                 ZI_RX_COMRESET_COMINIT_IDLE_MIN,
+                                 ZI_RX_COMWAKE_IDLE_MAX,
+                                 ZI_RX_COMWAKE_IDLE_MIN
+                                )
+                 POWER_ON_SEQ_RX(.areset(areset),
+                                 .reset(reset),
+	                         .clk(clk_to_rx),
+	                         .data_plus(rx_data_plus),
+	                         .data_minus(rx_data_minus),
+                                 .phy_present_state(present_state),
+                                 .align_p_D24_3_violation
+                                               (rx_align_p_D24_3_violation),
+                                 .D10_2_detected(rx_D10_2_detected),
+                                 .pwr_mgmt_mode_entered(pwr_mgmt_mode_entered),
+                                 .four_pmack_detected(rx_four_pmack_detected),
+                                 .bypass_power_on_seq(bypass_power_on_seq),
+                                 .level_select(rx_level_select),
+                                 .comreset_cominit_detected
+                                                 (rx_comreset_cominit_detected),
+                                 .comwake_detected(rx_comwake_detected),
+                                 .data_shifter(rx_data_shifter),
+                                 .data_valid(rx_data_valid_out),
+                                 .first_align_p(rx_first_align_p),
+                                 .idle(rx_idle),
+                                 .comwake_deasserted(rx_comwake_deasserted)
+                                );
+  //----------------------------------------------------------------------------
+  // Link monitor module instance
+  qvl_sata_link_monitor #(Constraints_Mode,
+                            LINK_SIDE,
+                            INTERFACE_TYPE,
+                            DEVICE_TYPE,
+                            PARALLEL_DATA_WIDTH,
+                            DOUBLE_DATA_RATE,
+                            NCQ_COMMAND_ENABLE,
+                            LEGACY_QUEUED_COMMAND_ENABLE,
+                            PORT_MULTIPLIER_ENABLE,
+                            PACKET_COMMAND_ENABLE,
+                            RESERVED_VALUE_CHECKING_ENABLE,
+                            POWER_MGMT_ENABLE,
+                            MAX_QUEUE_DEPTH,
+                            RESERVED_FIS_TYPE_ENABLE,
+                            VENDOR_FIS_TYPE_ENABLE
+                           )
+                    LINK_MONITOR(.areset(areset),
+                                 .reset(reset),
+                                 .tx_clk(tx_clk),
+                                 .tx_data(tx_data_shifter),
+                                 .tx_data_valid(tx_data_valid),
+                                 .tx_first_align_p(tx_first_align_p),
+                                 .tx_level_select(tx_level_select),
+                                 .rx_clk(rx_clk),
+                                 .rx_data(rx_data_to_link),
+                                 .rx_data_valid(rx_data_valid_to_link),
+                                 .rx_first_align_p(rx_first_align_p_to_link),
+                                 .rx_level_select(rx_level_select_to_link),
+                                 .comwake_detected(comwake_detected),
+                                 .comreset_detected(comreset_detected),
+                                 .cominit_detected(cominit_detected),
+                                 .phy_ready(phy_ready),
+                                 .scrambling_off(z_scrambling_off),
+                                 .k28_5_detect(z_k28_5_detect_r),
+                                 .total_no_of_comreset_count
+                                              (total_no_of_comreset_count),
+                                 .total_no_of_cominit_count
+                                              (total_no_of_cominit_count),
+                                 .tx_total_no_of_comwake_count
+                                               (tx_total_no_of_comwake_count),
+                                 .rx_total_no_of_comwake_count
+                                               (rx_total_no_of_comwake_count),
+                                 .total_no_of_unsolicit_cominit_count
+                                          (total_no_of_unsolicit_cominit_count),
+                                 .tx_dword_valid(tx_dword_valid),
+                                 .tx_align_p_detected(tx_align_p_detected),
+                                 .tx_D10_2_detected(tx_D10_2_detected),
+                                 .tx_D24_3_detected(tx_D24_3_detected),
+                                 .tx_three_non_align_p_detected
+                                                (tx_three_non_align_p),
+                                 .rx_dword_valid(rx_dword_valid),
+                                 .rx_align_p_detected(rx_align_p_detected),
+                                 .rx_D10_2_detected(rx_D10_2_detected),
+                                 .rx_D24_3_detected(rx_D24_3_detected),
+                                 .rx_three_non_align_p_detected
+                                                (rx_three_non_align_p),
+                                 .host_dword_valid(host_dword_valid),
+                                 .dev_dword_valid(dev_dword_valid),
+                                 .pwr_mgmt_mode_entered(pwr_mgmt_mode_entered),
+                                 .four_pmack_detected(four_pmack_detected),
+                                 .tx_four_pmack_detected
+						  (tx_four_pmack_detected),
+                                 .rx_four_pmack_detected
+						  (rx_four_pmack_detected),
+                                 .collect_stats(collect_stats),
+                                 .tx_collect_stats(tx_collect_stats),
+                                 .rx_collect_stats(rx_collect_stats),
+                                 .rx_idle (rx_idle),
+                                 .tx_idle (tx_idle)
+                                );
+  //----------------------------------------------------------------------------
+`protected
+
+    MTI!#2{*1-UoVYz7{JUriDQUHiIx-7y$#}#o[/UTVi0:)4EXErUU}[7H3R^~vHB,en%(NHxCOT=+
+    H}{;5rH,V_3+j|{omYQp@}K<V[CuUrRz{-n]^3D+ZodptwA>zl5Kk~<zE'Vw^ep,isIl[JVEao3!
+    oe+J>$aCV<E\nG7wOErxV7BB,^5DIuUB[Q[:73G*woxD!<ps[2{je{oYB]73.mrnwn5Z_Uo}!HT3
+    OgwXI7CNC/rV-oY+m\hm]C@I5-Z2EjHM?sVUuR\*sHzuV?u$I2X_:aT}wlWB1[J}#HA7*Jp[TIDR
+    i}m_#j*GW?r*''YH}#YEiuO\$"8m_=@Dj7mj[oKD[ei'ewW@HsT7HYR\=KH0[[1]@Y>*Y?R1QZVk
+    5v5z$_lYY@W=q\;oUtp=ewp;_GVDk5iYa;&N)}B#=mD3VAT>B==K+asAHVR7;w$A3G#1-hrC@}.&
+    Zzj{F{'X#_'r??[zHTjw{#B,=cE,]Q7OB*?U3vX1'xI'BQ<(oN2O<}5@oRheWJxXsAvzzzkSQ$o*
+    vC(]nn},Ep@}DrT&b$5x5>BDZ<7~7/R|GmZ$iEis{'@qq13BAGm{w|pnn3lCu3H}2a($5Q$'^<O\
+    mx_'DK_5M7i\n]k{TrRG=YQ05GO^QGI=,7J2n5e]V*'TrV#1AE<Qz5{lRXZCIWBo?U@pinTI[Zj=
+    w^7lZI}aUCwuK'[VO5$I<jHASAj3uGGsi{r_Zsv=ewE[5DlC72r[j6iUzBl(7@K[I3H@{^>VO[
+`endprotected
+
+  assign tx_clk = tbc;
+  assign rx_clk = rbc;
+  assign z_rx_locked = (rx_locked === 1'b1);
+  assign z_tx_enable = (tx_enable === 1'b1);
+  assign z_k28_5_detect = (k28_5_detect === 1'b1);
+  assign z_rx_data_valid = (rx_data_valid === 1'b1);
+  assign rx_comwake_detect = (comwake_detect === 1'b1);
+  assign rx_comreset_cominit_detect = (comreset_cominit_detect === 1'b1);
+  assign z_partial = (partial === 1'b1);
+  assign z_slumber = (slumber === 1'b1);
+  assign z_scrambling_off = (scrambling_off === 1'b1);
+  assign data_to_tx = (INTERFACE_TYPE == 2)
+                      ? (z_tx_enable ? tx_data_plus : ELECTRICAL_IDLE_PATTERN)
+                      : tx_data_plus;
+  assign clk_to_rx = (INTERFACE_TYPE == 2) ? 0 : rx_clk;
+  assign rx_data_to_link = (INTERFACE_TYPE == 2)
+                           ? sapis_data_shifter
+                           : rx_data_shifter;
+  assign rx_data_valid_to_link = (INTERFACE_TYPE == 2)
+                                 ? rx_sapis_data_valid
+                                 : rx_data_valid_out;
+  assign rx_level_select_to_link = (INTERFACE_TYPE == 2)
+                                   ? (DOUBLE_DATA_RATE
+                                      ? (~(pos_toggle ^ neg_toggle))
+                                      : 1'b1) 
+                                   : rx_level_select;
+  assign rx_first_align_p_to_link = (INTERFACE_TYPE == 2)
+                                    ? first_rx_sapis_align_r
+                                    : rx_first_align_p;
+  assign rx_comreset_cominit = (INTERFACE_TYPE == 2)
+                               ? rx_comreset_cominit_detect
+                               : rx_comreset_cominit_detected_r;
+  assign rx_comreset_cominit_detected_r = rx_level_select_to_link
+                                          ? rx_comreset_cominit_detected_r_pos
+                                          : rx_comreset_cominit_detected_r_neg;
+  assign rx_comwake = (INTERFACE_TYPE == 2)
+                      ? rx_comwake_detect
+                      : rx_comwake_detected_r;
+  assign rx_comwake_detected_r = rx_level_select_to_link
+                      ? rx_comwake_detected_r_pos
+                      : rx_comwake_detected_r_neg;
+  assign rx_comwake_deasserted_r = rx_level_select_to_link
+                      ? rx_comwake_deasserted_r_pos
+                      : rx_comwake_deasserted_r_neg;
+  assign rx_idle_r = rx_level_select_to_link
+                      ? rx_idle_r_pos
+                      : rx_idle_r_neg;
+  assign r_rx_comwake = tx_level_select ? r_rx_comwake_pos : r_rx_comwake_neg;
+  assign sapis_data_shifter_out = ((PARALLEL_DATA_WIDTH == 10)
+				   ? {rx_data_plus, sapis_data_shifter[39:10]}
+				   : ((PARALLEL_DATA_WIDTH == 20)
+				      ? {rx_data_plus, 
+					 sapis_data_shifter[39:20]}
+				      : rx_data_plus
+				     )
+				  );
+  assign sapis_data_shifter = rx_level_select_to_link ? sapis_data_shifter_pos 
+                                                      : sapis_data_shifter_neg;
+  assign first_rx_sapis_align = rx_level_select_to_link 
+                                ? first_rx_sapis_align_pos 
+                                : first_rx_sapis_align_neg;
+
+  assign first_rx_sapis_align_r = rx_level_select_to_link 
+                                ? first_rx_sapis_align_r_pos 
+                                : first_rx_sapis_align_r_neg;
+
+  assign rx_sapis_data_valid = rx_level_select_to_link 
+                                ? rx_sapis_data_valid_pos
+                                : rx_sapis_data_valid_neg;
+
+  assign z_k28_5_detect_r = rx_level_select_to_link
+                            ? z_k28_5_detect_r_pos
+                            : z_k28_5_detect_r_neg;
+
+  assign comreset_detected = (DEVICE_TYPE == 1)
+			     ? rx_comreset_cominit
+			     : tx_comreset_cominit_detected;
+
+  assign cominit_detected = (DEVICE_TYPE == 1)
+			     ? tx_comreset_cominit_detected
+			     : rx_comreset_cominit;
+  assign h_comwake_detected = (DEVICE_TYPE == 1)
+                             ? rx_comwake
+                             : tx_comwake_detected;
+  assign d_comwake_detected = (DEVICE_TYPE == 1)
+                             ? tx_comwake_detected
+                             : rx_comwake;
+  assign h_comwake_deasserted = (DEVICE_TYPE == 1)
+                                ? ((INTERFACE_TYPE == 2) 
+                                   ? (~rx_comwake & r_rx_comwake)
+                                   : rx_comwake_deasserted_r)
+                                : tx_comwake_deasserted;
+  assign d_comwake_deasserted = (DEVICE_TYPE == 1)
+                                ? tx_comwake_deasserted
+                                : ((INTERFACE_TYPE == 2) 
+                                   ? (~rx_comwake & r_rx_comwake) 
+                                   : rx_comwake_deasserted_r);
+  assign h_align_p_detected = (DEVICE_TYPE == 1)
+                              ? rx_align_p_detected
+                              : tx_align_p_detected;
+  assign d_align_p_detected = (DEVICE_TYPE == 1)
+                              ? tx_align_p_detected
+                              : rx_align_p_detected;
+  assign host_idle = (DEVICE_TYPE == 1)
+                                ? rx_idle_r
+                                : tx_idle;
+  assign dev_three_non_align_p = (DEVICE_TYPE == 1)
+                             ? tx_three_non_align_p
+                             : rx_three_non_align_p;
+  assign comwake_detected = h_comwake_detected | d_comwake_detected;
+
+  assign phy_ready = tx_level_select ? phy_ready_pos 
+                                     : phy_ready_neg;
+  assign r_comreset_detected = tx_level_select ? r_comreset_detected_pos
+                                     : r_comreset_detected_neg;
+  assign r_cominit_detected = tx_level_select ? r_cominit_detected_pos
+                                     : r_cominit_detected_neg;
+  assign r_h_comwake_detected = tx_level_select ? r_h_comwake_detected_pos
+                                     : r_h_comwake_detected_neg;
+  assign r_d_comwake_detected = tx_level_select ? r_d_comwake_detected_pos
+                                     : r_d_comwake_detected_neg;
+
+  // Combo counter logic to track the time between state transitions
+  assign latency_count = tx_level_select ? latency_count_pos
+                                         : latency_count_neg;
+  assign comwake_count = tx_level_select ? comwake_count_pos
+                                         : comwake_count_neg;
+  assign align_p_count = tx_level_select ? align_p_count_pos
+                                        : align_p_count_neg;
+  assign present_state = tx_level_select ? present_state_pos 
+                                         : present_state_neg;
+
+  //----------------------------------------------------------------------------
+`protected
+
+    MTI!#p]rEl7!kQ1m_1lXV(Aou=ozkT<TJ!+Txigf-="t\<[["IHlV}aZ2=3o_rli?OpluI;sjN0u
+    nm?S@Gr^oO*>|.z\Vz[@dBz?QWR#u]e8?E3Hal;}$2KB;Tz[{5]-5_Jao5_?R$:I*jj}-};^DnZa
+    o?~rk+[*knQ{={1j=#kTC]_*=1zp\u2EWG@@1pG!'x2a$n*1C=kC-*mNlHWX7R~_k$J-g7\JOv>Q
+    75o#UUv]EiE@Vu*uB5u*VVV{*jZ<#2l,!V6U}BxU_'inpA@-I7p#<*[}apuEv?$=2}UVm;2Y?e+,
+    #IZiS1K-\mDV7U*+[o,QH='ivxs?C@{*OHxH$pw\uh6fjrOI|5uBjhzV?Z=WTQ}'\[FvQR~2\Dim
+    <K$~jW;Tn5~Ur^[B#AO@T{>v}3]-rz>(J7X'olZe'wan\U,@}kQzHV_p[XA2]As'_OEC:7@>zBLe
+    ;IlC~'euOkm?sn]T,l}p?I@!';7x[B},v]Y1{3x'mT1=p-;<+w[@[5HkY\uSF|:?_?n7;22B3pR)
+    rx]{y?_anxlVs}5*$X1_o4!_!B=)7PBxxo=[m;RTl-31<[#jZ5Xv;nH,#@ZB*C@zuTRs}_p_!RHl
+    E}=1mGerm}8WX7H\zE$nECuj<TY|!<m~KC+;eEA#>\~--rQ\[,oYKsV}B+DWj-~=Q[+w!<YXY_3l
+    Emvsss-x+jXu'$@{$?}rApaOpK$ZmADGxs{nB@V+[o+_'a<vEX*s-Aw*AQAx_!3-g9_Q'GE<v^\m
+    7=vnl1,vG1x>D!E7_K|&JBDC75-uvk''=?Z>[ZBGRwU>*@ClUw6T5Z+I(Qpvl2_]1yjuDra_-3Xe
+    uQO!+]0@j1Wn5oTz0rT-uXj+z_E+OwaAOVlQa&~O5#Sl'AHdrQnUYG!@V<@;m-w-(GCos{Dia:Ma
+    sBl*<Car-VT3nGY?Vr=r[7}_}!wQEBZeW^*W={xp!VnoJ-Gwz!{vBe3WOl#YrWoAI>?1?<[&rvV*
+    jnoUUps7Vpp72xXXsvj_vjE@;nX$e5rpj\ZT}-'OZ'W@25]a^Zpv$TlI{6v~!3-X@Di,YTEe+H:K
+    ev@B[kC:*D'*e^T[$7a_7'@RZrvJxEsRYz]2n*^InU<oJee5GWvD,'1i5<rV/4Ax!~!z#}%&b{+}
+    ;'~'pOlG+upj3_E;;l@}v5Q7so1!T@Dun'I$ioX+p1+w?xK*T&H>'Qr_2uw^=[GfleRWsp}u@D{z
+    rr-*Jv-*moE>sr-Rl5#Oa{,l%=eV2a7'!3nB;X-jHlmW}+vCO7@{{$;$CQ>]aV!'$B}DksGA3E$I
+    m,\ow-'O-GB,JU}EQRRHQR\zY]?TR9";}UKK_[{EBx},-,{O+U2HUABr-Vp+]GJ]Aa\kj3;H7EJ?
+    au*zJ\lnxBGzWm~-}=j/_eBV"sk<WMRD_p!{}?ZnwanI~Zi5epodl=}xzBJ,j=Y=/$*;O7Fu,@K&
+    7lo[*+>*_>m#nawz}XR1xXBs\x\_D$i;^$m7K'}TCu-GHOA-n^$A87m+}]c{T[R#1A]CT~5+xA'[
+    kXG^[jW_?$nOr7Dpa>QEC55yOCoGX-aj?-,^2]?7xGj?Z]i7h-<~~=_3I.wU~=*,;}[M[#m+uO^]
+    g}EQATT~'oAw,{['>q{Env?vnp#oOj[m=u{jDAWo5WmYY2*_RV_Ir+DTEkSov]#kss[TvW1[@+$t
+    CKRaxG!Cj7s!D-xV*sp5:7!GU7Ea=C,QQb'e#o}_a[?{+C#SCueOjAH*o<Y^m<Gp^O$5EA1~^uje
+    T>2}(a]X^RJR<N=lR2$Q[?mn>^C7;[UX@K|i_-QN5x33Bpl=GaY1_QrTTl2V"o$@$'JXR,U-!lAD
+    xjl;1a+]Y}Um!Uw*rlpp]RXlvDF6]A;ocUX-k1~~<IO*_B>xBE_7T[[X$l<T;OKG<wVRJWQr@fk-
+    ;kG7\OQWQ[=-H~^,JB1JTeLYlaH^i[^B>B}B-e1PTwWXF1BJu3*osQJD;2OB@2Ar7p2j!OC$^omO
+    I=vEj,Bw}~*rosl>Oanj??R_$v<$z%7EkViTaOVfWDxU?Y^]RQZ*HH=+B#nWqTX'\5I$ZW5w!DKR
+    o^i17O#=2['}2_p1AIuDVDkm*VuA@]>e,*G2~ei!WOpm2ZBQ1)o@!^v7kHJR!wVUp+?o1zIx,QWs
+    3{}Gu2^al3;s]ZWYQVhk'=Be\3HY&WGikIOWvx^QzfQ"<DXI3<IEji*<7CA2'=V1ejm5?A\X'*VJ
+    DAEa_V+s*lrQ$>T$[}7i03zm^'~ez_XI^z@V~L2-^UEl5]q'#_p-QHlv~U-IYZDXC5W2U[H[Yo7,
+    ZG-isw@Vx+]?{\T2-_GQ!+,W>Xr^~*zsl2n7vV?MDkVX?}wH2,<3#5Z}GQw2.n'_Jz!B2I3x>7E@
+    l27HO]2wl:,?mDYC=xCsV\mQn*UQKvv3+!$AsRl17HXTRluTvCe=^K2]<pZBRu,zImtYOVuiHGQ,
+    o$V{{Q,L<n-\X_p'Cax>a7$[>GAWepnBeRV[]DJsA[>,1EAW-D+Vx$HWr5VZY\*o}s<m#UDrow>[
+    jDTH]ueIl5+o}2!HBAWepr?J]]znkaXE*3=5>O$u\_[$+s!s_K>xw,}-Osne3=EB9=Hl@I;reIlv
+    O+xpKqlUYvs+v]-1o1*jZo$zo@C+>R*rpkB*U~c@oZ~o*k$jA-e7>HJuj#j;p\n}n7-x<=+Z<D1B
+    lV785^VO3-}#>a^CCa\ibmlV\\T\H<R_mZ+7Jr1zxoz'w6a{Cv'wV^m'nCFZ$2<RQSXjJRLUAn\W
+    e$x*vR^RUxTTrJxyU'TR[TB7;Y>R7,lXi=C{*BX;YBB2r]eQ@EnI}3U~e5$jYIj_}ronWG$$;rA~
+    plO7UjYvlo\}1?<[^s##lv?BkTwO>^5HieYi<{B^>]+ur]-U$IOCk^sljwo!~l*V12vY*r]l7i@T
+    4r-oXV$HQe$az.t$mm\=k;sdDsCCDBr-%1B~<2zEWAT<;=3-eKRC]-93jnl[_1*q7,H]VrRnbI=a
+    kH{X[Iuz-?o]nq{1$E?\!]GzUOe'k#p=32$n=}in'ziA+BDx>uxxAz<l3_vE3$\K}BJEV'Q#Yep+
+    zpXjziXp~}[l\mOD9ZD[v~x<-!H^7<a]jFCOwv,;E5'K@CnDx_^EmV'Z'!B@TDG<vOW,$C'XQ'~v
+    _>Zap*D<*jhE'ns!r7YjXs{;nHG{_O*}W;#[V^omsxK]>Bwa{V2,jA*[x5@T[X1^@spj{IT^+]7T
+    =Im(Yul~!QAJ=KvKsY1X+1>Hxm@Ocpz=@v_~smC]3TOeU~w[O#sk?vmXD&Np3JxoSPQ{lQQpz,t5
+    7oQKEX2wv$ARR+I;zUw_VX@l!*xB{Tk,#<p7E@p[iZ{mDX7\lm?Q=7nXrC~#v-@7-wxzh>={Dc{}
+    1_Q]O57+nv3{TpTBC$r5A+D?_2I52oYQiD51<ZW5IDp?2xIXKa8VpE74Buw{QKpsI5uIzI7p=l#e
+    ~Dz^0s#~w|evknBkYvaBlY3$s~*-CX'O<_3OEZ!YD#E[W7VW;p_m3Emp[YD.V>;Dqvj#YCXTl\5<
+    _C^Qs*_KWmp1*Ea^VOvn_;enOBA=n-<lov=~YG3_xCQTaD+>VJVOkis^<rAn}#sw2m^W<#B^~n,{
+    !!=[BR'pZ-xO+SG5>D'$I;eGJOsDW_oC!lr'ws3n25?5_^zClQ7_DkE\}#V^w]l;TZDG!_yY$x~m
+    YzQ<Os<O7n{<e32n5UBerR5=[\WZYD]w1]YIDoC)$$1nBi!IpYU_-IJ@K-WWT+=IC]e#T>$*[?e>
+    ^:kXDkuQZ#[,DnBU{k1'(w-X-3{TT}n=;$@HAV0@<^$eW[3Gw;]#HYYCYVIJI<]]iA1PI$Z-A[+,
+    C<UIRlRH:Jx{{[->u;>eD|{GoQ7;^Jl~7Dp^k>7UX2v<Xu~oCR>+$WcBplK@THXoRQIrH=^\#{\C
+    HJVUETR1ppnEKoGQ[Bk;R-s$>ZZsQ{v}k}i5]_OcGmzB,,=Yz;^C;lH7Av;Y>O-3=2_I\7kEC[5x
+    51Ku]u3;C-^^k[,W~7p^?BDDZT1Xz*|B<}5_vQIGzY@4zz1i}Q~kAXQpe!Yu+E~1WBER[nVV{lA?
+    ;zHQz,oE=<pCURaVOoIlIz*7'oBo?l+pb2X1m}i-E]E^K\^2
+`endprotected
+  //----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
+  // Check1
+  // The violation signal is generated in this module and sent to the
+  // power_on_sequence module for the fire checker
+  // In case of host D10.2 characters come and hence a mux based on DEVICE type
+  assign tx_align_p_D24_3_violation = ((DEVICE_TYPE == 0)
+                                     ? (tx_dword_valid &
+                                        ~((present_state ==
+                                                 ZI_D_COMWAKE_DETECTED_STATE) |
+                                         (present_state ==
+                                                 ZI_D_ALIGN_P_DETECTED_STATE) |
+                                         (present_state ==
+                                                 ZI_H_ALIGN_P_DETECTED_STATE)) &
+                                        ~(tx_align_p_detected |
+                                          tx_D24_3_detected))
+                                     : (tx_dword_valid &
+                                        (~tx_align_p_detected &
+                                         (present_state !=
+                                                 ZI_H_ALIGN_P_DETECTED_STATE)
+                                        ) &
+                                        (~tx_D24_3_detected &
+                                         (present_state !=
+                                            ZI_D_COMWAKE_DETECTED_STATE)
+                                        )
+                                       )) & ~phy_ready &
+                                    ~(pwr_mgmt_mode_entered &
+                                     (present_state == ZI_PHY_IDLE_STATE));
+
+  assign rx_align_p_D24_3_violation = ((DEVICE_TYPE == 1)
+                                     ? (rx_dword_valid &
+                                        ~((present_state ==
+                                                 ZI_D_COMWAKE_DETECTED_STATE) |
+                                          (present_state ==
+                                                 ZI_D_ALIGN_P_DETECTED_STATE) |
+                                          (present_state ==
+                                                 ZI_H_ALIGN_P_DETECTED_STATE)) &
+                                        ~(rx_align_p_detected |
+                                          rx_D24_3_detected))
+                                      : (rx_dword_valid &
+                                        (~rx_align_p_detected &
+                                         (present_state !=
+                                                  ZI_H_ALIGN_P_DETECTED_STATE)
+                                        ) &
+                                        (~rx_D24_3_detected &
+                                         (present_state !=
+                                            ZI_D_COMWAKE_DETECTED_STATE)
+                                        )
+                                       )
+                                     ) & ~phy_ready & 
+                                    ~(pwr_mgmt_mode_entered &
+                                     (present_state == ZI_PHY_IDLE_STATE));
+  // Check 6
+  assign tx_h_comwake_to_d_align_p_violation = ((present_state ==
+                                                 ZI_H_COMWAKE_DETECTED_STATE) |
+                                                (present_state ==
+                                                 ZI_D_COMWAKE_DETECTED_STATE)) &
+                                                (latency_count >
+                                               ZI_H_COMWAKE_TO_D_ALIGN_P_TIME) &
+                                               ~tx_align_p_detected &
+                                                tx_dword_valid & DEVICE_TYPE;
+  assign rx_h_comwake_to_d_align_p_violation = ((present_state ==
+                                                 ZI_H_COMWAKE_DETECTED_STATE) |
+                                                (present_state ==
+                                                 ZI_D_COMWAKE_DETECTED_STATE)) &
+                                                (latency_count >
+                                               ZI_H_COMWAKE_TO_D_ALIGN_P_TIME) &
+                                               ~rx_align_p_detected &
+                                                rx_dword_valid & ~DEVICE_TYPE;
+  // Check 13
+  assign tx_d_comwake_to_D10_2_violation = (present_state ==
+                                                 ZI_D_ALIGN_P_DETECTED_STATE) &
+                                           (comwake_count >
+                                                  ZI_D_COMWAKE_TO_D10_2_TIME) &
+                                           ~DEVICE_TYPE;
+  assign rx_d_comwake_to_D10_2_violation = (present_state ==
+                                                  ZI_D_ALIGN_P_DETECTED_STATE) &
+                                           (comwake_count >
+                                                  ZI_D_COMWAKE_TO_D10_2_TIME) &
+                                           DEVICE_TYPE & (INTERFACE_TYPE != 2);
+  // Check 22
+  // This is asserted when the device does not send at least 2048 aligns. 
+/*
+  assign tx_no_2048_align_p_violation = ((present_state ==
+                                                ZI_D_ALIGN_P_DETECTED_STATE) |
+                                         (present_state ==
+                                                ZI_H_ALIGN_P_DETECTED_STATE)) &
+                                       tx_dword_valid & ~tx_align_p_detected &
+                                       (align_p_count < 2047) & DEVICE_TYPE;
+  assign rx_no_2048_align_p_violation = ((present_state ==
+                                                ZI_D_ALIGN_P_DETECTED_STATE) |
+                                         (present_state ==
+                                                ZI_H_ALIGN_P_DETECTED_STATE)) &
+                                       rx_dword_valid & ~rx_align_p_detected &
+                                       (align_p_count < 2046) & ~DEVICE_TYPE;
+*/
+
+  assign tx_no_2048_align_p_violation = (present_state ==
+                                                ZI_D_ALIGN_P_DETECTED_STATE) &
+                                       tx_dword_valid & ~tx_align_p_detected &
+                                        (align_p_count < 2047) & DEVICE_TYPE;
+
+  assign rx_no_2048_align_p_violation = (present_state == ZI_D_ALIGN_P_DETECTED_STATE) &
+                                       rx_dword_valid & ~rx_align_p_detected &
+                                        (align_p_count < 2046)  & ~DEVICE_TYPE;
+
+  // Check new2
+  // When Asynchronous signal recovery is enabled COMRESET must not be 
+  // transmitted by the Host before the RETRY interval is elapsed
+  assign tx_retry_interval_violation = ((present_state ==
+                                                ZI_COMRESET_DETECTED_STATE) |
+                                      (present_state ==
+                                                ZI_COMINIT_DETECTED_STATE) |
+                                      (present_state ==
+                                                ZI_H_COMWAKE_DETECTED_STATE)) &
+                                     comreset_detected & ~r_comreset_detected &
+                                     ASYNC_SIGNAL_RECOVERY & ~DEVICE_TYPE &
+                                     (comwake_count <= RETRY_INTERVAL);
+  assign rx_retry_interval_violation = ((present_state ==
+                                                ZI_COMRESET_DETECTED_STATE) |
+                                      (present_state ==
+                                                ZI_COMINIT_DETECTED_STATE) |
+                                      (present_state ==
+                                                ZI_H_COMWAKE_DETECTED_STATE)) &
+                                     comreset_detected & ~r_comreset_detected &
+                                     ASYNC_SIGNAL_RECOVERY & DEVICE_TYPE &
+                                     (comwake_count <= RETRY_INTERVAL);
+  // Check new3
+  assign tx_h_align_before_d_align_violation = tx_dword_valid & 
+					   tx_align_p_detected &
+                                           (present_state == 
+						 ZI_D_COMWAKE_DETECTED_STATE) &
+                                           ~DEVICE_TYPE;
+  assign rx_h_align_before_d_align_violation = rx_dword_valid & 
+                                           rx_align_p_detected &
+                                           (present_state == 
+                                                 ZI_D_COMWAKE_DETECTED_STATE) &
+                                           DEVICE_TYPE;
+  // Check new4
+  assign comwake_in_partial_violation = z_partial & tx_comwake_detected;
+  assign comwake_in_slumber_violation = z_slumber & tx_comwake_detected;
+
+  // Check new5
+  assign cr_ci_and_cw_active_violation = rx_comreset_cominit_detect & 
+                                         rx_comwake_detect;
+
+  // Check new6
+  assign partial_slumber_active_violation = z_partial & z_slumber;
+
+`protected
+
+    MTI!#u6XVn2VQ7>@p5e>a+vo?<oVi@C+{rJn["i{P[#+[|D/Qz3jL.#[RE]<~~|5xZv[k{I5T7mo
+    lQ?6DBX2rvY21^o>+EuTj;AH~'}I|(_2IA=A{E~'vv;*BV-DYu51O<JD?!O,i-k5AW3]'}"",>a}
+    9YUz@xK$Rc(]2YCxZ}5lx1\sj#s>I$i%Fx=?QZTKrV+{jLnI!R'OW7@v@pE]d6Ysr]\3D$=s$#^<
+    nTIYoi@CXYJ\<no/<U-DowxC7ox#rQ\AGXea=@[J8-X3<^T(m,jTRw3>7<!Cp>B@C1po^g@A{~$<
+    *[2r-KQQmnU]xXH5WvBZY>[3a?uwICN}z^k$v-@7I=Q8U{p#FV\\#3$o]j\n[Wo'@7@A_'Hj$(q#
+    D]mz*~5-{r[]G1,6Xx*2te>IE;jY,E$BwYanDtn,jrmenl$v5Yawl12r,~[~pWkH+7t6@'J~o3Gv
+    kjz\[o7K{$UVxYQ~x~A[9(I?-aC'5*4Yp{Ou>2Qa7Q*4{LD?+<R,Zo^rzx|xkssk$i^IZv#eDVx+
+    GzVewJ=AQ_]]InE7r5e_>\5mA-GezTTvwzVQvW;-{J[nD{^m{pnBJnOVl]Oq3YY^w<[}$V;uaTwv
+    xx+ITzUQY\b">-2[+XZ#V$<>D%E\kAuzTz'{Y^v~ow^GRITaKz:WC^j$l5GT]mn_viwZ=jU255s7
+    K]De]Ea3<\K+aYB!AQ3,}>+'{QO{1?GuYsr1*Y+TnW+U(ri+kaBWOG++zz1>a$RO*YRJj^7nRu,r
+    }WXpT5^{Cri{\o~UY"T{BB'ZXk\'E>]BmKdBDIlv2j>FJT+KU{z-v-B$<x='TG\-Jz'?Qlo\!>KT
+    4t~AQ#<ImpW[@_WU7e\J[_tN*D1Wk^#B^U{KvuroCI}2mnjR,^=\3IoxW$sn#{l5$H,W$IwewpiW
+    @VIY@]=oU(EBAB?nvWD7x{e+n\CYADE~XXUx^,z,ZzWxV?_Glw]n,ix'<l{E,Zu+HC>RfmrHZ^B_
+    ?!r<l?I"QDr?I<a=u<<A2Xrn-z-3$awu%^7+!w*T>jKjv:;]I3rn+_"/rZXs$z^aEp]JGG1~u'Y^
+    rCm@]xr}=U+IdQJlk$-zx-=\D\Os>>{O3Kw@@jw^CAV,*AozXAQB3+B7wNIvDe0"p{,O:>Qn*2{,
+    ?}kAWHYEw,;7
+`endprotected
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_sata_core_monitor_assertions.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_sata_core_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_sata_core_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_sata_core_monitor
+`include "zi_cw_sata_core_monitor.zi_chx.inc"
+`endif
+`endif
+`qvlendmodule
+

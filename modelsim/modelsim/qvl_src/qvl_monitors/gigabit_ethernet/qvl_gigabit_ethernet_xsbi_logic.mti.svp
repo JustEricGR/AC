@@ -1,0 +1,227 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation      
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Gigabit Ethernet XSBI Monitor.
+ *
+ * DESCRIPTION   This monitor checks the Gigabit Etherent frames for
+ *               violations and malformed frames by observing the XSBI
+ *               interface of the 10GBase-R family of physical layers.
+ *
+ * REFERENCE     802.3 IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *               802.3ae Amendment: Media Access Control (MAC) Parameters,
+ *               Physical Layers, and Management Parameters for 10 Gb/s
+ *               Operation, 2002.
+ *
+ * INPUTS        areset            - asynchronous reset (active high)
+ *               reset             - synchronous reset (active high)
+ *               tx_clk            - transmit interface clock
+ *               rx_clk            - receive interface clock
+ *               txd               - transmit data (16-bit)
+ *               rxd               - receive data (16-bit)
+ *               bypass_descramble - descrambler bypass signal
+ *
+ * MONITOR INSTANTIATION
+ *
+ *                1. Applicable only in case of 10GBASE-R PHYs
+ *                --------------------------------------------
+ *
+ *                                + +
+ *                                | |
+ *                                | |
+ *                +---------------+-+----------------+
+ *                |    LLC - Logical Link Control    |
+ *                +----------------------------------+
+ *                |      MAC Control (optional)      |  L
+ *                +----------------------------------+  I
+ *                |    MAC - Media Access Control    |  N
+ *                +----------------------------------+  K
+ *                |   RS - Reconciliation Sublayer   |
+ *                +---------------+-+----------------+
+ *                                | |
+ *                                | | XGMII
+ *                                | |
+ *               +---------------+-+------------------+
+ *               | 10GBASE-R Physical Coding Sublayer |
+ *               |                                    |  
+ *               |         +--------------+           |  
+ *               |         | XSBI MONITOR |           |  
+ *               |         +------+-+-----+           |  
+ *               |                | |                 |  
+ *               +----------------+-+-----------------+
+ *                                | |
+ *                                | |
+ *                                | | XSBI
+ *                                | |
+ *                                | |
+ *                +---------------+-+----------------+
+ *                |        Serial PMA / WIS          |  P
+ *                +----------------------------------+  H
+ *                | PMD - Physical Medium Dependent  |  Y
+ *                +---------------+-+----------------+
+ *                                | |
+ *                                | |
+ *                                + +
+ *
+ *
+ * LAST MODIFIED 07 December 2004
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+ `ifdef QVL_SV_COVERGROUP_OFF
+  //DO nothing
+ `else
+  `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+   // Do nothing
+  `else
+  `define QVL_MW_FINAL_COVER
+  `endif 
+`endif
+
+
+`qvlmodule qvl_gigabit_ethernet_xsbi_logic (areset,
+                                            reset,
+                                            tx_clk,
+                                            rx_clk,
+                                            txd,
+                                            rxd,
+                                            bypass_descramble
+                                           );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis. 
+ 
+  parameter Constraints_Mode = 0; 
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate that the monitor is instantiated
+  // on the XSBI interface either on PCS (MAC_SIDE = 1) or closer on the 
+  // the PMA (closer to PHY). This parameter is used in constraining the 
+  // correct side in case of the formal analysis.
+ 
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+ 
+  // Jumbo frame size is fixed for a given simulation run. Set this parameter 
+  // to the desired length of Jumbo frames. The default length of Jumbo frames 
+  // is taken to be 9K bytes (9126 bytes). Note that the upper limit for Jumbo 
+  // frame size is 12K bytes since this is the maximum possible payload for 
+  // 32-bit CRC.
+
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved
+  // values in fields. By default, these checks will be performed.
+
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;                       
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+
+  // Parameter BYPASS_BLOCK_SYNC = 1 will bypass the block synchronization 
+  // process and assume that the blocks are coming in aligned from first data.
+  // To enable block synchronization set this parameter to 0.
+
+  parameter BYPASS_BLOCK_SYNC = 1;
+  wire [31:0] pw_BYPASS_BLOCK_SYNC = BYPASS_BLOCK_SYNC;
+
+  parameter DIC_SUPPORTED = 0;
+  wire [31:0] pw_DIC_SUPPORTED = DIC_SUPPORTED;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  input areset;
+  input reset;
+  input tx_clk;
+  input rx_clk;
+  input [15:0] txd;
+  input [15:0] rxd;
+  input bypass_descramble;
+
+
+  qvl_gigabit_ethernet_xsbi_link_monitor 
+    #(Constraints_Mode,
+      MAC_SIDE,
+      JUMBO_FRAME_DATA_LENGTH,
+      RESERVED_VALUE_CHECK_ENABLE,
+      1, // TX Interface
+      BYPASS_BLOCK_SYNC,
+      DIC_SUPPORTED,
+      MAC_MIN_TAGGED_FRAME_SIZE_68,
+      RESERVED_CONTROL_FRAME_SUPPORTED
+     )
+
+    XSBI_TX_INTERFACE
+      (.areset (areset),
+       .reset (reset),
+       .clk (tx_clk),
+       .data_16b (txd),
+       .bypass_descramble (bypass_descramble)
+      );
+
+
+  qvl_gigabit_ethernet_xsbi_link_monitor 
+    #(Constraints_Mode,
+      MAC_SIDE,
+      JUMBO_FRAME_DATA_LENGTH,
+      RESERVED_VALUE_CHECK_ENABLE,
+      0, // RX Interface
+      BYPASS_BLOCK_SYNC,
+      DIC_SUPPORTED,
+      MAC_MIN_TAGGED_FRAME_SIZE_68,
+      RESERVED_CONTROL_FRAME_SUPPORTED
+     )
+    XSBI_RX_INTERFACE
+      (.areset (areset),
+       .reset (reset),
+       .clk (rx_clk),
+       .data_16b (rxd),
+       .bypass_descramble (bypass_descramble)
+      );
+
+`protected
+
+    MTI!#-exOzX2j,mo1mGO=izC_&6$zXKYeZTlt1;vX=ZlmW*oZc})'zTuKT\Mz^V@#Y5_X+'V1CAo
+    @7m*KwA*Vr~+7~VsD,?5AsV<X7k~$U{@V'jwL84Zjl,H<AA<'CY6\x5Ca]>^zG!-k-w[#l5RruvY
+    RDT}PJAs[}CrGoK\Tu^*x5{<'e-o3@=[nlE@$!7;=R~$s1fu5k!ZoETC+7}1q<aZs=IC#}lk;xu2
+    O||Ap-l[Z<[r7loYng=monW1u2Xe_@pm$o=-vm)Dl+Uv"T*l?l#^T;<><V>7jY{OsH5,+Ve^xw'K
+    e=m=V[?pp^TD]#]oO\IH7sV7I#s{ZC\n5,{CQ,OaI#'[+1r-^}AAeNQe#xK<wuMrJ{mHwBe^pjYp
+    $vUm<BWLi^}$]YD};ITQAHZ+G8kQzzXT][IAYYnOERXq*_,{Ge2x1_tL|BC3CK=[!uz-=WCK<Cx~
+    ]JnZ^\ZJD5~<<&(E<JQ'o{D{rv7/zAKX:7J@v<7;sjTK^l>p*kR\+n1{^.O?QpBZaJusmTi}Za^@
+    +aEmu;T]spsl_[>1G!*Ev~!}u2T$~xEuo7Uw1}\RI25j\A]+{lt$1\x|$^G*O_p^[s-1$'BxXsU~
+    gSma<Cx*GiWvD^7XvK>ET7{x1[$lV>e3lVkY,Zaa~{fxH}OR;U_VEopBJRe\_4U]RI_iEspT@u9E
+    <-keCH!Y{'?5>os7@~!CW!2rmruK>rDHI_m]>>J[X=^rGJ<k5G2G;jip){U\sO7TmoImE:XnviU{
+    as#HG[h>V(In3$^_oI=2QQ[U}JZ1!
+`endprotected
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_xsbi_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_xsbi_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_xsbi_monitor
+`include "zi_cw_gigabit_ethernet_xsbi_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // zi_cw_gigabit_ethernet_xsbi_logic

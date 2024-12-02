@@ -1,0 +1,712 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.                           
+//                                                                          
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY             
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS          
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE         
+//                                  TERMS.                                  
+//                                                                          
+//
+/***********************************************************************
+ * PURPOSE       This file is part of the 0-In CheckerWare.
+ *               It describes the Gigabit Ethernet XGMII Link Monitor.
+ *
+ * DESCRIPTION   This monitor checks the 10 Gigabit Etherent frames for
+ *               alignment related violations and malformed packets. This
+ *               internally instantiates the MAC monitor fo perform all 
+ *               MAC checks.
+ *
+ * REFERENCE     802.3ae IEEE Standard for Information Technology, CSMA/CD
+ *               access method and physical layer specifications, 2002
+ *
+ * INPUTS        areset    - asynchronous reset (active high)
+ *               reset     - synchronous reset (active high)
+ *               clk       - interface clock
+ *               data_in   - data (32-bit DDR or 64-bit SDR)
+ *               ctrl_in   - control (4-bit DDR or 8-bit SDR)
+ *
+ * LAST MODIFIED 08 March 2005
+ *
+ *********************************************************************/
+
+`ifdef ZiCwDebug
+`define ZiCwDebugDelay1 #1
+`else
+`define ZiCwDebugDelay1
+`endif //ZiCwDebug
+
+`ifdef QVL_COVER_ON
+ `ifdef QVL_SV_COVERGROUP_OFF
+  //DO nothing
+ `else
+  `define QVL_SV_COVERGROUP
+  `endif
+  `ifdef QVL_MW_FINAL_COVER_OFF
+   // Do nothing
+  `else
+  `define QVL_MW_FINAL_COVER
+  `endif 
+`endif
+
+`qvlmodule qvl_gigabit_ethernet_xgmii_link_monitor (areset,
+                                                  reset,
+                                                  clk,
+                                                  data_in,
+                                                  ctrl_in
+                                                 );
+
+  // Parameter Constraints_Mode = 0, will configure some checks in this
+  // monitor as constraints during formal analysis. 
+ 
+  parameter Constraints_Mode = 0; 
+  wire [31:0] pw_Constraints_Mode = Constraints_Mode;
+
+  // Parameter MAC_SIDE = 1, will indicate that the monitor is instantiated
+  // on the XGMII interface either at the RS or on the second XGXS (if the
+  // XAUI is implemented) after converting from XAUI to XGMII. A value of
+  // 0 on this parameter will indicate that the monitor is instantiated on
+  // an XGMII interface on that side of the link that is closer to the PHY.
+  // This parameter is used in constraining the correct side in case of the
+  // formal analysis.
+
+  parameter MAC_SIDE = 1;
+  wire [31:0] pw_MAC_SIDE = MAC_SIDE;
+
+  // Set this parameter to the desired length of Jumbo frames. The default
+  // length of Jumbo frames is taken to be 9K bytes (9126 bytes).
+
+  parameter JUMBO_FRAME_DATA_LENGTH = 9126;
+  wire [31:0] pw_JUMBO_FRAME_DATA_LENGTH = JUMBO_FRAME_DATA_LENGTH;
+
+  // Set this parameter to 0 to disable checking for usage of reserved
+  // values in fields. By default, these checks will be performed.
+
+  parameter RESERVED_VALUE_CHECK_ENABLE = 1;
+  wire [31:0] pw_RESERVED_VALUE_CHECK_ENABLE = RESERVED_VALUE_CHECK_ENABLE;
+
+  // This parameter holds the information whether this instance of the 
+  // monitor is on the Transmit interface or the receive interface.
+
+  parameter TX_INTERFACE = 1;
+  wire [31:0] pw_TX_INTERFACE = TX_INTERFACE;
+ 
+  // This parameter indicates whether the XGMII interface is a standard
+  // dual-edge 32-bit interface (4 lanes) or the alternative single-edge
+  // 64-bit (8 lanes corresponding to 2 columns of data in one period of
+  // the standard dual-edge XGMII. By default, a dual-edge XGMII will be
+  // assumed. Set this to 0 to indicate a single-edge XGMII.
+
+  parameter DDR = 1;
+  wire [31:0] pw_DDR = DDR;
+
+  parameter DIC_SUPPORTED = 0;
+  wire [31:0] pw_DIC_SUPPORTED = DIC_SUPPORTED;
+
+  parameter MAC_MIN_TAGGED_FRAME_SIZE_68 = 0;
+  wire [31:0] pw_MAC_MIN_TAGGED_FRAME_SIZE_68 = MAC_MIN_TAGGED_FRAME_SIZE_68;
+
+  parameter RESERVED_CONTROL_FRAME_SUPPORTED = 0;
+  wire [31:0] pw_RESERVED_CONTROL_FRAME_SUPPORTED = RESERVED_CONTROL_FRAME_SUPPORTED;
+
+  parameter ZI_DATA_WIDTH = (DDR === 1) ? 32 : 64;
+  wire [31:0] pw_DATA_WIDTH = ZI_DATA_WIDTH;
+
+  parameter ZI_CTRL_WIDTH = (DDR === 1) ? 4 : 8;
+  wire [31:0] pw_CTRL_WIDTH = ZI_CTRL_WIDTH;
+
+  parameter ZI_MAC_DATA_WIDTH = 32;
+  wire [31:0] pw_MAC_DATA_WIDTH = ZI_MAC_DATA_WIDTH;
+
+  parameter ZI_MAC_CTRL_WIDTH = 4;
+  wire [31:0] pw_MAC_CTRL_WIDTH = ZI_MAC_CTRL_WIDTH;
+
+  parameter ZI_RECEIVE_CONSTRAINT = (Constraints_Mode == 1 && 
+                                    (MAC_SIDE == 1 && TX_INTERFACE == 0) ||
+                                    (MAC_SIDE == 0 && TX_INTERFACE == 1));
+
+  parameter ZI_PREAMBLE_FIELD = 8'h55;
+  parameter ZI_SFD_FIELD = 8'hD5;
+
+  input areset;
+  input reset;
+  input clk;
+  input [ZI_DATA_WIDTH-1:0] data_in;
+  input [ZI_CTRL_WIDTH-1:0] ctrl_in;
+
+  // Internal registers
+
+  reg posedge_toggle;
+  reg negedge_toggle;
+
+  reg frame_status_posedge;
+  reg frame_status_negedge;
+  reg fault_window_posedge;
+  reg fault_window_negedge;
+  reg [ZI_DATA_WIDTH-1:0] r_data_in;
+  reg [ZI_CTRL_WIDTH-1:0] r_ctrl_in;
+  reg [ZI_MAC_DATA_WIDTH-1:0] r_data_posedge;
+  reg [ZI_MAC_DATA_WIDTH-1:0] r_data_negedge;
+  reg [ZI_MAC_CTRL_WIDTH-1:0] r_ctrl_posedge;
+  reg [ZI_MAC_CTRL_WIDTH-1:0] r_ctrl_negedge;
+
+  // Internal wires
+    
+  // This is 32 bit data - same as data_in in case of DDR
+  // and spilt data_in bus in case of single edge (DDR=0)
+  wire [ZI_MAC_DATA_WIDTH-1:0] data; 
+
+  // This is 4 bit ctrl - same as ctrl_in in case of DDR
+  // and spilt ctrl_in bus in case of single edge (DDR=0)
+  wire [ZI_MAC_CTRL_WIDTH-1:0] ctrl;  
+
+  wire level_select;
+  wire [ZI_MAC_CTRL_WIDTH-1:0] r_ctrl;
+  wire [ZI_MAC_DATA_WIDTH-1:0] r_data;
+  wire start_detected;
+  wire terminate_detected;
+  wire idle_detected;
+  wire sequence_detected;
+  wire frame_status;
+  wire fault_window;
+  wire [ZI_MAC_DATA_WIDTH-1:0] dual_data;
+  wire [ZI_MAC_CTRL_WIDTH-1:0] dual_ctrl;
+  wire lane_0_idle;
+  wire lane_1_idle;
+  wire lane_2_idle;
+  wire lane_3_idle;
+  wire [3:0] link_idle_status;
+  wire lane_0_terminate;
+  wire lane_1_terminate;
+  wire lane_2_terminate;
+  wire lane_3_terminate;
+  wire [3:0] link_terminate_status;
+  wire local_fault_detected;
+  wire remote_fault_detected;
+  wire [7:0] xgmii_statistics;
+
+  wire [04:0] w_present_state;
+  wire [04:0] w_next_state;
+  wire [04:0] w_last_state;
+  wire [31:0] w_r_data;
+  wire [03:0] w_r_ctrl;
+  wire [11:0] w_vid;
+  wire [15:0] w_frame_type;
+  wire [15:0] w_frame_size;
+  wire [15:0] w_req_length;
+  wire [63:0] w_inter_frame_gap;
+
+  wire collect_stats;
+
+  // Wires for check enables
+  
+  wire start_detected_on_lane_other_than_zero;
+  wire sequence_detected_on_lane_other_than_zero;
+  wire char_following_data_other_than_terminate;
+  wire col_prior_to_start_not_idle_or_sequence;
+  wire reserved_control_character_detected;
+  wire sfd_detected_on_lane_other_than_three;
+  wire reserved_values_on_sequence_os;
+  wire terminate_before_start_of_frame;
+  wire start_before_termination_of_previous_frame;
+  wire idle_col_violation;
+  wire terminate_col_violation;
+  wire idle_before_termination_violation;
+  wire tx_error_control_character_detected;
+  wire rx_error_control_character_detected;
+
+`ifdef Zi_Debug
+
+  // Debugging strings
+
+  wire [7:0] lane_0;
+  wire [7:0] lane_1;
+  wire [7:0] lane_2;
+  wire [7:0] lane_3;
+
+  wire [7:0] r_lane_0;
+  wire [7:0] r_lane_1;
+  wire [7:0] r_lane_2;
+  wire [7:0] r_lane_3;
+
+`endif
+
+`protected
+
+    MTI!#XwBRWwQYr-<I^2DZ%u_<$$J}2ulWk2*eid[,]iNeWY[x?E*"H{CrH&=G#wYw_HeoI;C\;Bv
+    hi7#%F2=-{mjR!X''1>7'BY(iY+]7\;?A[e@bn>H7V,u5P2'\*[^'+~wREG;X!~a'D>xW3*awCRK
+    pR9dOK}[UwZTFp?WIc%-'*<P*In?7\Q3@UmnsA<#[*0ZhGCA$3x'~'Q]?Noxkar,$]Q!Y'2s]e"e
+    @H7p-lVN_zXYw{=;>|$p;ZGW$BQ'?VslrG*HA2=a~_zVm=5xOD{V,~7Zx}]rnk=I\{t*Drp7?51y
+    lZ*m#U!l7R?Wx-nOo#Oal!,7,pr35e?@}]3uKYK]4*QpR&<5B<aY~GlOVsXwUf-V7#ZoBr!];+Qz
+    xuBl$~5[oBNNEna=]z\Z\_Ham\Gz{5GTHhP}-^Y}rxG[^Q1u7\OxNL|\C3CEv[!T1l@D5aX-xK]i
+    AA$]#5ERw<-;]oE7w^jaVfG92=#[CwQjw--W^YXui=+\$+>rET7a*+A!u>1oveKWNC]zmj![vzrX
+    B3Rmvr3ZJ$~'o}[]rN\UDl>Te}_1Riro_A5$mU:HO$27l12UD2J'<H\T[YK}f2++2=DlACG0pZKe
+    2V[3,WZ~+}Qpv5j1NK1~2([mQC?$[G1VK?-wW<\XK=<L!En<<=io}Z=ro><19,TJuCu,]VG==E{O
+    ?VmpZT.PIE>v%,KjKRQUEmIhGA~J]wVBr}ie]3+'}sxo4=TW~lpm\Qe@1'^$}[O@-1Oj]=!oGccY
+    CI*s?\Os1?u?+=vR--Y
+`endprotected
+
+  // The dual_data variable is of width equal to the MAC data width, i.e., 32.
+  // This is a dual-edge data. The XGMII can be configured as a dual edge 32bit
+  // interface or a single-edge 64 bit interface. If it is configured as 64bit
+  // interface, the first 32 bits will form the posedge data and the next 32bit
+  // will be taken as the negedge data column of the DDR 32bit MAC data. If the
+  // XGMII interface is configured as DDR, this is same as input data.
+  assign dual_data = (DDR == 1) ? data_in : (level_select) ? 
+    data_in[31:0] : r_data_in[ZI_DATA_WIDTH-1:ZI_DATA_WIDTH-32];
+ 
+  // The dual_ctrl is the control bus counterpart of the dual data. It is the
+  // DDR 4bit control bus derived from the single rate 8-bit control bus if 
+  // the XGMII interface is configured as an single rate interface. Else it is
+  // a copy of the input ctrl lines.
+  assign dual_ctrl = (DDR == 1) ? ctrl_in : (level_select) ? 
+    ctrl_in[3:0] : r_ctrl_in[ZI_CTRL_WIDTH-1:ZI_CTRL_WIDTH-4];
+
+  // The following two wires can be removed and dual_data used instead. These
+  // are declared only for clarity in separating 32 and 64 bit modes.
+  assign data = (DDR == 1) ? data_in : dual_data;
+  assign ctrl = (DDR == 1) ? ctrl_in : dual_ctrl;
+
+  // The level_select signal is used to mux the posedge and negedge components
+  // of a variable in case of a dual data rate system to get the resultant wire
+  // This follows the clock and looks same as clock.
+  assign level_select = (~(posedge_toggle^negedge_toggle));
+
+  // This is the registered MAC ctrl lines. This is regsitered on both edges
+  // since the MAC interface is a DDR interface.
+  assign r_ctrl = (level_select) ? r_ctrl_posedge : r_ctrl_negedge;
+
+  // This is the registered MAC data lines. This is regsitered on both edges
+  // since the MAC interface is a DDR interface.
+  assign r_data = (level_select) ? r_data_posedge : r_data_negedge;
+
+  // This indicates the onset of a frame by detecting the start control char
+  // which is identified by lane 0 being FB with ctrl line being 1
+  assign start_detected = (ctrl[0] === 1'b1 && data[7:0] === 8'hFB);
+
+  // This indicates the end of a frame by detecting the terminate control char
+  // The terminate character, unlike the start, can come on any lane.
+  assign terminate_detected = ((ctrl[0] === 1'b1 && data[7:0] === 8'hFD) ||
+    (ctrl[1] === 1'b1 && data[15:8] === 8'hFD) ||
+    (ctrl[2] === 1'b1 && data[23:16] === 8'hFD) ||
+    (ctrl[3] === 1'b1 && data[31:24] === 8'hFD));
+
+  // An idle/inter-frame period is identified by looking for the idle value of
+  // 07 and corresponding ctrl line being 1. 
+  assign idle_detected = ((ctrl[0] === 1'b1 && data[7:0] === 8'h07) ||
+    (ctrl[1] === 1'b1 && data[15:8] === 8'h07) ||
+    (ctrl[2] === 1'b1 && data[23:16] === 8'h07) ||
+    (ctrl[3] === 1'b1 && data[31:24] === 8'h07));
+
+  // As per the standard, the start control character must be aligned to lane 0
+  // This signal is asserted whenever a start control is seen on an other lane
+  assign start_detected_on_lane_other_than_zero = (
+   ((data[15:08] === 8'hFB && ctrl[1] === 1'b1) ||
+    (data[23:16] === 8'hFB && ctrl[2] === 1'b1) ||
+    (data[31:24] === 8'hFB && ctrl[3] === 1'b1))); 
+ 
+  // As per the standard, the sequence control char must be aligned to lane 0
+  // This signal is asserted whenever a sequence ctrl is seen on an other lane
+  assign sequence_detected_on_lane_other_than_zero = (
+   ((data[15:08] === 8'h9C && ctrl[1] === 1'b1) ||
+    (data[23:16] === 8'h9C && ctrl[2] === 1'b1) || 
+    (data[31:24] === 8'h9C && ctrl[3] === 1'b1)));
+
+  // Since the start control character is aligned to lane 0, and also that the
+  // preamble is always 7 octets, the SFD (start frame delimiter) that follows
+  // the preamble pattern must be aligned to lane 3. This signal is asserted
+  // when the SFD is seen on a lane other than 3.
+  assign sfd_detected_on_lane_other_than_three = (r_data[7:0] === 8'hFB &&
+    r_ctrl[0] === 1'b1 && ((data[7:0] === ZI_SFD_FIELD && ctrl[0] === 1'b0) || 
+    (data[15:8] === ZI_SFD_FIELD && ctrl[1] === 1'b0) || (data[23:16] === ZI_SFD_FIELD &&
+     ctrl[2] === 1'b0)));
+
+  // The rule is that a new frame can start (start control character can come)
+  // always on lane 0 of a column after an Idle or sequence ordered set. This
+  // signal is asserted when a start control char is seen without the previous
+  // column being Idle/Sequence.
+  assign col_prior_to_start_not_idle_or_sequence = (data[7:0] === 8'hFB &&
+    ctrl[0] === 1'b1 && ~((r_data[7:0] === 8'h9C &&
+    r_ctrl[0] === 1'b1) || (r_data === 32'h07_07_07_07
+    && r_ctrl === 4'b1111)));
+
+  // A control character in case of 10GBE is one for which the corresponding
+  // ctrl line is 1. Although there are 256 possible control characters (8-bit
+  // data in each lane), only 5 are defined and the rest are not to be used.
+  // This signal indicates this violation.
+  assign reserved_control_character_detected = (
+    ((ctrl[0] === 1'b1 && data[7:0] !== 8'h07 &&
+     data[7:0] !== 8'h9C && data[7:0] !== 8'hFB &&
+     data[7:0] !== 8'hFD && data[7:0] !== 8'hFE) ||
+    (ctrl[1] === 1'b1 && data[15:8] !== 8'h07 &&
+     data[15:8] !== 8'h9C && data[15:8] !== 8'hFB &&
+     data[15:8] !== 8'hFD && data[15:8] !== 8'hFE) ||
+    (ctrl[2] === 1'b1 && data[23:16] !== 8'h07 &&
+     data[23:16] !== 8'h9C && data[23:16] !== 8'hFB &&
+     data[23:16] !== 8'hFD && data[23:16] !== 8'hFE) ||
+    (ctrl[3] === 1'b1 && data[31:24] !== 8'h07 &&
+     data[31:24] !== 8'h9C && data[31:24] !== 8'hFB &&
+     data[31:24] !== 8'hFD && data[31:24] !== 8'hFE)));
+
+  // The sequence ordered set is the column (of 4 octets) with the sequence 
+  // control character on lane 0. Currently, the only defined application of 
+  // a sequence ordered set is fault signalling, for which the values in lanes
+  // 1 to 3 are defined. All other values are reserved and not to be used. This
+  // signal asserts when a non-fault signalling value is used in a sequence 
+  // ordered set. 
+  assign reserved_values_on_sequence_os = (data[7:0] === 8'h9C && 
+    ctrl === 4'b0001 && (data[23:8] !== 16'h00_00 || data[31:24] === 8'h00 || 
+    data[31:24] >= 8'h03));
+
+  // Ideally, start and terminate characters should alternate. A terminate
+  // character must be sent only when there is an open frame to close. This 
+  // means that that a terminate should follow a start. This signal asserts
+  // when this is violated.
+  assign terminate_before_start_of_frame = (frame_status === 1'b0 && 
+    terminate_detected === 1'b1 && fault_window === 1'b0);
+
+  // This signal indicates a converse situation of the above. It asserts when 
+  // a start for new frame comes in before the termination of current frame.
+  assign start_before_termination_of_previous_frame = (frame_status === 1'b1 &&
+    start_detected === 1'b1 && fault_window === 1'b0);
+
+  // Idle characters must be sent in full columns except for the column where
+  // terminate is detected, in which case the remaining lanes alone will have 
+  // Idle characters. This signal asserts when this is violated.
+  assign idle_col_violation = (terminate_detected === 1'b0 && 
+   (|link_idle_status === 1'b1) && (&link_idle_status === 1'b0));
+
+  // This flags the detection of an Idle character even before a frame is 
+  // terminated with a terminate control character. 
+  assign idle_before_termination_violation = (frame_status == 1'b1 && 
+    ((terminate_detected === 1'b0 && idle_detected === 1'b1) ||
+    (lane_1_terminate && link_idle_status[0] != 0) || (lane_2_terminate &&
+     link_idle_status[1:0] != 0) || (lane_3_terminate && 
+     link_idle_status[2:0] != 0)) && fault_window === 1'b0);
+
+  //It checks the Error control character in all lanes                                               
+  assign tx_error_control_character_detected = (((data[7:0] === 8'hFE && ctrl[0] === 1'b1)||
+         (data[15:8] === 8'hFE && ctrl[1] === 1'b1)|| (data[23:16] === 8'hFE && ctrl[2] === 1'b1)||
+         (data[31:24] === 8'hFE && ctrl[3] === 1'b1))&& (TX_INTERFACE == 1));
+ 
+  //It checks the Error control character in all lanes                                               
+  assign rx_error_control_character_detected = (((data[7:0] === 8'hFE && ctrl[0] === 1'b1)||
+         (data[15:8] === 8'hFE && ctrl[1] === 1'b1)|| (data[23:16] === 8'hFE && ctrl[2] === 1'b1)||
+         (data[31:24] === 8'hFE && ctrl[3] === 1'b1))&& (TX_INTERFACE == 0)); 
+
+  // This provides a window to demarcate the frame period and idle period. It
+  // is high during frame transmission/reception and is low outside the frame
+  assign frame_status = (level_select) ? 
+    frame_status_posedge : frame_status_negedge;
+
+  // These wires are used to determine the lane on which Idle char is detected
+  assign lane_0_idle = (data[7:0] === 8'h07 && ctrl[0] === 1'b1);
+  assign lane_1_idle = (data[15:8] === 8'h07 && ctrl[1] === 1'b1);
+  assign lane_2_idle = (data[23:16] === 8'h07 && ctrl[2] === 1'b1);
+  assign lane_3_idle = (data[31:24] === 8'h07 && ctrl[3] === 1'b1);
+
+  // Just a concatenation of the above four signals.
+  assign link_idle_status = {lane_3_idle,lane_2_idle,lane_1_idle,lane_0_idle};
+
+  // These wires are used to determine the lane on which terminate is detected
+  assign lane_0_terminate = (ctrl[0] === 1'b1 && data[7:0] === 8'hFD);
+  assign lane_1_terminate = (ctrl[1] === 1'b1 && data[15:8] === 8'hFD);
+  assign lane_2_terminate = (ctrl[2] === 1'b1 && data[23:16] === 8'hFD);
+  assign lane_3_terminate = (ctrl[3] === 1'b1 && data[31:24] === 8'hFD); 
+
+  // Just a concatenation of the above four signals. 
+  assign link_terminate_status = {lane_3_terminate,lane_2_terminate,
+    lane_1_terminate,lane_0_terminate};
+
+  // The rule is that, in a terminate column (column having the terminate 
+  // character), the lanes following the terminate character must be filled 
+  // with Idles (K28.5). This asserts when this is violated. 
+  assign terminate_col_violation = (link_terminate_status === 4'h1) ? 
+    (link_idle_status !== 4'hE) : (link_terminate_status === 4'h2) ?
+    (link_idle_status !== 4'hC) : (link_terminate_status === 4'h4) ?
+    (link_idle_status !== 4'h8) : 1'b0;
+
+  // This is used to collect statistics of the number of local faults detected
+  assign local_fault_detected = (ctrl === 4'b0001 && data[7:0] === 8'h9C &&
+    data[15:8] === 8'h0 && data[23:16] === 8'h0 &&
+    data[31:24] === 8'h1);
+
+  // This is used to collect statistics of the number of remote faults detected
+  assign remote_fault_detected = (ctrl === 4'b0001 && data[7:0] === 8'h9C &&
+    data[15:8] === 8'h0 && data[23:16] === 8'h0 && data[31:24] === 8'h2);
+
+  // Sent to statistics computation module for stats updation specific to the
+  // XGMII interface 
+  assign xgmii_statistics = {2'b00,link_terminate_status,local_fault_detected,
+    remote_fault_detected};
+
+  // The sequence ordered set is a column with sequence character on lane0 and
+  // sequence control char must be aligned to lane 0. Therefore the presence
+  // of a sequence ordered set involves detection of sequence char on lane 0
+  assign sequence_detected = (ctrl === 4'b0001 && data[7:0] === 8'h9C);
+
+  // This indicates the window of fault. ie., starting from the detection of
+  // fault until the start of the next frame. This is used to mask off the 
+  // checks pertaining to terminate_before_start and start_before_terminate
+  // in the light of fault conditions being detected
+  assign fault_window = (level_select) ? 
+    fault_window_posedge : fault_window_negedge;
+
+`ifdef Zi_Debug
+
+  // Debug purposes only
+
+  assign lane_0 = data[7:0];
+  assign lane_1 = data[15:8];
+  assign lane_2 = data[23:16];
+  assign lane_3 = data[31:24];
+
+  assign r_lane_0 = r_data[7:0]; 
+  assign r_lane_1 = r_data[15:8]; 
+  assign r_lane_2 = r_data[23:16]; 
+  assign r_lane_3 = r_data[31:24];
+
+`endif
+`protected 
+    MTI!#Ww>{EZH$?RAYpxo!I^CHQ,QK]!D~ut\"F^mjit~t[e<oIrEaxV1^pp>QY+jORi@BH$Vk$n@
+    ;7Oa-oji}<^okYv!*Plja\N.lOZ_f^-IZIc}riB7=j\]BRG_2!7,T<$9%WY#j+j-BCJ@_waKR"C-
+    ;+1XOJOuJ$O&G,n,?,-T5J@uzUv+lAOH1rW[Em]21z+ay;[@Tf%7\AorC5oOoR_z%"W,^zFzX}{=
+    eWT]GQueCTR$_-Zn$Qv|1_+n\vj'VY-uvTYs0@\wkwzXxp\>ec}]X^G[GHV@V@DG},<eT{mD{;'I
+    A!7Y=@n'+$?,;=5R_!Janr=xlx{jk27EA3nXR+|o@n<KXGoqHXmvrJ5u;{U#nH-$jY=OIEDVhX'l
+    xeQ_rNpkI]"$oYp,EInAQaGR|xtHEneBYY^HQenoA~Ei{WzBK~B3nK[i=<7i=IUG!<lX]<X1wV!i
+    YDx?r<npl;A-v~QKw{QvA~X0]BvT'B}p+''!;TJKY-5vG2x!}kGY>$-eCz>QR\5X7wz~zo7>E~p^
+    ,5C-3Dk+<}_=+wc[Xe1}{xX>5{Bx=GB'5zl3YB~9KARI@H~njA<H[~1juYdU'b1l@zF>-n@I'{AI
+    ml{:T,]QVv>n71lU7i]H'G[o52HG#O]sT^i<>vZ+Dow3?-27T=+Q(EIr5Ef=#Z1l?a+=?Qz%FrGv
+    12*W?UYnURrKkYAR*lz!*Y]nW=k}RAQ3V7@2?T1-C,VOrEHR~,o>R~{mT0<$R*]UO$n<{+#^IZ3v
+    TT1$j5W^+Jjolim]>33H{>5+aY#-=IR[l]xGDpcslnjZn[xMApJT-,^'x_XYa5AjL]}DaQOZunXI
+    TY2e?IZex={s>Ei2Q}E\_UDeA+UW3nawUy*G#Iz;npx*o_;\A@Cz+;KHVWe!Z1/JBs_.%V^$~1VY
+    XA*!]~{=oZpn-AV3JA+^#GJxpjWBl,V+~2xw[+UDsLcGZHZ7#+W-ziY{DW-Q_J=72BQrUeJ*Qu
+`endprotected
+
+  // MAC monitor instantiation
+
+  qvl_gigabit_ethernet_mac_monitor
+    #(.Constraints_Mode(Constraints_Mode),
+      .MAC_SIDE(MAC_SIDE),
+      .JUMBO_FRAME_DATA_LENGTH(JUMBO_FRAME_DATA_LENGTH),
+      .RESERVED_VALUE_CHECK_ENABLE(RESERVED_VALUE_CHECK_ENABLE),
+      .TX_INTERFACE(TX_INTERFACE),
+      .GMII(0), // GMII == 0 for XGMII interface
+      .HALF_DUPLEX(0), // HALF_DUPLEX == 0 for XGMII
+      .DIC_SUPPORTED(DIC_SUPPORTED),//DIC Support 
+      .MAC_MIN_TAGGED_FRAME_SIZE_68(MAC_MIN_TAGGED_FRAME_SIZE_68),
+      .RESERVED_CONTROL_FRAME_SUPPORTED(RESERVED_CONTROL_FRAME_SUPPORTED)
+     )  
+      MAC_MONITOR
+      (.areset(areset),
+       .reset(reset),
+       .clk(clk),
+       .data(data),
+       .ctrl(ctrl),
+       .crs(1'b0),
+       .col(1'b0),
+       .data_valid(1'b1),
+       .dec_err(1'b0),
+       .level_select(level_select),
+       .w_present_state(w_present_state),
+       .w_next_state(w_next_state),
+       .w_last_state(w_last_state),
+       .w_r_data(w_r_data),
+       .w_r_ctrl(w_r_ctrl),
+       .w_vid(w_vid),
+       .w_frame_type(w_frame_type),
+       .w_frame_size_count(w_frame_size),
+       .w_requested_data_length(w_req_length),
+       .w_inter_frame_gap(w_inter_frame_gap)
+      );
+ 
+
+  // Checks block - Wires for fire signals
+
+  wire FIRE_GIGABIT_ETHERNET_XGMII_START_ALIGNMENT_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_START_ALIGNMENT_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_SFD_ALIGNMENT_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_SFD_ALIGNMENT_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_SEQUENCE_ALIGNMENT_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_SEQUENCE_ALIGNMENT_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_NON_IDLE_OR_SEQ_PRIOR_TO_START_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_NON_IDLE_OR_SEQ_PRIOR_TO_START_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_SEQUENCE_OS_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_SEQUENCE_OS_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_TERM_BEFORE_START_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_TERM_BEFORE_START_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_START_BEFORE_TERM_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_START_BEFORE_TERM_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_IDLE_BEFORE_TERM_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_IDLE_BEFORE_TERM_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_RSVD_CONTROL_CHAR_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_RSVD_CONTROL_CHAR_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_IDLE_COLUMN_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_IDLE_COLUMN_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_TERMINATE_COLUMN_VIOLATION_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_TERMINATE_COLUMN_VIOLATION_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_TX_ERROR_CONTROL_CHARACTER_DETECTED_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_TX_ERROR_CONTROL_CHARACTER_DETECTED_N;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_RX_ERROR_CONTROL_CHARACTER_DETECTED_P;
+  wire FIRE_GIGABIT_ETHERNET_XGMII_RX_ERROR_CONTROL_CHARACTER_DETECTED_N;
+
+  // Wire declarations for statistics module hookup
+
+  wire [63:0] total_frames_count;
+  wire [63:0] data_frames_count;
+  wire [63:0] ctrl_frames_count;
+  wire [63:0] jumbo_frames_count;
+  wire [63:0] untagged_data_frames_count;
+  wire [63:0] vlan_tagged_data_frames_count;
+  wire [63:0] priority_tagged_data_frames_count;
+  wire [63:0] untagged_pause_frames_count;
+  wire [63:0] vlan_tagged_pause_frames_count;
+  wire [63:0] priority_tagged_pause_frames_count;
+  wire [63:0] untagged_jumbo_frames_count;
+  wire [63:0] vlan_tagged_jumbo_frames_count;
+  wire [63:0] priority_tagged_jumbo_frames_count;
+  wire [63:0] frames_with_global_address_count;
+  wire [63:0] frames_with_local_address_count;
+  wire [63:0] frames_with_group_address_count;
+  wire [63:0] frames_with_individual_address_count;
+  wire [63:0] min_size_untag_data_pkt_count;
+  wire [63:0] max_size_untag_data_pkt_count;
+  wire [63:0] packets_with_pad_count;
+  wire [63:0] remote_faults_count;
+  wire [63:0] local_faults_count;
+  wire [63:0] lane0_termnates_count;
+  wire [63:0] lane1_termnates_count;
+  wire [63:0] lane2_termnates_count;
+  wire [63:0] lane3_termnates_count;
+  wire [63:0] align_column_count;
+  wire [63:0] sync_column_count;
+  wire [63:0] skip_column_count;
+  wire [63:0] valid_block_count;
+  wire [63:0] data_block_count;
+  wire [63:0] control_block_count;
+  wire [63:0] idle_block_count;
+  wire [63:0] error_block_count;
+  wire [63:0] s0_block_count;
+  wire [63:0] s4_block_with_idle_count;
+  wire [63:0] s4_block_with_os_count;
+  wire [63:0] t0_block_count;
+  wire [63:0] t1_block_count;
+  wire [63:0] t2_block_count;
+  wire [63:0] t3_block_count;
+  wire [63:0] t4_block_count;
+  wire [63:0] t5_block_count;
+  wire [63:0] t6_block_count;
+  wire [63:0] t7_block_count;
+  wire [63:0] longest_ipg;
+  wire [63:0] shortest_ipg;
+  wire [63:0] invalid_frame_length_count;
+  wire [63:0] max_align_interval;
+  wire [63:0] min_align_interval;
+  wire [63:0] collisions_statistics_count;
+  wire [63:0] false_carrier_statistics_count;
+  wire [63:0] carrier_extn_statistics_count;
+  wire [63:0] back_to_back_frames_statistics_count;
+
+  // Statistics computation module
+
+  qvl_gigabit_ethernet_statistics 
+    #(0, // GMII = 0 for 10G XGMII
+      TX_INTERFACE,
+      1)
+
+    GIGABIT_STATS
+    (.areset (areset),
+     .reset (reset),
+     .clk (clk),
+     .level_select(level_select),
+     .collect_stats (collect_stats),
+     .present_state (w_present_state),
+     .next_state (w_next_state),
+     .last_state (w_last_state),
+     .data (data),
+     .r_data (w_r_data),
+     .vid (w_vid),
+     .frame_type (w_frame_type),
+     .frame_size_count (w_frame_size),
+     .requested_length (w_req_length),
+     .inter_frame_gap (w_inter_frame_gap),
+     .mii_statistics (8'b0),
+     .gmii_statistics (8'b0),
+     .xgmii_statistics (xgmii_statistics),
+     .xaui_statistics (8'b0),
+     .xsbi_statistics (16'b0),
+     .total_frames_count (total_frames_count),
+     .data_frames_count (data_frames_count),
+     .ctrl_frames_count (ctrl_frames_count),
+     .jumbo_frames_count (jumbo_frames_count),
+     .untagged_data_frames_count (untagged_data_frames_count),
+     .vlan_tagged_data_frames_count (vlan_tagged_data_frames_count),
+     .priority_tagged_data_frames_count (priority_tagged_data_frames_count),
+     .untagged_pause_frames_count (untagged_pause_frames_count),
+     .vlan_tagged_pause_frames_count (vlan_tagged_pause_frames_count),
+     .priority_tagged_pause_frames_count (priority_tagged_pause_frames_count),
+     .untagged_jumbo_frames_count (untagged_jumbo_frames_count),
+     .vlan_tagged_jumbo_frames_count (vlan_tagged_jumbo_frames_count),
+     .priority_tagged_jumbo_frames_count (priority_tagged_jumbo_frames_count),
+     .frames_with_global_address_count (frames_with_global_address_count),
+     .frames_with_local_address_count (frames_with_local_address_count),
+     .frames_with_group_address_count (frames_with_group_address_count),
+     .frames_with_individual_address_count
+       (frames_with_individual_address_count),
+     .min_size_untag_data_pkt_count (min_size_untag_data_pkt_count),
+     .max_size_untag_data_pkt_count (max_size_untag_data_pkt_count),
+     .packets_with_pad_count (packets_with_pad_count),
+     .remote_faults_count (remote_faults_count),
+     .local_faults_count (local_faults_count),
+     .lane0_termnates_count (lane0_termnates_count),
+     .lane1_termnates_count (lane1_termnates_count),
+     .lane2_termnates_count (lane2_termnates_count),
+     .lane3_termnates_count (lane3_termnates_count),
+     .align_column_count (align_column_count),
+     .sync_column_count (sync_column_count),
+     .skip_column_count (skip_column_count),
+     .valid_block_count (valid_block_count),
+     .data_block_count (data_block_count),
+     .control_block_count (control_block_count),
+     .idle_block_count (idle_block_count),
+     .error_block_count (error_block_count),
+     .s0_block_count (s0_block_count),
+     .s4_block_with_idle_count (s4_block_with_idle_count),
+     .s4_block_with_os_count (s4_block_with_os_count),
+     .t0_block_count (t0_block_count),
+     .t1_block_count (t1_block_count),
+     .t2_block_count (t2_block_count),
+     .t3_block_count (t3_block_count),
+     .t4_block_count (t4_block_count),
+     .t5_block_count (t5_block_count),
+     .t6_block_count (t6_block_count),
+     .t7_block_count (t7_block_count),
+     .longest_ipg (longest_ipg),
+     .shortest_ipg (shortest_ipg),
+     .invalid_frame_length_count (invalid_frame_length_count),
+     .max_align_interval (max_align_interval),
+     .min_align_interval (min_align_interval),
+     .collisions_statistics_count(collisions_statistics_count),
+     .false_carrier_statistics_count(false_carrier_statistics_count),
+     .carrier_extn_statistics_count(carrier_extn_statistics_count),
+     .back_to_back_frames_statistics_count(back_to_back_frames_statistics_count)
+     );
+
+  //--------------------------------------------------------------------------
+  // OVL SVA Assertions are included here
+  //--------------------------------------------------------------------------
+
+`include "qvl_gigabit_ethernet_xgmii_link_monitor_assertions.svh"
+`include "qvl_gigabit_ethernet_xgmii_link_monitor_cover.svh"
+
+`ifdef ZI_INLINED_PSL
+`include "0in_ac_inline_for_mod_zi_cw_gigabit_ethernet_xgmii_link_monitor.inc"
+`endif
+`ifdef ZI_INLINED_CHX
+`include "zi_cw_gigabit_ethernet_xgmii_link_monitor.zi_chx.inc"
+`else
+`ifdef ZI_INLINED_CHX_zi_cw_gigabit_ethernet_xgmii_link_monitor
+`include "zi_cw_gigabit_ethernet_xgmii_link_monitor.zi_chx.inc"
+`endif
+`endif
+
+`qvlendmodule // qvl_gigabit_ethernet_xgmii_link_monitor

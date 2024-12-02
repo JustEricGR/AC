@@ -1,0 +1,512 @@
+                      Model Technology Technical Note
+			 Copyright 1991-2009 Mentor Graphics Corporation
+						All Rights Reserved.
+
+	This document contains information that is proprietary to 
+	Mentor Graphics Corporation. The original recipient of this 
+	document may duplicate this document in whole or in part for 
+	internal business purposes only, provided that this entire 
+	notice appears in all copies. In duplicating any part of this 
+	document, the recipient agrees to make every reasonable 
+	effort to prevent the unauthorized use and distribution of the 
+	proprietary information.
+
+	Trademarks that appear in Mentor Graphics product 
+	publications that are not owned by Mentor Graphics are 
+	trademarks of their respective owners.
+
+
+                  Moving to IEEE 1076-1993
+                  ========================
+
+The 1993 update to the VHDL standard is now fully supported by Model 
+Technology. The details of the new standard are documented in the new 
+IEEE LRM. A summary list of the main changes between 1987 and 1993 is 
+included below.
+
+Model Technology has implemented 1993 support in a manner that is 
+maximally compatible with your existing 1987-based designs. The 
+default mode is that the compiler compiles VHDL source to the 1987 
+standard. To compile using the 1993 standard, simply invoke VCOM with 
+the -93 command line option. You can set 1993 as the default by 
+adding the following line to your modelsim.ini file:
+
+    VHDL93 = 1
+
+You must use the new standard.vhd and textio.vhd files provided with 
+your release. They will work with 1987 or 1993 VHDL.
+
+The VSIM simulator will simulate either 1987 or 1993 compiled 
+libraries transparently. No special options are required for the 
+simulator to simulate 1993 VHDL.
+
+Within one design, you may mix design units compiled under the 1987 
+standard with design units compiled under the 1993 standard, as long 
+as you do not pass 1993-only objects into 1987 VHDL subprograms 
+(an example of this is strings incorporating the extended character 
+set). One exception is that if you use a configuration to configure
+components within generate blocks, both the configuration and the
+architecture containing the generate blocks must be compiled under
+the same standard. 
+
+If you attempt to compile existing 1987 VHDL code using the -93 
+switch, you will find that file declarations are not backward 
+compatible; that is, 1987 file declarations will not compile under 
+1993, and will have to be changed slightly to conform to the 1993 
+standard. Also, 1993 will complain about functions that are not 
+PURE functions (see below); you will have to insert the keyword IMPURE 
+in declarations of functions that access objects outside of the local 
+scope.
+
+To get started using VHDL93, you will need to take the following 
+three steps:
+
+1. Change file declarations as follows:
+
+    (old)
+    file f3 : IntegerFile is out "my_file3";
+    file vectors : text is in "test2.vec";
+
+    (new)
+    file f3 : IntegerFile OPEN WRITE_MODE is "my_file3";
+    file vectors : text OPEN READ_MODE is "test2.vec";
+
+2. Add the keyword IMPURE to any functions that read files or access 
+data outside its local scope. Example:
+
+    (old)
+    function get_data (i; integer) return std_logic_vector_32 is ...
+
+    (new)
+    IMPURE function get_data (i; integer) return std_logic_vector_32 is ...
+
+3. Compile VHDL source with the -93 options:
+
+    vcom -93 <other_options> <source>
+
+Then as you find the need, start using '93 features.
+
+------------
+'93 FEATURES
+------------
+
+The following is a list of the features provided by 1993 VHDL. We 
+have tried to provide enough information for you to get started using 
+these features, but to understand them in depth you will need to 
+refer to the 1993 IEEE LRM.
+
+EXTENDED IDENTIFIERS
+
+VHDL identifiers using the "extended" notation may now contain any 
+"printable" character including spaces. Case is important within 
+extended identifiers. These extended identifiers must begin and end 
+in a backslash (\). Extended identifiers are also supported on the 
+VSIM command line and in VSIM macros. Examples:
+
+    signal \a+b\ : std_logic_vector32;
+    entity \Joe's @#$% kludge\ is ...
+
+EXTENDED CHARACTER SET
+
+The predefined type CHARACTER now includes all 256 characters of the 
+ISO 8859-1 character set, providing support for European languages.
+
+XNOR LOGICAL OPERATOR
+
+This operator has been added and accelerated.
+
+SHIFT AND ROTATE OPERATORS 
+
+Shift and rotate operators are defined for arrays of BIT and 
+BOOLEAN:
+
+    sll(array, count)        shift left logical
+    srl(array, count)        shift right logical
+    sla(array, count)        shift left arithmetic
+    sra(array, count)        shift right arithmetic
+    rol(array, count)        rotate left logical
+    ror(array, count)        rotate right logical
+
+GLOBAL OR SHARED VARIABLES
+
+Variables may now appear in block, entity, architecture and package 
+declarative regions. Their declaration must be prefixed by the 
+keyword SHARED. Example:
+
+    architecture a of e is SHARED variable global_count : integer := 0;
+
+SYNTACTIC IMPROVEMENTS AND UNIFORM BRACKETING
+
+VHDL "end" statements are now more uniform in what is allowed. 
+Generally all end statements may now optionally specify the construct 
+type and the corresponding identifier or label. Also, the use of "is" 
+is more consistent. Examples (new syntax is in uppercase):
+
+    ... end ARCHITECTURE arch_name;
+    ... end ENTITY e123;
+    ... end PACKAGE BODY pkg_name;
+    ... end case THIS_CASE_LABEL;
+    ... end if IF_LABEL;
+    ... end record RECORD_NAME;
+    ... end FUNCTION fn_name;
+    ... end PROCEDURE proc_name;
+    ... block IS
+    ... component comp_xyz IS
+    ... end component COMP_XYZ;
+
+NEW TIME SUBTYPE IN PACKAGE STANDARD TO BE USED FOR DELAYS
+
+The following type, defined in package STANDARD, is recommended to
+be used for delays:
+
+    subtype DELAY_LENGTH is TIME range 0 fs to TIME'HIGH
+
+DIRECT INSTANTIATION OF ENTITIES AND CONFIGURATIONS
+
+Component declarations are no longer required if you have no need to 
+defer binding. You can directly instantiate an entity, an 
+entity(architecture), or a configuration. But, remember for those 
+design units using direct instantiation that you cannot change the 
+binding later by using a configuration declaration. Example:
+
+    mult_one: entity my_mult (behavioral) port map(...);
+    alu: configuration full_alu port map(...);
+
+EXPLICIT FILE OPEN AND FILE CLOSE STATEMENTS
+
+The method of specifying read/write mode of files has changed and is 
+not backwards compatible. Mode may be READ_MODE, WRITE_MODE, or 
+APPEND_MODE. Also, a version of FILE_OPEN is provided that returns a 
+status variable. Status may be OPEN_OK, STATUS_ERROR, NAME_ERROR, or 
+MODE_ERROR.
+
+If you do not specify the read/write mode in the file declaration, you 
+may specify it in the FILE_OPEN call, otherwise it defaults to 
+READ_MODE. If you specify the file name in the file declaration, the 
+file is opened and closed automatically as in 1987, and FILE_OPEN and 
+FILE_CLOSE are not needed. In the following example, f1 is explicitly 
+opened in read mode, f2 is opened in write mode using a status check, 
+and f3 is treated as in 1987 VHDL:
+
+    type IntegerFile is file of integer;
+    variable file_status : FILE_OPEN_STATUS; -- a new built-in type
+    file f1,f2 : IntegerFile;
+    file f3 : IntegerFile OPEN WRITE_MODE is "my_file3";
+    ...
+    FILE_OPEN(f1, "my_file", READ_MODE);
+    FILE_OPEN(file_status, f2, "my_file2", WRITE_MODE);
+    ...
+    FILE_CLOSE(f2);
+
+FILE OBJECTS MAY BE PASSED AS PARAMETERS TO SUBPROGRAMS
+
+You will need to include the keyword FILE as a prefix to file formal 
+parameters in subprogram declarations. Example:
+
+    IMPURE function read_my_file (FILE F : Text) return std_logic_vector;
+
+ALLOWING "NO-CHANGE" CONDITIONS IN CONCURRENT SIGNAL ASSIGNMENTS
+
+The conditional_signal_assignment and selected_signal_assignment 
+statements may use the UNAFFECTED keyword to indicate no change in the 
+signal. Example:
+
+    s <= UNAFFECTED when input = s'DrivingValue else 
+            input1 after buffer_delay;
+
+ASSOCIATING EXPRESSIONS WITH IN PORTS IN ASSOCIATION LISTS
+
+It is now legal VHDL to associate a globally static expression with an 
+input port in a port map. Example:
+
+    gate1: and4 port map( in1 => siga,
+                          in2 => sigb,
+                          in3 => '1',        -- not allowed in 87
+                          in4 => generic_a,  -- not allowed in 87
+                          outa => sigc);
+
+IMPROVEMENTS IN LANGUAGE-DEFINED ATTRIBUTES
+
+The following pre-defined attributes have been added:
+
+T'ASCENDING         Returns TRUE if scalar type T has ascending range.
+
+A'ASCENDING[(N)]    Returns TRUE if the Nth index range of array A is 
+                    defined with an ascending range.
+
+T'IMAGE(X)          Returns a string representation of the value of 
+                    expression X, whose type T must be a scalar type 
+                    (the representation matches that produced by 
+                    textio).
+
+T'VALUE(X)          Returns a value of type T, whose string 
+                    representation is given by expression X.
+
+S'DRIVING           Returns FALSE if the driver for signal S in the 
+                    current process is not active; that is, if the 
+                    driver's value is determined by the null 
+                    transaction. True otherwise. For composites, 
+                    returns FALSE unless all subelements are being 
+                    driven.
+
+S'DRIVING_VALUE     For scalar S, returns the current value of the 
+                    driver for S in the current process. For 
+                    composite S, returns an aggregate of the values 
+                    R'DRIVING_VALUE for each element R of S.
+
+E'SIMPLE_NAME       Returns string containing the simple name, 
+                    character literal, or operator symbol of the 
+                    "named entity" E. A named entity is anything that 
+                    has been previously declared, such as: entity,
+                    architecture, configuration, procedure, function, 
+                    package, type, subtype, constant, signal, 
+                    variable, component, label, enumeration literal, 
+                    physical unit, group, or file.
+
+E'INSTANCE_NAME     Returns string describing the hierarchical path 
+                    from the root of  the design hierarchy and 
+                    descending to the named entity E, including the 
+                    names of instantiated architectures. Example: 
+
+                        max'INSTANCE_NAME = ":e(a):proc1:max:"
+
+E'PATH_NAME         Returns string describing the hierarchical path 
+                    from the root of the design hierarchy and 
+                    descending to the named entity E, excluding the 
+                    names of instantiated architectures. Example:
+
+                        max'PATH_NAME = ":e:proc1:max:"
+
+LOGGING ASSERT-LIKE MESSAGES WITHOUT ASSERTING ANYTHING
+
+Instead of having to say "assert false..." when you always want to 
+log a message, you can now simply say:
+
+    report "Entering process P";
+    report "Setup or Hold violation; outputs driven to 'X'" severity 
+            warning;
+
+FOREIGN INTERFACE (OPTIONAL IN THE STANDARD)
+
+Model Technology supports foreign architectures. For details on how to 
+implement them, please refer to the V-System/Workstation User's Manual.
+
+NEW INERTIAL KEYWORD AND SPECIFYING PULSE-REJECTION TIME
+
+In VHDL 1987, INERTIAL delay rejects any pulses whose width is less 
+than the assignment delay. Now, pulse-rejection time can be specified 
+separately from the assignment delay, if desired. To do this, 
+additional keywords of REJECT and INERTIAL are used. Examples:
+
+    output_pin <= REJECT 5 ns INERTIAL input_pin after 10 ns,
+                  not input_pin after 20 ns;
+
+DECLARATIVE PART IN GENERATE STATEMENTS
+
+You now may include declarations within a generate statement. But you 
+need to be careful here because a separate and unrelated copy of each 
+declaration will be made for each value of the generate loop, and they 
+will all have the same name.
+
+PROCESSES THAT RUN AFTER THE LAST "DELTA" AT A TIME POINT
+
+Using the POSTPONED keyword, you can specify that a given process be 
+executed only after all other pending evaluations have been completed 
+at that time point. This may be useful for application of test 
+stimulus and reading of testbench results. The POSTPONED keyword may 
+be applied to: 
+
+    processes, 
+    concurrent_procedure_calls,
+    concurrent_assertion_statements, 
+    concurrent conditional_signal_assignment statements, and
+    concurrent selected_signal_assignament statements.
+
+Examples:
+
+    POSTPONED c <= b when (a = '1') else not b;
+    POSTPONED with a select
+        f <= '0' when '0',
+            '1' when '1',
+            'X' when others;
+    POSTPONED assert (a = '1') OR (a = '0');
+    POSTPONED count_down(I2);
+
+    process_one:
+    POSTPONED process (a)
+    begin
+    ...
+    end POSTPONED process process_one;    
+            -- keyword POSTPONED is optional in the "end" clause.
+
+PURE AND IMPURE KEYWORDS DESIGNATING FUNCTIONS
+
+You may specify functions as PURE or IMPURE. The default is PURE. In 
+order to be PURE, the function must always return the same value for a 
+given set of parameters. So it cannot reference shared variables, 
+files, or objects outside of its internal scope, or call an IMPURE 
+function. IMPURE functions must have the keyword IMPURE or it is an 
+error. Example:
+
+    PURE function factorial(i : integer) return integer is ...
+    IMPURE function get_data(i : integer) return std_logic_vector is ...
+
+ASSOCIATION LIST TYPE CONVERSIONS
+
+In 1987 VHDL, to do type conversions on parameters to functions or 
+port maps, you need to explicitly define your own conversion 
+functions. Now in 1993, you only need to provide the name of the type 
+to be converted to, using function call syntax. This can be done on 
+either the actual parameter (for inputs), or on the formal parameter 
+(for outputs). Example:
+
+        ...
+        component xyz
+            port(a : in REAL; b : out REAL);
+        end component;
+        signal i1,i2 : INTEGER;
+    begin
+        ...
+        u2 : xyz port map(a => REAL(i1), INTEGER(b) => i2);
+    end;
+
+The conversion REAL(i1) converts an integer to REAL going into the 
+component, and the INTEGER(b) converts the real output of component 
+xyz to an integer.
+
+IMPROVEMENTS IN USER-DEFINED ATTRIBUTES
+
+User-defined attributes may now be applied to enumeration literals, 
+physical units, groups, and files. Also, it is now possible to apply 
+them to overloaded subprograms and operators using a new construct 
+called a SIGNATURE. The SIGNATURE specifies the parameter and return 
+types of a subprogram, or the type that an enumeration literal 
+belongs to. The SIGNATURE is enclosed in square brackets, and consists 
+of an optional comma-separated list of parameter types, optionally 
+followed by the keyword RETURN, and the function return type or 
+enumeration type. Examples:
+
+    function invfn (i : std_logic) return std_logic is
+    begin
+        ...
+    end function invfn;
+
+    function invfn (i : std_logic_vector) return std_logic_vector is
+        variable result : std_logic_vector(i'range);
+    begin
+        ...
+    end function invfn;
+
+    attribute atreal : real;
+    attribute atreal of invfn [std_logic return std_logic] : function 
+            is 1.234;
+    attribute atreal of invfn [std_logic_vector return std_logic_vector] :
+            function is 2.987;
+        ...
+    write_it("attribute atreal is " & 
+        real'image(invfn[std_logic return std_logic]'atreal));
+
+    write_it("attribute atreal is " & 
+        real'image(invfn[std_logic_vector return 
+                std_logic_vector]'atreal));
+
+IMPROVED ALIASING AND IMPORT/EXPORT
+
+In 1987, you could only alias "objects" (in 1987, objects included 
+signals, variables or constants). In 1993, you can alias anything 
+that has been previously declared, except for labels, loop 
+parameters, and generate parameters. To alias subprogram names or 
+enumeration literals, you will need to use a SIGNATURE as described 
+above. (If a type is aliased, implicit aliases are automatically 
+declared for all predefined operators for that type). Examples:
+
+    alias '0' is joe.package_a.'0'  [return joe.package_a.joes_bit];
+    alias "=" is joe.package_a."="  [joe.package_a.joes_bit,
+                                     joe.package_a.joes_bit,
+                                     return std.standard.boolean];
+
+INCREMENTAL BINDING
+
+In a configuration declaration, you can now augment or replace the 
+generic map that may have been specified in a component configuration
+specification without having to re-specify the entity. Also, if the 
+component declaration leaves a port open, that port can be bound in a 
+configuration declaration. Example:
+
+    package GLOBAL_SIGNALS is
+        signal Tied_High : BIT := '1';
+    end package GLOBAL_SIGNALS;
+
+    package MY_GATES is
+        component AND_GATE is
+            generic(I1toO, I2toO: TIME := 4 ns);
+            port(I1, I2: in BIT; O: out BIT);
+        end component AND_GATE;
+        component XOR_GATE is
+            generic(I1toO, I2toO: TIME := 4 ns);
+            port(I1, I2: in BIT; O: out BIT);
+        end component XOR_GATE;
+    end package MY_GATES;
+
+    entity Half_Adder is
+        port(X, Y: in BIT; Sum, Carry: out BIT);
+    end entity Half_Adder;
+
+    use WORK.MY_GATES.all;
+    architecture Structure of Half_Adder is
+        for L1: XOR_GATE use
+            entity WORK.XOR_GATE(Behavior)
+                generic map(3 ns, 3 ns)
+                port map(I1 => I1, I2 => I2, O => O);
+        for L2: AND_GATE use
+            entity WORK.AND_GATE(Behavior)
+                generic map(3 ns, 4 ns)
+                port map(I1, open, O);
+    begin
+        L1: XOR_GATE port map(X, Y, Sum);
+        L2: AND_GATE port map(X, Y, Carry);
+    end architecture Structure;
+
+    use WORK.GLOBAL_SIGNALS.all;
+    configuration Different of Half_Adder is
+        for Structure
+            for L1: XOR_GATE
+                generic map(2.9 ns, 3.6 ns);    -- new in 93
+            end for;
+            for L2: AND_GATE
+                generic map(2.8 ns, 3.25 ns)    -- new in 93
+                port map(I2 => Tied_High);        -- new in 93
+            end for;
+        end for;
+    end configuration Different;
+
+GROUPS AND ATTRIBUTES ON GROUPS
+
+You may define groups of various kinds of objects, and attribute the 
+groups. You first need to define a template for a type of group, then 
+declare specific manifestations of that group. You also may have 
+groups of groups. Examples:
+
+    group PIN2PIN is (signal, signal);
+    group RESOURCE is (label <>);    -- indicates any number of labels
+    ...
+    group G1 : RESOURCE (L1, L2);    -- L1 and L2 are specific labels 
+                        -- belonging to group G1
+    group G2 : RESOURCE (L1, L2, L3);
+    group C2Q : PIN2PIN (PROJECT.GLOBALS.CK, Q);
+
+REFERENCES ON VHDL 1993:
+
+IEEE Standard VHDL Language Reference Manual ANSI/IEEE Std 1076-1993, 
+The Institute of Electrical and Electronics Engineers, Inc. (345 East 
+47th Street, New York, NY 10017-2394, USA) ISBN:1-55937-376-8, 
+June 1994.
+
+VHDL '92; The New Features of the VHDL Hardware Desription Language 
+Berge, Fonkoua, Maginot and Rouillard, Kluwer Academic Publishers 
+ISBN:0-7923-9356-2, Price: $87.50 Dfl180.00; table of contents, 
+preface and chapter 1 can be retrieved by anonymous ftp from 
+world.std.com. The file is Kluwer/books/vhdl92. (This was published 
+before the 1993 standard was finalized, so is not completely accurate, 
+but might possibly be useful.)
+

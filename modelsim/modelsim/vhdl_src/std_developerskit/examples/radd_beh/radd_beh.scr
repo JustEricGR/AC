@@ -1,0 +1,67 @@
+/************************************************************************/
+/* dc_shell script for an adder example ( regadd_beh ).                 */
+/* This example calls the procedure RegAdd from  the                    */
+/*  synthesizable regpak ( Synth_RegPak).                               */
+/*                                                                      */
+/* First, we will set up the path to the synthesis libraries            */
+/* available with the Synopsys' synthesis tools . In example we         */
+/* will use LSI Logic Corporation's library (lsi_10k). In order         */
+/* to use a different technology library, the designer must change      */
+/* these variables.                                                     */
+/************************************************************************/
+
+search_path = { ., /usr/synopsys/libraries/syn}
+target_library = {lsi_10k.db}
+symbol_library = {lsi_10k.sdb}
+link_path = {lsi_10k.db}
+
+/************************************************************************/
+/* Use the read command to read in the std_logic_1164 package, the      */
+/* synth_regpak package, and regadd_beh.vhdl (i.e the circuit being 	*/
+/* synthesized).                                                        */
+/* Note:  these files can be read one after the other or all at once.   */
+/* Here we will read one after the other.
+/************************************************************************/
+ read -format vhdl std_logic_1164.vhdl 
+ read -format vhdl synth_regpak.vhdl 
+
+ read -format  vhdl regadd_beh.vhdl 
+
+/************************************************************************/
+/* Set up the process environment. This includes                	*/
+/* defining the wire load model and the operating conditions. 		*/
+/************************************************************************/
+
+set_wire_load "10x10"
+set_operating_conditions WCCOM
+
+/************************************************************************/
+/* Set up the conditions at the boundry of the design. This      	*/
+/* includes defining the drive level on the input signals, the load on 	*/
+/* the outputs, and the arrival times of the input signals.		*/
+/************************************************************************/
+
+set_drive 1 all_inputs()
+set_load 4 all_outputs()
+
+/************************************************************************/
+/* Now, the constraints are specified. In this example, the goal 	*/
+/* is to create the smallest design. This is specified as shown below. 	*/
+/************************************************************************/
+
+max_area 0
+
+/************************************************************************/
+/* Next, compile the design		                        	*/
+/************************************************************************/
+
+compile
+/************************************************************************/
+/*  									*/
+/* Finally, write the design to the synopsys data base file             */
+/*  "regadd_synth.db" and to the VHDL file "regadd_synth.vhdl".         */
+/************************************************************************/
+
+write -format db -output regadd_synth.db
+write -format vhdl -output regadd_synth.vhdl
+

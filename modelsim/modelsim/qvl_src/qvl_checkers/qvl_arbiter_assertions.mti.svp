@@ -1,0 +1,1111 @@
+//              Copyright 2006-2007 Mentor Graphics Corporation
+//                           All Rights Reserved.
+//
+//              THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+//            INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS
+//           CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+//                                  TERMS.
+//
+//                   Questa Verification Library (QVL)
+//
+
+`include "std_qvl_defines.h"
+
+`qvlmodule qvl_arbiter_assertions(
+                           req,
+                           gnt,
+                           fair,
+                           priority_check,
+                           queue,
+                           round_robin,
+                           least_recently_used,
+                           single_grant,
+                           known_grant,
+                           req_until_gnt,
+                           park_check,
+                           single_req_per_channel,
+                           deassert_check,
+                           min_check,
+                           max_check,
+                           max_grant_check,
+                           clock,
+                           reset,
+                           areset,
+                           active,
+                           fair_fire,
+                           priority_fire,
+                           queue_fire,
+                           round_robin_fire,
+                           least_recently_used_fire,
+                           single_grant_fire,
+                           known_grant_fire,
+                           req_until_gnt_fire,
+                           park_fire,
+                           single_req_per_channel_fire,
+                           deassert_fire,
+                           min_fire,
+                           max_fire,
+                           max_grant_fire,
+                           requests_and_grants,
+                           requests,
+                           grants,
+                           maximum_requests_outstanding,
+                           current_requests_outstanding,
+                           fastest_grant,
+                           slowest_grant,
+                           requests_asserted,
+                           requests_asserted_bitmap,
+                           grants_asserted,
+                           grants_asserted_bitmap,
+                           all_requests_asserted,
+                           all_grants_asserted,
+                           outstanding_cycles_equals_min_count,
+                           outstanding_cycles_equals_max_count,
+                           grant_asserted_equals_max_grant_count,
+			   support,
+			   fire_count
+                        );
+ 
+
+  parameter severity_level = `QVL_ERROR;
+  parameter property_type = `QVL_ASSERT;
+  parameter msg = "QVL_VIOLATION : ";
+  parameter coverage_level = `QVL_COVER_NONE;
+
+parameter Constraints_Mode = 0; 
+parameter STAT_CNT_WIDTH = `ZI_CW_STAT_CNT_WIDTH;
+
+parameter REQ_WIDTH = 2; 
+parameter GNT_WIDTH = 2; 
+
+`protected
+
+    MTI!#72O3]%=}a-Us~?wYr>HzseMV<=W}+TA7m[VG'"i>+2elzJ&1~XRvjk^Ol}n[uDZpI71Q*(~
+    s}B{D+*xpnDzj@AL1J;!@t^xVQ']isJ=m3puCsGkB!LrBEYIR-T\IYBz7jX]z7?11$ay}N!1{!'^
+    DC1R#AQvl?*z+x#jQ3C]IDv~C;E4!=xm^EArsn^p#n'pAjw['z!Oe?omirpn8aY\rZa;Vs\1W3_R
+    s{wTT*'#5EIC*YvQY=@W$)+l~~-rXT_~a_,IzKrx*_-]k+p8e}Bu=Q_@GXE!v{1K|xRix!pB78J'
+    X-t)mX[D?aAzHQ<,z.ADa2AC~e^j[};}Rl^T\rk'Jav=Wu[,1T=-=W+r\<Z*UQLK,_3c1wAGH{x?
+    {oiuvs+B^I2o*+'k=ZX+V,;=Rjp2(VeEYUss<$[UDBp+!G^e~'B_s1uBZYD+@Js,od=I+sRKC5B3
+    7Wj$xxwXJezQ>;rsr\E*i}Enp*B>Q5N\VD'rIlZ0,7}Q}kR7aEi[Q>s5ND!x<p~\'#7n[+Uv[4oX
+    aEDsH'
+`endprotected
+
+parameter REQ_ITEM_WIDTH = 1; 
+parameter REQ_ITEM_COUNT = 1; 
+
+parameter GNT_ITEM_WIDTH = 1; 
+parameter GNT_ITEM_COUNT = 1; 
+
+parameter SUPPORT_WIDTH = 1; 
+
+parameter PTR_WIDTH = 1;
+
+parameter MUX_SELECT_WIDTH = 2;
+
+parameter LRU_MUX_WIDTH_TMP = 1;
+
+// Number of Grants
+parameter NO_OF_GNTS_WIDTH = 2;
+
+input [SUPPORT_WIDTH-1:0]  support; 
+
+input clock;         
+input reset;         
+input areset;        
+input active;        
+
+input [REQ_WIDTH-1:0] req; 
+input [GNT_WIDTH-1:0] gnt; 
+
+input fair;                    
+input priority_check;                
+input queue;                   
+input round_robin;             
+input least_recently_used;     
+input single_grant;            
+input known_grant;             
+input req_until_gnt;           
+input park_check;              
+input single_req_per_channel;  
+input deassert_check;          
+input min_check;               
+input max_check;               
+input max_grant_check;         
+
+parameter FAIR_ON = 0; 
+parameter PRIORITY_ON = 0; 
+parameter QUEUE_ON = 0; 
+parameter ROUND_ROBIN_ON = 0; 
+parameter LEAST_RECENTLY_USED_ON = 0; 
+parameter SINGLE_GRANT_ON = 0; 
+parameter KNOWN_GRANT_ON = 0; 
+parameter REQ_UNTIL_GNT_ON = 0; 
+parameter PARK_CHECK_ON = 0; 
+parameter SINGLE_REQ_PER_CHANNEL_ON = 0; 
+parameter DEASSERT_CHECK_ON = 0; 
+parameter MIN_CHECK_ON = 0; 
+parameter MAX_CHECK_ON = 0; 
+parameter MAX_GRANT_CHECK_ON = 0; 
+
+
+parameter NO_SIMULTANEOUS_REQ_GNT = 0; 
+parameter NO_SIMULTANEOUS_REQ_GNT_SPECIFIED = 0; 
+
+parameter DEASSERT = 0;
+
+parameter LATCH_REQ = 0; 
+parameter LATCH_REQ_SPECIFIED = 0; 
+
+parameter REQ_UNTIL_GNT_SPECIFIED = 0; 
+parameter REQ_UNTIL_LATCH_REQ = (LATCH_REQ && REQ_UNTIL_GNT_SPECIFIED);
+
+parameter DEASSERT_SPECIFIED = 0; 
+parameter DEASSERT_LATCH_REQ = (LATCH_REQ && DEASSERT_SPECIFIED);
+
+parameter PARK = 1; 
+
+parameter ANY_PARK = 0;
+
+parameter PARK_SPECIFIED = 0; 
+parameter ANY_PARK_SPECIFIED = 0; 
+parameter PARK_ANY_PARK = (PARK_SPECIFIED && ANY_PARK_SPECIFIED);
+
+parameter KNOWN_GNT_SPECIFIED = 1'b0; 
+parameter BOTH_KG_AND_ANY_PARK_SPECIFIED = (KNOWN_GRANT_ON == 1 && ANY_PARK_SPECIFIED == 1);
+
+parameter MIN = 0;
+parameter MAX = MIN; 
+parameter MAX_GRANT = 1; 
+
+parameter MAX_GRANT_SPECIFIED = 0; 
+
+parameter MAX_WIDTH = 1; 
+parameter MAX_GRANT_WIDTH = 1; 
+parameter DEASSERT_WIDTH = 1; 
+parameter MIN_WIDTH = 1; 
+
+parameter BIT_VEC_WLOG2 = 1; 
+parameter CW_FOR_FPGA = 0;
+parameter BIT_CNT_WIDTH = CW_FOR_FPGA ? BIT_VEC_WLOG2 : 63;
+
+output fair_fire;
+output priority_fire;
+output queue_fire;
+output round_robin_fire;
+output least_recently_used_fire;
+output single_grant_fire;
+output known_grant_fire;
+output req_until_gnt_fire;
+output park_fire;
+output single_req_per_channel_fire;
+output deassert_fire;
+output min_fire;
+output max_fire;
+output max_grant_fire;
+
+reg fair_fire;
+reg queue_fire;
+reg priority_fire;
+reg round_robin_fire;
+reg least_recently_used_fire;
+reg single_grant_fire;
+reg known_grant_fire;
+reg req_until_gnt_fire;
+reg park_fire;
+reg single_req_per_channel_fire;
+reg deassert_fire;
+reg min_fire;
+reg max_fire;
+reg max_grant_fire;
+
+output [STAT_CNT_WIDTH-1:0] requests;
+output [STAT_CNT_WIDTH-1:0] grants;
+output [STAT_CNT_WIDTH-1:0] requests_and_grants;
+output [63:0] fastest_grant;
+output [63:0] slowest_grant;
+output [STAT_CNT_WIDTH-1:0] outstanding_cycles_equals_min_count;
+output [STAT_CNT_WIDTH-1:0] outstanding_cycles_equals_max_count;
+output [STAT_CNT_WIDTH-1:0] grant_asserted_equals_max_grant_count;
+output [BIT_CNT_WIDTH:0] maximum_requests_outstanding;
+output [BIT_CNT_WIDTH:0] current_requests_outstanding;
+
+output [BIT_CNT_WIDTH:0] requests_asserted;
+output [REQ_WIDTH -1:0] requests_asserted_bitmap;
+output [BIT_CNT_WIDTH:0] grants_asserted;
+output [GNT_WIDTH -1:0] grants_asserted_bitmap;
+
+output all_requests_asserted;
+output all_grants_asserted;
+
+output [STAT_CNT_WIDTH-1:0] fire_count;
+reg [STAT_CNT_WIDTH-1:0] fire_count;
+reg [4:0] fire_count_tmp;
+
+reg [STAT_CNT_WIDTH-1:0] requests;
+reg [STAT_CNT_WIDTH-1:0] grants;
+reg [63:0] fastest_grant;
+reg [63:0] slowest_grant;
+reg [STAT_CNT_WIDTH-1:0] outstanding_cycles_equals_min_count;
+reg [STAT_CNT_WIDTH-1:0] outstanding_cycles_equals_max_count;
+reg [STAT_CNT_WIDTH-1:0] grant_asserted_equals_max_grant_count;
+reg [BIT_CNT_WIDTH:0] maximum_requests_outstanding;
+reg [BIT_CNT_WIDTH:0] current_requests_outstanding;
+reg [STAT_CNT_WIDTH-1:0] requests_and_grants;
+
+reg [BIT_CNT_WIDTH:0] requests_asserted;
+reg [REQ_WIDTH -1:0] requests_asserted_bitmap_r;
+reg [REQ_WIDTH -1:0] next_requests_asserted_bitmap;
+reg [BIT_CNT_WIDTH:0] grants_asserted;
+reg [GNT_WIDTH -1:0] grants_asserted_bitmap_r;
+reg [GNT_WIDTH -1:0] next_grants_asserted_bitmap;
+
+`ifdef QVL_COVER_ON
+
+wire [REQ_WIDTH -1:0] requests_asserted_bitmap = requests_asserted_bitmap_r;
+wire [GNT_WIDTH -1:0] grants_asserted_bitmap = grants_asserted_bitmap_r;
+wire all_requests_asserted = &requests_asserted_bitmap_r;
+wire all_grants_asserted = &grants_asserted_bitmap_r;
+
+`endif
+
+
+reg [BIT_CNT_WIDTH:0] requests_temp;
+reg [BIT_CNT_WIDTH:0] grants_temp;
+`protected
+
+    MTI!#GB?}GjZ2l>s;?pYW;s?UBAmEG?$xBxi}N9e<{[6[3XExU]1[o\~@T!p[;HV^{pDwRQ#PIeR
+    7{$xsFvpZ+G_$[z]#>J^lpQa<Rz+[OD[*JsaE_WRRAxksIpW<[^\jmlH_2$_sI1j<-bQ=vAcQAe5
+    T[4Q+sJ{s*lJri!z-IT}ns+p;pVg7![,d1Dm>W7
+`endprotected
+   
+`ifdef QVL_ASSERT_ON
+integer i,j;
+// Outstanding Requested Channels at any moment
+reg [REQ_WIDTH-1:0] outstanding_channels;
+wire [REQ_WIDTH-1:0] valid_outstanding_channels;
+reg [REQ_WIDTH-1:0] valid_outstanding_channels_temp;
+wire [REQ_WIDTH-1:0] valid_gnts;
+reg [REQ_WIDTH-1:0] valid_gnts_r;
+
+reg [REQ_WIDTH-1:0] last_req;
+reg [GNT_WIDTH-1:0] last_gnt;
+
+reg fastest_grant_set;
+reg fastest_grant_set_temp;
+reg [63:0] fastest_grant_temp;
+reg [63:0] slowest_grant_temp;
+reg [BIT_CNT_WIDTH:0] outstanding_cycles_equals_min_count_temp;
+reg [BIT_CNT_WIDTH:0] outstanding_cycles_equals_max_count_temp;
+reg [BIT_CNT_WIDTH:0] grant_asserted_equals_max_grant_count_temp;
+
+reg [BIT_CNT_WIDTH:0] current_requests_outstanding_temp;
+reg [BIT_CNT_WIDTH:0] requests_asserted_temp;
+reg [BIT_CNT_WIDTH:0] grants_asserted_temp;
+
+// FIFO to register requested channels in queue
+reg [REQ_WIDTH-1:0] fifo[REQ_WIDTH-1:0];
+
+reg [PTR_WIDTH-1:0] req_ptr;
+reg [PTR_WIDTH-1:0] gnt_ptr;
+
+// Requested Channels waiting for grant
+wire [REQ_WIDTH-1:0] queue_requested_channels;
+
+// Is there Grant for the requested channel that are in the 'top' of fifo ?
+wire [GNT_WIDTH-1:0] unqueued_gnts;
+
+// Un-acknowledged Channels in the current queue
+reg [GNT_WIDTH-1:0] un_ack_channels;
+
+reg [GNT_WIDTH-1:0] valid_queue;
+reg [GNT_WIDTH-1:0] next_valid_queue;
+reg [PTR_WIDTH-1:0] inc_gnt_ptr;
+
+wire [GNT_WIDTH-1:0] fair_gnts;
+wire [GNT_WIDTH-1:0] un_fair_gnts;
+
+// Outstanding Channels when a particular channel is acknowledged 
+reg [REQ_WIDTH-1:0] req_when_gnt[REQ_WIDTH-1:0];
+
+// gnt_awarded to Non-priority signals
+wire [GNT_WIDTH-1:0] gnt_non_priority;
+
+parameter PRIOR_GNT_MASK = {GNT_WIDTH{1'b1}};
+
+reg [MUX_SELECT_WIDTH-1:0] token;
+reg [MUX_SELECT_WIDTH:0] token_tmp;
+wire [(MUX_SELECT_WIDTH*GNT_WIDTH)-1:0] select_lines;
+wire [GNT_WIDTH-1:0] rotating_valid_gnts;
+wire [GNT_WIDTH-1:0] rotating_outstanding_channels;
+wire [GNT_WIDTH-1:0] rotating_valid_outstanding_channels;
+
+wire [GNT_WIDTH-1:0] non_robin_gnts;
+
+parameter LRU_MUX_WIDTH = LRU_MUX_WIDTH_TMP + 1;
+
+wire [GNT_WIDTH-1:0] least_recent_outstanding_channels;
+wire [GNT_WIDTH-1:0] least_recent_valid_outstanding_channels;
+wire [GNT_WIDTH-1:0] least_recent_gnts;
+wire [(GNT_WIDTH*LRU_MUX_WIDTH)-1:0] least_recent_mux;
+
+reg [LRU_MUX_WIDTH-1:0] least_recent_channel_tmp;
+reg [LRU_MUX_WIDTH-1:0] least_recent_channel[0:GNT_WIDTH-1];
+
+wire [GNT_WIDTH-2:0] most_recent_gnts;
+
+reg [NO_OF_GNTS_WIDTH:0] no_of_gnts;
+
+parameter [GNT_WIDTH-1:0] PARK_CHANNEL_MASK = (1 << (PARK-1));
+wire [GNT_WIDTH-1:0] channel_not_parked; 
+
+wire [GNT_WIDTH-1:0] un_known_gnts_for_park; 
+
+// To count number of cycles Grant is asserted
+reg [63:0] max_gnt_cnt[GNT_WIDTH-1:0];
+reg max_gnt_cnt_change;
+
+// To count number of cycles between request & grant
+reg [63:0] gnt_respond_cnt[GNT_WIDTH-1:0];
+
+// To count number of cycles for de-assertion of req after grant de-asserts
+reg [63:0] req_deassert_cnt[GNT_WIDTH-1:0];
+reg req_deassert_cnt_change;
+
+wire [GNT_WIDTH-1:0] max_gnt_violation;
+
+reg [GNT_WIDTH-1:0] min_gnt_respond_violation;
+
+reg [GNT_WIDTH-1:0] max_gnt_respond_violation;
+
+wire [REQ_WIDTH-1:0] req_not_deasserted;
+
+wire w_no_simultaneous_req_gnt = NO_SIMULTANEOUS_REQ_GNT;
+wire [REQ_WIDTH-1:0] no_simultaneous_req_gnt_vector = {REQ_WIDTH{w_no_simultaneous_req_gnt}}; 
+
+wire [REQ_WIDTH-1:0] req_from_outstanding_channels;
+wire [GNT_WIDTH-1:0] un_known_gnts;
+
+wire [REQ_WIDTH-1:0] one_or_more_req_dropped;
+
+
+wire qvl_xz_detected;
+
+`ifdef ZI_FOR_SEARCH
+wire xz_detected;
+`endif
+
+integer j1,l,k,m;
+
+parameter TW_MAX = MAX ? MAX : 1;
+parameter TW_MIN = MIN ? MIN : 1;
+reg [REQ_WIDTH-1:0] tw_max[TW_MAX-1:0];
+reg tw_max_change;
+wire [REQ_WIDTH-1:0] req_removals;
+wire [REQ_WIDTH-1:0] new_gnts;
+reg [MAX_WIDTH-1:0] tw_max_addr;
+reg [MAX_WIDTH-1:0] tw_max_addr_plus_1;
+reg [REQ_WIDTH-1:0] max_err_vec;
+wire [REQ_WIDTH-1:0] curr_max_err_vec;
+
+wire [REQ_WIDTH-1:0] new_reqs;
+wire [REQ_WIDTH-1:0] new_latch_reqs;
+wire [REQ_WIDTH-1:0] new_valid_reqs;
+
+reg [REQ_WIDTH-1:0] tw_min[TW_MIN-1:0];
+reg [MIN_WIDTH-1:0] tw_min_addr;
+reg [MIN_WIDTH-1:0] tw_min_addr_plus_1;
+reg [REQ_WIDTH-1:0] min_err_vec;
+wire [REQ_WIDTH-1:0] curr_min_err_vec;
+
+integer n,p;
+
+`endif // QVL_ASSERT_ON
+`protected
+
+    MTI!#eLK]R#rQlK3\?X[1vG_Bj,G#GU8wjjK}?<J'N[y_b/B2><u$*[1HU]%pVE7Oxu'm}{o3o~[
+    aXzfx?\m)Y?5;~=7U72J}vjp!o7$'I#X\F"KXwRTRuu2wW=VxW*rQ=H;'Jvsw<x<RzknHTU1-W2W
+    |C[EkF3O*O2$l2\wKC6S~U>-M[eY>C7DEsQZ[eW\UcEAE_0o-@]NsJmApTvk/
+`endprotected
+
+`protected
+
+    MTI!#OU!}07+=!ZHrCl_Eo\u@mG,uQB}H77su[L(j/fz]r"BCOu]>[,2XQ>;+R@1R{p*Gr;;o;*Z
+    =#,~TcC3K,x?X~{9]_eHAj3~Q'u$G>@*N\G*-[n=kurp-^EHGe_B*p~T<*}'-,5JH5a1>zI]sNGj
+    Es^2Y,rz@=xTpxl2ej*?+mZ+RmowWAgkEVW$?']~V_J4[m@T1an7PGjW[J=WYv$lu=#[ZV51[e'x
+    \v+],#s]#L#RK@Wz\DU'K!zonv-^alhaUI1xW<GSeAZ2rm}BD=Iw]}[_eV?^$*VZ$C\xl{U;wA*j
+    vx,5m[I^O^_ZKU_YWH\B=BEBBQlZE!E$}\'\5WB*"mapU<p-GB]\ERu_[H9o}"l,zpv]$-5iKrX{
+    ~Xsm_Ca_aIu5{eul?]\*4+I=@~-a-~HKTWs~DRCZ[$_u@uDm$HYroo|UawAMrhaA,#i=axHOW=]+
+    ,I{*xB,OuD7}YI'2O[jmw<!nx33jz]=7{^u_IIx~+w\{T?M+O'vj<!<w][r!*37OV>GIHf.Q6-E<
+    $Ao@a7^[#UUeH*Tn^|oATZ[W^H7,U#'$sCAwA?Ks*<UIC[\;Jw9p\XKB[Q*S_OXw;'\'-=V1ZU-E
+    krp'CW5_x+z^{{7Z^H{Y'JTsRrDrOvUItS;UC3\#[~9gj;nmoz$Wo-a_[JA#Q;a?5;Xo}I_*Q5Xu
+    5>E2BGDDL]KY?}l+r2=W,}1Aj\pZ2)<\wus@+u5j^G$1<rDOIEUI+#~]1GTYOYBRB{VH}}AExxY?
+    e}x-aX>[Q=z,On'H\2ew,[!_wY[_<B{^p>,D>O=}?r#xZup}Wv@OUucxJ,,pV->mR$AUOw;RO+A3
+    +-oaQT#B*w{<CGGr1j5_O>WBZ]Epp-^r*??jAV7a'~UDrl15'[TU}]+s_u{j#Z_E@>Bk^~lZGQo\
+    'lJO93Omze;>;7sCJZ+U7pl$5,7m5v-s>-G@T[1JlQTea5^HZKV}*zGk2k]n<^KjT$\;p1}VYe+x
+    z71]Ykek7mGHrHHGR]T2=x_1XJe#~[muEjH'*5TEp3QopzB5-_U<3i$YK\lV5O2KkiQ\sw7W}io@
+    @}5o=9Boee@a^]oan_@Tn]k{7u]<@;B[^~>H[iT}jQ'BDwIF$iVB|"Ypr{o?U!7?~ukzz]GrHvpR
+    mKF!EKW?QZE>jo_@Q#k\mwJ2=7p'>O!$a7{YnE{e_sk[|\1lR?-lJO+Ak7C#J!5@$B>jUR$#[=BK
+    [VuA=~Dm1{Cm#eT{J%E|T[]\zR]<[]3I+']ZGDk{Vrr2--P+w,O:_jE,MGX5on<-CeE{DiowBepr
+    u$lE~17UEoxkufeBBl}Q~!']V7jvC$ZQO7^v#]<[[]V&~+zY,Z<-6ErskCiAp5m_A+]H;K{HlxT$
+    we>pn];5#>YnDX]sQ*32,_aC?IOQm\3m1CsRn$}*'N{X\Dir{eR>~~n>R?_\}ihpDT_AD_z7!XaJ
+    xTB#-G;9,]71$2vx<]@{]+wZEO^CcO1wGae-sRi+;sG=s%,Y&[za>#{K^ek-]\;V!paezpl]C1W@
+    n^Evpul<u}eU+[KpE]#,$UV7p"-a-;[?;UMQ?Bsjza-[Z*&\zXUv[BE^rR+Jw1HjR{?WnsUiHA{]
+    w>aZ[RZx-w>_,'CCm+;!}?D3[~BG#K1\U+=Kw'_r5E=i+xx^XC-15u]C>;>[@e?2*+TCwZCvOU5k
+    $xrD#'lvzEAO!DC-p*Ap~DVQ\VRlUo*@l'Q=raw5=7nO<V2QT_+YGTWVmU]:yZY#{>=~vdaD^O[O
+    T15C@ZU&)ea\am,$a,%1Ia$YPRjl7H,eZvV@s<L^'xrK{HrO>;ClmawEQYB,B7ncVu,OI+,X9{sj
+    +I3+?9mr~~-w}*s+T?1wBYVK+'w1]*v]@e{<B?=\i@YO{2r]CwAV+Ky+ImV;1!n-<+]!{,J/2Ca[
+    {Urux1E+7*@QN<}eTz325'C[x{Vj3vwYBQ#wWun+pGYX5AG<w:}Zv7wn{=i\\]X]KGy^bL[ue~'w
+    K{U]H^mN:drY]'Yw}ic[=,~VG'G1iE,Kw^aC[sJKHIQ?]Az645iB!Grz\Y;TV%-xeH!V,+!Y?].L
+    -Uz!s?EWz}+V>a(\w*iS}Qr3=1T+jG[?kO-r.O"w]32_1I7=#RQrler2'oJx}$7j<1wU17]{rpOH
+    He;QneBo^_}4N}j,BHRm1vww\H{A##Dp=1>Jo5TwZ_#aeZv=oEmsG}U]+<raj#Cjvp*OmY]-DXsD
+    +kpOz\<Tw]Q'QlK$2p-w,<AG^RUJ{\ZmV*?,DkYr5-CYD],asfnHp+=G{mn\'v#]v5)G@ZQYIKl-
+    $>TEpU$"Fio<KV>r2$Ir\@'sBsVw^khH_2-\YzU7sp$8l7Q}=u-a+QX;F*3]EEA~kn-*$V*=EnAl
+    1QipJj7mE$!W1qUxI+#rimY;e>*B>Q7E\BCHXu\=s}$,AolW}mI-j!FeAjEQAC-QHwE_jRG?oo+W
+    17^_]*2z{$AEjURzKV's,3_b<Ev$xH,YEJD1#<[B,2R[5r<\aa=HQ@~nGiB;/ae;u5rew_1vBe-~
+    Q,r3}IgO2sI*xB!oVIj@-<BZ+IBTG=~![+se*-k$aAX.=l<Czi>Curx=EOlIa]Qa'.|.'Gj@3^Gv
+    5>G~kQ3~HUT53[=;DnV_}Rs5Tp{vwpi,YO$X\J+$?j;l7X,-+Cl,IuVKK'3^TVa=OA$@qI!{U5$A
+    BmUzUU]#e#nZ}OUl5)oTU!25E^_12p?[,*KB{WOoUZ^}{Cx^zHdu7_#xnejkH,O6vCU3}GKpvB}R
+    sJHrQ{$[7@V$dHj@K_Q$l7A^BO+BjX1^oBmoJ;-@[(@A<{0^-eG>^a<)_,Rv<hjJN|s^QV*e7xK1
+    JQ3e$l#e_sDuOm&=W-mTXnQHQnXRHAl]oBzxW{oY>@wpOjj0PlTzRO4zu*]K'-JvK]n7_aOT'7Qe
+    Rep%DY3Rw-aGoi>Gv1;{YC~}e-AoQTrBivel/<x+_Sv#__v3T!p2o<{*rR6J<U*F:1!z~ljO^l#U
+    ,NXOi1p0LICrW2A-_usv+K^D=lDnUEAx{GY#VBUT-G+7a~x]\1[jTJYrC-w}$12e5\KQY5_[mlAX
+    >g[v>uyf*U77k'5H1W~CV!jWC@Jk(*O-'?\[XDJG;H>$_D[j}(I{>B_]pz->DE]3^xAw+m+p=+k1
+    eWS#6}?!*Z[^3tZw-$<>TW!Ri]JH+vnABsF!aoxOI<wnI$O{nsl#}'A5\,WUTOkOI15}~2kpxnoa
+    B{o6J}riO<~-jpkx^5rD.Ww1O_?JG8~Uovus{>iYY*5GEC3zG#~VV@wvQwvI\'-5'Cse[1$zviEf
+    vJ=zv[<kgOA3D>Ev1~Tz7E>_+o,GkCj\-$u;QkB*]-DU}ZTR>blECiHz*mFXX3a+'CRpr>RjWoGR
+    @=O5s3Z,k]Z!+\RMnA\Zt[Z~}<zAnk1oR+GUuC?{*BJAGv#TEEBwUo2-B_~G_TY@2@B;lnzrvj_;
+    [Ba}'';Z^[H!,*O>OOYQYGj^[M<'J$VBw<sU$a;$Q1B5T+!=O^U|5?<=Ae!sp{weza_O#GWZ1<-!
+    VesV]XpYw7Zm6mDux/^@!1~BI$^TZ@zp*$2$I1%RT[~53XkuY^zGH\O)V}Wsv]XH#C@]nCw~[<,#
+    =lp}mDr#^[Z<x?m*^lpO"_*Y,Q=nu%we-{C*z3z?{?V!UJY,,vN*\G},p;}i1Q2\Z}o$*^<a[<>u
+    Ov2]$G3H1{]UzoZ(=}QGnjHpJTdsipn_oIA7,TZ}H{CIe1XqA{lB3Ra*6G=,!R3*~D_^ip_1}su@
+    E,ZA]x~Uw/EfC2!AbZ{,Z*E#7>zr!~R=x>\C7kD-;7]=G-A[*'2oou*C$E\mRy;D{5K[pJD$<1B@
+    1{eR=j#-aI^z!YHUGe!Y+B[ZCD~7@\isZD1m_TUOkpp@V]Iv=+vG?=0Vp!;7kJVepnulivziA5n5
+    _e]b'Ek2W}{l!G#Ts+@lhCUA!+7;mU>WE}*l}1\1IUCDEEv@^,~H2ru*OWYTV,rs;\',XOusC<&\
+    ;vKoJJ1*BH$Zw+]aH]?GJDX$pUs}*J@KYA\_'w7@}z@Az?oQ15<ljE*^IZU5;Q7$E,G,wa_ZRJVn
+    ]aotJ7^_5xBQ\EBnZ*'-^?oi,C\=DRD5LHSlD}2^]zU3D#Hs,zCk_]G,!DC}~^,D7O+EZ{z,XARF
+    HAAZaT']#o~$.p_ez\#jp;a=7x12ojj?]m}n*5!@lfcRA2H:.QYO_4&vT<Q$vvJ'1H\V\Zz4>[_\
+    {C@3}}Ypu5eC$~JVzX}5,n[\YIG*Fvuzj3Cp-w[
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+   
+`ifdef ZI_FOR_SEARCH
+assign xz_detected = (^req === 1'bx) || (^gnt === 1'bx);
+`endif
+
+assign qvl_xz_detected = (reset !== 1'b0 || (active !== 1'b1) ||
+			  ((req ^ req) !== {REQ_WIDTH{1'b0}}) ||
+                          ((gnt ^ gnt) !== {GNT_WIDTH{1'b0}}));
+`endif
+
+`protected
+
+    MTI!#9CE*#Rx-'Jjwx5m;>\rJ!5Te-j3[,<QF}m<Z7@[3_1QvoA!s(-}A@rBwuB^}Q;oBz}0{a$W
+    issU1_k72B<@(k|xO~A^,@vot%=Uo*Nvno\uY=]oX>x's]Ymo]iD-AVIV^[jP<-W~xC+l{'u!+<Q
+    ;I^ezGkZ2}&p*3R?]BwTDR}UErs?x+',~X_%pK33}s#z#[m$VuzHG(r?v]HV-p$zvU7wQx%mqX]A
+    Ex#5V0w=IAP*BD=2_Kvwj2zRnx{E_A2vn+2=2O!*{z[HT_iRAD<D<V[}xoz[AK@SQmuHEi<2@1AQ
+    GTB[>r*5$Y2!B*Qa57K+}<UDckl~VV=*5vEuAM)R_R$@U<TCI!lqG?*zDxTpGB$['KQQq}ziV1+1
+    s=~>#k]ZvBL%=7aKj{>}^tyD$\#DO}>)(vO~H~1-UTRA?CBuI1~vADj\sTxzzZ>-@X_xD.*l*[o}
+    Bl^2_V=B2@5T7!-*@>YH[OwTD2'o;!]BGk?C\=7\#KR-,(Oaa@|Ri7C4e\~~QKE>{zV<2xnrzua{
+    O[D@Hekm>xkQo*R{e'\UH>;Jx]pe:+<z>Ev{YYz[1c.l3A<Y1[wk[A_cUnWOrKaj*T@Vo+s@'=UH
+    Ko-Hm*mB5uIGI#l*[-$W2vC$-X\whB5X2eK;@]$w}H]H{_<'ele-J,pHVKejpU+>v^r$lW}DCZGC
+    B>5vX35pCYYEaNnB7!>D~zEE{HnC=QZlWa\t:YJa>j!JZs\}^><\RvemoEneQjX+s}51~ID^3Wel
+    u$BR=Q<\@QY3x~BOw_Dx[_spK3Cjrsl}Js#l*1A|.M9oDTKfDHJjKCH=K'5[,AHpJ$!$Z-+C>pox
+    [^GZ'w}=A7,a2aQ+InEK+Y\_{DX}>l2;Gk_*=eVkIJpW{Rk?FA\+v]w2<,*E,kEm]!>$@asX^l_-
+    W^#~QV3\xKV^z$sY[IU;XiqlmjuNI-Tm5}\XtYT*3J\mD]7_z1oj~P7O]5CXJ~GBi{B<-E1i}!]a
+    V7!^}O<1?jKA=#{+n'R7_@4,Qav1?Ypl!72zDWs>UTJYH^;cv;KIHCU-XAnQ)<A=zqBW,z?wTDwC
+    7CsO7D>jz>+jaJvlZ,uo2J5*wU}{G1NOeO~Ci\[=T<Ol7~}>[HO}qL@<\XT,u53lDuoR}'kRH!/l
+    vWV~E#=l!nIC2^V4PXlIG-_Y$sVi]cA^7?^7lBU_=VwB}=r;G1kxJw{pTTGp3ocO#p]lFuYE]k*l
+    7[i_CBen7eUI[yf_@3,3Xe{1ZJRxv,o^R1Ce<]zD]D{[R\^V5uj?7=E;O_{o[]D3}kUxrv7lmm;Y
+    n!Ud:wB2sX*DvB=DXZzmV/[OilBOIvEQ+~<BuHQ~Z=D{Gj^#<{M]B{DBAV~T^'J]OlGU1\is~'I/
+    -]DKkl<>V-CmLT$,#>e!VhU}<[]O-U2$O,ul-u0l+WJ}kT#n{mOaIQ[A^!R|7p5kqGu~wH=k$GX@
+    3aHKKYCe,!'3VAz#_BVrD<[sDtBKKny*H=eB-*I;o?TQ$avJaD-
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+   
+ assign valid_outstanding_channels = valid_outstanding_channels_combo (req,gnt,
+        last_req,last_gnt,outstanding_channels,deassert_check,reset,active,
+        req_deassert_cnt_change);
+ assign gnt_non_priority = gnt_non_priority_combo (valid_outstanding_channels,
+        outstanding_channels,valid_gnts,reset);
+ assign valid_gnts = qvl_xz_detected ? valid_gnts_r :
+        (gnt & ~last_gnt) & (outstanding_channels | req);
+ assign one_or_more_req_dropped = (~req & ~gnt & outstanding_channels);
+ assign channel_not_parked = (gnt & PARK_CHANNEL_MASK);
+ assign un_known_gnts_for_park = (gnt & ~last_gnt & (~outstanding_channels &
+        (~req | no_simultaneous_req_gnt_vector)));
+ assign fair_gnts = fair_gnts_combo (valid_gnts,reset);
+ assign un_fair_gnts = un_fair_gnts_combo (valid_gnts,reset);
+ assign queue_requested_channels = fifo[gnt_ptr];
+ assign unqueued_gnts = valid_gnts & ~queue_requested_channels &
+        {GNT_WIDTH{valid_queue[gnt_ptr]}};
+ assign select_lines = select_lines_combo (valid_gnts,token,reset);
+ assign rotating_valid_gnts = round_robin_valid_channels(valid_gnts,
+        select_lines);
+ assign rotating_outstanding_channels =
+        round_robin_valid_channels(outstanding_channels,select_lines);
+ assign rotating_valid_outstanding_channels =
+        round_robin_valid_channels(valid_outstanding_channels,select_lines);
+ assign non_robin_gnts = non_robin_gnts_combo (rotating_valid_gnts,
+        rotating_outstanding_channels, rotating_valid_outstanding_channels,
+        reset);
+ assign least_recent_mux = least_recent_mux_combo(valid_gnts, reset);
+ assign least_recent_outstanding_channels =
+        least_recent_valid_channels(outstanding_channels,least_recent_mux,
+        valid_gnts,reset);
+ assign least_recent_valid_outstanding_channels =
+        least_recent_valid_channels(valid_outstanding_channels,least_recent_mux,
+        valid_gnts,reset);
+ assign least_recent_gnts = least_recent_gnts_combo(valid_gnts,least_recent_mux,
+        reset);
+ assign most_recent_gnts =
+        most_recent_gnts_combo (least_recent_outstanding_channels,
+        least_recent_valid_outstanding_channels, least_recent_gnts,
+        req_deassert_cnt_change);
+ assign req_from_outstanding_channels = req & outstanding_channels &
+        (~gnt | last_gnt | no_simultaneous_req_gnt_vector);
+ assign req_not_deasserted = req_not_deasserted_combo (req,gnt,
+        valid_outstanding_channels,reset,req_deassert_cnt_change);
+ assign max_gnt_violation = max_gnt_violation_combo(gnt,outstanding_channels,
+        reset,max_gnt_cnt_change);
+ assign req_removals = ((outstanding_channels ^ valid_outstanding_channels) & 
+        ~valid_outstanding_channels);
+ assign new_gnts = (last_gnt ^ gnt) & gnt; 
+ assign new_valid_reqs = ((outstanding_channels ^ valid_outstanding_channels) &
+        valid_outstanding_channels);
+ assign new_latch_reqs = LATCH_REQ ? outstanding_channels & new_gnts & req : 0;
+ assign new_reqs = new_valid_reqs | new_latch_reqs;
+ assign curr_max_err_vec = curr_max_err_vec_combo (req_removals, new_gnts,
+        valid_outstanding_channels, tw_max_addr, reset, tw_max_change);
+ assign curr_min_err_vec = ~tw_min[tw_min_addr] & new_gnts &
+        (valid_outstanding_channels | req);
+ assign un_known_gnts = un_known_gnts_combo (req,gnt,outstanding_channels,
+        last_gnt,reset,req_deassert_cnt_change);
+
+`endif
+
+/*********************************************************************************/
+`protected
+
+    MTI!#sT<E'CUBWp7<Rl,ec,iK;.Vzlz_=z[ahR;Rs=;7CsOQ_+}w=zB6\A\le2W{K-WG>=5$<7lJ
+    k]@}v7?BK_p[9,aBO=!RwB~rw>=3<^RO*5j~ZU}i-r]?^!$'QQXuYwa~Q#o_BV,oiRZOekTe3zI;
+    7V*,C<{z<#'7{VsDI=+*_RezvB*$k_1#e=@po^>BO+T7~^_^x}UOupC=I@<G^72QvEIBl1Dz7aXn
+    ])EUZ*@QXGQJ;K\u2$E+_-O_{1uRD3Ga{lG-wm}[kJ]nj~]BGx_s?$UYJ,QwY{sH*w}~KeCl]QR#
+    ]se}oJ!A_B;$U}Q_+zr1[w?^YI;GjVKRJ;{1]CP>+,uTa{;?o1Uv~szsow>[xozR@!;{nHs^-_Wr
+    @$n'R;a3x}s-E?T%UIWz9S;<,@Be}[^A@\I^_Hae5=8p3wB87}Jx'#mOBGW@pE\@VjG>#-J+ITXx
+    8vQ\E<5BO=7l}eA3{U]=B_I}2~[v!'JU\Avx~sH-Xz3+JRGx#X5Q[AY\HoeG[BX@K37?!ZT<1F#{
+    >,Z{TV*@$a!=$;!OarXluu$^#Zjt[UZ<RoK7lo1ic\KIAl'}k^j*OBx2oe*7+!Au5VneRwB#2[33
+    GnpX'G]Io-s->M@RA#eWB\onD~1?On2]^kFnwz;}3e5DHaCZzv~Fp,sr9~RUDp-a@YoV,]4C~~~}
+    @R\+z+-AEV2p*YzyXV+}=-=EkT1IPj*;C}&*?zY1\uJ@&]uvJ;nr]EY#$,vs?e^owrajGBxrz;7B
+    @HXU!BT}WU$'25Ew1F?v,iQ5A+^lIEY=pzh7!=x7WY7&K^o]5J-<JV-rOzDR$?!CGXWDm1poz+'+
+    l@K!Oz2n^v='ygiT*KOvx!GIDz.XB1?TH!?1?DWB#lQeBr~iRJ<6eHUl{+$<PQeu;xvV[oQEu:}v
+    -$'#~~=>QD[Y1$Bavi31kURuxW}IjX/(uBi?1E@]C>'a@\[peETzICkBuOm_rs[*_5*R7X<B"9Iu
+    !Ax<+#}E>m=VuW1**z-V:|yTvs-\HJI{O7]k&IUCvb_B#OhIX2~R@XAseH$^K7o^fppkKkXHR14Z
+    -{l*?WO]J1,.eX2}=HxJOXzr,^JZQT{<jK}nO+}aTAAk?-}WkHzaC5p[<C2$x*3+FsQD\IZ\]mjo
+    }6w<Zj'?VGCam@f]X{z>\x[-G^laorOpUDT]~},4nn@raGkpgbs+<*Kr-}f"}#_<Bu*sC=XV]rI2
+    /-Au;SX67^W3U,+EvC=HaY}Ys}pXz'1>q*m3rfFKHwr>a>H7[0sk[z,2[uv>nXvmRne$}*#1X{^a
+    +RLo?,JB+'XE=*T$selHY-uVXHlBrG*ek~GB~@_]]O#,}{p;pQIGpJvM5=Ww']zapl^r*_z{}HzE
+    =-!T1iG=(S'-{ou[l##7m,EHwkaeBm^XX1+'>;7@UXHrDOV>2V]Iz$2eW>{$<eQZwXQ,Y1S\KmXV
+    AUEpO-nlo#1B*eDAX1Cfnx9ZsW{eU$voXVCIi2]-*Aj.}zVX\$#WA+J\Y+@jm<Q}>Yij;7l\$VY$
+    ie}K*d\C;{~T2l-\HnzGnm*OBD#UQQa^KpxD'=CK^>+'w3+QERw\Zw@Qk1MwQXw.wrG^EU^#7A5o
+    w{]i7Z<{_WDj<x<]2Cu>e!GwHp[vUHnJQIZV~5Wp3}^'^V~e\GO*B{'R}@eQR#K2nDRT[w,z@5Xn
+    o4gm|$0Y'J'7j{wC3a-kja-lZJe4tHh53e$[w<CJ1*?Nio,]3o5A{}*T}#{E,HI}Y#DH_r-3s,^@
+    ^$x+_/HHR7]G_AB*O*H5nv&m^rpz'u$kv!E_?~Y,'Za*r2-mvXUm+^ii5z;=uWO>_iBY[C,B{@[Q
+    #!vDR^\E7P-sVrOiVe7}QuR^BO9oiG<~oTKB+jY7J$@DZ_'[G_KzevsJ{u,B+@KBKZB~XzKu$aRa
+    <5r[B[Re@W^2>e['k3;*\v!Cn3WQvsBokTx[3K=$$Zr3T1$_$z#u5ZBrU{v<}O[e,n1},UZ}@;##
+    OS6ivG@+vOoD;![[^!ar--YI-'a;|aV'1wE,n^\-Q7=i+!\V@Qu]VkH}Cq~oW@s<,aMsR@}G7v=*
+    oa\9M[kY>J{BJouU=YQoH!7{[;oVin5I<}!a[Y!}Z1$Q{2R'BDSCG=$<x{ZBK331^1lYv7rH,>A{
+    okT8J7J=D5k@l?KlzM(DsKRnEY^o[-rGmOp3D?!KobCVBz'#7sATaGIH1J}G=U]'[QlQKIeo?B~p
+    $O9~HV>PKpYwm7,34[#w$l5_^Az?n1^GCgQ$CzrCmC<Qp\K<ao$X2B?C1;W-z_.K7*-?+6Y\@XOO
+    'V>\73#Y<?Rwxa6ZI7IQ1=aHjn}1~Ao-wRJf~>JCAXuW@\<{oxB{)U*RODU;O\z^AgEMvrZBOXBk
+    Gn]5.^!3EDrV_o^YuB2][^%O,n2(=7>TKew^Y2<>C)RRJVZC?ITn5p$<3!vG*ZwwH\1JQYZI_3Od
+    \1BB7Z7aC<,G^[!kB51}rma#MCmP-}W;OR*I,Us}A,G!5z}OXCQ+F:=z#W2,I>>X,j)4]-m~ljD#
+    oDU$"9}+HZX>![IuKHqq04DE~JYs[DGQ?^lkJX+TeCqJ+*@V=Dp8I,Cx#GsA<xn+1h3a{,$3$k0D
+    vK'ST5j-B[\5@]im;Clix'!7'3B32T@oBI'e6RW^xzj2$BDzzT,p7JI7^],an:e#T\*mx!oTj-\[
+    @Q4&=J1kj-@J]-Eamo=7V#37QQ\a^euvh$H;,e1[iWHBwlT~Kp]+FeKUsYAECaX'IEEY=!rwRUBK
+    xB=vw->X'}'xlBW@H5<7Y;'+KDCIv,eak!}j*5Tp,U}$~,v5uw7I^YCVV-,5uE{ww9v[xU;**'OD
+    xelH]1x.uIK>xCRa$\-*DQe[vHrjdK1uroDuURV_xo$]3tp,Vn{[Yk:sA[OuDY?o=ZCkol[euPD1
+    $Wr*u~]BEno<@2#zu*G7!uxel}7EkW7#zp)'+vXr_YCJ{'Xl2v>-'#;7?=Cr]jWw7\j~<TlII-[E
+    H+XGRJ{GvD~7Z{E$*p{ZTjNv-$^zWD~GAGDeRV2>o3=xVa<d8^J!$m6+}?u3l;<e#DA*1>jI$!'W
+    *WW=-Az?Hlo_r_>S[E+Ew[\zv3p[}BzW[z33=:G3pUX<zax!3IBC>RI^mV!XCO*@7['V@e@}]Ojj
+    YXAYH<JY-!e\GYGV]vHB!Z3G$\]~]~][^X?x+-dGYl2|~x-HR!@Kwj>n=sl'J75$jJ=pY$xlVI#\
+    LD#j[prz>_{JCe5#VZGe,'eYTpmGDO1p2HYAHcL*;m@1$OUbIr>KVBo!n]iBi1oGjV=#_'xCl+Ts
+    lQTz#B-uj<W]+7OUuEVAYI{}X}Kx}~=i*mCaBEIv8rY^nwH1[+e*3w_s{a}e#K,wm$?Hu@De'lDE
+    7R3m]KA=!D{,7A}E{_CTQuwGvT\3DYlHC$eZ{s[+BV"17m^li<KBxUQQr7zqt%^oX>1#Wps1pRQ>
+    Pg$~vGQI_p#+rWXo^V7HUp5]w}e-ri}?A*p\<E~wAvC2z?C'{Upl3})RasZ=Ck37!@k2E,Z\1mV*
+    3<32Ga}}zHwd<j'Al5~I=w}XAV']ClB^1$+UFAaR^>n\3V#oRYOm*Q=v-LvvVC|bxAE'Gax[K,JJ
+    C#'-o-s2<OU<yR<ek]^rV7?QukYIjl+5;#Iup=Z{ED^Zn'1WOI?D<^o}[371peY[aHD<j;^ju\@+
+    7UED}njJobYW*+ADvw[s\@L,5pII{m3$JAGvA}C#\Ip~]];UD}J7<5UOa[ErO^^,Xe'T-@;z'N,j
+    u'ED[iEY@kR_@z*GEAl[ua@,s774&j}s#@1]kIo<$7rm'$5op@&Th^BUvb+];AX^J?+rZ,?H5G7u
+    u>Lv<vU<9cz7_es!smnXx}~OW!RTnzj'>veG#U737!WO={9?VKllRi}ujlxrDn;C'^?v#TORE<xQ
+    #vE-v;UL]OnR3z]}E*2#mp2o1k<,g}173*]-ua_r{\J*jT5Zz5$12ilR-o5?u1Q'->HAVWU9z1nm
+    LDu}rj-YxYtl615*'S\UG@n^>en-z;'-l$[H\ojO{QC=Uz&<xsT+aKApvK^c3G[-KsBDeGVoop'r
+    O#IxsJI#'jn[K>X@~Y\us<{oE'1mZxR\*+wCbCGm==j'}OT7s<1n}YnleNHsEoVRC*7ixp#AQXzW
+    }\l5<mO5?nO?[1j5e?r+vzeQ*HRU-~{-zsI{CK2}K$$ja1lC;u!VmrV{-vkHHC'YDT=C15$m@'mD
+    Ang-x<YoKV~=;+JOm>e~rCCRU<'OVZ]QsAHo+H3B{oU[3;$]~ZoJ\>5BUnZ5u<}Hxi~G1;?1mnUg
+    ?7o}ST*?lE\*I'5ns!s-\TC]T2*T3,3^5CzH+!IH[r?a@o#ekyEau7XTa@}\?wPJEW3W'!_pY)U\
+    a>i{e\_HIaR<B3kpW3Uve~G#-!'1XD5o?X>pUBun_Z^2;?}Tn'{Q@]'TuMK1?\{8:X5'D>ej\l=D
+    wpz[+i}7~B=m>a*CsUEYT1Q_waz{Ku7i'7RBvxOR+k$j_TCGAsu=WYe]@JpJEY$o?~B<=SH|sE2n
+    ZUekoWV-k1nJ*1krj;~[qQ3'\^~{I'$BQn[*;z#jw@xA_W5jDz_<EYERe=lHxgIplEr#1TN+T+W{
+    jpa1LCJ@V*inmj?;KxWwloi}Jlx2uorzV^E_VzRn,}@\Ar>_@7-*XJB{Vav!-2pBJowp7wNKV@>_
+    _JB<TUTkNGVOYK$1-BwW$"aQ}DrGDJUOx5R#3@J,\UBI<DpwB@-*AuD?V@vBxx?B1{b@+V!#[VXi
+    D$xQ{Wp1jv@/537~%?<}_q:Pe1nDkV$!Ca_psJTDRG;m{{T?UDKCKs<E$=?xY?7=C+=*Oj2W#a,u
+    !'j}CI7'&ADmzmGY~PBH{DT+XE$D$pRG7]axzn!I2TChdue=B~TsH,{2_9vp;]+\epxfk177nQ8|
+    CEW$I?H7T$O<rzA~3>3XK}2k'xsAN->@Gz'jnII>{A8^O?2Mz~mV,UzE+Y$pm,J5\U~Om{U[eD<e
+    O+!}GksJEzHZp'Z~?s^lO+<Gp3AvxRZ1/Q-=~IH}?.n=;Vo\2OH<wul'mQ;pom?EvjrV\ka,-ly<
+    x$ED-,=GnB2[<Vz3a_O@H{r_Cw7[ok]w$zeY@\I++]Qr}~75!j^)Kr}]<=iwHITp*!'}VnW;\DrW
+    ~r@JkT=oE}wr-[{,!1_+7H5s0cGZ2HR#2T/XInjzZKw3^I2(,{vGv_@s[[vI'GXJX1VQ!aanzX=~
+    H9xArQi}#j9%B$Bu[*Z+]zomBcm<}z[wT^*J{X_Z72BkeZko@-@7-z*1*ulrwBOv+n#A,7v!Zore
+    $]^l;O<-G+X'*RBW3XKT'KW\HT!ps3szDuc|GrvUDKTZ1-rR!AX{h;'s'r$<$$W~;G;ZsW'{o$J2
+    X2-1'Uje_kDT,O?E]U'nBn*HAR>VGIvo'=W<CWe;{)$RoTO_X[Y7s=JV}v}Q\O]>13Q@}vI@jEDZ
+    sEIkBZU5X@^b+[VX#pIX!CkGVn$,+pjx<CvJr5x!,u1V+}+!2zaCJ_vCj}[j<w'CZ1r3=<K>o]12
+    d/0ZHazO\u=<aYl<,?7O!e5RQ<oU51TC;DZ#7UUW$[+*Z+CY#a$]5#u}AB#qVmj,eZxAd>-T~GoK
+    {-Q>EJ]@G_E,U=m'K_-'nAAx=oUY-?z#ZGs;@7Xp}4B>pO_yHe2nB~;ZL_A2uC}{Z}a{7y:BH,W@
+    [xRTY!z}cr2X@yvD1QzUZmJ<EB]WwmWQ1E$,+'-_>uxwVZ]B{vZ>p+Czi=HvUm^uXv2EXA.DDTUY
+    {YjR[\K>BO!ZH1$NEO[{?AI-A[WQ#Ero*HAm11*VpXY7=XwDe<+e1Du];pQj7si^3U*]4'EDaZVk
+    llCkZ[KIu?*B1Yo3Gz<]jz~aw}EvH@CnEr7Ho=\3v}wD_<X!kmO[r\Jn_oz'AH{_{{UD^VI3R@lk
+    ]si$V{7D{kj}e!RZ^Q?n$,~jQ5$i@m\Xenrs'DCQ+jW+[*A7[YllYBB?oQJZY{5QG\-H>PrkvYi]
+    _'+o#Tzj?v[-e?
+`endprotected
+
+`ifdef QVL_ASSERT_ON
+
+// Combo fire signals for SVA assertion inputs.
+
+  wire single_grant_fire_combo;
+  wire known_grant_fire_combo;
+  wire priority_fire_combo;
+  wire fair_fire_combo;
+  wire queue_fire_combo;
+  wire round_robin_fire_combo;
+  wire least_recently_used_fire_combo;
+  wire park_fire_combo;
+  wire single_request_per_channel_fire_combo;
+  wire request_until_grant_fire_combo;
+  wire deassert_fire_combo;
+  wire max_fire_combo;
+  wire min_fire_combo;
+  wire max_grant_fire_combo;
+
+`endif // QVL_ASSERT_ON
+
+`ifdef QVL_ASSERT_ON
+
+  assign single_grant_fire_combo = ~qvl_xz_detected && single_grant &&
+         ((gnt & ~(~gnt +1)) !== {GNT_WIDTH{1'b0}});
+  assign known_grant_fire_combo = ~qvl_xz_detected && known_grant &&
+         (un_known_gnts != {GNT_WIDTH{1'b0}});
+  assign priority_fire_combo = ~qvl_xz_detected && priority_check &&
+         (gnt_non_priority != {GNT_WIDTH{1'b0}});
+  assign fair_fire_combo = ~qvl_xz_detected && fair &&
+         (un_fair_gnts != {GNT_WIDTH{1'b0}});
+  assign queue_fire_combo = ~qvl_xz_detected && queue &&
+         (unqueued_gnts != {GNT_WIDTH{1'b0}});
+  assign round_robin_fire_combo = ~qvl_xz_detected && round_robin &&
+         (non_robin_gnts != {GNT_WIDTH{1'b0}});
+  assign least_recently_used_fire_combo = ~qvl_xz_detected &&
+         least_recently_used && (most_recent_gnts != {GNT_WIDTH{1'b0}});
+  assign park_fire_combo = ~qvl_xz_detected && park_check &&
+         ((PARK_SPECIFIED == 1'b1) ? ((gnt == {GNT_WIDTH{1'b0}} ||
+         (un_known_gnts_for_park != {GNT_WIDTH{1'b0}} &&
+         channel_not_parked == {GNT_WIDTH{1'b0}}))) :
+         (ANY_PARK_SPECIFIED == 1'b1) ? gnt == {GNT_WIDTH{1'b0}} : 1'b0);
+  assign single_request_per_channel_fire_combo = ~qvl_xz_detected &&
+         single_req_per_channel &&
+         (req_from_outstanding_channels != {REQ_WIDTH{1'b0}});
+  assign request_until_grant_fire_combo = ~qvl_xz_detected && req_until_gnt &&
+         (one_or_more_req_dropped != {GNT_WIDTH{1'b0}});
+  assign deassert_fire_combo = ~qvl_xz_detected && deassert_check &&
+         (req_not_deasserted != {REQ_WIDTH{1'b0}});
+  assign max_fire_combo = ~qvl_xz_detected && max_check &&
+         (curr_max_err_vec != {GNT_WIDTH{1'b0}});
+  assign min_fire_combo = ~qvl_xz_detected && min_check &&
+         (curr_min_err_vec != {GNT_WIDTH{1'b0}});
+  assign max_grant_fire_combo = ~qvl_xz_detected && max_grant_check &&
+         (max_gnt_violation != {GNT_WIDTH{1'b0}});
+
+`endif
+
+`ifdef QVL_ASSERT_ON 
+
+`include "std_qvl_task.h"
+`include "std_qvl_property.svh"
+
+generate
+  case (property_type)
+    `QVL_ASSERT : 
+      begin : qvl_assert 
+        if (SINGLE_GRANT_ON == 1)
+          begin  : assert_arbiter_single_grant
+            A_qvl_arbiter_single_grant: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (single_grant_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_arbiter_single_grant"),
+                              .msg            ({msg,"More than one grant issued in the same cycle."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if (KNOWN_GRANT_ON == 1)
+          begin : assert_arbiter_known_grant
+            A_qvl_arbiter_known_grant: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (known_grant_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_arbiter_known_grant"),
+                              .msg            ({msg,"Grant is issued to a channel which had no request."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+	if(PRIORITY_ON == 1)
+          begin : assert_arbiter_priority
+            A_qvl_arbiter_priority: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (priority_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_arbiter_priority"),
+                              .msg            ({msg,"Grant is issued to a different channel when a request from a channel with higher priority was outstanding."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if(FAIR_ON == 1)
+          begin : assert_arbiter_fair
+            A_qvl_arbiter_fair: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (fair_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_arbiter_fair"),
+                              .msg            ({msg,"Grant is issued to a different channel when the request from a fair channel was outstanding."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if(QUEUE_ON == 1)
+          begin : assert_arbiter_queue
+            A_qvl_arbiter_queue: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (queue_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_arbiter_queue"),
+                              .msg            ({msg,"Grant is issued to a different channel when the request from a channel next in the queue was outstanding."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if(ROUND_ROBIN_ON == 1)
+          begin : assert_arbiter_round_robin
+            A_qvl_arbiter_round_robin: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (round_robin_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_arbiter_round_robin"),
+                              .msg            ({msg,"Grant is issued to a different channel when the request from a channel next in the round robin was outstanding."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end
+        if(LEAST_RECENTLY_USED_ON == 1)
+          begin : assert_arbiter_least_recently_used
+            A_qvl_arbiter_least_recently_used: 
+              assert property ( ASSERT_NEVER_P ( 
+                          .clock     (clock),
+                          .reset_n   (~reset),
+                          .enable    (1'b1),
+                          .test_expr (least_recently_used_fire_combo)))
+              else qvl_error_t(
+                              .err_msg        ("A_qvl_arbiter_least_recently_used"),
+                              .msg            ({msg,"Grant is issued to a different channel when the request from the least recently used channel was outstanding."}),
+                              .severity_level (severity_level),
+                              .property_type  (property_type));
+          end // if (LEAST_RECENTLY_USED_ON == 1)
+	 if(PARK_SPECIFIED == 1)
+           begin : assert_arbiter_park
+             A_qvl_arbiter_park: 
+               assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (park_fire_combo)))
+               else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_park"),
+                          .msg            ({msg,"No grant is issued to the specified park channel"}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (PARK_SPECIFIED == 1)
+	 else if(ANY_PARK_SPECIFIED == 1)
+           begin : assert_arbiter_park_else 
+	      A_qvl_arbiter_park: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+		      .enable    (1'b1),
+                      .test_expr (park_fire_combo)))
+                else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_park"),
+                          .msg            ({msg,"No channel is parked when any_park is specified"}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+		
+           end // if (ANY_PARK_SPECIFIED == 1)
+	 if(SINGLE_REQ_PER_CHANNEL_ON == 1)
+           begin : assert_arbiter_single_req_per_channel
+              A_qvl_arbiter_single_req_per_channel: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (single_request_per_channel_fire_combo)))
+                else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_single_req_per_channel"),
+                          .msg            ({msg,"More than one request on a single channel without a grant for the previous request on that channel."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (SINGLE_REQ_PER_CHANNEL_ON == 1)
+	 if(REQ_UNTIL_GNT_ON  == 1)
+           begin : assert_arbiter_req_until_gnt
+              A_qvl_arbiter_req_until_gnt: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (request_until_grant_fire_combo)))
+                else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_req_until_gnt"),
+                          .msg            ({msg,"Request on the channel deasserted before the corresponding grant was issued."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (REQ_UNTIL_GNT_ON  == 1)
+	 if(DEASSERT_CHECK_ON == 1)
+           begin : assert_arbiter_deassert
+              A_qvl_arbiter_deassert: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (deassert_fire_combo)))
+                else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_deassert"),
+                          .msg            ({msg,"Request was not deasserted before the specified number of cycles after the corresponding grant deasserted."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (DEASSERT_CHECK_ON == 1)
+	 if(MAX>0 && MAX>=MIN)
+           begin : assert_arbiter_max
+              A_qvl_arbiter_max: 
+		assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (max_fire_combo)))
+              else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_max"),
+                          .msg            ({msg,"Grant for the channel was not asserted before the specified maximum number of cycles after the corresponding request."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	   end // if (MAX_CHECK_ON == 1)
+	if(MIN>0)
+         begin : assert_arbiter_min
+            A_qvl_arbiter_min: 
+              assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (min_fire_combo)))
+            else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_min"),
+                          .msg            ({msg,"Grant for the channel was asserted before the specified minimum number of cycles after the corresponding request."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 end // if (MIN_CHECK_ON == 1)
+	if(MAX_GRANT_CHECK_ON == 1)
+         begin  : assert_arbiter_max_grant    
+            A_qvl_arbiter_max_grant: 
+              assert property ( ASSERT_NEVER_P ( 
+                      .clock     (clock),
+                      .reset_n   (~reset),
+                      .enable    (1'b1),
+                      .test_expr (max_grant_fire_combo)))
+            else qvl_error_t(
+                          .err_msg        ("A_qvl_arbiter_max_grant"),
+                          .msg            ({msg,"Grant for a channel asserted for more than the specified maximum grant cycles."}),
+                          .severity_level (severity_level),
+                          .property_type  (property_type));
+	 end
+      end
+
+    `QVL_ASSUME : 
+      begin : qvl_assume 
+          if (SINGLE_GRANT_ON == 1)
+            begin : assume_arbiter_single_grant  
+              M_qvl_arbiter_single_grant: 
+                assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (single_grant_fire_combo)));
+            end
+	 if(KNOWN_GRANT_ON == 1)
+           begin : assume_arbiter_known_grant 
+              M_qvl_arbiter_known_grant: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (known_grant_fire_combo)));
+	   end
+	 if(PRIORITY_ON == 1)
+         begin : assume_arbiter_priority
+            M_qvl_arbiter_priority: 
+              assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (priority_fire_combo)));
+	 end
+	if(FAIR_ON == 1)
+         begin : assume_arbiter_fair 
+            M_qvl_arbiter_fair: 
+              assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (fair_fire_combo)));
+	 end
+	 if(QUEUE_ON == 1)
+           begin : assume_arbiter_queue 
+              M_qvl_arbiter_queue: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (queue_fire_combo)));
+	   end
+	 if(ROUND_ROBIN_ON == 1)
+           begin : assume_arbiter_round_robin 
+              M_qvl_arbiter_round_robin: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (round_robin_fire_combo)));
+	   end
+	 if(LEAST_RECENTLY_USED_ON == 1)
+           begin : assume_arbiter_least_recently_used
+              M_qvl_arbiter_least_recently_used: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (least_recently_used_fire_combo)));
+	   end
+	 if(PARK_SPECIFIED == 1 || ANY_PARK_SPECIFIED == 1)
+           begin : assume_arbiter_park
+	      M_qvl_arbiter_park: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (park_fire_combo)));
+	   end
+	 if(SINGLE_REQ_PER_CHANNEL_ON == 1)
+           begin : assume_arbiter_single_req_per_channel
+              M_qvl_arbiter_single_req_per_channel: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (single_request_per_channel_fire_combo)));
+	   end
+	 if(REQ_UNTIL_GNT_ON  == 1)
+           begin : assume_arbiter_req_until_gnt
+              M_qvl_arbiter_req_until_gnt: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (request_until_grant_fire_combo)));
+	   end
+	 if(DEASSERT_CHECK_ON == 1)
+           begin : assume_arbiter_deassert
+              M_qvl_arbiter_deassert: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (deassert_fire_combo)));
+	   end
+	 if(MAX>0 && MAX>=MIN)
+         begin : assume_arbiter_max
+            M_qvl_arbiter_max: 
+              assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (max_fire_combo)));
+	 end
+	if(MIN>0)
+         begin : assume_arbiter_min 
+            M_qvl_arbiter_min: 
+              assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (min_fire_combo)));
+	 end
+	 if(MAX_GRANT_CHECK_ON == 1)
+           begin : assume_arbiter_max_grant
+              M_qvl_arbiter_max_grant: 
+		assume property ( ASSERT_NEVER_P ( 
+                            .clock     (clock),
+                            .reset_n   (~reset),
+                            .enable    (1'b1),
+                            .test_expr (max_grant_fire_combo)));
+	   end
+      end
+
+    `QVL_IGNORE : 
+      begin : qvl_ignore 
+      end
+    default: initial qvl_error_t (
+                          .err_msg        (""),
+                          .msg            (""),
+                          .severity_level (severity_level),
+                          .property_type  (`QVL_IGNORE));
+  endcase
+
+endgenerate
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+`endif // QVL_ASSERT_ON
+
+`include "qvl_arbiter_cover.svh"
+
+`qvlendmodule
