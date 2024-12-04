@@ -1,14 +1,14 @@
 library verilog;
 use verilog.vl_types.all;
-entity counter is
+entity rgst is
     generic(
-        size            : integer := 8
+        w               : integer := 8
     );
     port(
         clk             : in     vl_logic;
         rst_b           : in     vl_logic;
-        c_up            : in     vl_logic;
-        clr             : in     vl_logic;
+        ld              : in     vl_logic;
+        d               : in     vl_logic_vector;
         q               : out    vl_logic_vector
     );
-end counter;
+end rgst;
