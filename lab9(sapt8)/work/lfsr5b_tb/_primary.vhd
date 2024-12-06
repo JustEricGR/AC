@@ -1,4 +1,4 @@
 library verilog;
 use verilog.vl_types.all;
-entity dff_tb is
-end dff_tb;
+entity lfsr5b_tb is
+end lfsr5b_tb;
