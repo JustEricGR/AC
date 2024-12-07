@@ -16,12 +16,14 @@ module rgst #(
   end
 endmodule
 
+
+
 module mlopadd(input clk, input rst_b, input [9:0] x, output [15:0] a);
   wire [9:0] temp;
   
   
   
-  rgst #(
+  /*rgst #(
     .w(10)
     ) reg1 (
     .clk(clk),
@@ -30,16 +32,16 @@ module mlopadd(input clk, input rst_b, input [9:0] x, output [15:0] a);
     .clr(1'b0),
     .d(x),
     .q(temp)
-    );
+    );*/
     
   rgst #(
     .w(16)
     ) reg2 (
     .clk(clk),
     .rst_b(rst_b),
-    .ld(1'b1),
+    .ld(clk),
     .clr(1'b0),
-    .d(temp+a),
+    .d(x+a),
     .q(a)
     );
     
@@ -73,7 +75,7 @@ module mlopadd_tb;
   end
   
   initial begin
-    #75 rst_b=1;
+    #25 rst_b=1;
   end
   
   
