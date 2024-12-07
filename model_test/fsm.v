@@ -28,7 +28,7 @@
         end
       s3: begin
         out=0;
-        if(in)st)_next=s1;
+        if(in)st_next=s1;
         else st_next=s2;
         end
         
